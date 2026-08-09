@@ -405,15 +405,15 @@ SOOP Open API는 제휴 후 키 발급이라 진입 장벽이 있다 — 비공�
 - [ ] `champion_stat` 시즌 라벨 — 지금은 `'ALL'` + KST 연도뿐.
       스플릿 경계 표가 근거 있게 확정되면 추가한다
 
-### M3 — 배포 ⚠️ **로드맵에 빠져 있던 단계**
-사이트를 띄우는 일이 어느 마일스톤에도 없었다. 그런데 이게 사슬의 한가운데다:
+### M3 — 확장 (배포 없이 되는 것)
+- [x] 리더보드 — 모듈로 구현됨 (`packages/modules/leaderboard`)
+- [x] 홈 하이라이트 — 최근 조우
+- [ ] 상성 화면 — 지금 라이벌 목록은 판수순이다. 표본이 쌓이면 상성지수 정렬로
+- [ ] 제보 폼 — 계정 제보를 받아 `account_candidate` 로 넣는다 (모듈 후보)
+- [ ] VOD 타임스탬프 — 킬러 기능 후보 (§9)
 
-```
-배포 → 동작하는 사이트 → Production Key 승인 → Tournament API → 내전 수집
-```
-
-Production Key 심사 요건이 **"동작하는 사이트 + 유저 플로우 설명"** 이다 (docs/SETUP.md §1-3).
-배포하지 않으면 M4 의 토너먼트 코드는 시작조차 못 한다.
+### M4 — 배포
+사이트를 띄우는 일은 원래 로드맵에 없었다. 마지막 단계로 명시한다.
 
 - [ ] 도메인 — **`.com` + 443**. 토너먼트 콜백 제약 때문이다 ([TOURNAMENT-CODE.md](TOURNAMENT-CODE.md) §2-1)
 - [ ] EC2 + docker compose (web · worker · Caddy) — §8
@@ -421,13 +421,18 @@ Production Key 심사 요건이 **"동작하는 사이트 + 유저 플로우 설
 - [ ] 매치 원본 JSON 을 S3 로 — 이게 되면 M1 의 타임라인 보강도 풀린다
 - [ ] `ADMIN_PASSWORD` 교체, 백업(pg_dump → S3)
 
-### M4 — 확장
-- [x] 리더보드 — 모듈로 구현됨 (`packages/modules/leaderboard`)
-- [x] 홈 하이라이트 — 최근 조우
-- [ ] 제보 폼 — 계정 제보를 받아 `account_candidate` 로 넣는다 (모듈 후보)
-- [ ] **토너먼트 코드 (내전)** — Production/Tournament 승인 필요. 멸망전 데이터가 여기서 열린다
-- [ ] VOD 타임스탬프 — 킬러 기능 후보 (§9)
-- [ ] 상성 화면 — 지금은 라이벌 목록이 판수순이다. 표본이 쌓이면 상성지수 정렬로
+### M5 — 내전 (배포 이후에만 가능)
+```
+배포 → 동작하는 사이트 → Production Key 승인 → Tournament API → 내전 수집
+```
+Production Key 심사 요건이 **"동작하는 사이트 + 유저 플로우 설명"** 이다 (docs/SETUP.md §1-3).
+그래서 이 항목은 M4 보다 먼저 올 수 없다.
+
+- [ ] 토너먼트 코드 stub → Production/Tournament 승인 신청
+- [ ] 멸망전 데이터 수집 ([TOURNAMENT-CODE.md](TOURNAMENT-CODE.md))
+
+> ⚠️ **Personal 키는 배포와 무관하다.** 제품 등록 폼만 내면 되고 사이트가 없어도 승인된다.
+> 즉 배포를 미뤄도 **2년 백필은 막히지 않는다** — 막히는 건 내전(M5)뿐이다.
 
 ---
 
