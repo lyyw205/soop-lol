@@ -8,6 +8,53 @@ npm run seed -- seed/streamers.json                  # 실제로 넣는다
 
 같은 파일을 다시 돌려도 안전하다. `slug` 가 이미 있으면 갱신한다.
 
+## 명단·계정을 어디서 얻나 (2026-08-09 확인)
+
+### ★ SOOP 멸망전 FA 등록 — 계정 매핑의 정답 경로
+
+스트리머가 **대회 참가 신청 때 본인 손으로 입력한 라이엇 ID** 다. SOOP 공식 데이터이고,
+제출 시점에 SOOP 이 Riot 으로 실존 검증까지 한다. 전적 사이트도 위키도 아니다 —
+`evidence.source = 'self_declared'` 로 쓰기에 충분한 유일한 경로였다.
+
+```bash
+curl -s -X POST https://gpapi.sooplive.com/api/v1/bjmatchfa/fa/list \
+  -H 'Content-Type: application/json' \
+  -d '{"orderType":"point_desc","filter":[],"searchBjNick":"","minPoint":0,"maxPoint":1000,
+       "positionIdx":"","pageNo":1,"perPageNo":500,"seasonIdx":27}'
+```
+
+- `seasonIdx` 가 대회 회차다 (27 = 2026 LoL 멸망전 with Gen.G). 사람이 보는 페이지는
+  `https://bjmatchfa.sooplive.com/fa/27` — 이게 `evidence.url` 이 된다
+- 응답의 `gameNick` / `totalGameNickList` 가 라이엇 ID. 부계정까지 들어 있다
+- `userId` 가 SOOP 채널 아이디, `userNick` 이 표시명
+- **2026-08-09 기준 418명**이 등록돼 있다. 명단 확장의 1차 소스다
+
+### SOOP 닉네임 → 채널 아이디
+
+```
+https://sch.sooplive.co.kr/api.php?m=bjSearch&v=3.0&szKeyword=<닉네임>
+https://chapi.sooplive.co.kr/api/<id>/station     # 교차 확인용
+```
+
+### ⚠️ 반드시 Riot API 로 되짚어라
+
+SOOP 표기가 라이엇 정본과 어긋난다. 실제로 겪은 것:
+- 태그에 공백이 들어간 채 저장돼 있다 — `#산 본`, `#팀 운`
+- 게임명 공백 수가 다르다 — SOOP `TT TT` ↔ 라이엇 `TT  TT`(두 칸)
+- 48건 중 4건은 아예 해석되지 않았다 (계정 삭제·개명 추정)
+
+그래서 `scripts/seed-streamers.ts` 는 `riot_id` 를 받아 **account-v1 으로 해석한 결과**를
+정본으로 쓴다. 해석 실패한 건 넣지 않는다.
+
+### ❌ 통하지 않은 경로 (다시 시도하지 말 것)
+
+| 경로 | 결과 |
+|---|---|
+| 대회 로스터 이름을 라이엇 ID 로 간주 | **위험.** `스맵임`은 lv1 언랭 남의 계정, `뀨삐`는 공백 정규화로 `뀨 삐`가 잡힌다 |
+| 뉴스·나무위키 | 인게임 ID 를 안 싣거나, 실어도 태그가 없다 |
+| SOOP 채널 공지 게시판 | 스트리머 본인이 라이엇 ID 를 적어두지 않는다 (40명 표본에서 0건) |
+| 전적 사이트 | 지침상 금지 (§11-9). ToS 위반이고 Production Key 심사 감점 |
+
 ## 규칙
 
 1. **손으로 만든다.** op.gg·lolsoop·덥덥미를 긁어오지 않는다 —
