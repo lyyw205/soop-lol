@@ -5,6 +5,7 @@ export const metadata = { title: "관리자" };
 const NAV = [
   { href: "/admin", label: "대시보드" },
   { href: "/admin/streamers", label: "스트리머" },
+  { href: "/admin/candidates", label: "계정 후보" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

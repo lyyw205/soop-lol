@@ -392,6 +392,55 @@ export async function deleteCareerEvent(id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+// ── 계정 후보 (spectator 발굴) ───────────────────────────────────────
+
+export interface CandidateRow {
+  id: string;
+  puuid: string;
+  game_name: string | null;
+  tag_line: string | null;
+  seen_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  seen_with_names: string[];
+  state: string;
+}
+
+/**
+ * 승인 대기 후보.
+ *
+ * ★ `seen_count` 가 신호다. 솔랭 로비 동료는 대부분 무작위 유저라 1회짜리는 거의 노이즈다.
+ *   스트리머끼리 듀오·자유랭·내전을 돌면 숫자가 올라간다. 그래서 많이 본 순으로 정렬한다.
+ */
+export async function listCandidates(state = "pending", limit = 200): Promise<CandidateRow[]> {
+  const sql = db();
+  return sql<CandidateRow[]>`
+    SELECT ac.id, ac.puuid, ac.game_name, ac.tag_line, ac.seen_count,
+           ac.first_seen_at, ac.last_seen_at, ac.state,
+           coalesce(
+             (SELECT array_agg(s.display_name ORDER BY s.display_name)
+                FROM streamer s WHERE s.id = ANY(ac.seen_with)),
+             '{}'
+           ) AS seen_with_names
+      FROM account_candidate ac
+     WHERE ac.state = ${state}
+     ORDER BY ac.seen_count DESC, ac.last_seen_at DESC
+     LIMIT ${limit}
+  `;
+}
+
+/** 후보를 치운다. **승인은 여기서 하지 않는다** — 매핑은 근거를 받아야 하므로 계정 연결 폼을 쓴다. */
+export async function setCandidateState(
+  id: string,
+  state: "pending" | "approved" | "rejected" | "ignored",
+): Promise<boolean> {
+  const sql = db();
+  const rows = await sql`
+    UPDATE account_candidate SET state = ${state} WHERE id = ${id}::uuid RETURNING id
+  `;
+  return rows.length > 0;
+}
+
 // ── 대시보드 ─────────────────────────────────────────────────────────
 
 export interface AdminCounts {

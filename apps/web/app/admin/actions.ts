@@ -9,6 +9,7 @@ import {
   deleteCareerEvent,
   linkAccount,
   setAccountVisibility,
+  setCandidateState,
   setMainAccount,
   unlinkAccount,
   updateStreamer,
@@ -237,4 +238,22 @@ export async function deleteCareerEventAction(form: FormData): Promise<void> {
   if (!id) return;
   await deleteCareerEvent(id);
   revalidatePath(`/admin/streamers/${streamerId}`);
+}
+
+// ── 계정 후보 ────────────────────────────────────────────────────────
+
+/**
+ * 후보를 치운다.
+ *
+ * ★ 여기서 **승인해서 바로 매핑하지 않는다.** 매핑에는 근거가 필요하고(§11-2),
+ *   근거는 사람이 확인해서 적어야 한다. 그래서 이 액션은 큐를 정리만 하고,
+ *   실제 연결은 스트리머 상세의 계정 연결 폼(근거 필수)에서 한다.
+ */
+export async function setCandidateStateAction(form: FormData): Promise<void> {
+  const id = text(form, "id");
+  const state = text(form, "state");
+  if (!id) return;
+  if (state !== "rejected" && state !== "ignored" && state !== "pending") return;
+  await setCandidateState(id, state);
+  revalidatePath("/admin/candidates");
 }
