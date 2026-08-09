@@ -62,18 +62,30 @@
 (2026-08-04 시드 데이터만 있고 5일간 활동 없음 — auth 사용자 0, 신청 0, 문의 0).
 되살리려면 대시보드에서 Restore 하면 되고, 그러면 이번엔 이쪽이 자리를 비켜줘야 한다.
 
+### 접속 경로 — **풀러를 쓴다** (직결은 WSL 에서 안 붙는다)
+
+직결 `db.<ref>.supabase.co:5432` 는 **IPv6 전용**이다. WSL 에서는 `ENETUNREACH` 가 난다.
+그래서 `.env.local` 의 기본값을 트랜잭션 풀러로 잡아 뒀다:
+
+```
+postgresql://postgres.eiwmgkdktgdgphlugieu:<PASSWORD>@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres
+```
+
+- 사용자명이 `postgres` 가 아니라 **`postgres.<ref>`** 다. 풀러는 이걸로 테넌트를 가른다
+- `aws-N` 의 숫자는 프로젝트마다 다르다. 이 프로젝트는 **`aws-0`** 임을 실제로 찔러서 확인했다
+  (`aws-0` → `28P01` = 테넌트를 찾고 비밀번호만 거부, `aws-1` → `XX000` = 테넌트 없음)
+- `prepare` 는 [`client.ts`](../packages/core/lib/db/client.ts) 에서 이미 꺼 뒀으므로 트랜잭션 풀러로 안전하다
+
 ### 남은 한 걸음 — DB 비밀번호
 
 비밀번호는 API 로 가져올 수 없다. 대시보드에서 직접 받아야 한다:
 
 1. **Project Settings → Database → Database password → Reset database password**
-2. 나온 값을 `apps/web/.env.local` 의 `DATABASE_URL` 안 `[DB-PASSWORD]` 자리에 넣는다
+2. 나온 값을 `apps/web/.env.local` 의 `DATABASE_URL` 안 비밀번호 자리에 넣는다
 3. 확인: `npm run dev` → http://localhost:3000/admin 이 뜨면 붙은 것
 
-> ⚠️ 직결(`db.<ref>.supabase.co:5432`)은 **IPv6 전용**이다. WSL 처럼 IPv6 가 안 나가면
-> `ENETUNREACH` 가 난다. 그땐 대시보드 → **Connect → Transaction pooler(:6543)** URI 를
-> 그대로 복사해 쓴다. 풀러 호스트의 `aws-N` 숫자는 프로젝트마다 달라서 추측하면 안 된다.
-> `prepare` 는 코드에서 이미 꺼 뒀으므로 풀러를 써도 안전하다.
+> 인증이 틀리면 `28P01` 이 뜬다. 호스트가 틀리면 `XX000` 이다 — 둘을 헷갈리지 말 것.
+> `28P01` 은 "거기까진 갔는데 비밀번호가 틀렸다"는 뜻이므로 리셋하면 풀린다.
 
 ### RLS 를 켜 둔 이유
 
