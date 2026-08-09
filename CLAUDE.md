@@ -14,7 +14,8 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 - **[docs/PLAN.md](docs/PLAN.md)** — 설계 전문. 도메인 모델·수집 파이프라인·지표 정의·화면·스택·로드맵
 - **[docs/RESEARCH.md](docs/RESEARCH.md)** — 경쟁 지형·데이터 소스·Riot API 제약·법적 체크리스트
 - **[docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md)** — 내전 데이터를 잡는 유일한 경로 (2단계)
-- **[db/schema.sql](db/schema.sql)** — 스키마. 설계 결정이 주석으로 박혀 있다
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — 식별자 분류·모듈 계약·core_public 경계
+- **[db/migrations/](db/migrations/)** — 스키마의 유일한 출처. 설계 결정이 주석으로 박혀 있다
 
 ## 지금 단계
 
@@ -34,6 +35,7 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 npm test              # 핵심 로직 단위 테스트
 npm run verify:db     # 스키마·제약·질의를 실제 Postgres(PGlite)에 올려 실행 검증
 npm run verify:ingest # 수집 엔진 A~D 를 가짜 Riot 으로 끝까지 실행 (API 키 불필요)
+npm run verify:modules # 모듈 경계 검사 — 규칙을 문서가 아니라 검사로 강제한다
 ```
 
 `verify:*` 는 장식이 아니다 — `lp_absolute` 가 SQL 과 TS 에서 같은 값을 내는지,

@@ -7,6 +7,7 @@
  *   live      Engine B — 신규 매치 따라잡기 1회
  *   backfill  Engine C — 백필 한 조각 (--all 이면 대기열이 빌 때까지)
  *   derive    Engine D — 조우 재파생 (--stats 면 champion_stat 도)
+ *   modules   등록된 모듈의 잡을 지금 한 번 돌린다
  *   loop      전부를 우선순위대로 상시 실행 (운영 기본값)
  *
  * 루트에서 `npm run worker -- <command>` 로 부르면 .env.local 이 자동으로 붙는다.
@@ -23,6 +24,7 @@ import { runDeriveEngine } from "./engines/derive.ts";
 import { createLiveState, runLiveEngine } from "./engines/live.ts";
 import { runRankEngine } from "./engines/rank.ts";
 import { runJob } from "./job.ts";
+import { moduleJobsDue, runDueModuleJobs } from "./modules.ts";
 import { errorMessage, log } from "./log.ts";
 
 const SCOPE = "worker";
@@ -86,12 +88,16 @@ async function main() {
       );
       break;
 
+    case "modules":
+      await runJob(ctx, "modules", () => runDueModuleJobs(ctx));
+      break;
+
     case "loop":
       await loop(ctx);
       break;
 
     default:
-      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | loop`);
+      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | modules | loop`);
       process.exitCode = 2;
   }
 }
@@ -139,6 +145,11 @@ async function loop(ctx: WorkerContext) {
         await runJob(ctx, "engine_d_derive", () => runDeriveEngine(ctx, { championStats: stats }));
         nextDerive = Date.now() + cfg.deriveIntervalMs;
         if (stats) nextStats = Date.now() + cfg.championStatIntervalMs;
+        continue;
+      }
+      // 모듈 잡은 Riot 을 부르지 않는다. core 엔진 다음, 백필보다 앞.
+      if (moduleJobsDue(now).length > 0) {
+        await runJob(ctx, "modules", () => runDueModuleJobs(ctx, now));
         continue;
       }
       if (cfg.backfillEnabled && now >= backfillPausedUntil) {

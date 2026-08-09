@@ -1,0 +1,11 @@
+{
+  "name": "@soop-lol/modules",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "//": "★ 모듈들의 '등록부'다. 모듈 자체가 아니다. 웹과 워커는 이걸 통해서만 모듈에 닿는다 — 특정 모듈을 직접 import 하면 그 순간 결합이 생긴다.",
+  "exports": {
+    "./registry": "./registry.generated.ts"
+  },
+  "dependencies": { "@soop-lol/core": "*" }
+}

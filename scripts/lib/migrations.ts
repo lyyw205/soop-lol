@@ -9,7 +9,7 @@
  * 새 DB = 전부 순서대로 적용. 기존 DB = 아직 안 쓴 것만 적용.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface Migration {
@@ -38,15 +38,44 @@ export function loadMigrations(root: string): Migration[] {
   });
 }
 
+/**
+ * 모듈 마이그레이션. **core 다음에** 적용한다 — 모듈은 core 를 읽으니까.
+ *
+ * 모듈끼리는 순서가 상관없다. 서로를 모르는 게 계약이기 때문이다.
+ * 모듈 디렉터리를 지우면 여기서도 저절로 빠진다 (등록부를 따로 관리하지 않는다).
+ */
+export function loadModuleMigrations(root: string): Migration[] {
+  const modulesDir = join(root, "packages", "modules");
+  if (!existsSync(modulesDir)) return [];
+
+  const out: Migration[] = [];
+  for (const name of readdirSync(modulesDir).sort()) {
+    const dir = join(modulesDir, name, "migrations");
+    if (!existsSync(dir)) continue;
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+      out.push({
+        version: `${name}/${file.slice(0, 3)}`,
+        name: `${name}:${file}`,
+        file: `packages/modules/${name}/migrations/${file}`,
+        sql: readFileSync(join(dir, file), "utf8"),
+      });
+    }
+  }
+  return out;
+}
+
 /** PGlite 등 "빈 DB 에 전부 적용" 용도. 각 마이그레이션을 트랜잭션으로 감싼다. */
 export async function applyAll(
   exec: (sql: string) => Promise<unknown>,
   root: string,
-  log?: (m: Migration) => void,
+  opts: { includeModules?: boolean; log?: (m: Migration) => void } = {},
 ): Promise<Migration[]> {
-  const list = loadMigrations(root);
+  const list = [
+    ...loadMigrations(root),
+    ...(opts.includeModules ? loadModuleMigrations(root) : []),
+  ];
   for (const m of list) {
-    log?.(m);
+    opts.log?.(m);
     try {
       await exec(`BEGIN;\n${m.sql}\nCOMMIT;`);
     } catch (e) {

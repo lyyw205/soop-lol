@@ -22,16 +22,19 @@ npm run dev        # 터미널 2
 | [docs/PLAN.md](docs/PLAN.md) | 설계 전문 — 도메인 모델·수집 파이프라인·지표 정의·화면·로드맵 |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | 경쟁 지형·데이터 소스·Riot API 제약·법적 체크리스트 |
 | [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) | 내전 데이터를 잡는 유일한 경로 (2단계) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **식별자 분류 · 모듈 계약 5조 · core_public 경계** |
 | [CLAUDE.md](CLAUDE.md) | 코딩 원칙 |
 
 ## 구조
 
 ```
-apps/web/          Next.js 16 (App Router). 공개 화면 + 관리자
-apps/worker/       수집 엔진 A~D + 스케줄러
-packages/core/     Riot 클라이언트·지표 계산·DB 질의·수집 변환 (웹과 워커가 공유)
-db/schema.sql      Postgres 스키마 15테이블
-scripts/           dev-db(로컬 PGlite) · verify-db · verify-ingest · fake-riot
+apps/web/            Next.js 16 (App Router). 공개 화면 + 관리자 + /m/[module] 마운트
+apps/worker/         수집 엔진 A~D + 모듈 잡 스케줄러
+packages/core/       Riot 클라이언트·지표 계산·DB 질의·수집 변환
+  lib/contract/      ★ 모듈에 노출하는 전부 (core_public 뷰만 읽는다)
+packages/modules/    기능 모듈. 지워도 core 와 다른 모듈에 영향이 없다
+db/migrations/       스키마의 유일한 출처
+scripts/             dev-db · verify-db · verify-ingest · verify-modules · sync-modules
 docs/
 ```
 
@@ -44,6 +47,7 @@ npm run worker -- loop # 수집 워커 (rank | live | backfill | derive 도 가�
 npm test               # 핵심 로직 단위 테스트
 npm run verify:db      # 스키마·제약·질의를 실제 Postgres 에서 실행 검증
 npm run verify:ingest  # 수집 엔진 A~D 를 가짜 Riot 으로 끝까지 실행 (API 키 불필요)
+npm run verify:modules # 모듈 경계 검사 (import 그래프 + SQL)
 npm run typecheck
 npm run build
 ```

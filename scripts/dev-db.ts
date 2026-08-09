@@ -29,7 +29,7 @@ const ROOT = join(import.meta.dirname, "..");
 const PORT = Number(process.env.DEV_DB_PORT ?? 5433);
 
 const db = await PGlite.create({ extensions: { pg_trgm, pgcrypto } });
-await applyAll((sql) => db.exec(sql), ROOT);
+await applyAll((sql) => db.exec(sql), ROOT, { includeModules: true });
 
 if (process.env.DEV_DB_SEED !== "0") {
   await db.exec(`
