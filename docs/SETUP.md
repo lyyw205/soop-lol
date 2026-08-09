@@ -54,7 +54,7 @@
 | 항목 | 값 |
 |---|---|
 | 프로젝트 | `soop-lol` |
-| ref | `eiwmgkdktgdgphlugieu` |
+| ref | `.env.local` 과 Supabase 대시보드에 있다 (공개 저장소에는 적지 않는다) |
 | 리전 | `ap-northeast-2` (서울) |
 | 스키마 | 적용 완료 — 테이블 15개 · `lol_lp_absolute` · **RLS 전체 ON** |
 
@@ -68,7 +68,7 @@
 그래서 `.env.local` 의 기본값을 트랜잭션 풀러로 잡아 뒀다:
 
 ```
-postgresql://postgres.eiwmgkdktgdgphlugieu:<PASSWORD>@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres
+postgresql://postgres.<ref>:<PASSWORD>@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres
 ```
 
 - 사용자명이 `postgres` 가 아니라 **`postgres.<ref>`** 다. 풀러는 이걸로 테넌트를 가른다
@@ -140,18 +140,20 @@ npm run dev
 ## 4. 환경변수 (`apps/web/.env.local`)
 
 ```bash
-# 로컬 PGlite 를 쓸 때
-DATABASE_URL=postgres://postgres@127.0.0.1:5433/postgres
-DATABASE_POOL_MAX=1
+# Supabase (기본). 사용자명이 postgres 가 아니라 postgres.<ref> 다.
+DATABASE_URL=postgresql://postgres.<ref>:PASSWORD@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres
 
-# Supabase 를 쓸 때 (DATABASE_POOL_MAX 는 빼도 된다)
-# DATABASE_URL=postgresql://postgres.xxxx:PASSWORD@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres
+# 로컬 PGlite 로 되돌릴 때. 이때만 POOL_MAX=1 이 필수다.
+# DATABASE_URL=postgres://postgres@127.0.0.1:5433/postgres
+# DATABASE_POOL_MAX=1
 
 RIOT_API_KEY=RGAPI-...        # 없으면 관리자 화면이 puuid 직접 입력 모드로 떨어진다
 
 ADMIN_USER=admin
 ADMIN_PASSWORD=바꿀것          # ★ 비면 /admin 이 503 으로 잠긴다 (fail-closed)
 ```
+
+전체 예시는 [`apps/web/.env.example`](../apps/web/.env.example) 에 있다.
 
 ---
 
