@@ -95,6 +95,11 @@ const fake = createFakeRiot({
         { puuid: PUUID_A, teamId: 100, championId: 157, riotId: "알파본계#KR1" },
         { puuid: STRANGER, teamId: 100, championId: 64, riotId: "행인#KR1" },
         { puuid: PUUID_C, teamId: 200, championId: 86, riotId: "감마본계#KR1" },
+        // ★ 실전에서 첫 수집을 죽인 케이스. spectator-v5 는 puuid 가 없거나 빈
+        //   참가자를 섞어서 준다. 이게 후보 테이블까지 흘러가면 NOT NULL 위반으로
+        //   잡 전체가 죽는다. 여기 두 줄이 그 회귀를 막는다.
+        { teamId: 200, championId: 22, riotId: "puuid없는참가자#KR1" },
+        { puuid: "", teamId: 200, championId: 51, riotId: "puuid빈문자열#KR1" },
       ],
     },
   },
@@ -221,6 +226,9 @@ try {
   `;
   check("같은 로비의 미매핑 계정이 후보로 쌓인다 (자동 등록은 안 한다)",
     cands.length === 2, `${cands.length}건`);
+  check("★ puuid 없는 spectator 참가자는 후보가 되지 않는다 (실전에서 잡을 죽인 케이스)",
+    cands.every((c) => typeof c.puuid === "string" && c.puuid.length > 0),
+    JSON.stringify(cands.map((c) => c.puuid)));
 
   // 두 번째 틱: sweep 이 아니고, A 는 여전히 게임 중이므로 match-v5 호출이 없어야 한다.
   const matchIdsBefore = fake.calls.matchIds;

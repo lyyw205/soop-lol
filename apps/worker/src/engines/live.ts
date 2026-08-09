@@ -102,6 +102,10 @@ async function scanLive(ctx: WorkerContext, targets: IngestTarget[]) {
 
     inGame.add(t.puuid);
     for (const p of game.participants ?? []) {
+      // ★ spectator-v5 는 puuid 가 비어 있는 참가자를 섞어서 준다 (봇, 또는 Riot 이
+      //   가려서 내려주는 계정). 이걸 그대로 키로 쓰면 후보 테이블의 NOT NULL 에서 터진다.
+      //   실제로 첫 실전 수집이 여기서 죽었다 — 조용히 넘어갈 값이 아니라 걸러낼 값이다.
+      if (!p.puuid) continue;
       if (p.puuid === t.puuid) continue;
       const [gameName, tagLine] = (p.riotId ?? "").split("#");
       const prev = lobby.get(p.puuid);

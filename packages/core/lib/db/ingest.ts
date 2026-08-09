@@ -458,11 +458,16 @@ export async function ensureBackfillCursor(puuid: string): Promise<void> {
 export async function recordAccountCandidates(
   entries: { puuid: string; game_name?: string | null; tag_line?: string | null; seen_with: string[] }[],
 ): Promise<number> {
-  if (entries.length === 0) return 0;
+  // ★ puuid 가 빈 항목을 방어한다. spectator-v5 는 puuid 없는 참가자를 섞어서 주는데,
+  //   그게 여기까지 오면 NOT NULL 위반으로 **잡 전체가 죽는다**. 실제로 그렇게 죽었다.
+  //   호출부(Engine B)에서도 거르지만, 근거 없는 행을 만들지 않는 게 이 테이블의 원칙이라
+  //   저장 직전에 한 번 더 막는다.
+  const clean = entries.filter((e) => typeof e.puuid === "string" && e.puuid.length > 0);
+  if (clean.length === 0) return 0;
   const sql = db();
   let n = 0;
   await sql.begin(async (tx) => {
-    for (const e of entries) {
+    for (const e of clean) {
       const rows = await tx`
         INSERT INTO account_candidate (puuid, game_name, tag_line, seen_with)
         VALUES (${e.puuid}, ${e.game_name ?? null}, ${e.tag_line ?? null}, ${e.seen_with}::uuid[])
@@ -484,11 +489,15 @@ export async function recordAccountCandidates(
 
 /** 이미 매핑된 계정은 후보가 아니다. spectator 로 본 puuid 를 걸러낸다. */
 export async function filterUnmappedPuuids(puuids: string[]): Promise<string[]> {
-  if (puuids.length === 0) return [];
+  // 빈 값은 여기서 떨군다. NULL 이 섞여 들어오면 unnest 가 NULL 행을 돌려주고,
+  // 그게 그대로 후보 삽입까지 흘러가 NOT NULL 위반이 된다.
+  const clean = puuids.filter((p) => typeof p === "string" && p.length > 0);
+  if (clean.length === 0) return [];
   const sql = db();
   const rows = await sql<{ p: string }[]>`
-    SELECT p FROM unnest(${puuids}::text[]) AS p
-     WHERE NOT EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.puuid = p AND sa.active_to IS NULL)
+    SELECT p FROM unnest(${clean}::text[]) AS p
+     WHERE p IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.puuid = p AND sa.active_to IS NULL)
   `;
   return rows.map((r) => r.p);
 }
