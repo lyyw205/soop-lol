@@ -1,7 +1,7 @@
 /**
  * 스키마와 질의를 **실제로 실행해서** 검증한다.
  *
- * PGlite(WASM Postgres)를 소켓 서버로 띄우고, 거기에 db/schema.sql 을 적용한 뒤
+ * PGlite(WASM Postgres)를 소켓 서버로 띄우고, 거기에 db/migrations 를 전부 적용한 뒤
  * packages/core 의 **진짜 질의 함수**를 그대로 호출한다.
  * "SQL 을 눈으로 읽어 맞는 것 같다"가 아니라 돌려보고 확인하기 위한 것이다.
  *
@@ -10,8 +10,9 @@
  * 로컬 Postgres 도 도커도 필요 없다. Supabase 프로젝트가 준비되기 전에도 돈다.
  */
 
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { applyAll } from "./lib/migrations.ts";
 
 import { PGlite } from "@electric-sql/pglite";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -49,8 +50,9 @@ const { lpAbsolute } = await import("../packages/core/lib/metrics/lp.ts");
 
 try {
   console.log("\n▸ 스키마 적용");
-  await db.exec(readFileSync(join(ROOT, "db", "schema.sql"), "utf8"));
-  check("db/schema.sql 이 오류 없이 적용된다", true);
+  const applied = await applyAll((sql) => db.exec(sql), ROOT);
+  check(`db/migrations 가 순서대로 적용된다 (${applied.length}건)`, true,
+    applied.map((m) => m.version).join(" "));
 
   const tables = await db.query<{ tablename: string }>(
     `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`,
@@ -59,7 +61,8 @@ try {
   const expected = [
     "account_candidate", "career_event", "champion_stat", "dead_match", "event",
     "ingest_cursor", "job_run", "match", "match_participant", "rank_snapshot",
-    "riot_account", "season_record", "streamer", "streamer_account", "streamer_encounter",
+    "riot_account", "season_record", "streamer", "streamer_account", "streamer_channel",
+    "streamer_encounter",
   ];
   const missing = expected.filter((t) => !names.includes(t));
   check(`테이블 ${expected.length}개가 모두 생성된다`, missing.length === 0, missing.join(", "));
@@ -91,8 +94,8 @@ try {
   check("언랭은 NULL", unranked.rows[0].v === null);
 
   console.log("\n▸ 제약 — 잘못된 데이터를 실제로 거부한다");
-  const s1 = await streamers.createStreamer({ slug: "alpha", display_name: "알파", platform_user_id: "alpha" });
-  const s2 = await streamers.createStreamer({ slug: "beta", display_name: "베타", platform_user_id: "beta" });
+  const s1 = await streamers.createStreamer({ slug: "alpha", display_name: "알파", channel: { channel_id: "alpha" } });
+  const s2 = await streamers.createStreamer({ slug: "beta", display_name: "베타", channel: { channel_id: "beta" } });
   check("스트리머가 생성된다", Boolean(s1.id && s2.id));
 
   await expectReject(
@@ -139,6 +142,15 @@ try {
   await sqlClient()`
     INSERT INTO match (match_id, platform_id, game_id, queue_id, game_creation, winning_team)
     VALUES ('KR_1', 'KR', 1, 420, now(), 100)
+  `;
+  // 참가자는 10인 전원을 저장한다 — 스트리머 2명 + 일반인.
+  // core_public 이 일반인 puuid 를 걸러내는지 확인하려면 실제로 섞여 있어야 한다.
+  await sqlClient()`
+    INSERT INTO match_participant
+      (match_id, puuid, participant_id, team_id, champion_id, win, kills, deaths, assists)
+    VALUES ('KR_1', ${puuidA}, 1, 100, 157, true,  5, 2, 7),
+           ('KR_1', ${puuidB}, 6, 200, 238, false, 2, 5, 3),
+           ('KR_1', ${"n".repeat(78)}, 2, 100, 64, true, 1, 1, 1)
   `;
   const [lo, hi] = [s1.id, s2.id].sort();
   await sqlClient()`
@@ -197,6 +209,41 @@ try {
   check("updateStreamer 가 RETURNING 으로 확인한다", updated?.visibility === "hidden");
   const ghost = await streamers.updateStreamer("00000000-0000-0000-0000-000000000000", { note: "x" });
   check("없는 행을 고치면 null 을 돌려준다", ghost === null);
+
+  console.log("\n▸ 방송 채널 — 1:N (라이엇 계정과 완전히 별개다)");
+  await streamers.upsertStreamerChannel({
+    streamer_id: s2.id, platform: "chzzk", channel_id: "beta-chzzk", label: "치지직",
+  });
+  const chans = await streamers.listStreamerChannels(s2.id);
+  check("한 스트리머가 여러 플랫폼 채널을 가진다", chans.length === 2,
+    chans.map((c) => `${c.platform}:${c.channel_id}`).join(" "));
+  check("대표 채널은 하나뿐이다", chans.filter((c) => c.is_primary).length === 1);
+  check("채널 URL 이 플랫폼별로 만들어진다",
+    chans.find((c) => c.platform === "chzzk")?.channel_url === "https://chzzk.naver.com/beta-chzzk");
+
+  await expectReject(
+    "다른 스트리머의 채널을 조용히 뺏어오지 못한다",
+    () => streamers.upsertStreamerChannel({ streamer_id: s1.id, platform: "chzzk", channel_id: "beta-chzzk" }),
+    "이미 다른 스트리머",
+  );
+
+  console.log("\n▸ core_public — 모듈이 보는 면 (숨긴 데이터가 새면 안 된다)");
+  // s1(알파)은 위에서 visibility='hidden' 으로 바뀌었다.
+  const pubStreamers = await sqlClient()<{ slug: string }[]>`SELECT slug FROM core_public.streamer ORDER BY slug`;
+  check("숨긴 스트리머는 core_public 에서 사라진다",
+    pubStreamers.length === 1 && pubStreamers[0].slug === "beta",
+    pubStreamers.map((p) => p.slug).join(","));
+
+  const pubAcc = await sqlClient()`SELECT * FROM core_public.streamer_account`;
+  check("숨긴 스트리머의 계정도 안 보인다", pubAcc.length === 1, `${pubAcc.length}건`);
+  check("★ evidence 는 core_public 에 아예 컬럼이 없다",
+    pubAcc.length > 0 && !("evidence" in pubAcc[0]), Object.keys(pubAcc[0] ?? {}).join(","));
+
+  const pubEnc = await sqlClient()`SELECT * FROM core_public.streamer_encounter`;
+  check("한쪽이라도 숨겨지면 조우가 사라진다", pubEnc.length === 0, `${pubEnc.length}건`);
+
+  const pubMp = await sqlClient()`SELECT * FROM core_public.match_participant`;
+  check("일반인 참가자는 core_public 에 노출되지 않는다", pubMp.length === 1, `${pubMp.length}건`);
 } finally {
   await closeDb();
   await server.stop();

@@ -18,6 +18,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { applyAll } from "./lib/migrations.ts";
+
 import { PGlite } from "@electric-sql/pglite";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
@@ -27,7 +29,7 @@ const ROOT = join(import.meta.dirname, "..");
 const PORT = Number(process.env.DEV_DB_PORT ?? 5433);
 
 const db = await PGlite.create({ extensions: { pg_trgm, pgcrypto } });
-await db.exec(readFileSync(join(ROOT, "db", "schema.sql"), "utf8"));
+await applyAll((sql) => db.exec(sql), ROOT);
 
 if (process.env.DEV_DB_SEED !== "0") {
   await db.exec(`

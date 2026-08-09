@@ -15,8 +15,9 @@
  *   · 매핑을 풀면 조우가 사라지는가 (유령 전적)
  */
 
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { applyAll } from "./lib/migrations.ts";
 
 import { PGlite } from "@electric-sql/pglite";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -146,11 +147,11 @@ const deriveJob = (opts: { championStats?: boolean }) =>
   runJob(ctx, "engine_d_derive", () => runDeriveEngine(ctx, opts));
 
 try {
-  await pglite.exec(readFileSync(join(ROOT, "db", "schema.sql"), "utf8"));
+  await applyAll((sql) => pglite.exec(sql), ROOT);
 
   console.log("\n▸ 시드");
-  const alpha = await streamers.createStreamer({ slug: "alpha", display_name: "알파", platform_user_id: "alpha" });
-  const beta = await streamers.createStreamer({ slug: "beta", display_name: "베타", platform_user_id: "beta" });
+  const alpha = await streamers.createStreamer({ slug: "alpha", display_name: "알파", channel: { channel_id: "alpha" } });
+  const beta = await streamers.createStreamer({ slug: "beta", display_name: "베타", channel: { channel_id: "beta" } });
   for (const [streamer, puuid, name] of [[alpha, PUUID_A, "알파본계"], [beta, PUUID_B, "베타본계"]] as const) {
     await streamers.upsertRiotAccount({ puuid, game_name: name, tag_line: "KR1" });
     await streamers.linkAccount({
@@ -280,7 +281,7 @@ try {
   const before = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM streamer_encounter`;
   check("등록 전 조우는 2쌍 (알파–베타 × 2경기)", before[0].n === 2, `${before[0].n}쌍`);
 
-  const gamma = await streamers.createStreamer({ slug: "gamma", display_name: "감마", platform_user_id: "gamma" });
+  const gamma = await streamers.createStreamer({ slug: "gamma", display_name: "감마", channel: { channel_id: "gamma" } });
   await streamers.upsertRiotAccount({ puuid: PUUID_C, game_name: "감마본계", tag_line: "KR1" });
   await streamers.linkAccount({
     streamer_id: gamma.id, puuid: PUUID_C, is_main: true, confidence: "likely",

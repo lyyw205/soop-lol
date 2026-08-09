@@ -12,6 +12,7 @@ import type {
   Confidence,
   Platform,
   StreamerAccountView,
+  StreamerChannelRow,
   StreamerRow,
   Visibility,
 } from "./types.ts";
@@ -22,6 +23,11 @@ export interface StreamerListItem extends StreamerRow {
   account_count: number;
   verified_count: number;
   match_count: number;
+  /** 대표 채널 (없을 수 있다 — 채널은 1:N 이고 필수가 아니다) */
+  platform: Platform | null;
+  channel_id: string | null;
+  channel_url: string | null;
+  channel_count: number;
 }
 
 export async function listStreamers(opts: { q?: string; limit?: number } = {}): Promise<StreamerListItem[]> {
@@ -32,7 +38,9 @@ export async function listStreamers(opts: { q?: string; limit?: number } = {}): 
     SELECT s.*,
            count(sa.puuid)::int                                      AS account_count,
            count(sa.puuid) FILTER (WHERE sa.confidence = 'verified')::int AS verified_count,
-           coalesce(m.match_count, 0)::int                           AS match_count
+           coalesce(m.match_count, 0)::int                           AS match_count,
+           ch.platform, ch.channel_id, ch.channel_url,
+           coalesce(cc.n, 0)::int                                    AS channel_count
       FROM streamer s
       LEFT JOIN streamer_account sa ON sa.streamer_id = s.id
       LEFT JOIN LATERAL (
@@ -40,13 +48,25 @@ export async function listStreamers(opts: { q?: string; limit?: number } = {}): 
                FROM match_participant mp
               WHERE mp.puuid IN (SELECT puuid FROM streamer_account WHERE streamer_id = s.id)
            ) m ON true
+      LEFT JOIN LATERAL (
+             SELECT platform, channel_id, channel_url
+               FROM streamer_channel
+              WHERE streamer_id = s.id AND active_to IS NULL
+              ORDER BY is_primary DESC, created_at
+              LIMIT 1
+           ) ch ON true
+      LEFT JOIN LATERAL (
+             SELECT count(*) AS n FROM streamer_channel
+              WHERE streamer_id = s.id AND active_to IS NULL
+           ) cc ON true
      WHERE ${q
        ? sql`(s.display_name ILIKE ${"%" + q + "%"}
               OR s.slug ILIKE ${"%" + q + "%"}
-              OR s.platform_user_id ILIKE ${"%" + q + "%"}
+              OR EXISTS (SELECT 1 FROM streamer_channel c
+                          WHERE c.streamer_id = s.id AND c.channel_id ILIKE ${"%" + q + "%"})
               OR EXISTS (SELECT 1 FROM unnest(s.aliases) a WHERE a ILIKE ${"%" + q + "%"}))`
        : sql`true`}
-     GROUP BY s.id, m.match_count
+     GROUP BY s.id, m.match_count, ch.platform, ch.channel_id, ch.channel_url, cc.n
      ORDER BY s.display_name
      LIMIT ${limit}
   `;
@@ -66,40 +86,44 @@ export async function getStreamer(idOrSlug: string): Promise<StreamerRow | null>
 export interface CreateStreamerInput {
   slug: string;
   display_name: string;
-  platform?: Platform;
-  platform_user_id?: string | null;
-  channel_url?: string | null;
   aliases?: string[];
   is_pro?: boolean;
   team_name?: string | null;
   note?: string | null;
+  /** 편의용. 채널은 1:N 이라 나중에 addChannel 로 더 붙일 수 있다. */
+  channel?: { platform?: Platform; channel_id: string; channel_url?: string | null; label?: string | null };
 }
 
 export async function createStreamer(input: CreateStreamerInput): Promise<StreamerRow> {
   const sql = db();
-  const rows = await sql<StreamerRow[]>`
-    INSERT INTO streamer ${sql({
-      slug: input.slug,
-      display_name: input.display_name,
-      platform: input.platform ?? "soop",
-      platform_user_id: input.platform_user_id ?? null,
-      channel_url: input.channel_url ?? null,
-      aliases: input.aliases ?? [],
-      is_pro: input.is_pro ?? false,
-      team_name: input.team_name ?? null,
-      note: input.note ?? null,
-    })}
-    RETURNING *
-  `;
-  return rows[0];
+  return sql.begin(async (tx) => {
+    const rows = await tx<StreamerRow[]>`
+      INSERT INTO streamer ${tx({
+        slug: input.slug,
+        display_name: input.display_name,
+        aliases: input.aliases ?? [],
+        is_pro: input.is_pro ?? false,
+        team_name: input.team_name ?? null,
+        note: input.note ?? null,
+      })}
+      RETURNING *
+    `;
+    if (input.channel?.channel_id) {
+      await tx`
+        INSERT INTO streamer_channel (streamer_id, platform, channel_id, channel_url, label, is_primary)
+        VALUES (${rows[0].id}::uuid, ${input.channel.platform ?? "soop"}, ${input.channel.channel_id},
+                ${input.channel.channel_url ?? null}, ${input.channel.label ?? "본채널"}, true)
+      `;
+    }
+    return rows[0];
+  }) as Promise<StreamerRow>;
 }
 
 export type UpdateStreamerPatch = Partial<
   Pick<
     StreamerRow,
-    | "slug" | "display_name" | "aliases" | "platform" | "platform_user_id"
-    | "channel_url" | "profile_image_url" | "is_pro" | "team_name"
-    | "visibility" | "status" | "note"
+    | "slug" | "display_name" | "aliases" | "profile_image_url" | "is_pro"
+    | "team_name" | "visibility" | "status" | "note"
   >
 >;
 
@@ -114,6 +138,89 @@ export async function updateStreamer(id: string, patch: UpdateStreamerPatch): Pr
     RETURNING *
   `;
   return rows[0] ?? null;
+}
+
+// ── 방송 채널 (1:N) ──────────────────────────────────────────────────
+
+export async function listStreamerChannels(streamerId: string): Promise<StreamerChannelRow[]> {
+  const sql = db();
+  return sql<StreamerChannelRow[]>`
+    SELECT * FROM streamer_channel
+     WHERE streamer_id = ${streamerId}::uuid
+     ORDER BY active_to NULLS FIRST, is_primary DESC, created_at
+  `;
+}
+
+/** 플랫폼 기본 채널 URL. 플랫폼이 늘면 여기만 고친다. */
+export function channelUrlFor(platform: Platform, channelId: string): string | null {
+  switch (platform) {
+    case "soop": return `https://ch.sooplive.co.kr/${channelId}`;
+    case "chzzk": return `https://chzzk.naver.com/${channelId}`;
+    case "youtube": return `https://youtube.com/@${channelId}`;
+    case "twitch": return `https://twitch.tv/${channelId}`;
+    default: return null;
+  }
+}
+
+export interface UpsertChannelInput {
+  streamer_id: string;
+  platform?: Platform;
+  channel_id: string;
+  channel_url?: string | null;
+  label?: string | null;
+  is_primary?: boolean;
+}
+
+/**
+ * 채널을 붙이거나 갱신한다. is_primary 는 스트리머당 하나로 강제한다.
+ *
+ * ★ 이미 **다른 스트리머**에게 붙어 있는 채널이면 거부한다.
+ *   ON CONFLICT 로 streamer_id 를 덮어쓰면 채널을 조용히 뺏어오게 되는데,
+ *   그건 계정 매핑에서 한 계정이 두 주인을 못 갖게 막은 것과 같은 이유로 사고다.
+ *   정말 양도라면 먼저 removeStreamerChannel(close=true) 로 이력을 닫아야 한다.
+ */
+export async function upsertStreamerChannel(input: UpsertChannelInput): Promise<void> {
+  const platform = input.platform ?? "soop";
+  const sql = db();
+  await sql.begin(async (tx) => {
+    const owner = await tx<{ streamer_id: string }[]>`
+      SELECT streamer_id FROM streamer_channel
+       WHERE platform = ${platform} AND channel_id = ${input.channel_id} AND active_to IS NULL
+       LIMIT 1
+    `;
+    if (owner.length > 0 && owner[0].streamer_id !== input.streamer_id) {
+      throw new Error(
+        `채널 ${platform}/${input.channel_id} 은 이미 다른 스트리머에게 붙어 있다. ` +
+          `옮기려면 먼저 떼어낼 것 (removeStreamerChannel).`,
+      );
+    }
+    if (input.is_primary) {
+      await tx`
+        UPDATE streamer_channel SET is_primary = false
+         WHERE streamer_id = ${input.streamer_id}::uuid AND active_to IS NULL
+      `;
+    }
+    await tx`
+      INSERT INTO streamer_channel (streamer_id, platform, channel_id, channel_url, label, is_primary)
+      VALUES (${input.streamer_id}::uuid, ${platform}, ${input.channel_id},
+              ${input.channel_url ?? channelUrlFor(platform, input.channel_id)},
+              ${input.label ?? null}, ${input.is_primary ?? false})
+      ON CONFLICT (platform, channel_id) WHERE active_to IS NULL DO UPDATE SET
+        channel_url = EXCLUDED.channel_url,
+        label       = coalesce(EXCLUDED.label, streamer_channel.label),
+        is_primary  = EXCLUDED.is_primary,
+        updated_at  = now()
+    `;
+  });
+}
+
+/** 채널을 떼어낸다. 이력을 남기려면 close=true (active_to 를 찍는다). */
+export async function removeStreamerChannel(id: string, close = false): Promise<boolean> {
+  const sql = db();
+  const rows = close
+    ? await sql`UPDATE streamer_channel SET active_to = now() WHERE id = ${id}::uuid AND active_to IS NULL RETURNING id`
+    : await sql`DELETE FROM streamer_channel WHERE id = ${id}::uuid RETURNING id`;
+  return rows.length > 0;
 }
 
 // ── 계정 매핑 ────────────────────────────────────────────────────────

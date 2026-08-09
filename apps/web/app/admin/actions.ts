@@ -35,9 +35,10 @@ function fail(message: string): ActionState {
 
 export async function createStreamerAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const display_name = text(form, "display_name");
-  const platform_user_id = text(form, "platform_user_id");
-  // SOOP BJ 아이디는 ASCII 라 slug 기본값으로 딱 맞다. 비면 직접 받는다.
-  const slug = text(form, "slug") || platform_user_id;
+  // ★ 방송 채널 아이디다 (SOOP 방송국 아이디). 우리 키도, 라이엇 계정도 아니다.
+  const channel_id = text(form, "channel_id");
+  // SOOP 채널 아이디는 ASCII 라 slug 기본값으로 딱 맞다. 비면 직접 받는다.
+  const slug = text(form, "slug") || channel_id;
 
   if (!display_name) return fail("스트리머 이름은 필수입니다.");
   if (!slug) return fail("slug(주소에 쓸 영문 아이디)가 필요합니다. SOOP 아이디를 넣어도 됩니다.");
@@ -55,15 +56,14 @@ export async function createStreamerAction(_prev: ActionState, form: FormData): 
     created = await createStreamer({
       slug: slug.toLowerCase(),
       display_name,
-      platform_user_id: platform_user_id || null,
-      channel_url: platform_user_id ? `https://ch.sooplive.co.kr/${platform_user_id}` : null,
+      channel: channel_id ? { platform: "soop", channel_id } : undefined,
       aliases,
       is_pro: form.get("is_pro") === "on",
       note: text(form, "note") || null,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (message.includes("duplicate key")) return fail("이미 있는 slug 또는 SOOP 아이디입니다.");
+    if (message.includes("duplicate key")) return fail("이미 있는 slug 또는 채널 아이디입니다.");
     return fail(`등록 실패: ${message}`);
   }
 
@@ -77,8 +77,6 @@ export async function updateStreamerAction(_prev: ActionState, form: FormData): 
 
   const updated = await updateStreamer(id, {
     display_name: text(form, "display_name"),
-    platform_user_id: text(form, "platform_user_id") || null,
-    channel_url: text(form, "channel_url") || null,
     team_name: text(form, "team_name") || null,
     note: text(form, "note") || null,
     is_pro: form.get("is_pro") === "on",

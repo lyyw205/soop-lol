@@ -65,7 +65,8 @@ export default async function StreamersPage({
                     </div>
                     <div className="mt-0.5 truncate text-xs text-ink-400">
                       /s/{s.slug}
-                      {s.platform_user_id && ` · SOOP ${s.platform_user_id}`}
+                      {s.channel_id && ` · ${s.platform ?? "soop"} ${s.channel_id}`}
+                      {s.channel_count > 1 && ` (+${s.channel_count - 1})`}
                     </div>
                   </div>
                   <div className="tabular shrink-0 text-right text-xs text-ink-400">

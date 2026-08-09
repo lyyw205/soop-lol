@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -13,19 +13,36 @@ import {
   tierGridLines,
 } from "./lp.ts";
 
-const SCHEMA_PATH = join(import.meta.dirname, "..", "..", "..", "..", "db", "schema.sql");
+const MIGRATIONS_DIR = join(import.meta.dirname, "..", "..", "..", "..", "db", "migrations");
+
+/**
+ * 마이그레이션 전체에서 `lol_lp_absolute` 를 **마지막으로 정의한** SQL 을 찾는다.
+ * 파일 하나를 하드코딩하면 나중에 함수를 고치는 마이그레이션이 생겼을 때
+ * 이 테스트가 옛 정의를 보며 계속 통과해 버린다 — 그게 제일 나쁜 실패다.
+ */
+function currentLpFunctionSql(): string {
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+  let found = "";
+  for (const f of files) {
+    const sql = readFileSync(join(MIGRATIONS_DIR, f), "utf8");
+    // ★ 정의문만 잡는다. `ALTER FUNCTION lol_lp_absolute ... SET search_path` 도
+    //   "FUNCTION lol_lp_absolute" 를 포함해서, 그걸 집으면 본문이 없는 조각을 보게 된다.
+    const at = sql.search(/CREATE (?:OR REPLACE )?FUNCTION lol_lp_absolute/);
+    if (at >= 0) found = sql.slice(at, sql.indexOf("$$;", at));
+  }
+  return found;
+}
 
 /**
  * ★ 이 테스트가 존재하는 이유.
  *
  * 같은 상수표가 TS 와 SQL 두 군데에 있다. 경고 주석은 해결책이 아니다 —
  * 어긋나면 리더보드 정렬(SQL)과 차트 눈금(TS)이 조용히 따로 논다.
- * 그래서 schema.sql 을 직접 읽어 대조한다. 한쪽만 고치면 여기서 깨진다.
+ * 그래서 마이그레이션 SQL 을 직접 읽어 대조한다. 한쪽만 고치면 여기서 깨진다.
  */
-test("lp_absolute 상수표가 db/schema.sql 과 일치한다", () => {
-  const sql = readFileSync(SCHEMA_PATH, "utf8");
-  const fn = sql.slice(sql.indexOf("FUNCTION lol_lp_absolute"), sql.indexOf("$$;", sql.indexOf("FUNCTION lol_lp_absolute")));
-  assert.ok(fn.length > 0, "schema.sql 에서 lol_lp_absolute 함수를 못 찾았다");
+test("lp_absolute 상수표가 db/migrations 와 일치한다", () => {
+  const fn = currentLpFunctionSql();
+  assert.ok(fn.length > 0, "db/migrations 에서 lol_lp_absolute 함수를 못 찾았다");
 
   const fromSql = new Map<string, number>();
   for (const m of fn.matchAll(/WHEN\s+'([A-Z]+)'\s+THEN\s+(\d+)/g)) {

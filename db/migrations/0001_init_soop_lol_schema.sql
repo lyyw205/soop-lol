@@ -7,7 +7,6 @@
 --   2. 계정 매핑에는 항상 근거(evidence)를 남긴다.
 --   3. streamer_encounter는 파생 테이블이다 — 언제든 지우고 다시 만들 수 있어야 한다.
 
-BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";    -- 스트리머 이름 검색
@@ -457,37 +456,3 @@ CREATE TABLE job_run (
   detail      jsonb
 );
 CREATE INDEX job_run_recent_idx ON job_run (job, started_at DESC);
-
-
--- ============================================================
--- 6. 노출 차단
--- ============================================================
-
--- search_path 고정 — 호출자의 search_path 에 따라 다른 객체가 잡히는 걸 막는다.
-ALTER FUNCTION lol_lp_absolute(text, text, integer) SET search_path = pg_catalog, public;
-ALTER FUNCTION touch_updated_at() SET search_path = pg_catalog, public;
-
--- ★ 정책을 하나도 만들지 않고 RLS 만 켠다 = PostgREST(anon/authenticated) 로는 아무것도 못 읽는다.
---   웹과 워커는 postgres.js 로 소유자 롤에 직접 붙으므로 영향이 없다 (소유자는 RLS 를 우회한다).
---
---   이건 형식적인 조치가 아니다. Supabase 는 public 스키마를 REST 로 자동 노출하는데,
---   그러면 `streamer_account.visibility = 'hidden'` 인 부계정과 `evidence`(제보자 메모)가
---   anon 키만으로 그대로 읽힌다. 삭제 요청 경로를 살려둔 의미가 통째로 사라진다
---   (docs/PLAN.md §11-2). 공개 API 가 필요해지면 그때 뷰 + 명시적 정책으로 연다.
-ALTER TABLE streamer            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE riot_account        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE streamer_account    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE account_candidate   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE event               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE match               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE match_participant   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE streamer_encounter  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE champion_stat       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE rank_snapshot       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE season_record       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE career_event        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ingest_cursor       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dead_match          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE job_run             ENABLE ROW LEVEL SECURITY;
-
-COMMIT;

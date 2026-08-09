@@ -26,6 +26,7 @@ import {
   linkAccount,
   updateStreamer,
   upsertRiotAccount,
+  upsertStreamerChannel,
 } from "@soop-lol/core/lib/db/streamers";
 import type { AccountEvidence, Confidence, Platform } from "@soop-lol/core/lib/db/types";
 import { RiotApiError, RiotClient } from "@soop-lol/core/lib/riot/client";
@@ -46,7 +47,8 @@ interface SeedStreamer {
   slug: string;
   display_name: string;
   platform?: Platform;
-  platform_user_id?: string;
+  /** ★ 방송 채널 아이디 (SOOP 방송국 아이디 등). 라이엇 계정과 무관하다. */
+  channel_id?: string;
   channel_url?: string;
   aliases?: string[];
   is_pro?: boolean;
@@ -138,14 +140,21 @@ try {
       if (!dryRun) {
         await updateStreamer(existing.id, {
           display_name: s.display_name,
-          platform: s.platform ?? "soop",
-          platform_user_id: s.platform_user_id ?? null,
-          channel_url: s.channel_url ?? null,
           aliases: s.aliases ?? [],
           is_pro: s.is_pro ?? false,
           team_name: s.team_name ?? null,
           note: s.note ?? null,
         });
+        if (s.channel_id) {
+          await upsertStreamerChannel({
+            streamer_id: existing.id,
+            platform: s.platform ?? "soop",
+            channel_id: s.channel_id,
+            channel_url: s.channel_url ?? null,
+            label: "본채널",
+            is_primary: true,
+          });
+        }
       }
       updated++;
       console.log(`  갱신  ${label}`);
@@ -156,13 +165,13 @@ try {
         const row = await createStreamer({
           slug: s.slug,
           display_name: s.display_name,
-          platform: s.platform ?? "soop",
-          platform_user_id: s.platform_user_id ?? null,
-          channel_url: s.channel_url ?? null,
           aliases: s.aliases ?? [],
           is_pro: s.is_pro ?? false,
           team_name: s.team_name ?? null,
           note: s.note ?? null,
+          channel: s.channel_id
+            ? { platform: s.platform ?? "soop", channel_id: s.channel_id, channel_url: s.channel_url ?? null, label: "본채널" }
+            : undefined,
         });
         streamerId = row.id;
       }

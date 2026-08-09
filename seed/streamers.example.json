@@ -3,7 +3,7 @@
     "slug": "example-streamer",
     "display_name": "예시스트리머",
     "platform": "soop",
-    "platform_user_id": "soop_id_here",
+    "channel_id": "soop_id_here",
     "channel_url": "https://ch.sooplive.co.kr/soop_id_here",
     "aliases": ["옛닉네임", "별명"],
     "is_pro": false,

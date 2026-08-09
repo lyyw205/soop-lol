@@ -14,12 +14,12 @@ export function StreamerCreateForm() {
     <form action={action} className="grid gap-3 sm:grid-cols-2">
       <Field label="스트리머 이름 *" name="display_name" placeholder="표시될 이름" required />
       <Field
-        label="SOOP 아이디"
-        name="platform_user_id"
-        placeholder="예: bjexample"
-        hint="채널 주소의 영문 아이디. slug 기본값으로도 쓰입니다."
+        label="SOOP 채널 아이디"
+        name="channel_id"
+        placeholder="예: phonics1"
+        hint="플랫폼이 발급한 방송국 아이디. 라이엇 계정과 무관합니다."
       />
-      <Field label="slug" name="slug" placeholder="비우면 SOOP 아이디를 씁니다" hint="/s/{slug} 주소가 됩니다." />
+      <Field label="slug" name="slug" placeholder="비우면 채널 아이디를 씁니다" hint="/s/{slug} 주소가 됩니다." />
       <Field label="별명 (쉼표로 구분)" name="aliases" placeholder="구닉, 별명" hint="검색에 걸리게 할 이름들." />
       <div className="sm:col-span-2">
         <Field label="메모" name="note" placeholder="내부 메모" />
@@ -39,8 +39,6 @@ export function StreamerEditForm({ streamer }: { streamer: StreamerRow }) {
     <form action={action} className="grid gap-3 sm:grid-cols-2">
       <input type="hidden" name="id" value={streamer.id} />
       <Field label="스트리머 이름" name="display_name" defaultValue={streamer.display_name} required />
-      <Field label="SOOP 아이디" name="platform_user_id" defaultValue={streamer.platform_user_id ?? ""} />
-      <Field label="채널 URL" name="channel_url" defaultValue={streamer.channel_url ?? ""} />
       <Field label="소속 팀" name="team_name" defaultValue={streamer.team_name ?? ""} />
       <Field label="별명 (쉼표로 구분)" name="aliases" defaultValue={streamer.aliases.join(", ")} />
       <SelectField
