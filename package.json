@@ -1,0 +1,29 @@
+{
+  "name": "soop-lol",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @soop-lol/web",
+    "dev:db": "node scripts/dev-db.ts",
+    "build": "npm run build -w @soop-lol/web",
+    "start": "npm run start -w @soop-lol/web",
+    "test": "node --test \"packages/**/*.test.ts\" \"apps/**/*.test.ts\"",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p apps/web --noEmit && tsc -p apps/worker --noEmit",
+    "verify:db": "node scripts/verify-db.ts",
+    "verify:ingest": "node scripts/verify-ingest.ts",
+    "//worker": "★ 워커는 웹과 같은 .env.local 을 읽는다. RIOT_API_KEY 를 두 군데 두면 반드시 한쪽이 만료된 채로 남는다.",
+    "worker": "node --env-file-if-exists=apps/web/.env.local apps/worker/src/main.ts"
+  },
+  "//": "★ 버전은 캐럿 없이 고정한다(hotplace-map과 같은 규칙). 캐럿으로 적으면 lock 재생성이 next/react를 통째로 끌어올려서, 무관한 커밋이 라이브러리 업그레이드를 같이 싣는다. 업그레이드는 별건으로.",
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
+    "@electric-sql/pglite-socket": "^0.2.7",
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  },
+  "type": "module"
+}

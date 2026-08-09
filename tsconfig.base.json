@@ -1,0 +1,25 @@
+{
+  // 패키지들이 공유하는 컴파일러 옵션만 둔다.
+  //
+  // ★ paths 와 include 를 여기 두지 않는다. 둘 다 "이 파일이 있는 위치" 기준으로 풀리는데,
+  //   `extends` 는 include 를 상속하지 않고 paths 는 상속해 버린다. 경로에 관한 것은
+  //   전부 패키지별 tsconfig 의 몫이다. (hotplace-map 에서 같은 이유로 정한 규칙)
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    // packages/core 의 *.test.ts 는 node 내장 러너로 돈다(`npm test`).
+    // node 의 TS 스트리핑은 상대 import 에 확장자를 요구하므로 이 플래그가 필요하다.
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true
+  }
+}

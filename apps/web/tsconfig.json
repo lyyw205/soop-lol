@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
+  },
+  // ★ `extends` 는 include 를 상속하지 않는다. 여기 다시 적지 않으면 Next 가 생성하는
+  //   타입(.next/types)이 검사에서 빠져 typedRoutes·metadata 검증이 조용히 헐거워진다.
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

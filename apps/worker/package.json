@@ -1,0 +1,16 @@
+{
+  "name": "@soop-lol/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "//": "★ 빌드 단계가 없다. node 24 의 타입 스트리핑으로 .ts 를 그대로 돌린다 — 그래서 파라미터 프로퍼티·enum 을 쓰지 않고, 상대 import 에 .ts 확장자를 붙인다.",
+  "scripts": {
+    "start": "node src/main.ts loop"
+  },
+  "dependencies": {
+    "@soop-lol/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3"
+  }
+}

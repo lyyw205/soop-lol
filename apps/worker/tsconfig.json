@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["esnext"]
+  },
+  // `@soop-lol/core/...` 는 워크스페이스 심링크 + core 의 exports 매핑으로 풀린다.
+  // paths 를 따로 두지 않는다 — 타입과 런타임이 서로 다른 파일을 보게 되는 원인이다.
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

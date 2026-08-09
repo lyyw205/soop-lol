@@ -1,0 +1,18 @@
+{
+  "name": "@soop-lol/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "//": "★ exports 가 확장자를 매핑한다. 부르는 쪽은 `@soop-lol/core/lib/riot/client` 처럼 확장자 없이 적는다 — 붙이면 client.ts.ts 를 찾아 ERR_MODULE_NOT_FOUND 다. 이 매핑이 있어야 node --test 가 core 를 실제로 해석한다(타입 alias 만으로는 런타임 해석이 안 된다). 와일드카드는 슬래시를 넘으므로 lib 하위 디렉터리도 그대로 잡힌다.",
+  "exports": {
+    "./lib/*": "./lib/*.ts"
+  },
+  "//deps": "postgres(.js)는 core 가 직접 쓴다 — 웹과 워커가 같은 커넥션 모듈을 공유한다.",
+  "dependencies": {
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3"
+  }
+}

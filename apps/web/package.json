@@ -1,0 +1,27 @@
+{
+  "name": "@soop-lol/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "//": "★ 버전을 캐럿 없이 고정한다. 캐럿으로 적으면 lock 재생성이 next·react 를 통째로 끌어올려서, 무관한 커밋이 라이브러리 업그레이드를 같이 싣는다. 배포가 깨졌을 때 원인을 못 가른다.",
+  "dependencies": {
+    "@soop-lol/core": "*",
+    "lucide-react": "1.28.0",
+    "next": "16.3.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,44 @@
+/* ★ `source("../")` — 자동 검출 기준을 **이 CSS 파일 기준**으로 못박는다.
+     기본값은 process.cwd() 인데, `npm run build -w @soop-lol/web` 은 cwd 를 apps/web 으로,
+     루트에서 도는 도구는 저장소 루트로 만든다. 기준이 흔들리면 같은 코드가 실행 위치에
+     따라 다른 CSS 를 낸다. (hotplace-map 에서 같은 이유로 정한 규칙) */
+@import "tailwindcss" source("../");
+
+@theme {
+  --color-ink-950: #0a0b0f;
+  --color-ink-900: #101219;
+  --color-ink-800: #171a24;
+  --color-ink-700: #222634;
+  --color-ink-600: #2f3546;
+  --color-ink-400: #6b7280;
+  --color-ink-200: #c7ccd8;
+
+  --color-accent-400: #7dd3fc;
+  --color-accent-500: #38bdf8;
+  --color-accent-600: #0ea5e9;
+
+  --color-win: #4ade80;
+  --color-lose: #f87171;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-200);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family:
+    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
+    "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+}
+
+/* 숫자가 흔들리지 않게. 전적 표에서 자릿수가 바뀔 때 열이 출렁이는 걸 막는다. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
