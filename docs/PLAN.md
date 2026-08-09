@@ -155,8 +155,11 @@ MASTER 이상  : 2800 + lp                                  (M/GM/C는 LP 사다
 | 타임라인 | `GET /lol/match/v5/matches/{matchId}/timeline` | **조우 경기만** (§5) |
 | 현재 게임 | `GET /lol/spectator/v5/active-games/by-summoner/{puuid}` | 라이브 감지 |
 
-> ⚠️ league-v4는 과거 `by-summoner/{summonerId}`였다. Riot이 puuid 기반으로 이전 중이므로
-> **실제 키로 두 경로 다 찔러보고 동작하는 쪽을 채택**한다. 코드에 어댑터를 둔다.
+> ~~⚠️ league-v4는 과거 `by-summoner/{summonerId}`였다. Riot이 puuid 기반으로 이전 중이므로
+> **실제 키로 두 경로 다 찔러보고 동작하는 쪽을 채택**한다.~~
+> **확인됨 (2026-08-09, Development 키):** `entries/by-puuid` 가 200을 낸다. puuid 로 바로 된다.
+> `RiotClient.leagueEntriesByPuuid` 의 `by-summoner` 폴백은 by-puuid 가 404일 때만 타므로
+> 평소엔 호출되지 않는다. 당분간 안전망으로 남겨 두고, Riot 이 by-summoner 를 걷어내면 지운다.
 
 ### RiotClient 게이트웨이 — 단일 관문 원칙
 
