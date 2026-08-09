@@ -10,3 +10,9 @@ next-env.d.ts
 
 .DS_Store
 *.log
+
+# ★ 시드 명단은 커밋하지 않는다 — 저장소가 공개다.
+#   부계정 목록이 git 히스토리에 들어가면 삭제 요청이 와도 되돌릴 수 없다.
+#   근거는 DB(streamer_account.evidence)에 남긴다. 거긴 지울 수 있다. seed/README.md 참고.
+seed/streamers.json
+seed/*.local.json

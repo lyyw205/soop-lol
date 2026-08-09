@@ -1,0 +1,35 @@
+[
+  {
+    "slug": "example-streamer",
+    "display_name": "예시스트리머",
+    "platform": "soop",
+    "platform_user_id": "soop_id_here",
+    "channel_url": "https://ch.sooplive.co.kr/soop_id_here",
+    "aliases": ["옛닉네임", "별명"],
+    "is_pro": false,
+    "note": "선택. 메모.",
+    "accounts": [
+      {
+        "riot_id": "닉네임#KR1",
+        "label": "본계",
+        "is_main": true,
+        "confidence": "verified",
+        "evidence": {
+          "source": "broadcast_notice",
+          "url": "https://ch.sooplive.co.kr/.../post/12345",
+          "note": "방송 공지에 본인이 적어둔 계정"
+        }
+      },
+      {
+        "puuid": "키가 없으면 riot_id 대신 78자 puuid 를 직접 적어도 된다",
+        "label": "부계",
+        "confidence": "likely",
+        "evidence": {
+          "source": "stream_clip",
+          "url": "https://vod.example.com/clip/6789",
+          "note": "2026-07-12 방송에서 로비 화면에 노출"
+        }
+      }
+    ]
+  }
+]
