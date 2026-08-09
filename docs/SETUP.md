@@ -6,10 +6,10 @@
 |---|---|
 | 모노레포·스키마·관리자 화면 | ✅ 완성, 검증됨 |
 | 수집 워커 (Engine A~D) | ✅ 완성, 검증됨 → §6 |
-| Supabase 프로젝트 | ✅ 생성·스키마 적용·RLS → §2 |
-| Supabase DB 비밀번호 | ❌ 대시보드에서 받아 `.env.local` 에 넣어야 함 → §2 |
-| Riot API 키 | ❌ 없음 → §1 |
-| 실제 데이터 수집 | ⬜ 위 둘이 채워지면 시작 |
+| Supabase | ✅ 연결됨 — 스키마·RLS·앱 질의·트랜잭션 전부 확인 → §2 |
+| 웹 (`/admin`) | ✅ Supabase 를 보고 뜬다. 인증 없으면 401 |
+| Riot API 키 | ❌ 없음 → §1 ← **마지막 한 칸** |
+| 실제 데이터 수집 | ⬜ 키가 들어오면 시작 |
 
 **API 키 없이도 관리자 화면은 지금 돌려볼 수 있다** (§3).
 **워커도 API 키 없이 검증할 수 있다** — `npm run verify:ingest` (§5).
@@ -76,16 +76,30 @@ postgresql://postgres.eiwmgkdktgdgphlugieu:<PASSWORD>@aws-0-ap-northeast-2.poole
   (`aws-0` → `28P01` = 테넌트를 찾고 비밀번호만 거부, `aws-1` → `XX000` = 테넌트 없음)
 - `prepare` 는 [`client.ts`](../packages/core/lib/db/client.ts) 에서 이미 꺼 뒀으므로 트랜잭션 풀러로 안전하다
 
-### 남은 한 걸음 — DB 비밀번호
+### DB 비밀번호
 
-비밀번호는 API 로 가져올 수 없다. 대시보드에서 직접 받아야 한다:
+비밀번호는 API 로 가져올 수 없다. 대시보드에서 직접 받는다:
+**Project Settings → Database → Database password → Reset database password** →
+`apps/web/.env.local` 의 `DATABASE_URL` 안 비밀번호 자리에 넣는다.
 
-1. **Project Settings → Database → Database password → Reset database password**
-2. 나온 값을 `apps/web/.env.local` 의 `DATABASE_URL` 안 비밀번호 자리에 넣는다
-3. 확인: `npm run dev` → http://localhost:3000/admin 이 뜨면 붙은 것
+> 붙지 않을 때 오류 코드로 원인을 가른다:
+> - `28P01` — 호스트·사용자까지는 갔고 **비밀번호만** 틀렸다 → 리셋
+> - `XX000` — 풀러가 테넌트를 못 찾았다 → `aws-N` 이나 사용자명(`postgres.<ref>`)이 틀렸다
+> - `ENETUNREACH` — 직결(:5432)을 IPv6 없는 환경에서 쓰고 있다 → 풀러로 바꾼다
 
-> 인증이 틀리면 `28P01` 이 뜬다. 호스트가 틀리면 `XX000` 이다 — 둘을 헷갈리지 말 것.
-> `28P01` 은 "거기까진 갔는데 비밀번호가 틀렸다"는 뜻이므로 리셋하면 풀린다.
+### 연결 확인 (2026-08-09)
+
+실제로 붙여서 확인한 것:
+
+| 확인 | 결과 |
+|---|---|
+| 스키마 | 테이블 15개 · RLS 15/15 ON · `lol_lp_absolute('DIAMOND','I',42)` = 2742 |
+| 앱 질의 | `adminCounts` · `listStreamers` · `listIngestTargets` 정상 |
+| 트랜잭션 | `linkAccount`(다중 문장 트랜잭션) + `FOR UPDATE SKIP LOCKED` 가 **풀러에서도** 돈다 |
+| 웹 | `/` 200, `/admin` 인증 없으면 401 · 있으면 200 렌더 |
+
+> 트랜잭션 풀러(:6543)는 세션 상태를 유지하지 않는다. 워커의 적재·백필이 전부
+> 트랜잭션이라 여기가 막히면 M1 이 통째로 안 도는데, 위에서 실제로 돌려 확인했다.
 
 ### RLS 를 켜 둔 이유
 
