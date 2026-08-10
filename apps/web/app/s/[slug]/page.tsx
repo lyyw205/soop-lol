@@ -9,7 +9,10 @@ import {
   listPublicChannels,
   listRecentGames,
   listRivals,
+  listStreamerEvents,
+  listStreamerYears,
 } from "@soop-lol/core/lib/db/public";
+import { POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 import {
   DualRecord,
@@ -25,18 +28,29 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return { title: s ? s.display_name : "스트리머" };
 }
 
-export default async function StreamerProfile({ params }: { params: Promise<{ slug: string }> }) {
+export default async function StreamerProfile({
+  params, searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ year?: string }>;
+}) {
   const { slug } = await params;
   const streamer = await getStreamerBySlug(slug);
   if (!streamer) notFound();
 
-  const [channels, accounts, series, champions, games, rivals] = await Promise.all([
+  // 연도 필터. 값이 숫자가 아니면 무시한다 — 주소창에 아무거나 넣어도 전체가 나온다.
+  const raw = (await searchParams).year;
+  const year = raw && /^\d{4}$/.test(raw) ? Number(raw) : undefined;
+
+  const [channels, accounts, series, champions, games, rivals, events, years] = await Promise.all([
     listPublicChannels(streamer.streamer_id),
     listProfileAccounts(streamer.streamer_id),
     getRankSeries(streamer.streamer_id),
     listChampions(streamer.streamer_id),
     listRecentGames(streamer.streamer_id),
-    listRivals(streamer.streamer_id),
+    listRivals(streamer.streamer_id, { year }),
+    listStreamerEvents(streamer.streamer_id, year),
+    listStreamerYears(streamer.streamer_id),
   ]);
 
   const main = accounts[0];
@@ -111,11 +125,85 @@ export default async function StreamerProfile({ params }: { params: Promise<{ sl
           </div>
         </section>
 
+        {/* ── 연도 필터 ── */}
+        {years.length > 1 && (
+          <section className="mt-8">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-ink-400">연도</span>
+              <Link
+                href={`/s/${slug}`}
+                className={`rounded-full border px-3 py-1 text-xs ${
+                  year === undefined
+                    ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
+                    : "border-ink-800 text-ink-400 hover:text-ink-200"
+                }`}
+              >
+                전체
+              </Link>
+              {years.map((y) => (
+                <Link
+                  key={y}
+                  href={`/s/${slug}?year=${y}`}
+                  className={`rounded-full border px-3 py-1 text-xs ${
+                    year === y
+                      ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
+                      : "border-ink-800 text-ink-400 hover:text-ink-200"
+                  }`}
+                >
+                  {y}
+                </Link>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-ink-400">
+              대회 성적과 라이벌에만 적용됩니다. 티어 추이·모스트 챔피언은 전체 기간입니다.
+            </p>
+          </section>
+        )}
+
+        {/* ── 대회 성적 ── */}
+        <section className="mt-8">
+          <SectionTitle hint="주최측이 발표한 기록">대회 성적</SectionTitle>
+          {events.length === 0 ? (
+            <EmptyLine>
+              {year ? `${year}년에 나간 대회가 없습니다.` : "아직 대회 기록이 없습니다."}
+            </EmptyLine>
+          ) : (
+            <ul className="grid gap-2">
+              {events.map((e) => (
+                <li key={e.event_slug} className="rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <span className="font-medium text-ink-200">{e.event_name}</span>
+                    <span className="text-[11px] text-ink-400">
+                      {e.team_name && <span className="text-ink-300">{e.team_name}</span>}
+                      {e.position && <span className="ml-1">· {POSITION_LABEL[e.position as Position] ?? e.position}</span>}
+                      <span className="ml-2">{new Date(e.starts_at).getFullYear()}</span>
+                    </span>
+                  </div>
+                  {e.matches === 0 ? (
+                    <p className="tabular mt-2 text-[11px] text-ink-400">
+                      명단에는 있으나 경기 기록을 붙이지 못했습니다 — 라이엇 계정을 확인하지 못한 참가자입니다.
+                    </p>
+                  ) : (
+                    <p className="tabular mt-2 text-sm text-ink-300">
+                      경기 {e.match_wins}승 {e.matches - e.match_wins}패
+                      <span className="ml-3 text-ink-400">
+                        세트 {e.set_wins}승 {e.sets - e.set_wins}패
+                      </span>
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         {/* ── 라이벌 — 이 사이트의 훅 ── */}
         <section className="mt-8">
-          <SectionTitle hint="같은 경기에서 만난 스트리머">라이벌</SectionTitle>
+          <SectionTitle hint="맞붙었을 때와 같은 팀이었을 때를 절대 섞지 않습니다">라이벌</SectionTitle>
           {rivals.length === 0 ? (
-            <EmptyLine>아직 다른 스트리머와 만난 기록이 없습니다.</EmptyLine>
+            <EmptyLine>
+              {year ? `${year}년에 만난 스트리머가 없습니다.` : "아직 다른 스트리머와 만난 기록이 없습니다."}
+            </EmptyLine>
           ) : (
             <ul className="grid gap-2">
               {rivals.map((r) => (
@@ -124,43 +212,62 @@ export default async function StreamerProfile({ params }: { params: Promise<{ sl
                     <Link href={`/vs/${slug}/${r.slug}`} className="font-medium text-ink-200 hover:text-accent-400">
                       vs {r.display_name}
                     </Link>
-                    <span className="text-[11px] text-ink-400">
-                      마지막 {relativeDate(r.last_met)}
-                    </span>
+                    <span className="text-[11px] text-ink-400">마지막 {relativeDate(r.last_met)}</span>
                   </div>
-                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <div className="mb-1 text-[11px] text-ink-400">
-                        팀 상대전적 <span className="text-ink-500">· 상대편에 있었던 전부</span>
-                      </div>
-                      <DualRecord
-                        label="상대"
-                        match={{ wins: r.vs_match_wins, losses: r.vs_matches - r.vs_match_wins }}
-                        set={{ wins: r.vs_set_wins, losses: r.vs_sets - r.vs_set_wins }}
-                      />
+
+                  {/*
+                    ★ 두 블록을 시각적으로 가른다. 같은 팀 승리를 상대전적에 섞으면
+                      '이겼다' 의 뜻이 달라진다 — 하나는 그 사람을 이긴 것이고
+                      다른 하나는 그 사람과 같이 이긴 것이다.
+                  */}
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-rose-500/25 bg-rose-500/[0.04] p-3">
+                      <div className="mb-2 text-[11px] font-medium text-rose-300/90">맞붙었을 때</div>
+                      {r.vs_matches === 0 ? (
+                        <p className="text-[11px] text-ink-400">상대편으로 만난 적이 없습니다.</p>
+                      ) : (
+                        <>
+                          <div className="mb-1 text-[11px] text-ink-400">
+                            팀 상대전적 <span className="text-ink-500">· 상대편에 있었던 전부</span>
+                          </div>
+                          <DualRecord
+                            label="상대"
+                            match={{ wins: r.vs_match_wins, losses: r.vs_matches - r.vs_match_wins }}
+                            set={{ wins: r.vs_set_wins, losses: r.vs_sets - r.vs_set_wins }}
+                          />
+                          {r.lane_matches > 0 && (
+                            <div className="mt-3 border-t border-ink-800 pt-3">
+                              <div className="mb-1 text-[11px] text-ink-400">
+                                1:1 맞라인 <span className="text-ink-500">· 같은 라인끼리만</span>
+                              </div>
+                              <DualRecord
+                                label="맞라인"
+                                match={{ wins: r.lane_match_wins, losses: r.lane_matches - r.lane_match_wins }}
+                                set={{ wins: r.lane_set_wins, losses: r.lane_sets - r.lane_set_wins }}
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
-                    {r.lane_matches > 0 && (
-                      <div>
-                        <div className="mb-1 text-[11px] text-ink-400">
-                          1:1 맞라인 <span className="text-ink-500">· 같은 라인에서 붙은 것만</span>
-                        </div>
-                        <DualRecord
-                          label="맞라인"
-                          match={{ wins: r.lane_match_wins, losses: r.lane_matches - r.lane_match_wins }}
-                          set={{ wins: r.lane_set_wins, losses: r.lane_sets - r.lane_set_wins }}
-                        />
-                      </div>
-                    )}
-                    {r.ally_matches > 0 && (
-                      <div>
-                        <div className="mb-1 text-[11px] text-ink-400">같은 팀이었을 때</div>
-                        <DualRecord
-                          label="같은 팀"
-                          match={{ wins: r.ally_match_wins, losses: r.ally_matches - r.ally_match_wins }}
-                          set={{ wins: r.ally_set_wins, losses: r.ally_sets - r.ally_set_wins }}
-                        />
-                      </div>
-                    )}
+
+                    <div className="rounded-lg border border-sky-500/25 bg-sky-500/[0.04] p-3">
+                      <div className="mb-2 text-[11px] font-medium text-sky-300/90">같은 팀이었을 때</div>
+                      {r.ally_matches === 0 ? (
+                        <p className="text-[11px] text-ink-400">같은 팀이었던 적이 없습니다.</p>
+                      ) : (
+                        <>
+                          <div className="mb-1 text-[11px] text-ink-400">
+                            함께 뛴 승률 <span className="text-ink-500">· 같이 이긴 것</span>
+                          </div>
+                          <DualRecord
+                            label="같은 팀"
+                            match={{ wins: r.ally_match_wins, losses: r.ally_matches - r.ally_match_wins }}
+                            set={{ wins: r.ally_set_wins, losses: r.ally_sets - r.ally_set_wins }}
+                          />
+                        </>
+                      )}
+                    </div>
                   </div>
                 </li>
               ))}

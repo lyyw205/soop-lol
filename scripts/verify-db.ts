@@ -48,6 +48,7 @@ const { db: sqlClient, closeDb } = await import("../packages/core/lib/db/client.
 const streamers = await import("../packages/core/lib/db/streamers.ts");
 const tournaments = await import("../packages/core/lib/db/tournaments.ts");
 const ingestDb = await import("../packages/core/lib/db/ingest.ts");
+const publicDb = await import("../packages/core/lib/db/public.ts");
 const { lpAbsolute } = await import("../packages/core/lib/metrics/lp.ts");
 
 try {
@@ -315,6 +316,61 @@ try {
   `;
   check("포지션을 모르는 대회 경기는 맞라인으로 세지 않는다 (§11-10 — 애매하면 판정하지 않는다)",
     noPos[0]?.is_lane_matchup === false, JSON.stringify(noPos[0]));
+
+  // ── 대회 팀 (마이그레이션 0008) ──────────────────────────────────────
+  const teamIds = await tournaments.saveEventTeams(eventId, [
+    { name: "알파팀", members: [{ streamer_id: s1.id, position: "MIDDLE" }] },
+    { name: "베타팀", members: [{ streamer_id: s2.id, position: "MIDDLE" }] },
+  ]);
+  check("대회 팀과 명단이 저장된다", teamIds.size === 2, [...teamIds.keys()].join(","));
+
+  // 한 사람이 한 대회에서 두 팀에 속하면 대회 성적이 두 줄로 갈라진다. 못 하게 막혀 있어야 한다.
+  let twoTeamsRejected = false;
+  try {
+    await sqlClient()`
+      INSERT INTO event_team_member (event_id, event_team_id, streamer_id)
+      VALUES (${eventId}::uuid, ${teamIds.get("베타팀")!}::uuid, ${s1.id}::uuid)
+    `;
+  } catch {
+    twoTeamsRejected = true;
+  }
+  check("★ 한 사람이 한 대회에서 두 팀에 속할 수 없다", twoTeamsRejected);
+
+  // 다른 대회의 팀에 붙이는 것도 막혀야 한다 (event_id 가 어긋나면 성적이 엉뚱한 대회로 간다)
+  const otherEventId = await tournaments.upsertEvent({
+    slug: "verify-cup-2", name: "검증컵 2회", source_url: "https://example.com/2",
+  });
+  let crossEventRejected = false;
+  try {
+    await sqlClient()`
+      INSERT INTO event_team_member (event_id, event_team_id, streamer_id)
+      VALUES (${otherEventId}::uuid, ${teamIds.get("알파팀")!}::uuid, ${s2.id}::uuid)
+    `;
+  } catch {
+    crossEventRejected = true;
+  }
+  check("다른 대회의 팀에 명단을 붙일 수 없다", crossEventRejected);
+
+  const teamsAfter = await tournaments.saveEventTeams(eventId, [
+    { name: "알파팀", members: [{ streamer_id: s1.id, position: "MIDDLE" }] },
+  ]);
+  const remaining = await sqlClient()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM event_team WHERE event_id = ${eventId}::uuid
+  `;
+  check("이번 시드에 없는 팀은 지운다 (시드가 그 대회의 전부다)",
+    teamsAfter.size === 1 && remaining[0]?.n === 1, JSON.stringify(remaining[0]));
+
+  // 성적 조회가 팀명을 붙여서 돌려주는지
+  await tournaments.saveEventTeams(eventId, [
+    { name: "알파팀", members: [{ streamer_id: s1.id, position: "MIDDLE" }] },
+    { name: "베타팀", members: [{ streamer_id: s2.id, position: "MIDDLE" }] },
+  ]);
+  const evRecords = await publicDb.listStreamerEvents(s2.id);
+  check("★ 스트리머별 대회 성적이 팀명과 함께 나온다",
+    evRecords.length >= 1 && evRecords[0]?.team_name === "베타팀", JSON.stringify(evRecords[0]));
+
+  const filtered = await publicDb.listStreamerEvents(s2.id, 1999);
+  check("연도 필터가 걸린다", filtered.length === 0, `${filtered.length}건`);
 
   // ── 다전제: 세트와 매치를 나눠 셀 수 있는가 (마이그레이션 0007) ──────
   //

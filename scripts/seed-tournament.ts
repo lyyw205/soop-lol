@@ -22,7 +22,9 @@ import {
   listEventGames,
   mainPuuidsBySlug,
   pruneEventMatches,
+  saveEventTeams,
   saveTournamentGame,
+  streamerIdsBySlug,
   upsertEvent,
 } from "@soop-lol/core/lib/db/tournaments";
 import { POSITIONS } from "@soop-lol/core/lib/riot/types";
@@ -205,6 +207,21 @@ try {
     }
 
     const eventId = await upsertEvent(t);
+
+    // 팀 명단을 대회 단위로 저장한다. 계정이 없는 스트리머도 팀 명단에는 들어간다 —
+    // 조우는 못 맺어도 "그 대회에 그 팀으로 나갔다" 는 사실은 맞기 때문이다.
+    const idBySlug = await streamerIdsBySlug(allSlugs);
+    const teamIdByName = await saveEventTeams(
+      eventId,
+      Object.entries(t.teams).map(([name, roster]) => ({
+        name,
+        members: roster
+          .filter((slug) => idBySlug.has(slug))
+          .map((slug) => ({ streamer_id: idBySlug.get(slug)!, position: t.roster_positions?.[slug] })),
+      })),
+    );
+    console.log(`  팀 ${teamIdByName.size}개 명단 저장`);
+
     const matchIds: string[] = [];
 
     for (const g of t.games ?? []) {
@@ -239,6 +256,8 @@ try {
         source_url: g.source_url ?? t.source_url ?? null,
         series_id: g.series ? `${t.slug}:${g.series}` : null,
         series_game_no: g.series ? (g.set_no ?? null) : null,
+        blue_team_id: teamIdByName.get(g.blue) ?? null,
+        red_team_id: teamIdByName.get(g.red) ?? null,
         winning_team: g.winner === g.blue ? 100 : 200,
         participants,
       });

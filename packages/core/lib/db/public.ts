@@ -244,7 +244,11 @@ export async function listRecentGames(streamerId: string, limit = 20): Promise<R
  * 상대편으로 만난 것과 같은 팀으로 만난 것을 **섞지 않는다.**
  * 같은 팀 승리를 상대전적에 넣으면 "이겼다"의 뜻이 달라진다.
  */
-export async function listRivals(streamerId: string, limit = 20): Promise<RivalRow[]> {
+export async function listRivals(
+  streamerId: string,
+  opts: { limit?: number; year?: number } = {},
+): Promise<RivalRow[]> {
+  const { limit = 20, year } = opts;
   const sql = db();
   return sql<RivalRow[]>`
     WITH e AS (
@@ -252,7 +256,8 @@ export async function listRivals(streamerId: string, limit = 20): Promise<RivalR
              CASE WHEN streamer_a_id = ${streamerId}::uuid THEN a_win ELSE b_win END AS me_win,
              relation, is_lane_matchup, game_creation, series_key
         FROM core_public.streamer_encounter
-       WHERE streamer_a_id = ${streamerId}::uuid OR streamer_b_id = ${streamerId}::uuid
+       WHERE (streamer_a_id = ${streamerId}::uuid OR streamer_b_id = ${streamerId}::uuid)
+         AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM game_creation) = ${year ?? null}::int)
     ),
     -- 시리즈로 접는다. 다전제는 세트 과반을 이긴 쪽이 그 매치의 승자다.
     per_series AS (
@@ -296,6 +301,83 @@ export async function listRivals(streamerId: string, limit = 20): Promise<RivalR
      ORDER BY (b.vs_sets + b.ally_sets) DESC, b.last_met DESC
      LIMIT ${limit}
   `;
+}
+
+
+// ── 대회 ─────────────────────────────────────────────────────────────
+
+export interface EventRecord {
+  event_slug: string;
+  event_name: string;
+  starts_at: Date;
+  team_name: string | null;
+  position: string | null;
+  matches: number;
+  match_wins: number;
+  sets: number;
+  set_wins: number;
+}
+
+/**
+ * 이 스트리머가 나간 대회와 그 성적. 최신순.
+ *
+ * 세트와 매치를 나눠 준다 — 다전제 2:1 은 세트 2승 1패, 매치 1승 0패다.
+ * 팀명은 event_team 에서 온다(대회 단위 소속). 계정이 없어 경기에 못 들어간
+ * 사람도 팀 명단에는 있으므로 `matches` 가 0인 줄이 나올 수 있다 —
+ * "나갔지만 우리가 전적을 못 붙였다" 는 사실이라 지우지 않는다.
+ */
+export async function listStreamerEvents(streamerId: string, year?: number): Promise<EventRecord[]> {
+  const sql = db();
+  return sql<EventRecord[]>`
+    WITH mine AS (
+      SELECT m.match_id,
+             COALESCE(m.series_id, m.match_id) AS series_key,
+             m.event_id,
+             mp.win
+        FROM core_public.match_participant mp
+        JOIN core_public.match m ON m.match_id = mp.match_id
+       WHERE mp.streamer_id = ${streamerId}::uuid AND m.source = 'manual'
+    ),
+    per_series AS (
+      SELECT event_id, series_key,
+             count(*)::int                    AS sets,
+             count(*) FILTER (WHERE win)::int AS set_wins
+        FROM mine GROUP BY event_id, series_key
+    ),
+    agg AS (
+      SELECT event_id,
+             count(*)::int                                        AS matches,
+             count(*) FILTER (WHERE set_wins * 2 > sets)::int      AS match_wins,
+             sum(sets)::int                                        AS sets,
+             sum(set_wins)::int                                    AS set_wins
+        FROM per_series GROUP BY event_id
+    )
+    SELECT e.slug AS event_slug, e.name AS event_name, e.starts_at,
+           t.name AS team_name, tm.position,
+           COALESCE(a.matches, 0)    AS matches,
+           COALESCE(a.match_wins, 0) AS match_wins,
+           COALESCE(a.sets, 0)       AS sets,
+           COALESCE(a.set_wins, 0)   AS set_wins
+      FROM core_public.event_team_member tm
+      JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
+      JOIN core_public.event e ON e.event_id = tm.event_id
+      LEFT JOIN agg a ON a.event_id = tm.event_id
+     WHERE tm.streamer_id = ${streamerId}::uuid
+       AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.starts_at) = ${year ?? null}::int)
+     ORDER BY e.starts_at DESC
+  `;
+}
+
+/** 이 스트리머의 기록이 있는 연도들 (필터 UI 용). 최신순. */
+export async function listStreamerYears(streamerId: string): Promise<number[]> {
+  const sql = db();
+  const rows = await sql<{ y: number }[]>`
+    SELECT DISTINCT EXTRACT(YEAR FROM game_creation)::int AS y
+      FROM core_public.streamer_encounter
+     WHERE streamer_a_id = ${streamerId}::uuid OR streamer_b_id = ${streamerId}::uuid
+     ORDER BY y DESC
+  `;
+  return rows.map((r) => r.y);
 }
 
 // ── 홈 ───────────────────────────────────────────────────────────────

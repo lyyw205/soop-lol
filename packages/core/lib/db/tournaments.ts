@@ -21,6 +21,53 @@ export interface TournamentEventInput {
   source_url?: string | null;
 }
 
+/**
+ * 대회 팀과 그 명단을 넣는다. 이 대회에 더는 없는 팀·멤버는 지운다 —
+ * 시드 파일이 그 대회의 전부여야 한다(pruneEventMatches 와 같은 이유).
+ *
+ * ★ 팀 소속은 대회 단위다. 이게 있어야 "이 사람이 그 대회에 어느 팀으로 나갔나" 를
+ *   답할 수 있고, 스트리머별 대회 성적 리스트가 만들어진다.
+ */
+export async function saveEventTeams(
+  eventId: string,
+  teams: { name: string; members: { streamer_id: string; position?: string | null }[] }[],
+): Promise<Map<string, string>> {
+  const sql = db();
+  const byName = new Map<string, string>();
+  await sql.begin(async (tx) => {
+    for (const t of teams) {
+      const [row] = await tx<{ id: string }[]>`
+        INSERT INTO event_team (event_id, name) VALUES (${eventId}::uuid, ${t.name})
+        ON CONFLICT (event_id, name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+      `;
+      byName.set(t.name, row.id);
+      await tx`DELETE FROM event_team_member WHERE event_team_id = ${row.id}::uuid`;
+      for (const m of t.members) {
+        await tx`
+          INSERT INTO event_team_member (event_id, event_team_id, streamer_id, position)
+          VALUES (${eventId}::uuid, ${row.id}::uuid, ${m.streamer_id}::uuid, ${m.position ?? null})
+          ON CONFLICT (event_id, streamer_id) DO UPDATE SET
+            event_team_id = EXCLUDED.event_team_id, position = EXCLUDED.position
+        `;
+      }
+    }
+    const keep = [...byName.values()];
+    await tx`DELETE FROM event_team WHERE event_id = ${eventId}::uuid AND id <> ALL(${keep}::uuid[])`;
+  });
+  return byName;
+}
+
+/** slug → streamer_id. 계정이 없어도 스트리머로는 존재하므로 팀 명단에는 넣을 수 있다. */
+export async function streamerIdsBySlug(slugs: string[]): Promise<Map<string, string>> {
+  if (slugs.length === 0) return new Map();
+  const sql = db();
+  const rows = await sql<{ slug: string; id: string }[]>`
+    SELECT slug, id FROM streamer WHERE slug = ANY(${slugs}::text[])
+  `;
+  return new Map(rows.map((r) => [r.slug, r.id]));
+}
+
 export async function upsertEvent(input: TournamentEventInput): Promise<string> {
   const sql = db();
   const rows = await sql<{ id: string }[]>`
@@ -68,6 +115,9 @@ export interface TournamentGameInput {
    */
   series_id?: string | null;
   series_game_no?: number | null;
+  /** 그 경기의 청/홍이 어느 팀이었나 (event_team.id). 공개 큐에는 없다. */
+  blue_team_id?: string | null;
+  red_team_id?: string | null;
   /** 100 = blue, 200 = red */
   winning_team: 100 | 200;
   participants: {
@@ -92,10 +142,11 @@ export async function saveTournamentGame(g: TournamentGameInput): Promise<void> 
     await tx`
       INSERT INTO match (match_id, queue_id, game_mode, game_creation, game_duration,
                          winning_team, source, event_id, source_url,
-                         series_id, series_game_no)
+                         series_id, series_game_no, blue_team_id, red_team_id)
       VALUES (${g.match_id}, 0, 'CUSTOM', ${g.played_at}, ${g.duration},
               ${g.winning_team}, 'manual', ${g.event_id}::uuid, ${g.source_url},
-              ${g.series_id ?? null}, ${g.series_game_no ?? null})
+              ${g.series_id ?? null}, ${g.series_game_no ?? null},
+              ${g.blue_team_id ?? null}, ${g.red_team_id ?? null})
       ON CONFLICT (match_id) DO UPDATE SET
         game_creation  = EXCLUDED.game_creation,
         game_duration  = EXCLUDED.game_duration,
@@ -103,7 +154,9 @@ export async function saveTournamentGame(g: TournamentGameInput): Promise<void> 
         event_id       = EXCLUDED.event_id,
         source_url     = EXCLUDED.source_url,
         series_id      = EXCLUDED.series_id,
-        series_game_no = EXCLUDED.series_game_no
+        series_game_no = EXCLUDED.series_game_no,
+        blue_team_id   = EXCLUDED.blue_team_id,
+        red_team_id    = EXCLUDED.red_team_id
     `;
 
     // 로스터가 바뀌었을 수 있으므로 참가자는 지우고 다시 넣는다.
