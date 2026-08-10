@@ -247,12 +247,19 @@ export async function listRecentGames(streamerId: string, limit = 20): Promise<R
  *
  * 상대편으로 만난 것과 같은 팀으로 만난 것을 **섞지 않는다.**
  * 같은 팀 승리를 상대전적에 넣으면 "이겼다"의 뜻이 달라진다.
+ *
+ * ★ `limit` 은 **화면에 몇 명 보일지가 아니라 안전 상한**이다.
+ *   정렬(판수·최신·승률)은 `metrics/rivals.ts` 가 TS 에서 한다 — 승률 정렬이
+ *   베이지안 축소를 거쳐야 하고 그 계산은 `affinity.ts` 한 곳에만 두기로 했기 때문이다.
+ *   여기서 20 명으로 잘라 버리면 "가장 많이 만난 20명을 승률로 정렬한 것" 이 되어
+ *   정렬이 조용히 거짓말을 한다. 그래서 넉넉히 받아 가고, 자르는 건 정렬 뒤에 한다.
+ *   (상한에 걸릴 만큼 상대가 많으면 많이 만난 쪽부터 남는다 — 아래 ORDER BY)
  */
 export async function listRivals(
   streamerId: string,
   opts: { limit?: number; year?: number } = {},
 ): Promise<RivalRow[]> {
-  const { limit = 20, year } = opts;
+  const { limit = 300, year } = opts;
   const sql = db();
   return sql<RivalRow[]>`
     WITH e AS (

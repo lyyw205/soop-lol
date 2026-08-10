@@ -14,6 +14,9 @@ import {
   listStreamerYears,
   summarizePlacements,
 } from "@soop-lol/core/lib/db/public";
+import {
+  DEFAULT_RIVAL_SORT, isRivalSort, RIVAL_SORTS, sortRivals,
+} from "@soop-lol/core/lib/metrics/rivals";
 import { POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 import {
@@ -35,7 +38,7 @@ export default async function StreamerProfile({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ year?: string }>;
+  searchParams: Promise<{ year?: string; sort?: string }>;
 }) {
   const { slug } = await params;
   const streamer = await getStreamerBySlug(slug);
@@ -45,7 +48,17 @@ export default async function StreamerProfile({
   // 주소창에 아무거나 넣어도 화면이 깨지지 않아야 한다.
   const sp = await searchParams;
   const year = sp.year && /^\d{4}$/.test(sp.year) ? Number(sp.year) : undefined;
-  const linkTo = (y?: number) => (y ? `/s/${slug}?year=${y}` : `/s/${slug}`);
+  const rivalSort = isRivalSort(sp.sort) ? sp.sort : DEFAULT_RIVAL_SORT;
+  // 한쪽 필터를 눌러도 다른 쪽 선택이 살아 있어야 한다.
+  const linkTo = (next: { year?: number | null; sort?: string | null } = {}) => {
+    const y = next.year === undefined ? year : (next.year ?? undefined);
+    const so = next.sort === undefined ? rivalSort : (next.sort ?? DEFAULT_RIVAL_SORT);
+    const q = new URLSearchParams();
+    if (y) q.set("year", String(y));
+    if (so !== DEFAULT_RIVAL_SORT) q.set("sort", so);
+    const qs = q.toString();
+    return qs ? `/s/${slug}?${qs}` : `/s/${slug}`;
+  };
 
   const [channels, accounts, series, champions, games, rivals, events, years, rivalGames, placements] =
     await Promise.all([
@@ -68,6 +81,10 @@ export default async function StreamerProfile({
     cur.push(r);
     seriesByRival.set(r.other_id, cur);
   }
+
+  // ★ 정렬은 TS 에서 한다. 승률 정렬이 베이지안 축소를 거쳐야 하고(§11-3),
+  //   그 계산은 metrics/affinity.ts 한 곳에만 두기로 했다. SQL 은 세기만 한다.
+  const sortedRivals = sortRivals(rivals, rivalSort);
 
   const main = accounts[0];
 
@@ -186,7 +203,7 @@ export default async function StreamerProfile({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] text-ink-400">연도</span>
                 <Link
-                  href={linkTo()}
+                  href={linkTo({ year: null })}
                   className={`rounded-full border px-3 py-1 text-xs ${
                     year === undefined
                       ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
@@ -198,7 +215,7 @@ export default async function StreamerProfile({
                 {years.map((y) => (
                   <Link
                     key={y}
-                    href={linkTo(y)}
+                    href={linkTo({ year: y })}
                     className={`rounded-full border px-3 py-1 text-xs ${
                       year === y
                         ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
@@ -211,6 +228,7 @@ export default async function StreamerProfile({
               </div>
               <p className="mt-2 text-[11px] text-ink-400">
                 대회 성적과 라이벌에만 적용됩니다. 티어 추이·모스트 챔피언은 전체 기간입니다.
+                라이벌 아래에도 같은 필터가 있습니다 — 둘은 같은 값을 씁니다.
               </p>
             </div>
           </section>
@@ -280,24 +298,115 @@ export default async function StreamerProfile({
         {/* ── 라이벌 — 이 사이트의 훅 ── */}
         <section className="mt-8">
           <SectionTitle hint="맞붙었을 때와 같은 팀이었을 때를 절대 섞지 않습니다">라이벌</SectionTitle>
+
+          {/*
+            정렬·연도를 여기에 같이 둔다. 위로 올라가 필터를 고치고 다시 내려오는 게
+            제일 번거롭다. 연도는 위 필터와 **같은 값**을 쓴다 — 두 개를 따로 두면
+            어느 쪽이 맞는지 알 수 없게 된다.
+          */}
+          {rivals.length > 0 && (
+            <div className="mb-3 rounded-xl border border-ink-800 bg-ink-900/40 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-8 shrink-0 text-[11px] text-ink-400">정렬</span>
+                {RIVAL_SORTS.map((o) => (
+                  <Link
+                    key={o.key}
+                    href={linkTo({ sort: o.key })}
+                    title={o.hint}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      rivalSort === o.key
+                        ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
+                        : "border-ink-800 text-ink-400 hover:text-ink-200"
+                    }`}
+                  >
+                    {o.label}
+                  </Link>
+                ))}
+              </div>
+              {years.length > 1 && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="w-8 shrink-0 text-[11px] text-ink-400">연도</span>
+                  <Link
+                    href={linkTo({ year: null })}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      year === undefined
+                        ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
+                        : "border-ink-800 text-ink-400 hover:text-ink-200"
+                    }`}
+                  >
+                    전체
+                  </Link>
+                  {years.map((y) => (
+                    <Link
+                      key={y}
+                      href={linkTo({ year: y })}
+                      className={`rounded-full border px-3 py-1 text-xs ${
+                        year === y
+                          ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
+                          : "border-ink-800 text-ink-400 hover:text-ink-200"
+                      }`}
+                    >
+                      {y}
+                    </Link>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-[11px] text-ink-500">
+                {RIVAL_SORTS.find((o) => o.key === rivalSort)?.hint} · 상대 {sortedRivals.length}명
+              </p>
+            </div>
+          )}
+
           {rivals.length === 0 ? (
             <EmptyLine>
               {year ? `${year}년에 만난 스트리머가 없습니다.` : "아직 다른 스트리머와 만난 기록이 없습니다."}
             </EmptyLine>
           ) : (
             <ul className="grid gap-2">
-              {rivals.map((r) => {
+              {sortedRivals.map((r) => {
                 const mine = seriesByRival.get(r.streamer_id) ?? [];
                 const vsRows = mine.filter((x) => x.relation === "opponent");
                 const allyRows = mine.filter((x) => x.relation === "ally");
                 return (
-                <li key={r.streamer_id} className="rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <Link href={`/vs/${slug}/${r.slug}`} className="font-medium text-ink-200 hover:text-accent-400">
-                      vs {r.display_name}
-                    </Link>
-                    <span className="text-[11px] text-ink-400">마지막 {relativeDate(r.last_met)}</span>
-                  </div>
+                <li key={r.streamer_id} className="rounded-xl border border-ink-800 bg-ink-900/60">
+                  {/*
+                    ★ 접어 둔다. 상대가 수십 명이면 다 펴 놓은 목록은 못 읽는다.
+                      대신 접힌 줄만 보고도 "누구를, 몇 승 몇 패로" 가 보여야 접는 뜻이 있다.
+                      요약 줄에는 링크를 넣지 않는다 — 누르면 펼침과 이동이 겹친다.
+                  */}
+                  <details className="group">
+                    <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 hover:bg-ink-800/30">
+                      <span className="text-ink-500 transition-transform group-open:rotate-90">›</span>
+                      <span className="font-medium text-ink-200">vs {r.display_name}</span>
+                      <span className="tabular text-[11px] text-ink-400">
+                        {r.vs_matches > 0 ? (
+                          <>
+                            맞대결 {r.vs_match_wins}승
+                            {r.vs_match_draws > 0 && ` ${r.vs_match_draws}무`}
+                            {" "}{r.vs_matches - r.vs_match_wins - r.vs_match_draws}패
+                          </>
+                        ) : (
+                          "맞대결 없음"
+                        )}
+                        {r.ally_matches > 0 && (
+                          <span className="ml-2 text-ink-500">
+                            · 같은 팀 {r.ally_match_wins}승{" "}
+                            {r.ally_matches - r.ally_match_wins - r.ally_match_draws}패
+                          </span>
+                        )}
+                      </span>
+                      <span className="ml-auto text-[11px] text-ink-400">
+                        마지막 {relativeDate(r.last_met)}
+                      </span>
+                    </summary>
+
+                    <div className="px-4 pb-3">
+                      <Link
+                        href={`/vs/${slug}/${r.slug}`}
+                        className="text-[11px] text-ink-400 hover:text-accent-400"
+                      >
+                        {streamer.display_name} vs {r.display_name} 상대전적 페이지 →
+                      </Link>
 
                   {/*
                     ★ 두 블록을 시각적으로 가른다. 같은 팀 승리를 상대전적에 섞으면
@@ -367,6 +476,8 @@ export default async function StreamerProfile({
                       )}
                     </div>
                   </div>
+                    </div>
+                  </details>
                 </li>
                 );
               })}
