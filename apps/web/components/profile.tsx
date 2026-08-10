@@ -286,13 +286,25 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
   );
 }
 
-export function RivalSortFilter({
-  sort, hrefFor, total,
+/**
+ * 라이벌 필터 — **정렬과 연도를 한 창에** 둔다.
+ *
+ * 둘은 처음부터 같이 걸렸지만(주소에 둘 다 남는다) 창이 둘로 나뉘어 있어서
+ * 따로 노는 것처럼 보였다. 필터가 두 상자면 "이 둘이 같이 적용되나?" 를
+ * 화면이 대답해 주지 못한다. 하나로 합치고, 지금 뭐가 걸려 있는지 아래 줄에 적는다.
+ */
+export function RivalFilters({
+  sort, years, year, hrefFor, total,
 }: {
   sort: RivalSort;
+  years: number[];
+  year?: number;
   hrefFor: HrefFor;
   total: number;
 }) {
+  const active = sort !== "games" || year !== undefined;
+  const sortHint = RIVAL_SORTS.find((o) => o.key === sort)?.hint;
+
   return (
     <div className="mb-3 rounded-xl border border-ink-800 bg-ink-900/40 px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -309,9 +321,37 @@ export function RivalSortFilter({
           </Link>
         ))}
       </div>
-      <p className="mt-2 text-[11px] text-ink-500">
-        {RIVAL_SORTS.find((o) => o.key === sort)?.hint} · 상대 {total}명
-      </p>
+
+      {years.length > 1 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="w-8 shrink-0 text-[11px] text-ink-400">연도</span>
+          <Link href={hrefFor({ year: null })} scroll={false} className={chip(year === undefined)}>
+            전체
+          </Link>
+          {years.map((y) => (
+            <Link key={y} href={hrefFor({ year: y })} scroll={false} className={chip(year === y)}>
+              {y}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* 지금 뭐가 걸려 있는지 한 줄로 되읽어 준다. 칩 색만으로는 조합이 안 읽힌다. */}
+      <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-t border-ink-800 pt-2">
+        <span className="text-[11px] text-ink-500">
+          {year ? `${year}년 · ` : "전체 기간 · "}
+          {sortHint} · 상대 <span className="tabular text-ink-300">{total}</span>명
+        </span>
+        {active && (
+          <Link
+            href={hrefFor({ sort: null, year: null })}
+            scroll={false}
+            className="text-[11px] text-ink-400 hover:text-accent-400"
+          >
+            필터 지우기
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

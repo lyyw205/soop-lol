@@ -21,7 +21,7 @@ import {
 import { EmptyLine, PageShell, RankChip, SectionTitle, SiteHeader } from "@/components/public";
 import {
   AccountList, ChampionList, DEFAULT_PROFILE_TAB, EventList, GameList,
-  isProfileTab, MoreLink, PlacementRibbon, RivalCard, RivalRowCompact, RivalSortFilter,
+  isProfileTab, MoreLink, PlacementRibbon, RivalCard, RivalFilters, RivalRowCompact,
   TabBar, TierSection, YearFilter, type HrefFor, type ProfileTab,
 } from "@/components/profile";
 
@@ -114,8 +114,10 @@ export default async function StreamerProfile({
   }
 
   const main = accounts[0];
-  const yearNote =
-    "대회 성적과 라이벌에만 적용됩니다. 티어 추이·모스트 챔피언은 전체 기간입니다.";
+  // 탭이 생기기 전 문구는 "대회 성적과 라이벌에만 적용됩니다" 였는데, 이제 탭마다
+  // 필터가 따로 있어 그 말이 안 맞는다. 대신 **맨 위 통산 수상 내역이 왜 안 바뀌는지**를
+  // 적는다 — 그게 실제로 헷갈리는 지점이다.
+  const yearNote = "이 목록에만 적용됩니다. 맨 위 수상 내역은 통산이라 연도와 무관합니다.";
 
   return (
     <>
@@ -248,11 +250,16 @@ export default async function StreamerProfile({
             <SectionTitle hint="맞붙었을 때와 같은 팀이었을 때를 절대 섞지 않습니다">
               라이벌
             </SectionTitle>
-            {sortedRivals.length > 0 && (
-              <>
-                <RivalSortFilter sort={rivalSort} hrefFor={hrefFor} total={sortedRivals.length} />
-                <YearFilter years={years} year={year} hrefFor={hrefFor} />
-              </>
+            {/* 라이벌이 0명이어도 필터는 남긴다 — 연도를 잘못 걸어 0명이 됐을 때
+                필터가 사라지면 되돌릴 방법이 없다. */}
+            {(sortedRivals.length > 0 || year !== undefined) && (
+              <RivalFilters
+                sort={rivalSort}
+                years={years}
+                year={year}
+                hrefFor={hrefFor}
+                total={sortedRivals.length}
+              />
             )}
             {sortedRivals.length === 0 ? (
               <EmptyLine>
