@@ -9,7 +9,7 @@ import {
   listPublicChannels,
   listRecentGames,
   listRivals,
-  listRivalSeries,
+  listRivalGames,
   listStreamerEvents,
   listStreamerYears,
 } from "@soop-lol/core/lib/db/public";
@@ -17,14 +17,10 @@ import { POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 import {
   DualRecord,
-  EmptyLine,
-  SeriesLog,
-  UNIT_HINT,
-  UNIT_LABEL,
-  UnitToggle,
-  type RecordUnit, Kda, PageShell, PositionTag, QueueTag, RankChip, RecordBar,
+  EmptyLine, Kda, PageShell, PositionTag, QueueTag, RankChip, RecordBar,
   SectionTitle, SiteHeader, TierChart, WinPill, relativeDate,
 } from "@/components/public";
+import { SeriesLog } from "@/components/series-log";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +34,7 @@ export default async function StreamerProfile({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ year?: string; unit?: string }>;
+  searchParams: Promise<{ year?: string }>;
 }) {
   const { slug } = await params;
   const streamer = await getStreamerBySlug(slug);
@@ -48,20 +44,9 @@ export default async function StreamerProfile({
   // 주소창에 아무거나 넣어도 화면이 깨지지 않아야 한다.
   const sp = await searchParams;
   const year = sp.year && /^\d{4}$/.test(sp.year) ? Number(sp.year) : undefined;
-  const unit: RecordUnit = sp.unit === "set" ? "set" : "match";
+  const linkTo = (y?: number) => (y ? `/s/${slug}?year=${y}` : `/s/${slug}`);
 
-  /** 지금 상태를 유지한 채 한 가지만 바꾼 주소를 만든다. */
-  const linkTo = (next: { year?: number | null; unit?: RecordUnit }) => {
-    const q = new URLSearchParams();
-    const y = next.year === undefined ? year : next.year ?? undefined;
-    const u = next.unit ?? unit;
-    if (y) q.set("year", String(y));
-    if (u !== "match") q.set("unit", u);
-    const qs = q.toString();
-    return `/s/${slug}${qs ? `?${qs}` : ""}`;
-  };
-
-  const [channels, accounts, series, champions, games, rivals, events, years, rivalSeries] =
+  const [channels, accounts, series, champions, games, rivals, events, years, rivalGames] =
     await Promise.all([
     listPublicChannels(streamer.streamer_id),
     listProfileAccounts(streamer.streamer_id),
@@ -71,12 +56,12 @@ export default async function StreamerProfile({
     listRivals(streamer.streamer_id, { year }),
     listStreamerEvents(streamer.streamer_id, year),
     listStreamerYears(streamer.streamer_id),
-    listRivalSeries(streamer.streamer_id, year),
+    listRivalGames(streamer.streamer_id, year),
   ]);
 
   // 상대별로 갈라 둔다. 화면에서 라이벌마다 다시 훑지 않게 한 번만 접는다.
-  const seriesByRival = new Map<string, typeof rivalSeries>();
-  for (const r of rivalSeries) {
+  const seriesByRival = new Map<string, typeof rivalGames>();
+  for (const r of rivalGames) {
     const cur = seriesByRival.get(r.other_id) ?? [];
     cur.push(r);
     seriesByRival.set(r.other_id, cur);
@@ -154,18 +139,14 @@ export default async function StreamerProfile({
           </div>
         </section>
 
-        {/* ── 보기 설정: 집계 단위 · 연도 ── */}
-        <section className="mt-8 grid gap-3 rounded-xl border border-ink-800 bg-ink-900/40 px-4 py-3">
-          <div>
-            <UnitToggle unit={unit} hrefFor={(u) => linkTo({ unit: u })} />
-            <p className="mt-2 text-[11px] text-ink-400">{UNIT_HINT[unit]}</p>
-          </div>
-          {years.length > 1 && (
-            <div className="border-t border-ink-800 pt-3">
+        {/* ── 연도 필터 ── */}
+        {years.length > 1 && (
+          <section className="mt-8 rounded-xl border border-ink-800 bg-ink-900/40 px-4 py-3">
+            <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] text-ink-400">연도</span>
                 <Link
-                  href={linkTo({ year: null })}
+                  href={linkTo()}
                   className={`rounded-full border px-3 py-1 text-xs ${
                     year === undefined
                       ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
@@ -177,7 +158,7 @@ export default async function StreamerProfile({
                 {years.map((y) => (
                   <Link
                     key={y}
-                    href={linkTo({ year: y })}
+                    href={linkTo(y)}
                     className={`rounded-full border px-3 py-1 text-xs ${
                       year === y
                         ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
@@ -192,8 +173,8 @@ export default async function StreamerProfile({
                 대회 성적과 라이벌에만 적용됩니다. 티어 추이·모스트 챔피언은 전체 기간입니다.
               </p>
             </div>
-          )}
-        </section>
+          </section>
+        )}
 
         {/* ── 대회 성적 ── */}
         <section className="mt-8">
@@ -220,13 +201,9 @@ export default async function StreamerProfile({
                     </p>
                   ) : (
                     <p className="tabular mt-2 text-sm text-ink-300">
-                      {unit === "match"
-                        ? `매치 ${e.match_wins}승 ${e.matches - e.match_wins}패`
-                        : `세트 ${e.set_wins}승 ${e.sets - e.set_wins}패`}
+                      매치 {e.match_wins}승 {e.matches - e.match_wins}패
                       <span className="ml-3 text-[11px] text-ink-500">
-                        {unit === "match"
-                          ? `세트로는 ${e.set_wins}승 ${e.sets - e.set_wins}패`
-                          : `매치로는 ${e.match_wins}승 ${e.matches - e.match_wins}패`}
+                        세트로는 {e.set_wins}승 {e.sets - e.set_wins}패
                       </span>
                     </p>
                   )}
@@ -275,7 +252,6 @@ export default async function StreamerProfile({
                           </div>
                           <DualRecord
                             label="상대"
-                        unit={unit}
                             match={{ wins: r.vs_match_wins, losses: r.vs_matches - r.vs_match_wins }}
                             set={{ wins: r.vs_set_wins, losses: r.vs_sets - r.vs_set_wins }}
                           />
@@ -286,13 +262,12 @@ export default async function StreamerProfile({
                               </div>
                               <DualRecord
                                 label="맞라인"
-                                unit={unit}
                                 match={{ wins: r.lane_match_wins, losses: r.lane_matches - r.lane_match_wins }}
                                 set={{ wins: r.lane_set_wins, losses: r.lane_sets - r.lane_set_wins }}
                               />
                             </div>
                           )}
-                          <SeriesLog rows={vsRows} label="맞붙은" />
+                          <SeriesLog games={vsRows} label="맞붙은" />
                         </>
                       )}
                     </div>
@@ -308,11 +283,10 @@ export default async function StreamerProfile({
                           </div>
                           <DualRecord
                             label="같은 팀"
-                            unit={unit}
                             match={{ wins: r.ally_match_wins, losses: r.ally_matches - r.ally_match_wins }}
                             set={{ wins: r.ally_set_wins, losses: r.ally_sets - r.ally_set_wins }}
                           />
-                          <SeriesLog rows={allyRows} label="같은 팀으로" />
+                          <SeriesLog games={allyRows} label="같은 팀으로" />
                         </>
                       )}
                     </div>

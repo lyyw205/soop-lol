@@ -113,123 +113,37 @@ export function TierChart({
  *   3승 0패를 "승률 100%" 로 크게 쓰지 않는다. 표본 수를 **항상** 같이 보여주고,
  *   표본이 작으면 '참고용' 이라고 화면에 적는다. 재미 사이트라도 숫자로 거짓말하면 안 된다.
  */
-/** 전적을 세는 단위. 주소창의 `?unit=set` 로 바뀐다. */
-export type RecordUnit = "match" | "set";
-
-export const UNIT_LABEL: Record<RecordUnit, string> = {
-  match: "매치",
-  set: "세트",
-};
-
-export const UNIT_HINT: Record<RecordUnit, string> = {
-  match: "다전제 한 판을 1경기로 셉니다 (3판 2선승을 2:1 로 이기면 1승)",
-  set: "다전제의 각 세트를 1판으로 셉니다 (3판 2선승을 2:1 로 이기면 2승 1패)",
-};
-
-/** 매치로 볼지 세트로 볼지 고르는 스위치. 링크라 자바스크립트가 필요 없다. */
-export function UnitToggle({ unit, hrefFor }: { unit: RecordUnit; hrefFor: (u: RecordUnit) => string }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[11px] text-ink-400">단위</span>
-      {(["match", "set"] as const).map((u) => (
-        <Link
-          key={u}
-          href={hrefFor(u)}
-          className={`rounded-full border px-3 py-1 text-xs ${
-            unit === u
-              ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
-              : "border-ink-800 text-ink-400 hover:text-ink-200"
-          }`}
-        >
-          {UNIT_LABEL[u]}로 보기
-        </Link>
-      ))}
-    </div>
-  );
-}
-
 /**
- * 고른 단위로 전적을 그린다.
+ * 매치 전적과 세트 전적을 같이 보여준다.
  *
  * 3판 2선승을 2:1 로 이기면 **매치로는 1승 0패, 세트로는 2승 1패**다.
- * 둘은 다른 사실이라 한 막대에 섞으면 둘 다 틀린다. 그래서 고른 쪽을 크게 그리고
- * 다른 쪽은 작은 글씨로 남긴다 — 지워버리면 "그럼 반대로 세면 몇이지?" 를 답할 수 없다.
+ * 둘은 다른 사실이라 한 막대에 섞으면 둘 다 틀린다. 매치를 크게 쓰고
+ * 세트를 밑에 작게 적는다 — 어느 쪽이 궁금한지는 사람마다 달라서
+ * 한쪽을 지우면 그 사람이 답을 못 얻는다.
+ *
+ * 경기 하나하나를 어느 단위로 볼지는 펼침 목록(SeriesLog)의 탭에서 고른다.
+ * 페이지 맨 위에 두면 목록을 보다가 위로 올라갔다 내려와야 한다.
  *
  * 전부 단판이면 두 수치가 같으므로 보조 줄을 그리지 않는다.
  * 같은 숫자를 두 번 쓰면 다른 뜻인 줄 오해한다.
  */
 export function DualRecord({
-  match, set, unit, label,
-}: { match: HeadToHead; set: HeadToHead; unit: RecordUnit; label?: string }) {
-  const shown = unit === "match" ? match : set;
-  const other = unit === "match" ? set : match;
-  const otherUnit: RecordUnit = unit === "match" ? "set" : "match";
+  match, set, label,
+}: { match: HeadToHead; set: HeadToHead; label?: string }) {
   const sameUnit = match.wins === set.wins && match.losses === set.losses;
-
   return (
     <div>
-      <RecordBar record={shown} label={label} />
-      {!sameUnit && (other.wins + other.losses > 0) && (
+      <RecordBar record={match} label={label} />
+      {!sameUnit && (
         <p className="tabular mt-2 text-[11px] text-ink-500">
-          {UNIT_LABEL[otherUnit]}로는 {other.wins}승 {other.losses}패
-          <span className="ml-1">({Math.round((rawWinRate(other) ?? 0) * 100)}%)</span>
+          세트로는 {set.wins}승 {set.losses}패
+          <span className="ml-1">({Math.round((rawWinRate(set) ?? 0) * 100)}%)</span>
         </p>
       )}
     </div>
   );
 }
 
-export function SeriesLog({
-  rows, label,
-}: {
-  rows: {
-    series_key: string;
-    played_at: Date | string;
-    event_name: string | null;
-    source: string;
-    sets: number;
-    set_wins: number;
-    all_lane: boolean;
-  }[];
-  label: string;
-}) {
-  if (rows.length === 0) return null;
-  return (
-    <details className="mt-3 border-t border-ink-800 pt-2">
-      <summary className="cursor-pointer text-[11px] text-ink-400 hover:text-ink-200">
-        {label} {rows.length}경기 — 언제였는지 보기
-      </summary>
-      <ul className="mt-2 grid gap-1">
-        {rows.map((r) => {
-          const won = r.set_wins * 2 > r.sets;
-          const d = new Date(r.played_at);
-          return (
-            <li key={r.series_key} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
-              <span className={`tabular w-9 shrink-0 font-medium ${won ? "text-win" : "text-lose"}`}>
-                {won ? "승" : "패"}
-              </span>
-              <span className="tabular w-20 shrink-0 text-ink-400">
-                {d.getFullYear()}.{String(d.getMonth() + 1).padStart(2, "0")}.
-                {String(d.getDate()).padStart(2, "0")}
-              </span>
-              <span className="tabular w-10 shrink-0 text-ink-300">
-                {r.set_wins}:{r.sets - r.set_wins}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-ink-400">
-                {r.event_name ?? (r.source === "public_queue" ? "공개 큐" : "-")}
-              </span>
-              {r.all_lane && (
-                <span className="shrink-0 rounded border border-ink-700 px-1 text-[10px] text-ink-400">
-                  맞라인
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </details>
-  );
-}
 
 export function RecordBar({ record, label }: { record: HeadToHead; label?: string }) {
   const n = record.wins + record.losses;

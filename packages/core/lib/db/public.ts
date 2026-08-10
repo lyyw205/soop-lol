@@ -381,51 +381,46 @@ export async function listStreamerYears(streamerId: string): Promise<number[]> {
 }
 
 
-export interface RivalSeries {
+export interface RivalGame {
   other_id: string;
+  match_id: string;
   series_key: string;
+  series_game_no: number | null;
   relation: "opponent" | "ally";
   source: string;
   event_name: string | null;
   played_at: Date;
-  sets: number;
-  set_wins: number;
-  all_lane: boolean;
+  me_win: boolean;
+  is_lane_matchup: boolean;
 }
 
 /**
- * 라이벌 카드를 펼쳤을 때 보여줄 **경기 하나하나**. 최신순.
+ * 라이벌 카드를 펼쳤을 때 보여줄 경기 목록. **세트 한 판이 한 줄**이다.
  *
- * 승률만 보여주면 "언제 붙은 건데?" 를 답할 수 없다 — 2020년 한 판과
- * 2026년 열 판이 같은 줄에 뭉쳐 있으면 숫자의 뜻이 흐려진다.
- * 시리즈(다전제) 단위로 접어서 날짜·대회·세트 스코어를 같이 준다.
+ * 매치 단위 목록은 화면에서 series_key 로 접어 만든다 — 여기서 미리 접어 버리면
+ * '세트로 보기' 탭에서 다시 펼칠 수가 없다. 한 번 가져와 두 가지로 보여준다.
+ *
+ * 승률 숫자만으로는 "언제 붙은 건데?" 를 답할 수 없다. 2020년 한 판과
+ * 2026년 열 판이 같은 줄에 뭉쳐 있으면 뜻이 흐려진다.
  */
-export async function listRivalSeries(streamerId: string, year?: number): Promise<RivalSeries[]> {
+export async function listRivalGames(streamerId: string, year?: number): Promise<RivalGame[]> {
   const sql = db();
-  return sql<RivalSeries[]>`
-    WITH e AS (
-      SELECT CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.streamer_b_id
-                  ELSE se.streamer_a_id END AS other_id,
-             CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.a_win
-                  ELSE se.b_win END AS me_win,
-             se.relation, se.is_lane_matchup, se.series_key, se.game_creation, se.source,
-             m.event_id
-        FROM core_public.streamer_encounter se
-        JOIN core_public.match m ON m.match_id = se.match_id
-       WHERE (se.streamer_a_id = ${streamerId}::uuid OR se.streamer_b_id = ${streamerId}::uuid)
-         AND (${year ?? null}::int IS NULL
-              OR EXTRACT(YEAR FROM se.game_creation) = ${year ?? null}::int)
-    )
-    SELECT e.other_id, e.series_key, e.relation, e.source,
-           ev.name                                  AS event_name,
-           min(e.game_creation)                     AS played_at,
-           count(*)::int                            AS sets,
-           count(*) FILTER (WHERE e.me_win)::int    AS set_wins,
-           bool_and(e.is_lane_matchup)              AS all_lane
-      FROM e
-      LEFT JOIN core_public.event ev ON ev.event_id = e.event_id
-     GROUP BY e.other_id, e.series_key, e.relation, e.source, ev.name
-     ORDER BY min(e.game_creation) DESC
+  return sql<RivalGame[]>`
+    SELECT CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.streamer_b_id
+                ELSE se.streamer_a_id END                       AS other_id,
+           se.match_id, se.series_key, se.series_game_no,
+           se.relation, se.source, se.is_lane_matchup,
+           se.game_creation                                     AS played_at,
+           CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.a_win
+                ELSE se.b_win END                               AS me_win,
+           ev.name                                              AS event_name
+      FROM core_public.streamer_encounter se
+      JOIN core_public.match m ON m.match_id = se.match_id
+      LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
+     WHERE (se.streamer_a_id = ${streamerId}::uuid OR se.streamer_b_id = ${streamerId}::uuid)
+       AND (${year ?? null}::int IS NULL
+            OR EXTRACT(YEAR FROM se.game_creation) = ${year ?? null}::int)
+     ORDER BY se.game_creation DESC, se.series_game_no DESC
   `;
 }
 
