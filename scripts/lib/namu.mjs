@@ -256,14 +256,24 @@ export async function fetchToc(title) {
  *   한 경기에서 상대 5명 모두와 조우가 맺히는데, 그중 "같은 라인에서 맞붙은 1:1"은
  *   포지션을 알아야 가려낼 수 있다. 팀 대 팀 상대전적과 1:1 맞라인은 다른 사실이다.
  *
- * 나무위키 표는 여섯 칸이 한 줄이라 평문으로 펴면 6개씩 끊어 읽으면 된다.
- * 헤더가 정확히 6칸인 표만 쓴다 — 투표 순위 같은 칸이 붙은 표는 열 수가 달라
- * 잘못 끊긴다.
+ * ★ 표를 **행·칸 구조 그대로** 읽는다. 평문으로 펴서 6개씩 끊지 않는다.
+ *
+ *   예전엔 태그를 다 지워 한 줄씩 늘어놓고 6칸씩 끊었다. 그러면 셀 하나가 두 줄이
+ *   되는 순간(`팀 릴동파<br>식스맨: 장하니`) **그 행부터 끝까지 한 칸씩 밀린다.**
+ *   2026 시즌1·2025 시즌2 가 그랬다 — 팀 이름이 선수 자리로 들어가서
+ *   본선 팀 8개 중 6~7개가 표에서 사라진 것처럼 보였고, 그걸 보고 나는
+ *   "본선이 드래프트로 재편되는 회차" 라고 잘못 결론 냈다. 표는 멀쩡했다.
+ *
+ *   행으로 읽으면 열 수가 달라도(본선 표는 SUB 가 붙어 7칸) 안 밀린다.
  */
 export async function fetchRosters(title) {
   const res = await fetch(namuUrl(title), { headers: { "User-Agent": UA } });
   if (!res.ok) return null;
   const html = await res.text();
+
+  const byTable = rosterFromTables(html);
+  if (byTable) return byTable;
+
   const lines = decode(html.replace(/<[^>]+>/g, "\n"))
     .split("\n").map((s) => s.trim()).filter(Boolean);
 
@@ -299,6 +309,46 @@ export async function fetchRosters(title) {
     const [team, ...members] = row;
     if (teams[team]) break;              // 같은 표가 두 번 잡히면 거기서 멈춘다
     teams[team] = members;
+  }
+  return Object.keys(teams).length > 0 ? teams : null;
+}
+
+/**
+ * `TEAM | TOP | JGL | MID | BOT | SPT` 헤더를 가진 표를 **행 단위로** 읽는다.
+ *
+ * 한 문서에 이런 표가 둘 있는 회차가 있다 — '참가 팀'(예선 포함 39팀)과
+ * '본선 진출 팀'(8팀, 뒤에 SUB 칸이 더 붙는다). **둘 다 읽어서 합친다.**
+ * 뒤에 나오는 본선 표가 앞의 참가팀 표를 덮지 않게, 먼저 본 쪽을 남긴다.
+ */
+function rosterFromTables(html) {
+  const JGL = new Set(["JGL", "JUG", "JUNGLE", "정글"]);
+  const SUP = new Set(["SUP", "SPT", "SUPPORT", "서포터"]);
+  // 셀 안의 줄바꿈은 살려 둔다 — 부연이 붙은 셀에서 첫 줄만 쓰기 위해서다.
+  const cellText = (c) =>
+    decode(c.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "\n"))
+      .split("\n").map((x) => x.trim()).filter(Boolean).join("\n");
+
+  const teams = {};
+  for (const t of html.matchAll(/<table[^>]*>([\s\S]*?)<\/table>/g)) {
+    const rows = [...t[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((r) =>
+      [...r[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map((c) => cellText(c[1])));
+    const hi = rows.findIndex((c) =>
+      c.length >= 6 && c[0] === "TEAM" && c[1] === "TOP" &&
+      JGL.has(c[2]) && c[3] === "MID" && c[4] === "BOT" && SUP.has(c[5]));
+    if (hi < 0) continue;
+
+    for (const row of rows.slice(hi + 1)) {
+      // 헤더와 칸 수가 같은 행만 쓴다. 캡션·구분줄은 칸 수가 다르다.
+      if (row.length !== rows[hi].length) continue;
+      // 셀 안의 두 번째 줄은 부연이다 — '팀 릴동파 / 식스맨: 장하니'.
+      // 팀 이름은 첫 줄만 쓴다. 이걸 칸으로 세던 게 예전 파서가 밀린 원인이다.
+      const cut = (s) => (s.split("\n")[0] ?? "").replace(/\[[^\]]{1,3}\]$/, "").trim();
+      const team = cut(row[0]);
+      const members = row.slice(1, 6).map((m) => cut(m) || null);
+      if (!team || team === "TEAM" || /^[\d.]+$/.test(team)) continue;
+      if (team in teams) continue;      // 참가팀 표가 먼저다. 본선 표가 덮지 않는다.
+      teams[team] = members;
+    }
   }
   return Object.keys(teams).length > 0 ? teams : null;
 }
@@ -364,10 +414,21 @@ export async function fetchPlacements(title) {
   const PLACEMENT = /^(우승|준우승|공동\s*\d|\d+강|\d+위|.*탈락|.*진출|본선|예선.*)$/;
 
   const legend = new Map();
+  // (가) 옛 형식 — 표 위에 '■우승 ■준우승 …' 을 스팬으로 늘어놓는다.
   for (const m of html.matchAll(/color:\s*(#[0-9a-fA-F]{6})[^>]*>■<\/span><\/span>\s*([^<]{1,20})/g)) {
     const label = decode(m[2]).trim();
     const rgb = hexToRgb(m[1]);
     if (rgb && PLACEMENT.test(label)) legend.set(rgb, label);
+  }
+  // (나) 2025~2026 형식 — 범례가 **색칠된 표 한 줄**이다. ■ 가 아예 없다.
+  //     <td style='background-color: rgb(r,g,b)…'><div>4강 탈락</div></td>
+  //     이걸 못 읽어서 2025 시즌2·2026 시즌1 은 순위가 통째로 비어 있었다.
+  //     팀 셀도 같은 모양이라, 칸 글자가 **순위 이름일 때만** 범례로 받는다.
+  for (const m of html.matchAll(
+    /background-color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)[^>]*>\s*<div[^>]*>([^<]{1,20})<\/div>/g,
+  )) {
+    const label = decode(m[4]).trim();
+    if (PLACEMENT.test(label)) legend.set(`${m[1]},${m[2]},${m[3]}`, label);
   }
   if (legend.size === 0) return null;
 

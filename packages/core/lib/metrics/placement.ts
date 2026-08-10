@@ -14,12 +14,16 @@ export function placementRank(label: string | null | undefined): number | null {
   const t = String(label).replace(/\s+/g, "");
   if (t === "우승") return 1;
   if (t === "준우승") return 2;
+  // ★ '4강 탈락'·'8강 탈락' 은 **거기까지 갔다**는 뜻이다. 예선 탈락과 같이 세면 안 된다.
+  //   2025~2026 회차 범례가 이 표기를 쓴다. 아래 `탈락` 규칙보다 반드시 먼저 본다 —
+  //   순서를 바꾸면 4강까지 간 팀이 조용히 '예선 탈락' 으로 집계된다.
+  const gang = /^(\d+)강(탈락)?$/.exec(t);
+  if (gang) return Number(gang[1]);
   // 예선은 몇 차에서 떨어졌든 '본선에 못 왔다' 로 묶는다. 회차마다 예선 단계 수가 달라
   // 그대로 두면 요약이 잘게 쪼개져 읽히지 않는다.
   if (/탈락/.test(t)) return 99;
-  const gang = /^(\d+)강$/.exec(t);
-  if (gang) return Number(gang[1]);
-  const wi = /^공동?(\d+)(-\d+)?위$/.exec(t);
+  // '공동3위' 도 '3위' 도 받는다. '공동3-4위' 처럼 범위로 적힌 회차는 앞 숫자를 쓴다.
+  const wi = /^(?:공동?)?(\d+)(?:-\d+)?위$/.exec(t);
   if (wi) return Number(wi[1]);
   if (t === "본선" || t === "본선진출") return 50;
   return null;
