@@ -135,45 +135,53 @@ export function YearFilter({
   );
 }
 
-export function PlacementCard({ placements, year }: { placements: PlacementSummary; year?: number }) {
+/**
+ * 수상 내역 — **기본 정보 줄**에 붙는 한 줄짜리 띠.
+ *
+ * 전에는 탭 안에 5칸짜리 큰 카드로 있었는데, 이 사람이 뭘 이겼는지는
+ * 탭을 골라야 보이는 정보가 아니다. 이름 바로 아래가 제자리다.
+ *
+ * ★ 우승만 강조하고 나머지는 잔글씨다. 다 강조하면 아무것도 강조가 아니다.
+ * ★ 0 인 등수는 아예 안 적는다 — 띠가 길어지면 띠가 아니다.
+ *   단 우승은 0 이어도 자리를 비우지 않는다(뒤에 준우승부터 이어 적는다).
+ *
+ * ★ 연도 필터를 **일부러 안 건다.** 여기는 프로필 머리라 어느 탭에서도 같은 값이어야
+ *   한다. 연도를 누를 때마다 이름 옆 우승 횟수가 바뀌면 그게 통산인지 그 해인지
+ *   알 수 없어진다. 통산이라고 적고 통산을 보여준다.
+ */
+export function PlacementRibbon({
+  placements, href,
+}: {
+  placements: PlacementSummary;
+  href: string;
+}) {
   if (placements.total === 0) return null;
+  const champion = placements.buckets.find((b) => b.key === "champion");
+  const rest = placements.buckets.filter((b) => b.key !== "champion" && b.count > 0);
+
   return (
-    <section className="rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-4">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-sm font-medium text-ink-200">
-          대회 {placements.total}회 참가
-          {year && <span className="ml-1 text-[11px] text-ink-400">· {year}년</span>}
+    <Link
+      href={href}
+      scroll={false}
+      title="대회 성적 보기"
+      className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] hover:opacity-90"
+    >
+      {champion && champion.count > 0 && (
+        <span className="rounded-md border border-amber-400/45 bg-amber-400/10 px-2 py-0.5 font-medium text-amber-300">
+          통산 우승 <span className="tabular">{champion.count}</span>회
         </span>
-        {placements.unknown > 0 && (
-          <span className="text-[11px] text-ink-500">
-            순위를 확인하지 못한 대회 {placements.unknown}회는 세지 않았습니다
-          </span>
-        )}
-      </div>
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-        {placements.buckets.map((b) => (
-          <div
-            key={b.key}
-            className={`rounded-lg border px-3 py-2 text-center ${
-              b.count > 0 && b.key === "champion"
-                ? "border-amber-400/40 bg-amber-400/10"
-                : b.count > 0
-                  ? "border-ink-700 bg-ink-800/40"
-                  : "border-ink-800/60"
-            }`}
-          >
-            <div
-              className={`tabular text-lg font-semibold ${
-                b.count === 0 ? "text-ink-600" : b.key === "champion" ? "text-amber-300" : "text-ink-200"
-              }`}
-            >
-              {b.count}
-            </div>
-            <div className="text-[11px] text-ink-400">{b.label}</div>
-          </div>
-        ))}
-      </div>
-    </section>
+      )}
+      {rest.map((b) => (
+        <span key={b.key} className="text-ink-400">
+          {b.label} <span className="tabular text-ink-300">{b.count}</span>
+        </span>
+      ))}
+      <span className="text-ink-500">
+        · 대회 {placements.total}회
+        {/* 버킷 합과 총계가 다른 이유를 안 적으면 숫자가 안 맞는 것처럼 보인다. */}
+        {placements.unknown > 0 && ` (순위 미상 ${placements.unknown})`}
+      </span>
+    </Link>
   );
 }
 

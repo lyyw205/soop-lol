@@ -21,7 +21,7 @@ import {
 import { EmptyLine, PageShell, RankChip, SectionTitle, SiteHeader } from "@/components/public";
 import {
   AccountList, ChampionList, DEFAULT_PROFILE_TAB, EventList, GameList,
-  isProfileTab, MoreLink, PlacementCard, RivalCard, RivalRowCompact, RivalSortFilter,
+  isProfileTab, MoreLink, PlacementRibbon, RivalCard, RivalRowCompact, RivalSortFilter,
   TabBar, TierSection, YearFilter, type HrefFor, type ProfileTab,
 } from "@/components/profile";
 
@@ -92,7 +92,9 @@ export default async function StreamerProfile({
       listStreamerYears(id),
       needs.series ? getRankSeries(id) : [],
       needs.events ? listStreamerEvents(id, year) : [],
-      needs.events ? summarizePlacements(id, year) : null,
+      // ★ 연도를 안 넘긴다. 수상 내역은 프로필 머리에 붙어 어느 탭에서도 같은 값이어야
+      //   한다 — 연도를 누를 때마다 이름 옆 우승 횟수가 바뀌면 통산인지 그 해인지 모른다.
+      summarizePlacements(id),
       needs.rivals ? listRivals(id, { year }) : [],
       needs.rivalGames ? listRivalGames(id, year) : [],
       needs.champions ? listChampions(id) : [],
@@ -146,6 +148,8 @@ export default async function StreamerProfile({
                 </a>
               ))}
             </div>
+            {/* 수상 내역 — 탭 안이 아니라 이름 바로 아래가 제자리다. 우승만 강조한다. */}
+            <PlacementRibbon placements={placements} href={hrefFor({ tab: "events" })} />
           </div>
           {main && (
             <div className="text-right">
@@ -177,8 +181,6 @@ export default async function StreamerProfile({
         {/* ── 요약 ── */}
         {tab === "summary" && (
           <div className="mt-6 grid gap-8">
-            {placements && <PlacementCard placements={placements} year={year} />}
-
             <section>
               <SectionTitle hint="맞붙었을 때와 같은 팀이었을 때를 절대 섞지 않습니다">
                 라이벌
@@ -233,14 +235,11 @@ export default async function StreamerProfile({
 
         {/* ── 대회 ── */}
         {tab === "events" && (
-          <div className="mt-6 grid gap-6">
-            {placements && <PlacementCard placements={placements} year={year} />}
-            <section>
-              <SectionTitle hint="주최측이 발표한 기록">대회 성적</SectionTitle>
-              <YearFilter years={years} year={year} hrefFor={hrefFor} note={yearNote} />
-              <EventList events={events} year={year} />
-            </section>
-          </div>
+          <section className="mt-6">
+            <SectionTitle hint="주최측이 발표한 기록">대회 성적</SectionTitle>
+            <YearFilter years={years} year={year} hrefFor={hrefFor} note={yearNote} />
+            <EventList events={events} year={year} />
+          </section>
         )}
 
         {/* ── 라이벌 — 이 사이트의 훅 ── */}
