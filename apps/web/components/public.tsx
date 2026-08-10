@@ -123,6 +123,67 @@ export function TierChart({
  * 전부 단판이면(공개 큐만 있을 때) 두 수치가 같으므로 한 줄만 그린다 —
  * 같은 숫자를 두 번 쓰면 다른 뜻인 줄 오해한다.
  */
+/**
+ * 라이벌 카드를 펼쳤을 때 나오는 경기 목록.
+ *
+ * 승률 숫자만 보면 "언제 붙은 건데?" 를 답할 수 없다 — 2020년 한 판과
+ * 2026년 열 판이 같은 줄에 뭉쳐 있으면 뜻이 흐려진다. 그래서 날짜와 대회를 같이 적는다.
+ *
+ * `<details>` 를 쓰는 이유는 자바스크립트 없이 접었다 펼 수 있어서다 —
+ * 이 페이지는 서버에서 그려지고, 이것 하나 때문에 클라이언트 컴포넌트로 만들 이유가 없다.
+ */
+export function SeriesLog({
+  rows, label,
+}: {
+  rows: {
+    series_key: string;
+    played_at: Date | string;
+    event_name: string | null;
+    source: string;
+    sets: number;
+    set_wins: number;
+    all_lane: boolean;
+  }[];
+  label: string;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <details className="mt-3 border-t border-ink-800 pt-2">
+      <summary className="cursor-pointer text-[11px] text-ink-400 hover:text-ink-200">
+        {label} {rows.length}경기 — 언제였는지 보기
+      </summary>
+      <ul className="mt-2 grid gap-1">
+        {rows.map((r) => {
+          const won = r.set_wins * 2 > r.sets;
+          const d = new Date(r.played_at);
+          return (
+            <li key={r.series_key} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+              <span className={`tabular w-9 shrink-0 font-medium ${won ? "text-win" : "text-lose"}`}>
+                {won ? "승" : "패"}
+              </span>
+              <span className="tabular w-20 shrink-0 text-ink-400">
+                {d.getFullYear()}.{String(d.getMonth() + 1).padStart(2, "0")}.
+                {String(d.getDate()).padStart(2, "0")}
+              </span>
+              <span className="tabular w-10 shrink-0 text-ink-300">
+                {r.set_wins}:{r.sets - r.set_wins}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-ink-400">
+                {r.event_name ?? (r.source === "public_queue" ? "공개 큐" : "-")}
+              </span>
+              {r.all_lane && (
+                <span className="shrink-0 rounded border border-ink-700 px-1 text-[10px] text-ink-400">
+                  맞라인
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
+  );
+}
+
 export function DualRecord({
   match, set, label,
 }: { match: HeadToHead; set: HeadToHead; label?: string }) {

@@ -380,6 +380,55 @@ export async function listStreamerYears(streamerId: string): Promise<number[]> {
   return rows.map((r) => r.y);
 }
 
+
+export interface RivalSeries {
+  other_id: string;
+  series_key: string;
+  relation: "opponent" | "ally";
+  source: string;
+  event_name: string | null;
+  played_at: Date;
+  sets: number;
+  set_wins: number;
+  all_lane: boolean;
+}
+
+/**
+ * 라이벌 카드를 펼쳤을 때 보여줄 **경기 하나하나**. 최신순.
+ *
+ * 승률만 보여주면 "언제 붙은 건데?" 를 답할 수 없다 — 2020년 한 판과
+ * 2026년 열 판이 같은 줄에 뭉쳐 있으면 숫자의 뜻이 흐려진다.
+ * 시리즈(다전제) 단위로 접어서 날짜·대회·세트 스코어를 같이 준다.
+ */
+export async function listRivalSeries(streamerId: string, year?: number): Promise<RivalSeries[]> {
+  const sql = db();
+  return sql<RivalSeries[]>`
+    WITH e AS (
+      SELECT CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.streamer_b_id
+                  ELSE se.streamer_a_id END AS other_id,
+             CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.a_win
+                  ELSE se.b_win END AS me_win,
+             se.relation, se.is_lane_matchup, se.series_key, se.game_creation, se.source,
+             m.event_id
+        FROM core_public.streamer_encounter se
+        JOIN core_public.match m ON m.match_id = se.match_id
+       WHERE (se.streamer_a_id = ${streamerId}::uuid OR se.streamer_b_id = ${streamerId}::uuid)
+         AND (${year ?? null}::int IS NULL
+              OR EXTRACT(YEAR FROM se.game_creation) = ${year ?? null}::int)
+    )
+    SELECT e.other_id, e.series_key, e.relation, e.source,
+           ev.name                                  AS event_name,
+           min(e.game_creation)                     AS played_at,
+           count(*)::int                            AS sets,
+           count(*) FILTER (WHERE e.me_win)::int    AS set_wins,
+           bool_and(e.is_lane_matchup)              AS all_lane
+      FROM e
+      LEFT JOIN core_public.event ev ON ev.event_id = e.event_id
+     GROUP BY e.other_id, e.series_key, e.relation, e.source, ev.name
+     ORDER BY min(e.game_creation) DESC
+  `;
+}
+
 // ── 홈 ───────────────────────────────────────────────────────────────
 
 export interface RecentEncounter {

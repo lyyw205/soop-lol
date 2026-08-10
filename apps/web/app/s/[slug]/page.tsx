@@ -9,6 +9,7 @@ import {
   listPublicChannels,
   listRecentGames,
   listRivals,
+  listRivalSeries,
   listStreamerEvents,
   listStreamerYears,
 } from "@soop-lol/core/lib/db/public";
@@ -16,7 +17,8 @@ import { POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 import {
   DualRecord,
-  EmptyLine, Kda, PageShell, PositionTag, QueueTag, RankChip, RecordBar,
+  EmptyLine,
+  SeriesLog, Kda, PageShell, PositionTag, QueueTag, RankChip, RecordBar,
   SectionTitle, SiteHeader, TierChart, WinPill, relativeDate,
 } from "@/components/public";
 
@@ -42,7 +44,8 @@ export default async function StreamerProfile({
   const raw = (await searchParams).year;
   const year = raw && /^\d{4}$/.test(raw) ? Number(raw) : undefined;
 
-  const [channels, accounts, series, champions, games, rivals, events, years] = await Promise.all([
+  const [channels, accounts, series, champions, games, rivals, events, years, rivalSeries] =
+    await Promise.all([
     listPublicChannels(streamer.streamer_id),
     listProfileAccounts(streamer.streamer_id),
     getRankSeries(streamer.streamer_id),
@@ -51,7 +54,16 @@ export default async function StreamerProfile({
     listRivals(streamer.streamer_id, { year }),
     listStreamerEvents(streamer.streamer_id, year),
     listStreamerYears(streamer.streamer_id),
+    listRivalSeries(streamer.streamer_id, year),
   ]);
+
+  // 상대별로 갈라 둔다. 화면에서 라이벌마다 다시 훑지 않게 한 번만 접는다.
+  const seriesByRival = new Map<string, typeof rivalSeries>();
+  for (const r of rivalSeries) {
+    const cur = seriesByRival.get(r.other_id) ?? [];
+    cur.push(r);
+    seriesByRival.set(r.other_id, cur);
+  }
 
   const main = accounts[0];
 
@@ -206,7 +218,11 @@ export default async function StreamerProfile({
             </EmptyLine>
           ) : (
             <ul className="grid gap-2">
-              {rivals.map((r) => (
+              {rivals.map((r) => {
+                const mine = seriesByRival.get(r.streamer_id) ?? [];
+                const vsRows = mine.filter((x) => x.relation === "opponent");
+                const allyRows = mine.filter((x) => x.relation === "ally");
+                return (
                 <li key={r.streamer_id} className="rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <Link href={`/vs/${slug}/${r.slug}`} className="font-medium text-ink-200 hover:text-accent-400">
@@ -247,6 +263,7 @@ export default async function StreamerProfile({
                               />
                             </div>
                           )}
+                          <SeriesLog rows={vsRows} label="맞붙은" />
                         </>
                       )}
                     </div>
@@ -265,12 +282,14 @@ export default async function StreamerProfile({
                             match={{ wins: r.ally_match_wins, losses: r.ally_matches - r.ally_match_wins }}
                             set={{ wins: r.ally_set_wins, losses: r.ally_sets - r.ally_set_wins }}
                           />
+                          <SeriesLog rows={allyRows} label="같은 팀으로" />
                         </>
                       )}
                     </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>
