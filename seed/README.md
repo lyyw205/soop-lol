@@ -55,6 +55,49 @@ SOOP 표기가 라이엇 정본과 어긋난다. 실제로 겪은 것:
 | SOOP 채널 공지 게시판 | 스트리머 본인이 라이엇 ID 를 적어두지 않는다 (40명 표본에서 0건) |
 | 전적 사이트 | 지침상 금지 (§11-9). ToS 위반이고 Production Key 심사 감점 |
 
+## 대회 기록 (seed/tournaments.json)
+
+```bash
+npm run seed:tournament -- seed/tournaments.json --dry-run
+npm run seed:tournament -- seed/tournaments.json
+```
+
+멸망전은 내전(커스텀 게임)이라 Riot API 로 조회할 수 없다. 주최측이 공개한 것이 유일한 원천이다.
+
+### 어디서 얻나 (2026-08-10 직접 확인)
+
+| 데이터 | 경로 | 상태 |
+|---|---|---|
+| 역대 회차 목록 | Wayback 의 `static.file.afreecatv.com/bjmatch/gnb.js` | ✅ **LoL 24회차(2014~2023)** 운영 DB 덤프 |
+| 2024~2026 회차 | 공식 VOD API 제목 라벨 | ✅ 6회차 추가 |
+| 대진(누가 누구와) | 공식 VOD 제목 — `[A vs B] UB 2R 7경기` | ✅ 회차별로 복원 가능 |
+| **승패** | VOD 제목에 없음 | ⚠️ **더블 엘리미네이션 진출 경로로 유도** |
+| 로스터 | FA API(현재 대회만) · 나무위키 | ⚠️ 과거 회차는 사실상 없음 |
+
+```bash
+# 공식 VOD 전량 (2,392건, 2018-04 ~ )
+curl -s 'https://chapi.sooplive.com/api/lolbjmatch/vods/all?page=1&per_page=60&orderby=reg_date'   -H 'Referer: https://ch.sooplive.co.kr/lolbjmatch'
+```
+
+### 승패를 어떻게 아는가
+
+VOD 제목은 대진만 주고 승패를 안 준다. 대신 **더블 엘리미네이션은 진출 경로가 곧 결과**다 —
+UB 1R 의 승자만 UB 2R 에 나타나고 패자는 LB 1R 로 떨어진다. 14경기 대진이 이 규칙과
+모순 없이 맞물리고, 결승 승자는 뉴스로 독립 확인된다.
+
+`scripts/build-meljang-2026.mjs` 가 이 유도를 하면서 **정합성을 검사한다** —
+이미 2패한 팀이 다시 나오거나 승자가 대진에 없으면 거기서 멈춘다.
+이건 추측이 아니라 유도이고, 검사를 통과해야만 시드가 만들어진다.
+
+### ❌ 통하지 않은 경로
+
+| 경로 | 결과 |
+|---|---|
+| Leaguepedia / Liquipedia | 멸망전을 **아예 다루지 않는다**. Cargo API 로 SOOP 관련은 SLL 2건뿐 |
+| SOOP FA API 과거 시즌 | `seasonIdx` 1~60 중 **27번만** 존재 — 아카이브가 아니다 |
+| 공식 마이크로사이트 | `bjmatch.afreecatv.com` 은 죽었고, Wayback 캡처도 XHR 로 채우는 빈 템플릿 |
+| 2014·2015·2017 회차 | 회차가 있었다는 사실 외 **아무 자료도 없다** (VOD 아카이브가 2018-04 부터) |
+
 ## 규칙
 
 1. **손으로 만든다.** op.gg·lolsoop·덥덥미를 긁어오지 않는다 —
