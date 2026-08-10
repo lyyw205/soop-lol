@@ -1,0 +1,123 @@
+/**
+ * 대회(내전) 기록 적재.
+ *
+ * 멸망전 같은 내전은 커스텀 게임이라 Riot API 로 조회할 수 없다(CLAUDE.md 제약 1).
+ * 그래서 **주최측 발표를 근거로 수기로** 넣는다. 대신 들어가는 자리는 공개 큐와 같다 —
+ * `match`(source='manual') + `match_participant` 로 넣으면 Engine D 가 그대로
+ * `streamer_encounter` 를 파생시킨다. 대회 상대전적을 위해 별도 계보를 만들지 않는다.
+ *
+ * `match.source` 로 공개 큐와 항상 분리 가능하다 (docs/PLAN.md §11-7).
+ */
+
+import { db } from "./client.ts";
+
+export interface TournamentEventInput {
+  slug: string;
+  name: string;
+  kind?: "scrim" | "tournament" | "showmatch" | "other";
+  organizer?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  source_url?: string | null;
+}
+
+export async function upsertEvent(input: TournamentEventInput): Promise<string> {
+  const sql = db();
+  const rows = await sql<{ id: string }[]>`
+    INSERT INTO event (slug, name, kind, organizer, starts_at, ends_at, source_url)
+    VALUES (${input.slug}, ${input.name}, ${input.kind ?? "tournament"},
+            ${input.organizer ?? null}, ${input.starts_at || null},
+            ${input.ends_at || null}, ${input.source_url ?? null})
+    ON CONFLICT (slug) DO UPDATE SET
+      name = EXCLUDED.name, kind = EXCLUDED.kind, organizer = EXCLUDED.organizer,
+      starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
+      source_url = EXCLUDED.source_url
+    RETURNING id
+  `;
+  return rows[0].id;
+}
+
+/** slug → 대표 계정 puuid. 계정이 없는 스트리머는 빠진다 (조우는 puuid 로 맺힌다). */
+export async function mainPuuidsBySlug(slugs: string[]): Promise<Map<string, string>> {
+  if (slugs.length === 0) return new Map();
+  const sql = db();
+  const rows = await sql<{ slug: string; puuid: string }[]>`
+    SELECT s.slug, sa.puuid
+      FROM streamer s
+      JOIN LATERAL (
+             SELECT puuid FROM streamer_account
+              WHERE streamer_id = s.id AND active_to IS NULL
+              ORDER BY is_main DESC, created_at
+              LIMIT 1
+           ) sa ON true
+     WHERE s.slug = ANY(${slugs}::text[])
+  `;
+  return new Map(rows.map((r) => [r.slug, r.puuid]));
+}
+
+export interface TournamentGameInput {
+  match_id: string;
+  event_id: string;
+  played_at: Date;
+  duration: number | null;
+  source_url: string | null;
+  /** 100 = blue, 200 = red */
+  winning_team: 100 | 200;
+  participants: {
+    puuid: string;
+    team_id: 100 | 200;
+    position?: string | null;
+    champion_id?: number | null;
+  }[];
+}
+
+/**
+ * 대회 경기 한 세트를 넣는다. 같은 `match_id` 로 다시 넣으면 갱신한다(멱등).
+ *
+ * ★ `game_id` 와 `platform_id` 는 **비운다**. Riot 이 준 값이 아니기 때문이다.
+ *   가짜 값을 채우면 나중에 "이게 진짜 Riot id 인가"를 아무도 판단할 수 없다.
+ *   마이그레이션 0006 이 이 두 컬럼을 nullable 로 풀었고, 공개 큐에는 여전히
+ *   NOT NULL 을 CHECK 로 강제한다.
+ */
+export async function saveTournamentGame(g: TournamentGameInput): Promise<void> {
+  const sql = db();
+  await sql.begin(async (tx) => {
+    await tx`
+      INSERT INTO match (match_id, queue_id, game_mode, game_creation, game_duration,
+                         winning_team, source, event_id, source_url)
+      VALUES (${g.match_id}, 0, 'CUSTOM', ${g.played_at}, ${g.duration},
+              ${g.winning_team}, 'manual', ${g.event_id}::uuid, ${g.source_url})
+      ON CONFLICT (match_id) DO UPDATE SET
+        game_creation = EXCLUDED.game_creation,
+        game_duration = EXCLUDED.game_duration,
+        winning_team  = EXCLUDED.winning_team,
+        event_id      = EXCLUDED.event_id,
+        source_url    = EXCLUDED.source_url
+    `;
+
+    // 로스터가 바뀌었을 수 있으므로 참가자는 지우고 다시 넣는다.
+    await tx`DELETE FROM match_participant WHERE match_id = ${g.match_id}`;
+
+    for (const [i, p] of g.participants.entries()) {
+      await tx`
+        INSERT INTO match_participant
+          (match_id, puuid, participant_id, team_id, team_position, individual_position,
+           champion_id, win, kills, deaths, assists)
+        VALUES (${g.match_id}, ${p.puuid}, ${i + 1}, ${p.team_id},
+                ${p.position ?? null}, ${p.position ?? null},
+                ${p.champion_id ?? 0}, ${p.team_id === g.winning_team},
+                0, 0, 0)
+      `;
+    }
+  });
+}
+
+export async function listEventGames(eventSlug: string): Promise<{ match_id: string }[]> {
+  const sql = db();
+  return sql<{ match_id: string }[]>`
+    SELECT m.match_id FROM match m
+      JOIN event e ON e.id = m.event_id
+     WHERE e.slug = ${eventSlug}
+     ORDER BY m.game_creation
+  `;
+}

@@ -1,0 +1,40 @@
+[
+  {
+    "slug": "meljang-2026-geng",
+    "name": "2026 LoL 멸망전 with Gen.G",
+    "kind": "tournament",
+    "organizer": "SOOP",
+    "starts_at": "2026-07-19",
+    "ends_at": "2026-08-01",
+    "source_url": "https://namu.wiki/w/2026%20LoL%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20with%20Gen.G",
+
+    "//teams": "팀명 → 스트리머 slug 목록. slug 는 이미 등록된 스트리머여야 한다.",
+    "teams": {
+      "교권보호국": ["nyongi", "clid1", "kimmingyo", "kimrain", "ber05"],
+      "명 수": ["smebim", "seodoil", "haku", "urimming", "annyeongsuya"]
+    },
+
+    "//games": "세트 단위. id 는 대회 안에서만 고유하면 된다 (match_id = <대회slug>:<id>).",
+    "games": [
+      {
+        "id": "sf1-s1",
+        "round": "4강 1경기 1세트",
+        "played_at": "2026-07-26T20:00:00+09:00",
+        "blue": "교권보호국",
+        "red": "명 수",
+        "winner": "교권보호국",
+        "duration": 2100,
+        "source_url": "https://vod.sooplive.com/player/203084603",
+
+        "//lineup": "선택. 없으면 teams 의 로스터 전원이 참가자가 된다. 포지션·챔피언을 알면 여기 적는다.",
+        "lineup": {
+          "교권보호국": [
+            { "slug": "kimmingyo", "position": "MIDDLE", "champion_id": 157 },
+            { "slug": "clid1", "position": "JUNGLE" }
+          ],
+          "명 수": [{ "slug": "smebim", "position": "TOP" }]
+        }
+      }
+    ]
+  }
+]

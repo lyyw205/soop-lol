@@ -16,3 +16,4 @@ next-env.d.ts
 #   근거는 DB(streamer_account.evidence)에 남긴다. 거긴 지울 수 있다. seed/README.md 참고.
 seed/streamers.json
 seed/*.local.json
+seed/tournaments.json

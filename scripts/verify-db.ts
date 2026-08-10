@@ -46,6 +46,8 @@ process.env.DATABASE_URL = `postgres://postgres@127.0.0.1:${PORT}/postgres`;
 // core 는 import 시점이 아니라 호출 시점에 DATABASE_URL 을 읽으므로 순서는 안전하다.
 const { db: sqlClient, closeDb } = await import("../packages/core/lib/db/client.ts");
 const streamers = await import("../packages/core/lib/db/streamers.ts");
+const tournaments = await import("../packages/core/lib/db/tournaments.ts");
+const ingestDb = await import("../packages/core/lib/db/ingest.ts");
 const { lpAbsolute } = await import("../packages/core/lib/metrics/lp.ts");
 
 try {
@@ -244,6 +246,62 @@ try {
 
   const pubMp = await sqlClient()`SELECT * FROM core_public.match_participant`;
   check("일반인 참가자는 core_public 에 노출되지 않는다", pubMp.length === 1, `${pubMp.length}건`);
+
+  console.log("\n▸ 대회(내전) 기록 — Riot API 로 못 얻는 경기를 수기로 넣는다");
+  // 공개 큐 매치는 Riot 이 준 값이 반드시 있어야 한다.
+  await expectReject(
+    "공개 큐 매치는 game_id 없이 못 들어간다",
+    async () => {
+      await sqlClient()`
+        INSERT INTO match (match_id, queue_id, game_creation, source)
+        VALUES ('BAD_1', 420, now(), 'public_queue')
+      `;
+    },
+    "match_public_queue_has_riot_ids",
+  );
+
+  const eventId = await tournaments.upsertEvent({
+    slug: "verify-cup", name: "검증컵", organizer: "테스트",
+    source_url: "https://example.com/tournament",
+  });
+  check("대회가 등록된다", Boolean(eventId));
+
+  const puuids = await tournaments.mainPuuidsBySlug(["alpha", "beta"]);
+  check("slug → 대표 puuid 해석", puuids.size === 2, [...puuids.keys()].join(","));
+
+  await tournaments.saveTournamentGame({
+    match_id: "verify-cup:f1",
+    event_id: eventId,
+    played_at: new Date("2026-08-01T12:00:00Z"),
+    duration: 2100,
+    source_url: "https://example.com/vod",
+    winning_team: 100,
+    participants: [
+      { puuid: puuids.get("alpha")!, team_id: 100, position: "MIDDLE", champion_id: 157 },
+      { puuid: puuids.get("beta")!,  team_id: 200, position: "MIDDLE", champion_id: 238 },
+    ],
+  });
+  check("대회 경기가 game_id 없이 저장된다 (없는 값을 지어내지 않는다)", true);
+
+  const derived = await ingestDb.rederiveEncounters(["verify-cup:f1"]);
+  check("★ 대회 경기에서도 조우가 파생된다 — 공개 큐와 같은 경로", derived === 1, `${derived}쌍`);
+
+  const tEnc = await sqlClient()<{ source: string; is_lane_matchup: boolean; relation: string }[]>`
+    SELECT source, is_lane_matchup, relation FROM streamer_encounter WHERE match_id = 'verify-cup:f1'
+  `;
+  check("대회 조우는 source='manual' 로 공개 큐와 분리된다",
+    tEnc[0]?.source === "manual", JSON.stringify(tEnc[0]));
+  check("커스텀 큐(0)는 맞라인으로 세지 않는다", tEnc[0]?.is_lane_matchup === false);
+  check("반대 팀이면 opponent", tEnc[0]?.relation === "opponent");
+
+  const bySource = await sqlClient()<{ source: string; n: number }[]>`
+    SELECT source, count(*)::int AS n FROM streamer_encounter GROUP BY source ORDER BY source
+  `;
+  check("조우를 source 로 항상 가를 수 있다 (§11-7)",
+    bySource.length === 2, bySource.map((b) => `${b.source}:${b.n}`).join(" "));
+
+  const again = await ingestDb.rederiveEncounters(["verify-cup:f1"]);
+  check("다시 파생해도 늘지 않는다 (멱등)", again === 1);
 } finally {
   await closeDb();
   await server.stop();
