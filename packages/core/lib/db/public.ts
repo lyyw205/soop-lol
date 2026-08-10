@@ -455,6 +455,13 @@ export interface PlacementTally {
   count: number;
 }
 
+/** 순위 요약 한 덩어리. 화면 쪽에서 프로퍼티로 받으려면 이름이 있어야 한다. */
+export interface PlacementSummary {
+  buckets: PlacementTally[];
+  unknown: number;
+  total: number;
+}
+
 /**
  * 순위별 횟수. 프로필 맨 위 요약 카드에 쓴다.
  *
@@ -464,7 +471,7 @@ export interface PlacementTally {
 export async function summarizePlacements(
   streamerId: string,
   year?: number,
-): Promise<{ buckets: PlacementTally[]; unknown: number; total: number }> {
+): Promise<PlacementSummary> {
   const sql = db();
   const rows = await sql<{ placement_rank: number | null }[]>`
     SELECT t.placement_rank
