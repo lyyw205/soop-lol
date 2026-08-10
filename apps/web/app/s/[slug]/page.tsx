@@ -18,7 +18,11 @@ import { POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 import {
   DualRecord,
   EmptyLine,
-  SeriesLog, Kda, PageShell, PositionTag, QueueTag, RankChip, RecordBar,
+  SeriesLog,
+  UNIT_HINT,
+  UNIT_LABEL,
+  UnitToggle,
+  type RecordUnit, Kda, PageShell, PositionTag, QueueTag, RankChip, RecordBar,
   SectionTitle, SiteHeader, TierChart, WinPill, relativeDate,
 } from "@/components/public";
 
@@ -34,15 +38,28 @@ export default async function StreamerProfile({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ year?: string }>;
+  searchParams: Promise<{ year?: string; unit?: string }>;
 }) {
   const { slug } = await params;
   const streamer = await getStreamerBySlug(slug);
   if (!streamer) notFound();
 
-  // 연도 필터. 값이 숫자가 아니면 무시한다 — 주소창에 아무거나 넣어도 전체가 나온다.
-  const raw = (await searchParams).year;
-  const year = raw && /^\d{4}$/.test(raw) ? Number(raw) : undefined;
+  // 연도 필터와 집계 단위. 값이 이상하면 무시하고 기본값으로 간다 —
+  // 주소창에 아무거나 넣어도 화면이 깨지지 않아야 한다.
+  const sp = await searchParams;
+  const year = sp.year && /^\d{4}$/.test(sp.year) ? Number(sp.year) : undefined;
+  const unit: RecordUnit = sp.unit === "set" ? "set" : "match";
+
+  /** 지금 상태를 유지한 채 한 가지만 바꾼 주소를 만든다. */
+  const linkTo = (next: { year?: number | null; unit?: RecordUnit }) => {
+    const q = new URLSearchParams();
+    const y = next.year === undefined ? year : next.year ?? undefined;
+    const u = next.unit ?? unit;
+    if (y) q.set("year", String(y));
+    if (u !== "match") q.set("unit", u);
+    const qs = q.toString();
+    return `/s/${slug}${qs ? `?${qs}` : ""}`;
+  };
 
   const [channels, accounts, series, champions, games, rivals, events, years, rivalSeries] =
     await Promise.all([
@@ -137,40 +154,46 @@ export default async function StreamerProfile({
           </div>
         </section>
 
-        {/* ── 연도 필터 ── */}
-        {years.length > 1 && (
-          <section className="mt-8">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] text-ink-400">연도</span>
-              <Link
-                href={`/s/${slug}`}
-                className={`rounded-full border px-3 py-1 text-xs ${
-                  year === undefined
-                    ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
-                    : "border-ink-800 text-ink-400 hover:text-ink-200"
-                }`}
-              >
-                전체
-              </Link>
-              {years.map((y) => (
+        {/* ── 보기 설정: 집계 단위 · 연도 ── */}
+        <section className="mt-8 grid gap-3 rounded-xl border border-ink-800 bg-ink-900/40 px-4 py-3">
+          <div>
+            <UnitToggle unit={unit} hrefFor={(u) => linkTo({ unit: u })} />
+            <p className="mt-2 text-[11px] text-ink-400">{UNIT_HINT[unit]}</p>
+          </div>
+          {years.length > 1 && (
+            <div className="border-t border-ink-800 pt-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-ink-400">연도</span>
                 <Link
-                  key={y}
-                  href={`/s/${slug}?year=${y}`}
+                  href={linkTo({ year: null })}
                   className={`rounded-full border px-3 py-1 text-xs ${
-                    year === y
+                    year === undefined
                       ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
                       : "border-ink-800 text-ink-400 hover:text-ink-200"
                   }`}
                 >
-                  {y}
+                  전체
                 </Link>
-              ))}
+                {years.map((y) => (
+                  <Link
+                    key={y}
+                    href={linkTo({ year: y })}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      year === y
+                        ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
+                        : "border-ink-800 text-ink-400 hover:text-ink-200"
+                    }`}
+                  >
+                    {y}
+                  </Link>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-ink-400">
+                대회 성적과 라이벌에만 적용됩니다. 티어 추이·모스트 챔피언은 전체 기간입니다.
+              </p>
             </div>
-            <p className="mt-2 text-[11px] text-ink-400">
-              대회 성적과 라이벌에만 적용됩니다. 티어 추이·모스트 챔피언은 전체 기간입니다.
-            </p>
-          </section>
-        )}
+          )}
+        </section>
 
         {/* ── 대회 성적 ── */}
         <section className="mt-8">
@@ -197,9 +220,13 @@ export default async function StreamerProfile({
                     </p>
                   ) : (
                     <p className="tabular mt-2 text-sm text-ink-300">
-                      경기 {e.match_wins}승 {e.matches - e.match_wins}패
-                      <span className="ml-3 text-ink-400">
-                        세트 {e.set_wins}승 {e.sets - e.set_wins}패
+                      {unit === "match"
+                        ? `매치 ${e.match_wins}승 ${e.matches - e.match_wins}패`
+                        : `세트 ${e.set_wins}승 ${e.sets - e.set_wins}패`}
+                      <span className="ml-3 text-[11px] text-ink-500">
+                        {unit === "match"
+                          ? `세트로는 ${e.set_wins}승 ${e.sets - e.set_wins}패`
+                          : `매치로는 ${e.match_wins}승 ${e.matches - e.match_wins}패`}
                       </span>
                     </p>
                   )}
@@ -248,6 +275,7 @@ export default async function StreamerProfile({
                           </div>
                           <DualRecord
                             label="상대"
+                        unit={unit}
                             match={{ wins: r.vs_match_wins, losses: r.vs_matches - r.vs_match_wins }}
                             set={{ wins: r.vs_set_wins, losses: r.vs_sets - r.vs_set_wins }}
                           />
@@ -258,6 +286,7 @@ export default async function StreamerProfile({
                               </div>
                               <DualRecord
                                 label="맞라인"
+                                unit={unit}
                                 match={{ wins: r.lane_match_wins, losses: r.lane_matches - r.lane_match_wins }}
                                 set={{ wins: r.lane_set_wins, losses: r.lane_sets - r.lane_set_wins }}
                               />
@@ -279,6 +308,7 @@ export default async function StreamerProfile({
                           </div>
                           <DualRecord
                             label="같은 팀"
+                            unit={unit}
                             match={{ wins: r.ally_match_wins, losses: r.ally_matches - r.ally_match_wins }}
                             set={{ wins: r.ally_set_wins, losses: r.ally_sets - r.ally_set_wins }}
                           />

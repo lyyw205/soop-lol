@@ -5,7 +5,7 @@ import { getStreamerBySlug, getVersus, type VersusGame } from "@soop-lol/core/li
 import { POSITION_LABEL, QUEUE_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 import {
-  DualRecord, EmptyLine, Kda, PageShell, SectionTitle, SiteHeader, WinPill, relativeDate,
+  DualRecord, EmptyLine, Kda, PageShell, UNIT_HINT, UnitToggle, type RecordUnit, SectionTitle, SiteHeader, WinPill, relativeDate,
 } from "@/components/public";
 
 export const dynamic = "force-dynamic";
@@ -35,8 +35,14 @@ function asSeen(g: VersusGame, flip: boolean) {
       };
 }
 
-export default async function VersusPage({ params }: { params: Promise<{ a: string; b: string }> }) {
+export default async function VersusPage({
+  params, searchParams,
+}: {
+  params: Promise<{ a: string; b: string }>;
+  searchParams: Promise<{ unit?: string }>;
+}) {
   const { a: slugX, b: slugY } = await params;
+  const unit: RecordUnit = (await searchParams).unit === "set" ? "set" : "match";
   const [x, y] = await Promise.all([getStreamerBySlug(slugX), getStreamerBySlug(slugY)]);
   if (!x || !y) notFound();
   if (x.streamer_id === y.streamer_id) notFound();
@@ -103,23 +109,32 @@ export default async function VersusPage({ params }: { params: Promise<{ a: stri
           </div>
         ) : (
           <>
+            {/* ── 보기 단위 ── */}
+            <section className="mt-6 rounded-xl border border-ink-800 bg-ink-900/40 px-4 py-3">
+              <UnitToggle
+                unit={unit}
+                hrefFor={(u) => `/vs/${slugX}/${slugY}${u === "match" ? "" : `?unit=${u}`}`}
+              />
+              <p className="mt-2 text-[11px] text-ink-400">{UNIT_HINT[unit]}</p>
+            </section>
+
             {/* ── 요약 ── */}
-            <section className="mt-8 grid gap-3 sm:grid-cols-3">
+            <section className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-ink-800 bg-ink-900/60 p-4">
                 <div className="mb-2 text-xs text-ink-400">
                   상대편으로 만났을 때 · {x.display_name} 기준
                 </div>
-                <DualRecord match={recByMatch(opponents)} set={rec(opponents)} label="상대전적" />
+                <DualRecord match={recByMatch(opponents)} set={rec(opponents)} label="상대전적" unit={unit} />
               </div>
               <div className="rounded-xl border border-ink-800 bg-ink-900/60 p-4">
                 <div className="mb-2 text-xs text-ink-400">같은 팀이었을 때</div>
-                <DualRecord match={recByMatch(allies)} set={rec(allies)} label="같은 팀" />
+                <DualRecord match={recByMatch(allies)} set={rec(allies)} label="같은 팀" unit={unit} />
               </div>
               <div className="rounded-xl border border-ink-800 bg-ink-900/60 p-4">
                 <div className="mb-2 text-xs text-ink-400">
                   맞라인 <span className="text-ink-400">(같은 포지션 · 반대 팀)</span>
                 </div>
-                <DualRecord match={recByMatch(lanes)} set={rec(lanes)} label="맞라인" />
+                <DualRecord match={recByMatch(lanes)} set={rec(lanes)} label="맞라인" unit={unit} />
               </div>
             </section>
 
