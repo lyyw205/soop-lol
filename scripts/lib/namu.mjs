@@ -116,7 +116,9 @@ export async function fetchSeries(title) {
       // 다른 회차는 시리즈 스코어만 있어 세트 순서를 우리가 지어내야 하는데,
       // 이 회차들은 진짜 순서를 알 수 있다.
       raw.push({
-        round: roundOf(lines, i), a, sa, sb, b,
+        // O/X 표는 패턴이 워낙 구체적이라 라운드 이름이 없어도 표가 맞다.
+        // 빈 문자열로 두고, 짝짓기는 대진으로 한다.
+        round: roundOf(lines, i) ?? "", a, sa, sb, b,
         date: dateAt[i] ?? null,
         drawn: sa === sb,
         setWinners: runA.map((x) => (x === "O" || x === "○" ? a : b)),

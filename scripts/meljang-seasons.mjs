@@ -280,6 +280,17 @@ export const SEASONS = {
     namu: ["2019 LoL BJ멸망전 시즌1"],
   },
 
+  // 2019 시즌2·3 은 스폰서명이 문서 제목 앞에 붙어 있어 한참 못 찾았다.
+  // 회차 목록은 '멸망전/리그 오브 레전드' 의 역대 대회 표에서 링크를 따는 게 확실하다.
+  "meljang-2019-s2": {
+    name: "2019 LoL BJ멸망전 시즌2",
+    organizer: "아프리카TV",
+    starts_at: "2019-05-27",
+    ends_at: "2019-06-12",
+    format: "table",
+    namu: ["KT 10GiGA 멸망전 LoL 2019시즌 2"],
+  },
+
   "meljang-2018-s3": {
     name: "2018 LoL BJ멸망전 시즌3",
     organizer: "SOOP",

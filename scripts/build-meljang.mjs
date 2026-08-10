@@ -261,7 +261,7 @@ function takeSeries(a, b, round) {
   let best = pool[0];
   let bestScore = -1;
   for (const s of pool) {
-    const score = want.filter((w) => s.round.includes(w)).length;
+    const score = want.filter((w) => (s.round ?? "").includes(w)).length;
     if (score > bestScore) { best = s; bestScore = score; }
   }
   best.taken = true;
