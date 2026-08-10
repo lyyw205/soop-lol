@@ -291,6 +291,26 @@ export const SEASONS = {
     namu: ["KT 10GiGA 멸망전 LoL 2019시즌 2"],
   },
 
+  "meljang-2019-s3": {
+    name: "2019 LoL BJ멸망전 시즌3",
+    organizer: "아프리카TV",
+    starts_at: "2019-09-16",
+    ends_at: "2019-09-30",
+    format: "table",
+    // 지상계·천상계를 한 문서가 다룬다. 8강은 '구분/팀/승리팀' 행렬형 표라
+    // 승자만 있고 세트 스코어가 없다 — 단판으로 넣는다(밴픽 표가 경기당 하나뿐이다).
+    namu: ["KT 5G 멸망전 LoL 2019시즌 3"],
+  },
+
+  "meljang-2020-encore": {
+    name: "2020 LoL BJ멸망전 앙코르 이벤트전",
+    organizer: "아프리카TV",
+    starts_at: "2020-11-30",
+    ends_at: "2020-12-06",
+    format: "table",
+    namu: ["2020 LoL BJ멸망전 앙코르 이벤트전"],
+  },
+
   "meljang-2018-s3": {
     name: "2018 LoL BJ멸망전 시즌3",
     organizer: "SOOP",

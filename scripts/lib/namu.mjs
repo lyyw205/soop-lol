@@ -146,6 +146,72 @@ export async function fetchSeries(title) {
     raw.push({ round, a, sa, sb, b, date: dateAt[i] ?? null });
   }
 
+  // ── (5) RESULT 행 ─────────────────────────────────────────────────
+  //   팀A | vs | 팀B
+  //   X | MATCH 1 | O   …
+  //   패 | 0 | RESULT | 2 | 승
+  // 2020 앙코르 이벤트전이 이 모양이다. RESULT 양옆이 곧 스코어다.
+  for (let i = 1; i + 1 < lines.length; i++) {
+    if (lines[i] !== "RESULT") continue;
+    const sa = Number(lines[i - 1]);
+    const sb = Number(lines[i + 1]);
+    if (!Number.isInteger(sa) || !Number.isInteger(sb) || sa === sb) continue;
+    if (Math.max(sa, sb) > 5) continue;
+    // 뒤로 훑어 'A | vs | B' 를 찾는다
+    let a = null;
+    let b = null;
+    for (let j = i - 2; j > Math.max(0, i - 40); j--) {
+      if (lines[j] === "vs" && isTeam(lines[j - 1]) && isTeam(lines[j + 1])) {
+        a = lines[j - 1];
+        b = lines[j + 1];
+        break;
+      }
+    }
+    if (!a || !b || a === b) continue;
+    raw.push({ round: roundOf(lines, i) ?? "", a, sa, sb, b, date: dateAt[i] ?? null });
+  }
+
+  // ── (6) 행렬형 표 ─────────────────────────────────────────────────
+  //   구분 | 1경기 | 2경기 | 승자전 | 패자전 | 최종전
+  //   팀   | <팀들…>      ← 팀명이 <br> 로 쪼개져 여러 줄이 된다
+  //   승리팀| <승자들…>
+  // 2019 시즌3 의 8강이 이 모양이다. 쪼개진 조각을 **문서에 실제로 있는 팀 이름**과
+  // 맞춰 되붙인다 — 조각만 보고 팀을 만들어내지 않는다.
+  const known = knownTeamNames(lines);
+  if (known.size > 0) {
+    for (let i = 0; i + 2 < lines.length; i++) {
+      if (lines[i] !== "구분") continue;
+      const rounds = [];
+      let j = i + 1;
+      while (j < lines.length && lines[j] !== "팀") rounds.push(lines[j++]);
+      if (lines[j] !== "팀") continue;
+      const teamTok = [];
+      let k = j + 1;
+      while (k < lines.length && lines[k] !== "승리팀") teamTok.push(lines[k++]);
+      if (lines[k] !== "승리팀") continue;
+      const winTok = [];
+      let m = k + 1;
+      while (m < lines.length && winTok.length < rounds.length * 3 && !/경기 밴픽|다시보기/.test(lines[m])) {
+        winTok.push(lines[m++]);
+      }
+      const pairs = joinTeams(teamTok, known);
+      const wins = joinTeams(winTok, known);
+      if (pairs.length !== rounds.length * 2 || wins.length < rounds.length) continue;
+      for (const [n, round] of rounds.entries()) {
+        const a = pairs[n * 2];
+        const b = pairs[n * 2 + 1];
+        const w = wins[n];
+        if (!a || !b || a === b || (w !== a && w !== b)) continue;
+        // 이 표는 승자만 준다. 세트 스코어가 없으므로 단판으로 넣는다 —
+        // 실제로 이 회차의 조별 경기는 밴픽 표가 경기당 하나뿐이라 단판이 맞다.
+        raw.push({
+          round, a, b, sa: w === a ? 1 : 0, sb: w === b ? 1 : 0,
+          date: dateAt[i] ?? null,
+        });
+      }
+    }
+  }
+
   const seen = new Map();
   for (const r of raw) {
     const k = `${r.round}|${r.a}|${r.b}|${r.sa}|${r.sb}`;
@@ -322,4 +388,38 @@ export async function fetchPlacements(title) {
     if (!(team in out)) out[team] = label;
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+/** 문서 안에 실제로 적혀 있는 팀 이름들 (로스터 블록 머리글에서 딴다). */
+function knownTeamNames(lines) {
+  const out = new Set();
+  for (let i = 1; i + 1 < lines.length; i++) {
+    if (lines[i] === "닉네임" && /티어/.test(lines[i + 1] ?? "")) {
+      const t = lines[i - 1];
+      if (t && t.length <= 24) out.add(t);
+    }
+  }
+  return out;
+}
+
+/**
+ * `<br>` 로 쪼개진 팀명 조각을 되붙인다.
+ *
+ * '기바견', '분양중' 두 줄이 실제로는 '기바견분양중' 한 팀이다.
+ * 아는 팀 이름과 맞을 때까지만 붙인다 — 안 맞으면 버린다.
+ * 조각을 임의로 이어 팀을 만들어내면 없는 팀이 대진에 생긴다.
+ */
+function joinTeams(tokens, known) {
+  const norm = (x) => String(x).replace(/\s+/g, "");
+  const byNorm = new Map([...known].map((t) => [norm(t), t]));
+  const out = [];
+  for (let i = 0; i < tokens.length; i++) {
+    let acc = "";
+    for (let k = 0; k < 4 && i + k < tokens.length; k++) {
+      acc += norm(tokens[i + k]);
+      const hit = byNorm.get(acc);
+      if (hit) { out.push(hit); i += k; break; }
+    }
+  }
+  return out;
 }
