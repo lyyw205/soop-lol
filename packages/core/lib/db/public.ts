@@ -11,6 +11,7 @@
  */
 
 import { db } from "./client.ts";
+import { PLACEMENT_BUCKETS, placementBucket } from "../metrics/placement.ts";
 
 // ── 목록 ─────────────────────────────────────────────────────────────
 
@@ -312,6 +313,9 @@ export interface EventRecord {
   starts_at: Date;
   team_name: string | null;
   position: string | null;
+  /** 출처가 쓴 그대로의 순위 표기. 모르면 null — 지어내지 않는다. */
+  placement: string | null;
+  placement_rank: number | null;
   matches: number;
   match_wins: number;
   sets: number;
@@ -353,7 +357,7 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
         FROM per_series GROUP BY event_id
     )
     SELECT e.slug AS event_slug, e.name AS event_name, e.starts_at,
-           t.name AS team_name, tm.position,
+           t.name AS team_name, tm.position, t.placement, t.placement_rank,
            COALESCE(a.matches, 0)    AS matches,
            COALESCE(a.match_wins, 0) AS match_wins,
            COALESCE(a.sets, 0)       AS sets,
@@ -422,6 +426,44 @@ export async function listRivalGames(streamerId: string, year?: number): Promise
             OR EXTRACT(YEAR FROM se.game_creation) = ${year ?? null}::int)
      ORDER BY se.game_creation DESC, se.series_game_no DESC
   `;
+}
+
+
+export interface PlacementTally {
+  key: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * 순위별 횟수. 프로필 맨 위 요약 카드에 쓴다.
+ *
+ * 순위를 모르는 대회는 세지 않고 `unknown` 으로 따로 돌려준다 —
+ * 합계에 슬쩍 섞으면 "우승 2회" 옆의 숫자들이 무슨 뜻인지 알 수 없게 된다.
+ */
+export async function summarizePlacements(
+  streamerId: string,
+  year?: number,
+): Promise<{ buckets: PlacementTally[]; unknown: number; total: number }> {
+  const sql = db();
+  const rows = await sql<{ placement_rank: number | null }[]>`
+    SELECT t.placement_rank
+      FROM core_public.event_team_member tm
+      JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
+      JOIN core_public.event e ON e.event_id = tm.event_id
+     WHERE tm.streamer_id = ${streamerId}::uuid
+       AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.starts_at) = ${year ?? null}::int)
+  `;
+  const buckets = PLACEMENT_BUCKETS.map((b) => ({
+    key: b.key as string,
+    label: b.label as string,
+    count: rows.filter((r) => r.placement_rank != null && b.match(r.placement_rank)).length,
+  }));
+  return {
+    buckets,
+    unknown: rows.filter((r) => placementBucket(r.placement_rank) === null).length,
+    total: rows.length,
+  };
 }
 
 // ── 홈 ───────────────────────────────────────────────────────────────

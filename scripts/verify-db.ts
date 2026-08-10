@@ -372,6 +372,32 @@ try {
   const filtered = await publicDb.listStreamerEvents(s2.id, 1999);
   check("연도 필터가 걸린다", filtered.length === 0, `${filtered.length}건`);
 
+  // ── 순위 (마이그레이션 0010) ────────────────────────────────────────
+  await tournaments.saveEventTeams(eventId, [
+    { name: "알파팀", placement: "우승", placement_rank: 1,
+      members: [{ streamer_id: s1.id, position: "MIDDLE" }] },
+    { name: "베타팀", placement: "4강", placement_rank: 4,
+      members: [{ streamer_id: s2.id, position: "MIDDLE" }] },
+  ]);
+  const withPlace = await publicDb.listStreamerEvents(s2.id);
+  check("대회 성적에 순위가 함께 나온다",
+    withPlace[0]?.placement === "4강" && withPlace[0]?.placement_rank === 4,
+    JSON.stringify(withPlace[0]));
+
+  const tally = await publicDb.summarizePlacements(s2.id);
+  const semi = tally.buckets.find((b) => b.key === "semi");
+  check("★ 순위별 횟수가 집계된다", semi?.count === 1 && tally.total === 1, JSON.stringify(tally));
+
+  // 순위를 모르는 대회는 합계에 슬쩍 섞이면 안 된다
+  await tournaments.saveEventTeams(otherEventId, [
+    { name: "무명팀", members: [{ streamer_id: s2.id }] },
+  ]);
+  const tally2 = await publicDb.summarizePlacements(s2.id);
+  check("★ 순위를 모르는 대회는 따로 센다 (합계에 섞지 않는다)",
+    tally2.unknown === 1 && tally2.total === 2 &&
+      tally2.buckets.reduce((n, b) => n + b.count, 0) === 1,
+    JSON.stringify(tally2));
+
   // ── 다전제: 세트와 매치를 나눠 셀 수 있는가 (마이그레이션 0007) ──────
   //
   // 3판 2선승을 2:1 로 이기면 **세트 2승 1패 · 매치 1승 0패** 다. 이 둘이 한 질의에서

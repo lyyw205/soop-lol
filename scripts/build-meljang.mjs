@@ -32,7 +32,9 @@ import { writeFileSync } from "node:fs";
 
 import { db, closeDb } from "@soop-lol/core/lib/db/client";
 
-import { fetchAllSeries, fetchRosters, namuUrl, normTeam } from "./lib/namu.mjs";
+import { placementRank } from "@soop-lol/core/lib/metrics/placement";
+
+import { fetchAllSeries, fetchPlacements, fetchRosters, namuUrl, normTeam } from "./lib/namu.mjs";
 import { POSITION, ROMAN, SEASONS } from "./meljang-seasons.mjs";
 
 const FA_PAGE = "https://bjmatchfa.sooplive.com/fa/27";
@@ -301,6 +303,36 @@ for (const r of resolved) {
   console.log(`  ${r.round.padEnd(11)} ${r.a} ${r.wa}:${r.wb} ${r.b}  → ${r.winner}`);
 }
 
+// ── 순위 ──────────────────────────────────────────────────────────────
+//
+// 1순위는 나무위키 참가팀 표의 행 배경색이다 — 주최 문서가 직접 매긴 순위이고
+// 예선 탈락 단계까지 준다. 색이 없는 회차는 대진의 '결승'·'4강' 라운드에서 유도한다.
+// 둘 다 안 되면 비워 둔다. 순위를 지어내지 않는다.
+
+const wikiPlacements = (await fetchPlacements(season.namu[0])) ?? {};
+const placements = {};
+for (const [team, label] of Object.entries(wikiPlacements)) {
+  const canonName = canon.get(normTeam(team));
+  if (canonName) placements[canonName] = label;
+}
+const fromWiki = Object.keys(placements).length;
+
+for (const r of resolved) {
+  const loser = r.winner === r.a ? r.b : r.a;
+  if (/결승|FINAL/i.test(r.round) && !/준결승/.test(r.round)) {
+    placements[r.winner] ??= "우승";
+    placements[loser] ??= "준우승";
+  } else if (/4강|준결승/.test(r.round)) {
+    placements[loser] ??= "4강";
+  }
+}
+const fromBracket = Object.keys(placements).length - fromWiki;
+console.log(
+  `\n순위: 나무위키 색에서 ${fromWiki}팀` +
+    (fromBracket > 0 ? ` + 대진에서 유도 ${fromBracket}팀` : "") +
+    ` (대진에 나온 팀 ${new Set(season.bouts.flatMap((b) => [b[2], b[3]])).size}개 중)`,
+);
+
 // ── 방송국 아이디 해석 → 기존 slug 재사용 또는 FA 로 신규 등록 ─────────
 
 /**
@@ -494,6 +526,11 @@ writeFileSync(
         ? ` ⚠ 원본에 경기 날짜가 없어 ${season.dates_unknown}경기를 회차 시작일(${season.starts_at})로 통일했다 — 그 회차 안의 경기 순서·날짜는 신뢰할 수 없다.`
         : ``),
     teams,
+    team_placements: Object.fromEntries(
+      Object.keys(teams)
+        .filter((t) => placements[t])
+        .map((t) => [t, placements[t]]),
+    ),
     roster_positions: positions,
     games,
   }], null, 2) + "\n",

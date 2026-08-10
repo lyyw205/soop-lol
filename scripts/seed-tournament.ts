@@ -28,6 +28,7 @@ import {
   upsertEvent,
 } from "@soop-lol/core/lib/db/tournaments";
 import { POSITIONS } from "@soop-lol/core/lib/riot/types";
+import { placementRank } from "@soop-lol/core/lib/metrics/placement";
 
 interface SeedLineupEntry {
   slug: string;
@@ -72,6 +73,11 @@ interface SeedTournament {
    *   다만 '그 판의 실제 포지션' 이 아니라 '로스터상 포지션' 이다.
    */
   roster_positions?: Record<string, string>;
+  /**
+   * 팀명 → 순위 표기 (우승 / 준우승 / 4강 / 2차예선 탈락 …). 출처가 쓴 그대로 넣는다.
+   * 모르는 팀은 아예 없다 — 순위를 지어내지 않는다.
+   */
+  team_placements?: Record<string, string>;
   games?: SeedGame[];
 }
 
@@ -215,6 +221,8 @@ try {
       eventId,
       Object.entries(t.teams).map(([name, roster]) => ({
         name,
+        placement: t.team_placements?.[name] ?? null,
+        placement_rank: placementRank(t.team_placements?.[name]),
         members: roster
           .filter((slug) => idBySlug.has(slug))
           .map((slug) => ({ streamer_id: idBySlug.get(slug)!, position: t.roster_positions?.[slug] })),

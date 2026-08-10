@@ -30,15 +30,22 @@ export interface TournamentEventInput {
  */
 export async function saveEventTeams(
   eventId: string,
-  teams: { name: string; members: { streamer_id: string; position?: string | null }[] }[],
+  teams: {
+    name: string;
+    placement?: string | null;
+    placement_rank?: number | null;
+    members: { streamer_id: string; position?: string | null }[];
+  }[],
 ): Promise<Map<string, string>> {
   const sql = db();
   const byName = new Map<string, string>();
   await sql.begin(async (tx) => {
     for (const t of teams) {
       const [row] = await tx<{ id: string }[]>`
-        INSERT INTO event_team (event_id, name) VALUES (${eventId}::uuid, ${t.name})
-        ON CONFLICT (event_id, name) DO UPDATE SET name = EXCLUDED.name
+        INSERT INTO event_team (event_id, name, placement, placement_rank)
+        VALUES (${eventId}::uuid, ${t.name}, ${t.placement ?? null}, ${t.placement_rank ?? null})
+        ON CONFLICT (event_id, name) DO UPDATE SET
+          placement = EXCLUDED.placement, placement_rank = EXCLUDED.placement_rank
         RETURNING id
       `;
       byName.set(t.name, row.id);

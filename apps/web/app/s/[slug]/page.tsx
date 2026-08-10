@@ -12,6 +12,7 @@ import {
   listRivalGames,
   listStreamerEvents,
   listStreamerYears,
+  summarizePlacements,
 } from "@soop-lol/core/lib/db/public";
 import { POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
@@ -46,7 +47,7 @@ export default async function StreamerProfile({
   const year = sp.year && /^\d{4}$/.test(sp.year) ? Number(sp.year) : undefined;
   const linkTo = (y?: number) => (y ? `/s/${slug}?year=${y}` : `/s/${slug}`);
 
-  const [channels, accounts, series, champions, games, rivals, events, years, rivalGames] =
+  const [channels, accounts, series, champions, games, rivals, events, years, rivalGames, placements] =
     await Promise.all([
     listPublicChannels(streamer.streamer_id),
     listProfileAccounts(streamer.streamer_id),
@@ -57,6 +58,7 @@ export default async function StreamerProfile({
     listStreamerEvents(streamer.streamer_id, year),
     listStreamerYears(streamer.streamer_id),
     listRivalGames(streamer.streamer_id, year),
+    summarizePlacements(streamer.streamer_id, year),
   ]);
 
   // 상대별로 갈라 둔다. 화면에서 라이벌마다 다시 훑지 않게 한 번만 접는다.
@@ -114,6 +116,44 @@ export default async function StreamerProfile({
         </div>
 
         {/* ── 계정 ── */}
+        {/* ── 대회 성적 요약 — 이 사람이 뭘 했는지 한 줄로 ── */}
+        {placements.total > 0 && (
+          <section className="mt-8 rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-4">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-sm font-medium text-ink-200">
+                대회 {placements.total}회 참가
+                {year && <span className="ml-1 text-[11px] text-ink-400">· {year}년</span>}
+              </span>
+              {placements.unknown > 0 && (
+                <span className="text-[11px] text-ink-500">
+                  순위를 확인하지 못한 대회 {placements.unknown}회는 세지 않았습니다
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+              {placements.buckets.map((b) => (
+                <div
+                  key={b.key}
+                  className={`rounded-lg border px-3 py-2 text-center ${
+                    b.count > 0 && b.key === "champion"
+                      ? "border-amber-400/40 bg-amber-400/10"
+                      : b.count > 0
+                        ? "border-ink-700 bg-ink-800/40"
+                        : "border-ink-800/60"
+                  }`}
+                >
+                  <div className={`tabular text-lg font-semibold ${
+                    b.count === 0 ? "text-ink-600" : b.key === "champion" ? "text-amber-300" : "text-ink-200"
+                  }`}>
+                    {b.count}
+                  </div>
+                  <div className="text-[11px] text-ink-400">{b.label}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="mt-8">
           <SectionTitle hint="본인이 공개한 근거가 있는 계정만 표시합니다">계정</SectionTitle>
           <ul className="grid gap-2 sm:grid-cols-2">
@@ -190,6 +230,17 @@ export default async function StreamerProfile({
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                     <span className="font-medium text-ink-200">{e.event_name}</span>
                     <span className="text-[11px] text-ink-400">
+                      {e.placement && (
+                        <span
+                          className={`mr-2 rounded px-1.5 py-0.5 ${
+                            e.placement_rank === 1
+                              ? "border border-amber-400/40 bg-amber-400/10 text-amber-300"
+                              : "border border-ink-700 text-ink-300"
+                          }`}
+                        >
+                          {e.placement}
+                        </span>
+                      )}
                       {e.team_name && <span className="text-ink-300">{e.team_name}</span>}
                       {e.position && <span className="ml-1">· {POSITION_LABEL[e.position as Position] ?? e.position}</span>}
                       <span className="ml-2">{new Date(e.starts_at).getFullYear()}</span>
