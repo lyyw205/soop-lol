@@ -210,15 +210,22 @@ export interface EncounterRow {
  *    uuid 소문자 16진 문자열 비교는 Postgres 의 uuid 바이트 비교와 순서가 같다.
  *  - 한 스트리머가 같은 경기에 계정 두 개로 잡히는 건 **매핑 사고**다.
  *    자기 자신과의 쌍은 만들지 않고, 먼저 나온 참가자만 대표로 쓴다.
- *  - `is_lane_matchup` 은 **협곡 5v5 큐**에서만 참일 수 있다.
+ *  - `is_lane_matchup` 은 **협곡 5v5** 에서만 참일 수 있다.
  *    칼바람·아레나엔 라인이 없다 (거기서 나온 teamPosition 은 의미가 없다).
+ *
+ *    대회 경기(source='manual')는 큐 아이디가 0(커스텀)이라 큐 목록에 없지만,
+ *    멸망전 같은 내전은 협곡 5v5 다. 그리고 여기 들어오는 포지션은 Riot 추론값이
+ *    아니라 **주최측이 발표한 로스터 포지션**이라 오히려 더 단단하다.
+ *    포지션이 비어 있으면 resolvePosition 이 null 을 주므로 그때는 여전히 안 센다 —
+ *    "애매하면 판정하지 않는다"(§11-10)는 그대로다.
  */
 export function deriveEncounters(
   match: EncounterMatch,
   participants: EncounterParticipant[],
   ownerOf: ReadonlyMap<string, string>,
 ): EncounterRow[] {
-  const laneCapable = SUMMONERS_RIFT_QUEUES.includes(match.queue_id);
+  const laneCapable =
+    SUMMONERS_RIFT_QUEUES.includes(match.queue_id) || match.source === "manual";
 
   const seen = new Map<string, EncounterParticipant>();
   for (const p of participants) {

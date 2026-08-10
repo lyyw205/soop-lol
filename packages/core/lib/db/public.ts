@@ -149,6 +149,8 @@ export interface RivalRow {
   vs_match_wins: number;
   ally_matches: number;
   ally_match_wins: number;
+  lane_matches: number;
+  lane_match_wins: number;
   last_met: Date;
 }
 
@@ -256,7 +258,10 @@ export async function listRivals(streamerId: string, limit = 20): Promise<RivalR
     per_series AS (
       SELECT other_id, relation, series_key,
              count(*)::int                       AS sets,
-             count(*) FILTER (WHERE me_win)::int AS my_sets
+             count(*) FILTER (WHERE me_win)::int AS my_sets,
+             -- 한 시리즈의 모든 세트가 맞라인이면 그 경기를 맞라인 경기로 본다.
+             -- 세트마다 라인을 바꿔 붙은 경우까지 맞라인이라 부르면 뜻이 흐려진다.
+             bool_and(is_lane_matchup)           AS all_lane
         FROM e GROUP BY other_id, relation, series_key
     ),
     by_set AS (
@@ -275,13 +280,16 @@ export async function listRivals(streamerId: string, limit = 20): Promise<RivalR
              count(*) FILTER (WHERE relation = 'opponent')::int                          AS vs_matches,
              count(*) FILTER (WHERE relation = 'opponent' AND my_sets * 2 > sets)::int    AS vs_match_wins,
              count(*) FILTER (WHERE relation = 'ally')::int                               AS ally_matches,
-             count(*) FILTER (WHERE relation = 'ally' AND my_sets * 2 > sets)::int        AS ally_match_wins
+             count(*) FILTER (WHERE relation = 'ally' AND my_sets * 2 > sets)::int        AS ally_match_wins,
+             count(*) FILTER (WHERE all_lane)::int                                        AS lane_matches,
+             count(*) FILTER (WHERE all_lane AND my_sets * 2 > sets)::int                 AS lane_match_wins
         FROM per_series GROUP BY other_id
     )
     SELECT s.streamer_id, s.slug, s.display_name,
            b.vs_sets, b.vs_set_wins, b.ally_sets, b.ally_set_wins,
            b.lane_sets, b.lane_set_wins, b.last_met,
-           m.vs_matches, m.vs_match_wins, m.ally_matches, m.ally_match_wins
+           m.vs_matches, m.vs_match_wins, m.ally_matches, m.ally_match_wins,
+           m.lane_matches, m.lane_match_wins
       FROM by_set b
       JOIN by_match m ON m.other_id = b.other_id
       JOIN core_public.streamer s ON s.streamer_id = b.other_id

@@ -291,8 +291,30 @@ try {
   `;
   check("대회 조우는 source='manual' 로 공개 큐와 분리된다",
     tEnc[0]?.source === "manual", JSON.stringify(tEnc[0]));
-  check("커스텀 큐(0)는 맞라인으로 세지 않는다", tEnc[0]?.is_lane_matchup === false);
+  // 대회 경기는 큐가 커스텀(0)이지만 협곡 5v5 이고, 포지션이 Riot 추론값이 아니라
+  // 주최측 로스터라 맞라인으로 센다. 같은 MIDDLE 끼리 붙었으니 참이어야 한다.
+  check("★ 대회 경기도 포지션이 명시돼 있으면 맞라인으로 센다",
+    tEnc[0]?.is_lane_matchup === true, JSON.stringify(tEnc[0]));
   check("반대 팀이면 opponent", tEnc[0]?.relation === "opponent");
+
+  await tournaments.saveTournamentGame({
+    match_id: "verify-cup:nopos",
+    event_id: eventId,
+    played_at: new Date("2026-08-01T13:00:00Z"),
+    duration: 1900,
+    source_url: "https://example.com/vod",
+    winning_team: 100,
+    participants: [
+      { puuid: puuids.get("alpha")!, team_id: 100 },
+      { puuid: puuids.get("beta")!, team_id: 200 },
+    ],
+  });
+  await ingestDb.rederiveEncounters(["verify-cup:nopos"]);
+  const noPos = await sqlClient()<{ is_lane_matchup: boolean }[]>`
+    SELECT is_lane_matchup FROM streamer_encounter WHERE match_id = 'verify-cup:nopos'
+  `;
+  check("포지션을 모르는 대회 경기는 맞라인으로 세지 않는다 (§11-10 — 애매하면 판정하지 않는다)",
+    noPos[0]?.is_lane_matchup === false, JSON.stringify(noPos[0]));
 
   // ── 다전제: 세트와 매치를 나눠 셀 수 있는가 (마이그레이션 0007) ──────
   //

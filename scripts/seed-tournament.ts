@@ -62,10 +62,20 @@ interface SeedTournament {
   ends_at?: string;
   source_url?: string;
   teams: Record<string, string[]>;
+  /**
+   * slug → 로스터 포지션. 경기마다 lineup 을 적지 않아도 이걸로 포지션이 붙는다.
+   * ★ 없으면 대회 맞라인 전적이 통째로 안 생긴다 — 상대 5명 전부와 조우가 맺히는데
+   *   그중 '같은 라인 1:1' 은 포지션을 알아야 가려낼 수 있다.
+   *   대회 포지션은 Riot 추론값이 아니라 주최측이 발표한 로스터라 오히려 단단하다.
+   *   다만 '그 판의 실제 포지션' 이 아니라 '로스터상 포지션' 이다.
+   */
+  roster_positions?: Record<string, string>;
   games?: SeedGame[];
 }
 
 // ── 검증 ─────────────────────────────────────────────────────────────
+
+const warnings: string[] = [];
 
 function validate(list: SeedTournament[]): string[] {
   const errors: string[] = [];
@@ -81,8 +91,25 @@ function validate(list: SeedTournament[]): string[] {
     if (!t.teams || Object.keys(t.teams).length === 0) errors.push(`${at}: teams 가 비었다`);
 
     const teamNames = new Set(Object.keys(t.teams ?? {}));
+    const emptyTeams: string[] = [];
     for (const [name, roster] of Object.entries(t.teams ?? {})) {
-      if (!Array.isArray(roster) || roster.length === 0) errors.push(`${at} 팀 '${name}': 로스터가 비었다`);
+      if (!Array.isArray(roster)) errors.push(`${at} 팀 '${name}': 로스터가 배열이 아니다`);
+      else if (roster.length === 0) emptyTeams.push(name);
+    }
+    // ★ 로스터가 빈 팀은 오류가 아니다. 그 팀이 대회에 나온 건 사실인데 선수를
+    //   한 명도 우리 스트리머로 매핑하지 못한 것뿐이다(옛 닉네임이라 해석 실패 등).
+    //   경기는 그대로 넣는다 — 상대 팀 안에서 '같은 팀' 조우는 여전히 성립하고,
+    //   나중에 그 팀 선수의 계정이 붙으면 재파생으로 상대전적이 되살아난다(§11-5).
+    if (emptyTeams.length === teamNames.size && teamNames.size > 0) {
+      errors.push(`${at}: 모든 팀의 로스터가 비었다 — 넣을 게 없다`);
+    } else if (emptyTeams.length > 0) {
+      warnings.push(`${at}: 선수를 한 명도 매핑하지 못한 팀 ${emptyTeams.length}개 — ${emptyTeams.join(", ")}`);
+    }
+
+    for (const [slug, pos] of Object.entries(t.roster_positions ?? {})) {
+      if (!positions.has(pos)) {
+        errors.push(`${at}: roster_positions['${slug}'] = '${pos}' 은 ${[...positions].join("/")} 중 하나여야 한다`);
+      }
     }
 
     const gameIds = new Set<string>();
@@ -151,6 +178,8 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
+for (const w of warnings) console.warn(`  ⚠ ${w}`);
+
 let games = 0;
 let encounters = 0;
 const missing = new Set<string>();
@@ -188,7 +217,8 @@ try {
       for (const { team, teamId } of sides) {
         // lineup 이 있으면 그걸 쓰고, 없으면 팀 로스터 전원.
         const entries: SeedLineupEntry[] =
-          g.lineup?.[team] ?? (t.teams[team] ?? []).map((slug) => ({ slug }));
+          g.lineup?.[team] ??
+          (t.teams[team] ?? []).map((slug) => ({ slug, position: t.roster_positions?.[slug] }));
         for (const e of entries) {
           const puuid = puuidBySlug.get(e.slug);
           if (!puuid) continue; // 계정 없는 스트리머는 건너뛴다 — 위에서 집계해 보고한다

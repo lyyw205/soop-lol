@@ -32,7 +32,7 @@ import { writeFileSync } from "node:fs";
 
 import { db, closeDb } from "@soop-lol/core/lib/db/client";
 
-import { fetchAllSeries, namuUrl } from "./lib/namu.mjs";
+import { fetchAllSeries, fetchRosters, namuUrl, normTeam } from "./lib/namu.mjs";
 import { POSITION, ROMAN, SEASONS } from "./meljang-seasons.mjs";
 
 const FA_PAGE = "https://bjmatchfa.sooplive.com/fa/27";
@@ -155,9 +155,39 @@ function checkDoubleElim(resolved) {
 
 // ── (2) 나무위키 스코어 ───────────────────────────────────────────────
 
-const { series: namuSeries, missing } = await fetchAllSeries(season.namu ?? []);
+const { series: rawSeries, missing } = await fetchAllSeries(season.namu ?? []);
 if (missing.length) fail([`나무위키 문서를 못 읽었다: ${missing.join(", ")}`]);
-if (namuSeries.length === 0) fail([`나무위키에서 경기 결과를 하나도 못 읽었다 (${(season.namu ?? []).join(", ")})`]);
+if (rawSeries.length === 0) fail([`나무위키에서 경기 결과를 하나도 못 읽었다 (${(season.namu ?? []).join(", ")})`]);
+
+// 같은 대회 안에서도 팀명 표기가 흔들린다. 대표 표기 하나로 모은다.
+const canon = new Map();
+for (const s of rawSeries) for (const t of [s.a, s.b]) if (!canon.has(normTeam(t))) canon.set(normTeam(t), t);
+const nameOf = (t) => canon.get(normTeam(t)) ?? t;
+const namuSeries = rawSeries.map((s) => ({ ...s, a: nameOf(s.a), b: nameOf(s.b) }));
+
+/**
+ * 대진을 데이터 파일에 안 적었으면 나무위키에서 그대로 가져온다.
+ * 풀리그 회차가 그렇다 — 진출 경로로 유도할 게 없어서 대진을 손으로 옮길 이유가 없고,
+ * 옮기면 그만큼 틀린다. 이 경우 승패 근거는 나무위키 한 곳뿐이고 시드에 그렇게 적는다.
+ */
+if (!season.bouts) {
+  const nth = (season.only_rounds ?? null);
+  const picked = namuSeries.filter((s) => !nth || nth.some((r) => s.round.includes(r)));
+  season.bouts = picked.map((s, i) => [i + 1, s.round, s.a, s.b, s.date ?? season.starts_at]);
+}
+
+// 로스터도 안 적었으면 참가팀 표에서 읽는다. 대진에 나온 팀만 남긴다.
+if (!season.teams) {
+  const rosters = await fetchRosters(season.namu[0]);
+  if (!rosters) fail([`나무위키 참가팀 표를 못 읽었다: ${season.namu[0]}`]);
+  const inBouts = new Set(season.bouts.flatMap((b) => [normTeam(b[2]), normTeam(b[3])]));
+  season.teams = {};
+  for (const [team, members] of Object.entries(rosters)) {
+    if (inBouts.has(normTeam(team))) season.teams[nameOf(team)] = members;
+  }
+  const missingTeams = [...inBouts].filter((t) => !Object.keys(season.teams).some((k) => normTeam(k) === t));
+  if (missingTeams.length) fail([`대진에는 있는데 참가팀 표에 없는 팀: ${missingTeams.join(", ")}`]);
+}
 
 /**
  * 대진(팀 두 개)으로 나무위키 경기를 찾는다.
@@ -236,10 +266,12 @@ if (season.format === "de") errors.push(...checkDoubleElim(resolved));
 if (errors.length) fail(errors);
 
 const totalGames = resolved.reduce((n, r) => n + r.wa + r.wb, 0);
-console.log(
-  `[${key}] 대조 OK — 경기 ${resolved.length}건 · 세트 ${totalGames}판` +
-    (season.format === "gsl" ? " (진출 경로 유도 = 나무위키 스코어, 전건 일치)" : " (더블 엘리미네이션 정합성 OK)"),
-);
+const HOW = {
+  gsl: "진출 경로 유도 = 나무위키 스코어, 전건 일치",
+  de: "더블 엘리미네이션 정합성 OK",
+  table: "풀리그라 유도할 게 없다 — 나무위키 결과표를 그대로 읽었다",
+};
+console.log(`[${key}] 대조 OK — 경기 ${resolved.length}건 · 세트 ${totalGames}판 (${HOW[season.format]})`);
 for (const r of resolved) {
   console.log(`  ${r.round.padEnd(11)} ${r.a} ${r.wa}:${r.wb} ${r.b}  → ${r.winner}`);
 }
@@ -280,6 +312,12 @@ const slugSet = new Set(rows.map((r) => r.slug));
 console.log(`\nFA 등록 ${faList.length}명 · 이미 등록된 방송국 ${known.size}개`);
 
 const teams = {};
+/**
+ * slug → 로스터 포지션. 이게 없으면 대회 맞라인 전적이 통째로 안 생긴다 —
+ * 한 경기에서 상대 5명 전부와 조우가 맺히는데, 그중 '같은 라인 1:1'은
+ * 포지션을 알아야 가려낼 수 있다. 팀 대 팀 상대전적과 1:1 맞라인은 다른 사실이다.
+ */
+const positions = {};
 const newStreamers = [];
 const dropped = [];
 let reused = 0;
@@ -291,14 +329,14 @@ for (const [team, members] of Object.entries(season.teams)) {
 
     // 이미 등록된 사람은 slug 로 바로 적어도 된다. SOOP 표시명이 그새 바뀌었을 수 있어서,
     // 닉네임 검색에 의존하지 않는 경로를 남겨 둔다.
-    if (slugSet.has(nick)) { teams[team].push(nick); reused++; continue; }
+    if (slugSet.has(nick)) { teams[team].push(nick); positions[nick] = POSITION[i]; reused++; continue; }
 
     const channelId = await soopChannelId(nick);
     await new Promise((s) => setTimeout(s, 250));
     if (!channelId) { dropped.push(`${team} ${nick} — SOOP 검색에서 단일 해석 실패`); continue; }
 
     const existing = known.get(channelId);
-    if (existing) { teams[team].push(existing); reused++; continue; }
+    if (existing) { teams[team].push(existing); positions[existing] = POSITION[i]; reused++; continue; }
 
     const slug = ROMAN[nick];
     if (!slug) { dropped.push(`${team} ${nick} (${channelId}) — ROMAN 에 slug 가 없다`); continue; }
@@ -306,6 +344,7 @@ for (const [team, members] of Object.entries(season.teams)) {
     if (!f) { dropped.push(`${team} ${nick} (${channelId}) — FA 등록에 없어 라이엇 ID 근거가 없다`); continue; }
 
     teams[team].push(slug);
+    positions[slug] = POSITION[i];
     const riotIds = (f.totalGameNickList?.length ? f.totalGameNickList : [f.gameNick]).filter(Boolean);
     newStreamers.push({
       slug,
@@ -373,15 +412,19 @@ writeFileSync(
     ends_at: season.ends_at,
     source_url: namuUrl(season.namu[0]),
     "//승패근거":
-      `승패의 출처가 둘이고 서로 대조했다. (1) 공식 방송국 VOD 제목(${VODS})에서 복원한 대진 + ` +
-      (season.format === "gsl"
-        ? `GSL 진출 경로 유도(승자전=1·2경기 승자, 최종전=승자전 패자 vs 패자전 승자, 4강은 크로스). `
-        : `더블 엘리미네이션 정합성(2패한 팀은 다시 나오지 않는다). `) +
-      `(2) 나무위키 경기 결과표의 스코어: ${(season.namu ?? []).map(namuUrl).join(" , ")}. ` +
-      `${resolved.length}경기 전건이 일치했다. ` +
+      (season.format === "table"
+        ? `⚠ 이 회차는 조별 **풀리그**라 진출 경로로 승패를 유도할 수 없다(이겨도 져도 남은 경기를 다 치른다). ` +
+          `그래서 근거가 나무위키 경기 결과표 한 곳뿐이다: ${(season.namu ?? []).map(namuUrl).join(" , ")}. `
+        : `승패의 출처가 둘이고 서로 대조했다. (1) 공식 방송국 VOD 제목(${VODS})에서 복원한 대진 + ` +
+          (season.format === "gsl"
+            ? `GSL 진출 경로 유도(승자전=1·2경기 승자, 최종전=승자전 패자 vs 패자전 승자, 4강은 크로스). `
+            : `더블 엘리미네이션 정합성(2패한 팀은 다시 나오지 않는다). `) +
+          `(2) 나무위키 경기 결과표의 스코어: ${(season.namu ?? []).map(namuUrl).join(" , ")}. ` +
+          `${resolved.length}경기 전건이 일치했다. `) +
       `전 경기 다전제라 스코어대로 세트 단위(총 ${totalGames}판)로 펴서 넣는다 — ` +
       `시리즈를 1판으로 적으면 판수가 틀리고 진 쪽이 딴 세트가 사라진다.`,
     teams,
+    roster_positions: positions,
     games,
   }], null, 2) + "\n",
 );

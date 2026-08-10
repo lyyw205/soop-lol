@@ -125,22 +125,35 @@ export default async function StreamerProfile({ params }: { params: Promise<{ sl
                       vs {r.display_name}
                     </Link>
                     <span className="text-[11px] text-ink-400">
-                      {r.lane_sets > 0 && `맞라인 ${r.lane_sets}세트 · `}
                       마지막 {relativeDate(r.last_met)}
                     </span>
                   </div>
                   <div className="mt-2 grid gap-3 sm:grid-cols-2">
                     <div>
-                      <div className="mb-1 text-[11px] text-ink-400">상대전적</div>
+                      <div className="mb-1 text-[11px] text-ink-400">
+                        팀 상대전적 <span className="text-ink-500">· 상대편에 있었던 전부</span>
+                      </div>
                       <DualRecord
                         label="상대"
                         match={{ wins: r.vs_match_wins, losses: r.vs_matches - r.vs_match_wins }}
                         set={{ wins: r.vs_set_wins, losses: r.vs_sets - r.vs_set_wins }}
                       />
                     </div>
+                    {r.lane_matches > 0 && (
+                      <div>
+                        <div className="mb-1 text-[11px] text-ink-400">
+                          1:1 맞라인 <span className="text-ink-500">· 같은 라인에서 붙은 것만</span>
+                        </div>
+                        <DualRecord
+                          label="맞라인"
+                          match={{ wins: r.lane_match_wins, losses: r.lane_matches - r.lane_match_wins }}
+                          set={{ wins: r.lane_set_wins, losses: r.lane_sets - r.lane_set_wins }}
+                        />
+                      </div>
+                    )}
                     {r.ally_matches > 0 && (
                       <div>
-                        <div className="mb-1 text-[11px] text-ink-400">같은 팀</div>
+                        <div className="mb-1 text-[11px] text-ink-400">같은 팀이었을 때</div>
                         <DualRecord
                           label="같은 팀"
                           match={{ wins: r.ally_match_wins, losses: r.ally_matches - r.ally_match_wins }}
