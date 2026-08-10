@@ -17,6 +17,8 @@
     "verify:db": "node scripts/verify-db.ts",
     "verify:ingest": "node scripts/verify-ingest.ts",
     "verify:modules": "node scripts/verify-modules.ts",
+    "//db:migrate": "★ db/migrations 를 실제 DB 에 적용한다. verify:db 는 PGlite 라 운영 DB 가 따라왔는지는 못 본다.",
+    "db:migrate": "node --env-file-if-exists=apps/web/.env.local scripts/migrate.ts",
     "modules:sync": "node scripts/sync-modules.ts",
     "predev": "node scripts/sync-modules.ts",
     "prebuild": "node scripts/sync-modules.ts",

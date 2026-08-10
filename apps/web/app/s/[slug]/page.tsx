@@ -12,6 +12,7 @@ import {
 } from "@soop-lol/core/lib/db/public";
 
 import {
+  DualRecord,
   EmptyLine, Kda, PageShell, PositionTag, QueueTag, RankChip, RecordBar,
   SectionTitle, SiteHeader, TierChart, WinPill, relativeDate,
 } from "@/components/public";
@@ -124,19 +125,27 @@ export default async function StreamerProfile({ params }: { params: Promise<{ sl
                       vs {r.display_name}
                     </Link>
                     <span className="text-[11px] text-ink-400">
-                      {r.lane_games > 0 && `맞라인 ${r.lane_games}판 · `}
+                      {r.lane_sets > 0 && `맞라인 ${r.lane_sets}세트 · `}
                       마지막 {relativeDate(r.last_met)}
                     </span>
                   </div>
                   <div className="mt-2 grid gap-3 sm:grid-cols-2">
                     <div>
                       <div className="mb-1 text-[11px] text-ink-400">상대전적</div>
-                      <RecordBar record={{ wins: r.vs_wins, losses: r.vs_games - r.vs_wins }} label="상대" />
+                      <DualRecord
+                        label="상대"
+                        match={{ wins: r.vs_match_wins, losses: r.vs_matches - r.vs_match_wins }}
+                        set={{ wins: r.vs_set_wins, losses: r.vs_sets - r.vs_set_wins }}
+                      />
                     </div>
-                    {r.ally_games > 0 && (
+                    {r.ally_matches > 0 && (
                       <div>
                         <div className="mb-1 text-[11px] text-ink-400">같은 팀</div>
-                        <RecordBar record={{ wins: r.ally_wins, losses: r.ally_games - r.ally_wins }} label="같은 팀" />
+                        <DualRecord
+                          label="같은 팀"
+                          match={{ wins: r.ally_match_wins, losses: r.ally_matches - r.ally_match_wins }}
+                          set={{ wins: r.ally_set_wins, losses: r.ally_sets - r.ally_set_wins }}
+                        />
                       </div>
                     )}
                   </div>

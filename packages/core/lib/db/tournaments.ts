@@ -61,6 +61,13 @@ export interface TournamentGameInput {
   played_at: Date;
   duration: number | null;
   source_url: string | null;
+  /**
+   * 다전제라면 그 시리즈를 묶는 키와 몇 번째 세트인지.
+   * 단판이면 둘 다 비운다 — 그러면 질의에서 자기 자신이 곧 시리즈가 된다.
+   * 세트로도 매치로도 셀 수 있어야 해서 필요하다 (마이그레이션 0007).
+   */
+  series_id?: string | null;
+  series_game_no?: number | null;
   /** 100 = blue, 200 = red */
   winning_team: 100 | 200;
   participants: {
@@ -84,15 +91,19 @@ export async function saveTournamentGame(g: TournamentGameInput): Promise<void> 
   await sql.begin(async (tx) => {
     await tx`
       INSERT INTO match (match_id, queue_id, game_mode, game_creation, game_duration,
-                         winning_team, source, event_id, source_url)
+                         winning_team, source, event_id, source_url,
+                         series_id, series_game_no)
       VALUES (${g.match_id}, 0, 'CUSTOM', ${g.played_at}, ${g.duration},
-              ${g.winning_team}, 'manual', ${g.event_id}::uuid, ${g.source_url})
+              ${g.winning_team}, 'manual', ${g.event_id}::uuid, ${g.source_url},
+              ${g.series_id ?? null}, ${g.series_game_no ?? null})
       ON CONFLICT (match_id) DO UPDATE SET
-        game_creation = EXCLUDED.game_creation,
-        game_duration = EXCLUDED.game_duration,
-        winning_team  = EXCLUDED.winning_team,
-        event_id      = EXCLUDED.event_id,
-        source_url    = EXCLUDED.source_url
+        game_creation  = EXCLUDED.game_creation,
+        game_duration  = EXCLUDED.game_duration,
+        winning_team   = EXCLUDED.winning_team,
+        event_id       = EXCLUDED.event_id,
+        source_url     = EXCLUDED.source_url,
+        series_id      = EXCLUDED.series_id,
+        series_game_no = EXCLUDED.series_game_no
     `;
 
     // 로스터가 바뀌었을 수 있으므로 참가자는 지우고 다시 넣는다.

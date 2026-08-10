@@ -294,6 +294,83 @@ try {
   check("커스텀 큐(0)는 맞라인으로 세지 않는다", tEnc[0]?.is_lane_matchup === false);
   check("반대 팀이면 opponent", tEnc[0]?.relation === "opponent");
 
+  // ── 다전제: 세트와 매치를 나눠 셀 수 있는가 (마이그레이션 0007) ──────
+  //
+  // 3판 2선승을 2:1 로 이기면 **세트 2승 1패 · 매치 1승 0패** 다. 이 둘이 한 질의에서
+  // 같이 나와야 한다. 하나로 뭉치면 둘 다 틀린다 — 세트만 세면 다전제 한 판이
+  // 단판 세 번과 같아지고, 매치만 세면 진 쪽이 딴 세트가 사라진다.
+  const setWinners: (100 | 200)[] = [100, 200, 100]; // alpha 팀이 2:1 로 이긴 시리즈
+  for (const [i, w] of setWinners.entries()) {
+    await tournaments.saveTournamentGame({
+      match_id: `verify-cup:bo3s${i + 1}`,
+      event_id: eventId,
+      played_at: new Date(`2026-08-0${2 + i}T12:00:00Z`),
+      duration: 1800,
+      source_url: "https://example.com/vod",
+      series_id: "verify-cup:bo3",
+      series_game_no: i + 1,
+      winning_team: w,
+      participants: [
+        { puuid: puuids.get("alpha")!, team_id: 100, position: "MIDDLE", champion_id: 157 },
+        { puuid: puuids.get("beta")!, team_id: 200, position: "MIDDLE", champion_id: 238 },
+      ],
+    });
+  }
+  await ingestDb.rederiveEncounters(setWinners.map((_, i) => `verify-cup:bo3s${i + 1}`));
+
+  // 앞에서 알파를 hidden 으로 바꿔놨다(그 자체가 다른 검사다). core_public 은 숨은
+  // 스트리머를 안 보여주는 게 맞으므로, 집계 의미를 보려면 잠깐 되돌렸다가 다시 숨긴다.
+  await sqlClient()`UPDATE streamer SET visibility = 'public' WHERE slug = 'alpha'`;
+
+  const bo3 = await sqlClient()<{ sets: number; set_wins: number; matches: number; match_wins: number }[]>`
+    WITH e AS (
+      -- 쌍은 streamer_id 순으로 정규화돼 있어서 a 가 알파라는 보장이 없다.
+      -- '알파 기준' 으로 보려면 어느 쪽이 알파인지 확인하고 골라야 한다.
+      SELECT se.series_key,
+             CASE WHEN sa.slug = 'alpha' THEN se.a_win ELSE se.b_win END AS alpha_win
+        FROM core_public.streamer_encounter se
+        JOIN core_public.streamer sa ON sa.streamer_id = se.streamer_a_id
+       WHERE se.match_id LIKE 'verify-cup:bo3s%'
+    ), s AS (
+      SELECT series_key, count(*)::int AS sets, count(*) FILTER (WHERE alpha_win)::int AS a_sets
+        FROM e GROUP BY series_key
+    )
+    SELECT (SELECT count(*) FROM e)::int                             AS sets,
+           (SELECT count(*) FILTER (WHERE alpha_win) FROM e)::int    AS set_wins,
+           count(*)::int                                             AS matches,
+           count(*) FILTER (WHERE a_sets * 2 > sets)::int            AS match_wins
+      FROM s
+  `;
+  check("★ 다전제 2:1 은 세트로 2승 1패 (3세트)",
+    bo3[0]?.sets === 3 && bo3[0]?.set_wins === 2, JSON.stringify(bo3[0]));
+  check("★ 같은 다전제가 매치로는 1승 0패 (1경기)",
+    bo3[0]?.matches === 1 && bo3[0]?.match_wins === 1, JSON.stringify(bo3[0]));
+
+  const single = await sqlClient()<{ n: number }[]>`
+    SELECT count(DISTINCT series_key)::int AS n
+      FROM core_public.streamer_encounter WHERE match_id = 'verify-cup:f1'
+  `;
+  check("단판은 자기 자신이 곧 시리즈다 — 공개 큐도 같은 식으로 집계된다",
+    single[0]?.n === 1, JSON.stringify(single[0]));
+
+  await sqlClient()`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'alpha'`;
+  const hiddenAgain = await sqlClient()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM core_public.streamer_encounter WHERE match_id LIKE 'verify-cup:%'
+  `;
+  check("숨긴 스트리머의 다전제도 core_public 에서 통째로 사라진다",
+    hiddenAgain[0]?.n === 0, JSON.stringify(hiddenAgain[0]));
+
+  let seriesRejected = false;
+  try {
+    await sqlClient()`
+      INSERT INTO match (match_id, queue_id, game_creation, winning_team, source, series_id)
+      VALUES ('verify-cup:halfseries', 0, now(), 100, 'manual', 'verify-cup:x')
+    `;
+  } catch {
+    seriesRejected = true;
+  }
+  check("series_id 만 있고 세트 번호가 없으면 거부한다 (집계가 조용히 틀어진다)", seriesRejected);
+
   const bySource = await sqlClient()<{ source: string; n: number }[]>`
     SELECT source, count(*)::int AS n FROM streamer_encounter GROUP BY source ORDER BY source
   `;

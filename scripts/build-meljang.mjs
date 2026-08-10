@@ -347,6 +347,8 @@ for (const r of resolved) {
   for (const [k, setWinner] of order.entries()) {
     games.push({
       id: `g${String(r.no).padStart(2, "0")}s${k + 1}`,
+      series: `g${String(r.no).padStart(2, "0")}`,
+      set_no: k + 1,
       round: `${r.round} ${k + 1}세트`,
       played_at: `${r.date}T${String(19 + k).padStart(2, "0")}:00:00+09:00`,
       blue: r.a,

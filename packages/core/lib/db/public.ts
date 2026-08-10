@@ -124,16 +124,31 @@ export interface RecentGame {
   cs: number | null;
 }
 
+/**
+ * 상대전적. **세트와 매치를 나눠서** 준다.
+ *
+ * 3판 2선승을 2:1 로 이기면 세트로는 2승 1패, 매치로는 1승 0패다.
+ * 둘은 다른 사실이라 하나로 뭉치면 둘 다 틀린다 — 세트만 세면 다전제 승리가
+ * 단판 두 번과 같아지고, 매치만 세면 진 쪽이 딴 세트가 사라진다.
+ *
+ * 단판(공개 큐)은 자기 자신이 곧 시리즈라 `sets` 와 `matches` 가 같다.
+ */
 export interface RivalRow {
   streamer_id: string;
   slug: string;
   display_name: string;
-  vs_games: number;
-  vs_wins: number;
-  ally_games: number;
-  ally_wins: number;
-  lane_games: number;
-  lane_wins: number;
+  /** 세트(판) 단위 */
+  vs_sets: number;
+  vs_set_wins: number;
+  ally_sets: number;
+  ally_set_wins: number;
+  lane_sets: number;
+  lane_set_wins: number;
+  /** 매치(경기) 단위 — 다전제 한 판이 1로 센다 */
+  vs_matches: number;
+  vs_match_wins: number;
+  ally_matches: number;
+  ally_match_wins: number;
   last_met: Date;
 }
 
@@ -233,22 +248,44 @@ export async function listRivals(streamerId: string, limit = 20): Promise<RivalR
     WITH e AS (
       SELECT CASE WHEN streamer_a_id = ${streamerId}::uuid THEN streamer_b_id ELSE streamer_a_id END AS other_id,
              CASE WHEN streamer_a_id = ${streamerId}::uuid THEN a_win ELSE b_win END AS me_win,
-             relation, is_lane_matchup, game_creation
+             relation, is_lane_matchup, game_creation, series_key
         FROM core_public.streamer_encounter
        WHERE streamer_a_id = ${streamerId}::uuid OR streamer_b_id = ${streamerId}::uuid
+    ),
+    -- 시리즈로 접는다. 다전제는 세트 과반을 이긴 쪽이 그 매치의 승자다.
+    per_series AS (
+      SELECT other_id, relation, series_key,
+             count(*)::int                       AS sets,
+             count(*) FILTER (WHERE me_win)::int AS my_sets
+        FROM e GROUP BY other_id, relation, series_key
+    ),
+    by_set AS (
+      SELECT other_id,
+             count(*) FILTER (WHERE relation = 'opponent')::int              AS vs_sets,
+             count(*) FILTER (WHERE relation = 'opponent' AND me_win)::int   AS vs_set_wins,
+             count(*) FILTER (WHERE relation = 'ally')::int                  AS ally_sets,
+             count(*) FILTER (WHERE relation = 'ally' AND me_win)::int       AS ally_set_wins,
+             count(*) FILTER (WHERE is_lane_matchup)::int                    AS lane_sets,
+             count(*) FILTER (WHERE is_lane_matchup AND me_win)::int         AS lane_set_wins,
+             max(game_creation)                                             AS last_met
+        FROM e GROUP BY other_id
+    ),
+    by_match AS (
+      SELECT other_id,
+             count(*) FILTER (WHERE relation = 'opponent')::int                          AS vs_matches,
+             count(*) FILTER (WHERE relation = 'opponent' AND my_sets * 2 > sets)::int    AS vs_match_wins,
+             count(*) FILTER (WHERE relation = 'ally')::int                               AS ally_matches,
+             count(*) FILTER (WHERE relation = 'ally' AND my_sets * 2 > sets)::int        AS ally_match_wins
+        FROM per_series GROUP BY other_id
     )
     SELECT s.streamer_id, s.slug, s.display_name,
-           count(*) FILTER (WHERE e.relation = 'opponent')::int                          AS vs_games,
-           count(*) FILTER (WHERE e.relation = 'opponent' AND e.me_win)::int             AS vs_wins,
-           count(*) FILTER (WHERE e.relation = 'ally')::int                              AS ally_games,
-           count(*) FILTER (WHERE e.relation = 'ally' AND e.me_win)::int                 AS ally_wins,
-           count(*) FILTER (WHERE e.is_lane_matchup)::int                                AS lane_games,
-           count(*) FILTER (WHERE e.is_lane_matchup AND e.me_win)::int                   AS lane_wins,
-           max(e.game_creation)                                                          AS last_met
-      FROM e
-      JOIN core_public.streamer s ON s.streamer_id = e.other_id
-     GROUP BY s.streamer_id, s.slug, s.display_name
-     ORDER BY count(*) DESC, max(e.game_creation) DESC
+           b.vs_sets, b.vs_set_wins, b.ally_sets, b.ally_set_wins,
+           b.lane_sets, b.lane_set_wins, b.last_met,
+           m.vs_matches, m.vs_match_wins, m.ally_matches, m.ally_match_wins
+      FROM by_set b
+      JOIN by_match m ON m.other_id = b.other_id
+      JOIN core_public.streamer s ON s.streamer_id = b.other_id
+     ORDER BY (b.vs_sets + b.ally_sets) DESC, b.last_met DESC
      LIMIT ${limit}
   `;
 }
@@ -294,6 +331,11 @@ export async function countPublic(): Promise<{ streamers: number; matches: numbe
 
 export interface VersusGame {
   match_id: string;
+  /** 같은 다전제에 속한 세트를 묶는 키. 단판이면 match_id 와 같다. */
+  series_key: string;
+  /** 다전제 안에서 몇 번째 세트인가. 단판이면 null. */
+  series_game_no: number | null;
+  source: string;
   game_creation: Date;
   game_duration: number | null;
   queue_id: number;
@@ -322,13 +364,14 @@ export async function getVersus(xId: string, yId: string): Promise<{ flip: boole
   const [a, b] = [xId, yId].sort();
   const flip = a !== xId;
   const games = await sql<VersusGame[]>`
-    SELECT match_id, game_creation, game_duration, queue_id, relation, is_lane_matchup,
+    SELECT match_id, series_key, series_game_no, source,
+           game_creation, game_duration, queue_id, relation, is_lane_matchup,
            a_win, b_win, a_position, b_position, a_champion_id, b_champion_id,
            a_kills, a_deaths, a_assists, a_cs, a_gold,
            b_kills, b_deaths, b_assists, b_cs, b_gold
       FROM core_public.streamer_encounter
      WHERE streamer_a_id = ${a}::uuid AND streamer_b_id = ${b}::uuid
-     ORDER BY game_creation DESC
+     ORDER BY game_creation DESC, series_game_no DESC
   `;
   return { flip, games };
 }

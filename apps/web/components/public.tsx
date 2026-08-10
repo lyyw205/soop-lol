@@ -113,6 +113,34 @@ export function TierChart({
  *   3승 0패를 "승률 100%" 로 크게 쓰지 않는다. 표본 수를 **항상** 같이 보여주고,
  *   표본이 작으면 '참고용' 이라고 화면에 적는다. 재미 사이트라도 숫자로 거짓말하면 안 된다.
  */
+/**
+ * 다전제를 **경기(매치)와 세트 두 단위로** 보여준다.
+ *
+ * 3판 2선승을 2:1 로 이기면 경기로는 1승 0패, 세트로는 2승 1패다.
+ * 하나만 쓰면 둘 다 왜곡된다 — 세트만 쓰면 다전제 한 판이 단판 세 번처럼 보이고,
+ * 경기만 쓰면 진 쪽이 따낸 세트가 사라져 3:0 과 3:2 가 같아진다.
+ *
+ * 전부 단판이면(공개 큐만 있을 때) 두 수치가 같으므로 한 줄만 그린다 —
+ * 같은 숫자를 두 번 쓰면 다른 뜻인 줄 오해한다.
+ */
+export function DualRecord({
+  match, set, label,
+}: { match: HeadToHead; set: HeadToHead; label?: string }) {
+  const sameUnit = match.wins === set.wins && match.losses === set.losses;
+  return (
+    <div>
+      <RecordBar record={match} label={label} />
+      {!sameUnit && (
+        <p className="tabular mt-2 text-[11px] text-ink-400">
+          세트 {set.wins}승 {set.losses}패
+          <span className="ml-1">({Math.round((rawWinRate(set) ?? 0) * 100)}%)</span>
+          <span className="ml-2 text-ink-500">· 위는 다전제 한 판을 1경기로 셉니다</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function RecordBar({ record, label }: { record: HeadToHead; label?: string }) {
   const n = record.wins + record.losses;
   if (n === 0) return <EmptyLine>{label ? `${label} 기록이 없습니다.` : "기록이 없습니다."}</EmptyLine>;

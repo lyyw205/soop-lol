@@ -5,7 +5,7 @@ import { getStreamerBySlug, getVersus, type VersusGame } from "@soop-lol/core/li
 import { POSITION_LABEL, QUEUE_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 import {
-  EmptyLine, Kda, PageShell, RecordBar, SectionTitle, SiteHeader, WinPill, relativeDate,
+  DualRecord, EmptyLine, Kda, PageShell, SectionTitle, SiteHeader, WinPill, relativeDate,
 } from "@/components/public";
 
 export const dynamic = "force-dynamic";
@@ -48,10 +48,33 @@ export default async function VersusPage({ params }: { params: Promise<{ a: stri
   const allies = seen.filter(({ g }) => g.relation === "ally");
   const lanes = seen.filter(({ g }) => g.is_lane_matchup);
 
+  /** 세트(판) 단위 전적 */
   const rec = (rows: typeof seen) => ({
     wins: rows.filter(({ v }) => v.xWin).length,
     losses: rows.filter(({ v }) => !v.xWin).length,
   });
+
+  /**
+   * 경기(매치) 단위 전적. 같은 시리즈의 세트를 묶고 **세트 과반**을 이긴 쪽이 그 경기의 승자다.
+   * 다전제 2:1 은 세트로 2승 1패지만 경기로는 1승 0패다. 단판은 시리즈가 곧 자기 자신이라
+   * 그대로 1경기로 잡힌다.
+   */
+  const recByMatch = (rows: typeof seen) => {
+    const bySeries = new Map<string, { won: number; lost: number }>();
+    for (const { g, v } of rows) {
+      const cur = bySeries.get(g.series_key) ?? { won: 0, lost: 0 };
+      if (v.xWin) cur.won++;
+      else cur.lost++;
+      bySeries.set(g.series_key, cur);
+    }
+    let wins = 0;
+    let losses = 0;
+    for (const s of bySeries.values()) (s.won > s.lost ? wins++ : losses++);
+    return { wins, losses };
+  };
+
+  const seriesCount = new Set(seen.map(({ g }) => g.series_key)).size;
+  const tournamentSets = seen.filter(({ g }) => g.source === "manual").length;
 
   return (
     <>
@@ -64,7 +87,8 @@ export default async function VersusPage({ params }: { params: Promise<{ a: stri
           <Link href={`/s/${y.slug}`} className="hover:text-accent-400">{y.display_name}</Link>
         </h1>
         <p className="mt-1 text-sm text-ink-400">
-          같은 경기에 있었던 {games.length}판 · 공개 큐만. 내전은 API 로 조회할 수 없어 포함되지 않습니다.
+          같은 경기에 있었던 {seriesCount}경기 · {games.length}세트
+          {tournamentSets > 0 && ` · 이 중 대회 ${tournamentSets}세트`}
         </p>
 
         {games.length === 0 ? (
@@ -85,17 +109,17 @@ export default async function VersusPage({ params }: { params: Promise<{ a: stri
                 <div className="mb-2 text-xs text-ink-400">
                   상대편으로 만났을 때 · {x.display_name} 기준
                 </div>
-                <RecordBar record={rec(opponents)} label="상대전적" />
+                <DualRecord match={recByMatch(opponents)} set={rec(opponents)} label="상대전적" />
               </div>
               <div className="rounded-xl border border-ink-800 bg-ink-900/60 p-4">
                 <div className="mb-2 text-xs text-ink-400">같은 팀이었을 때</div>
-                <RecordBar record={rec(allies)} label="같은 팀" />
+                <DualRecord match={recByMatch(allies)} set={rec(allies)} label="같은 팀" />
               </div>
               <div className="rounded-xl border border-ink-800 bg-ink-900/60 p-4">
                 <div className="mb-2 text-xs text-ink-400">
                   맞라인 <span className="text-ink-400">(같은 포지션 · 반대 팀)</span>
                 </div>
-                <RecordBar record={rec(lanes)} label="맞라인" />
+                <DualRecord match={recByMatch(lanes)} set={rec(lanes)} label="맞라인" />
               </div>
             </section>
 

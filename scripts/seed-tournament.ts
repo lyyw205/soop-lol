@@ -36,6 +36,14 @@ interface SeedLineupEntry {
 interface SeedGame {
   id: string;
   round?: string;
+  /**
+   * 다전제라면 그 시리즈 키와 몇 번째 세트인지. 같은 `series` 를 가진 경기들이
+   * 한 '경기(매치)'가 된다. 단판이면 비운다.
+   * 왜 필요한가: 3판 2선승을 2:1 로 이기면 세트로는 2승 1패, 매치로는 1승 0패다.
+   * 둘은 다른 사실이라 둘 다 셀 수 있어야 한다 (마이그레이션 0007).
+   */
+  series?: string;
+  set_no?: number;
   played_at: string;
   blue: string;
   red: string;
@@ -84,6 +92,12 @@ function validate(list: SeedTournament[]): string[] {
       else if (gameIds.has(g.id)) errors.push(`${gat}: id 가 대회 안에서 중복이다`);
       else gameIds.add(g.id);
 
+      if (g.series && !(typeof g.set_no === "number" && g.set_no >= 1)) {
+        errors.push(`${gat}: series 를 적었으면 set_no(1부터)도 있어야 한다 — 한쪽만 있으면 집계가 조용히 틀어진다`);
+      }
+      if (!g.series && g.set_no !== undefined) {
+        errors.push(`${gat}: set_no 만 있고 series 가 없다`);
+      }
       if (!g.played_at || Number.isNaN(Date.parse(g.played_at))) {
         errors.push(`${gat}: played_at 이 없거나 날짜 형식이 아니다`);
       }
@@ -193,6 +207,8 @@ try {
         played_at: new Date(g.played_at),
         duration: g.duration ?? null,
         source_url: g.source_url ?? t.source_url ?? null,
+        series_id: g.series ? `${t.slug}:${g.series}` : null,
+        series_game_no: g.series ? (g.set_no ?? null) : null,
         winning_team: g.winner === g.blue ? 100 : 200,
         participants,
       });
