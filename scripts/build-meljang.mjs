@@ -296,18 +296,47 @@ for (const r of resolved) {
 
 // ── 방송국 아이디 해석 → 기존 slug 재사용 또는 FA 로 신규 등록 ─────────
 
-async function soopChannelId(nick) {
+/**
+ * SOOP 닉네임에서 **장식만** 떼어낸다 — 'BJ' 접두어, ♥ ^^ _ . ~ 같은 꾸밈 문자, 공백.
+ * 옛 회차 로스터가 'BJ맛종욱'·'하이요♥'·'_구기리' 처럼 적혀 있어서 지금 표기와
+ * 장식 하나 차이로 안 잡히는 일이 많다.
+ */
+const stripDeco = (s) => String(s)
+  .replace(/^BJ\s*/i, "")
+  .replace(/[♥♡★☆♬♪~!?:;,*`'"^_.\-\s]/g, "")
+  .toLowerCase();
+
+async function search(q) {
   const url =
-    `${SOOP_SEARCH}?m=bjSearch&v=3.0&szOrder=&szKeyword=${encodeURIComponent(nick)}&nPageNo=1&nListCnt=10`;
+    `${SOOP_SEARCH}?m=bjSearch&v=3.0&szOrder=&szKeyword=${encodeURIComponent(q)}&nPageNo=1&nListCnt=20`;
   try {
     const r = await fetch(url, { headers: { Referer: "https://www.sooplive.co.kr/" } });
-    if (!r.ok) return null;
-    const rows = (await r.json())?.DATA ?? [];
-    const exact = rows.filter((x) => x.user_nick === nick);
-    return exact.length === 1 ? exact[0].user_id : null; // 동명이인이면 포기한다
+    if (!r.ok) return [];
+    return (await r.json())?.DATA ?? [];
   } catch {
-    return null;
+    return [];
   }
+}
+
+/**
+ * 닉네임 → 방송국 아이디. **유일하게 좁혀질 때만** 돌려준다.
+ *
+ * 1) 표기가 정확히 같은 게 하나면 그것 (가장 단단하다)
+ * 2) 없으면 장식을 뗀 문자열로 다시 찾아, 장식을 떼고 같은 게 **하나뿐일 때만** 그것
+ *
+ * ★ 2)를 유일할 때만 받는 게 핵심이다. 'BJ이상호' 를 장식만 떼면 '이상호' 인데
+ *   검색하면 lshooooo(이상호) 와 tlshtkw(이상호^) 둘이 나온다 — 둘 중 누구인지
+ *   알 수 없으므로 **포기한다**. 여기서 하나를 고르면 남의 전적이 된다(§11-2).
+ */
+async function soopChannelId(nick) {
+  const exact = (await search(nick)).filter((x) => x.user_nick === nick);
+  if (exact.length === 1) return { id: exact[0].user_id, via: "exact", nick: exact[0].user_nick };
+
+  const key = stripDeco(nick);
+  if (!key) return null;
+  const near = (await search(key)).filter((x) => stripDeco(x.user_nick) === key);
+  if (near.length === 1) return { id: near[0].user_id, via: "deco", nick: near[0].user_nick };
+  return null;
 }
 
 const faRes = await fetch(FA_API, {
@@ -338,6 +367,8 @@ const teams = {};
 const positions = {};
 const newStreamers = [];
 const dropped = [];
+// 장식만 떼서 이어붙인 건 따로 남겨 사람이 훑어볼 수 있게 한다.
+const decoMatched = [];
 let reused = 0;
 
 for (const [team, members] of Object.entries(season.teams)) {
@@ -349,9 +380,13 @@ for (const [team, members] of Object.entries(season.teams)) {
     // 닉네임 검색에 의존하지 않는 경로를 남겨 둔다.
     if (slugSet.has(nick)) { teams[team].push(nick); positions[nick] = POSITION[i]; reused++; continue; }
 
-    const channelId = await soopChannelId(nick);
+    const found = await soopChannelId(nick);
     await new Promise((s) => setTimeout(s, 250));
-    if (!channelId) { dropped.push(`${team} ${nick} — SOOP 검색에서 단일 해석 실패`); continue; }
+    if (!found) { dropped.push(`${team} ${nick} — SOOP 검색에서 단일 해석 실패`); continue; }
+    const channelId = found.id;
+    if (found.via === "deco") {
+      decoMatched.push(`${team} ${nick} → ${channelId} (현재 표기 '${found.nick}')`);
+    }
 
     const existing = known.get(channelId);
     if (existing) { teams[team].push(existing); positions[existing] = POSITION[i]; reused++; continue; }
@@ -383,7 +418,11 @@ for (const [team, members] of Object.entries(season.teams)) {
             `SOOP 공식 '2026 LoL 멸망전 with Gen.G' FA 등록에 본인이 직접 입력한 라이엇 ID` +
             ` (등록 ${String(f.regDate).slice(0, 10)}). SOOP 아이디 ${channelId}.` +
             ` SOOP 표기 '${riot_id}'. ${season.name} 로스터(${namuUrl(season.namu[0])})의` +
-            ` '${nick}' 과 방송국 아이디로 동일인 확인.`,
+            ` '${nick}' 과 방송국 아이디로 동일인 확인` +
+            (found.via === "deco"
+              ? ` (로스터 표기와 현재 표기가 장식만 다르다: '${nick}' ↔ '${found.nick}'.` +
+                ` 장식을 떼고 유일하게 일치하는 방송국이 하나뿐이라 채택).`
+              : `.`),
         },
       })),
     });
@@ -449,6 +488,10 @@ writeFileSync(
 
 console.log(`\n${outStreamers} — 신규 ${newStreamers.length}명 (기존 재사용 ${reused}명)`);
 console.log(`${outTournament} — 팀 ${Object.keys(teams).length} · 경기 ${resolved.length} · 세트 ${games.length}판`);
+if (decoMatched.length) {
+  console.log(`\n· 장식(BJ 접두어·♥ ^^ _ 등)만 떼어 이어붙인 참가자 ${decoMatched.length}명 — 검토용:`);
+  for (const d of decoMatched) console.log(`   ${d}`);
+}
 if (dropped.length) {
   console.log(`\n⚠ 근거가 없어 뺀 참가자 ${dropped.length}명:`);
   for (const d of dropped) console.log(`   ${d}`);
