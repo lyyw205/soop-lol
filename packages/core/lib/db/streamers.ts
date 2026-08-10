@@ -468,3 +468,37 @@ export async function adminCounts(): Promise<AdminCounts> {
   `;
   return rows[0];
 }
+
+/**
+ * 나무위키 인물 문서를 스트리머에 붙인다. 옛 회차 로스터 표기를 잇는 근거다.
+ *
+ * 충돌이면 **바꾸지 않고 false 를 준다**. 충돌은 두 방향 다 막는다:
+ *   - 그 문서를 이미 **다른 스트리머**가 갖고 있다 (한 문서 → 두 사람)
+ *   - 이 스트리머가 이미 **다른 문서**를 갖고 있다 (한 사람 → 두 문서)
+ *
+ * 뒤쪽을 빼먹었다가 실제로 물렸다 — 61건을 붙였는데 남은 건 58행이었다.
+ * 나중에 온 표기가 앞의 문서를 조용히 밀어냈고, 밀려난 쪽이 맞았는지는 알 수 없었다.
+ * 둘 중 하나는 잘못 이어진 것이므로 덮어쓰지 말고 **불러 세워야** 한다.
+ */
+export async function setNamuPage(streamerId: string, page: string): Promise<boolean> {
+  const sql = db();
+  const rows = await sql<{ id: string }[]>`
+    UPDATE streamer SET namu_page = ${page}, updated_at = now()
+     WHERE id = ${streamerId}::uuid
+       AND (namu_page IS NULL OR namu_page = ${page})
+       AND NOT EXISTS (
+         SELECT 1 FROM streamer x WHERE x.namu_page = ${page} AND x.id <> ${streamerId}::uuid
+       )
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+/** 나무위키 인물 문서 → slug. 옛 표기를 이 지도로 잇는다. */
+export async function slugsByNamuPage(): Promise<Map<string, string>> {
+  const sql = db();
+  const rows = await sql<{ namu_page: string; slug: string }[]>`
+    SELECT namu_page, slug FROM streamer WHERE namu_page IS NOT NULL
+  `;
+  return new Map(rows.map((r) => [r.namu_page, r.slug]));
+}

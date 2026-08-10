@@ -423,3 +423,26 @@ function joinTeams(tokens, known) {
   }
   return out;
 }
+
+/**
+ * 로스터 셀의 **인물 문서 링크**를 뽑는다 — 표기 → 문서.
+ *
+ * '이상호'·'BJ이상호'·'탈론장인이상호' 가 전부 `/w/이상호` 로 링크된다.
+ * 출처가 직접 동일인이라고 말하는 것이라, 닉네임 유사도 추측보다 훨씬 단단하다.
+ *
+ * 회차 문서 링크(2026 LoL 멸망전 …)는 사람이 아니므로 걸러낸다.
+ */
+export async function fetchPersonLinks(title) {
+  const res = await fetch(namuUrl(title), { headers: { "User-Agent": UA } });
+  if (!res.ok) return new Map();
+  const html = await res.text();
+  const out = new Map();
+  for (const m of html.matchAll(/<a[^>]+href='\/w\/([^'#]+)'[^>]*>([^<]{1,24})<\/a>/g)) {
+    const nick = decode(m[2]).trim();
+    const page = decodeURIComponent(m[1]);
+    if (!nick || nick.length > 24) continue;
+    if (/^\d/.test(page) || /멸망전|시즌|리그|대회|분류:/.test(page)) continue;
+    if (!out.has(nick)) out.set(nick, page);
+  }
+  return out;
+}

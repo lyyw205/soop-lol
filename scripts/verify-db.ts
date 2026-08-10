@@ -442,6 +442,25 @@ try {
       tally2.buckets.reduce((n, b) => n + b.count, 0) === 1,
     JSON.stringify(tally2));
 
+  // ★ 예선에서 떨어져 **한 경기도 안 한** 참가도 성적이다.
+  //
+  //   멸망전은 예선 참가팀이 30~40개인데 본선에 오르는 건 8~12개다. 한때 결과표에
+  //   나온 팀만 적재했더니 예선 탈락한 회차가 통째로 사라졌고, 화면에서는 그 사람이
+  //   아예 출전하지 않은 것처럼 보였다. 0경기는 '기록 없음' 이 아니라 '떨어졌다' 다.
+  await tournaments.saveEventTeams(otherEventId, [
+    { name: "예선팀", placement: "1차예선 탈락", placement_rank: 99,
+      members: [{ streamer_id: s2.id }] },
+  ]);
+  const noGame = (await publicDb.listStreamerEvents(s2.id)).find((r) => r.team_name === "예선팀");
+  check("★ 경기가 0건이어도 예선 탈락한 회차는 성적에 남는다",
+    noGame?.placement === "1차예선 탈락" && noGame?.matches === 0 && noGame?.sets === 0,
+    JSON.stringify(noGame));
+
+  const tally3 = await publicDb.summarizePlacements(s2.id);
+  check("★ 예선 탈락도 횟수로 집계된다",
+    tally3.buckets.find((b) => b.key === "qualifier")?.count === 1 && tally3.unknown === 0,
+    JSON.stringify(tally3));
+
   // ── 다전제: 세트와 매치를 나눠 셀 수 있는가 (마이그레이션 0007) ──────
   //
   // 3판 2선승을 2:1 로 이기면 **세트 2승 1패 · 매치 1승 0패** 다. 이 둘이 한 질의에서

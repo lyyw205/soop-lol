@@ -246,9 +246,20 @@ export default async function StreamerProfile({
                       <span className="ml-2">{new Date(e.starts_at).getFullYear()}</span>
                     </span>
                   </div>
+                  {/*
+                    경기가 0건인 이유는 세 가지고, 셋은 전혀 다른 말이다.
+                      · 예선 탈락(99)      — 본선에 못 올라갔다. 기록이 없는 게 아니라 **없는 게 기록**이다.
+                      · 본선 순위가 있는데 0 — 올라갔는데 우리가 경기를 못 붙였다. 우리 쪽 구멍이다.
+                      · 순위 자체를 모름    — 둘 중 뭔지 우리도 모른다. 모른다고 적는다.
+                    한 문장으로 뭉뚱그리면 예선에서 떨어진 사람이 데이터 결함처럼 보인다.
+                  */}
                   {e.matches === 0 ? (
                     <p className="tabular mt-2 text-[11px] text-ink-400">
-                      명단에는 있으나 경기 기록을 붙이지 못했습니다 — 라이엇 계정을 확인하지 못한 참가자입니다.
+                      {e.placement_rank === 99
+                        ? "예선에서 탈락해 본선 경기가 없습니다."
+                        : e.placement_rank == null
+                          ? "본선 경기 기록이 없습니다 — 예선에서 탈락했는지, 우리가 경기를 못 붙였는지는 확인하지 못했습니다."
+                          : "명단에는 있으나 경기 기록을 붙이지 못했습니다 — 라이엇 계정을 확인하지 못한 참가자입니다."}
                     </p>
                   ) : (
                     <p className="tabular mt-2 text-sm text-ink-300">

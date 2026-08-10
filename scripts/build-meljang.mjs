@@ -34,7 +34,9 @@ import { db, closeDb } from "@soop-lol/core/lib/db/client";
 
 import { placementRank } from "@soop-lol/core/lib/metrics/placement";
 
-import { fetchAllSeries, fetchPlacements, fetchRosters, namuUrl, normTeam } from "./lib/namu.mjs";
+import {
+  fetchAllSeries, fetchPersonLinks, fetchPlacements, fetchRosters, namuUrl, normTeam,
+} from "./lib/namu.mjs";
 import { POSITION, ROMAN, SEASONS } from "./meljang-seasons.mjs";
 
 const FA_PAGE = "https://bjmatchfa.sooplive.com/fa/27";
@@ -162,9 +164,28 @@ const { series: rawSeries, missing } = await fetchAllSeries(season.namu ?? []);
 if (missing.length) fail([`나무위키 문서를 못 읽었다: ${missing.join(", ")}`]);
 if (rawSeries.length === 0) fail([`나무위키에서 경기 결과를 하나도 못 읽었다 (${(season.namu ?? []).join(", ")})`]);
 
+// 참가팀 표는 뒤에서도 쓴다. 팀 이름을 모으기 전에 먼저 읽어야 해서 여기서 한 번만 부른다.
+const rosterTable = (await fetchRosters(season.namu[0])) ?? {};
+
 // 같은 대회 안에서도 팀명 표기가 흔들린다. 대표 표기 하나로 모은다.
 const canon = new Map();
 for (const s of rawSeries) for (const t of [s.a, s.b]) if (!canon.has(normTeam(t))) canon.set(normTeam(t), t);
+
+// ★ 대회 도중 이름을 바꾼 팀은 참가팀 표에 'togings ▶ 토없기왕' 으로 적힌다.
+//   두 이름이 **결과표에도 둘 다** 나오면 한 팀이 두 팀으로 쪼개진다. 그러면
+//   로스터는 한쪽에만 붙고(한 대회 한 팀 제약), 다른 쪽 경기는 아무의 전적도 아니게 된다.
+//   실제로 2019 시즌1 의 kimmingyo 가 7경기 중 2경기만 인정받고 있었다.
+//   같은 팀이라고 출처가 직접 말했으니 앞 이름으로 합친다.
+for (const t of Object.keys(rosterTable)) {
+  const parts = t.split(/[▶→]/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) continue;
+  const seen = parts.filter((p) => canon.has(normTeam(p)));
+  if (seen.length < 2) continue;
+  const head = canon.get(normTeam(seen[0]));
+  for (const p of seen.slice(1)) canon.set(normTeam(p), head);
+  console.log(`  대회 중 이름을 바꾼 팀을 하나로 합친다: ${seen.join(" = ")} → '${head}'`);
+}
+
 const nameOf = (t) => canon.get(normTeam(t)) ?? t;
 // 세트 승자 배열도 같은 표기로 맞춘다 — 안 그러면 시드의 winner 가 blue/red 와 안 맞는다.
 const namuSeries = rawSeries.map((s) => ({
@@ -192,28 +213,82 @@ if (!season.bouts) {
   }
 }
 
-// 로스터도 안 적었으면 참가팀 표에서 읽는다. 대진에 나온 팀만 남긴다.
-if (!season.teams) {
+// 로스터도 안 적었으면 참가팀 표에서 읽는다.
+//
+// ★ 예선에서 떨어진 팀도 **전부** 남긴다.
+//   멸망전은 예선 참가팀이 30~40개인데 본선에 오르는 건 8~12개다. 예전엔 결과표
+//   (=본선)에 나온 팀만 남겼는데, 그러면 예선 탈락한 회차가 통째로 사라진다.
+//   이상호가 2021 시즌2·앙코르전에 나갔는데 우리 화면엔 안 나오던 이유가 이것이다.
+//   나무위키 참가팀 표는 '1차예선 탈락' 까지 순위를 매겨 주므로 근거도 있다.
+//   경기가 0건인 팀은 조우를 안 만들 뿐이고, "이 회차에 나가서 예선에서 떨어졌다" 는
+//   그 자체로 사실이다. 안 적으면 우리가 모르는 게 아니라 **없었던 일이 된다.**
+//
+//   손으로 적은 teams 가 있어도 이 블록은 돈다. 손으로 적은 건 본선 명단(대개 8팀)이고
+//   참가팀 표에는 예선 팀까지 40팀이 있다. **손으로 적은 쪽이 언제나 이기고**,
+//   거기 없는 팀만 표에서 더한다. 예전엔 손으로 적었으면 표를 아예 안 봤는데,
+//   그래서 2025 시즌1 은 40팀 순위가 나무위키에 있는데도 8팀만 들어갔다.
+//
+// ★ 다만 그 표가 **이 대회의 참가팀이 맞는지 먼저 확인한다.**
+//   회차에 따라 문서의 '참가팀' 표가 본선과 전혀 다른 팀 집합이다 —
+//   2025 시즌2·2026 시즌1 은 본선 8팀 중 1~2팀만 표에 있다(본선이 드래프트로 재편된다).
+//   이걸 모르고 합쳤다가 이상호를 본선 팀 '왜자꾸이기는건데' 에서 예선 표기 '바밤바*' 로
+//   옮겨 버렸고, 한 대회 한 팀 제약(PK) 때문에 **본선 경기가 성적에서 통째로 사라졌다.**
+//   근거 없이 합치면 사람을 남의 팀에 넣는다. 확인되는 회차만 합친다.
+{
+  const handTeams = season.teams ?? null;
   // 참가팀 '표' 가 없는 회차가 있다 — 2014·2015 는 로스터가 산문으로 적혀 있다
   // ('팀원: 카카롯(탑), Mid Nexus(미드)…'). 그래도 경기는 사실이므로 넣는다.
   // 로스터가 비면 조우가 안 생길 뿐, 나중에 명단을 알게 되면 다시 돌려 살릴 수 있다.
-  const rosters = (await fetchRosters(season.namu[0])) ?? {};
-  if (Object.keys(rosters).length === 0) {
+  let rosters = rosterTable;
+  if (!handTeams && Object.keys(rosters).length === 0) {
     console.log(`  ⚠ 참가팀 표를 못 읽었다 — 팀 이름만 넣는다 (조우는 생기지 않는다)`);
   }
+
+  // 손으로 적은 본선 명단이 있을 때만 따진다. 없으면 이 표가 유일한 출처다.
+  if (handTeams && Object.keys(rosters).length > 0) {
+    const inTable = new Set(Object.keys(rosters).flatMap((t) =>
+      t.split(/[▶→]/).map((x) => normTeam(x.trim())).filter(Boolean)));
+    const overlap = Object.keys(handTeams).filter((t) => inTable.has(normTeam(t))).length;
+    // 표가 이 대회의 판이라는 근거 두 가지 — 본선 팀이 표에 있거나, 표가 순위를 매기거나.
+    // 둘 다 없으면 그 표가 무엇인지 우리가 모르는 것이다. 모르면 안 쓴다.
+    const ranked = Object.keys((await fetchPlacements(season.namu[0])) ?? {}).length;
+    if (overlap * 2 < Object.keys(handTeams).length && ranked === 0) {
+      console.log(
+        `  ⚠ 참가팀 표(${Object.keys(rosters).length}팀)를 쓰지 않는다 — ` +
+          `본선 ${Object.keys(handTeams).length}팀 중 ${overlap}팀만 표에 있고 순위도 없다. ` +
+          `이 대회의 판인지 확인되지 않는다`,
+      );
+      rosters = {};
+    }
+  }
+
   const inBouts = new Set(season.bouts.flatMap((b) => [normTeam(b[2]), normTeam(b[3])]));
-  season.teams = {};
+  season.teams = { ...(handTeams ?? {}) };
+  const known = new Set(Object.keys(season.teams).map(normTeam));
+  let added = 0;
   for (const [team, members] of Object.entries(rosters)) {
     // 대회 도중 이름을 바꾼 팀은 'togings ▶ 토없기왕' 처럼 둘 다 적혀 있다.
-    // 대진에는 둘 중 하나로만 나오므로 양쪽 이름으로 다 걸어 둔다.
-    for (const alias of team.split(/[▶→]/).map((x) => x.trim()).filter(Boolean)) {
-      if (inBouts.has(normTeam(alias))) season.teams[nameOf(alias)] = members;
+    // 결과표에 나온 표기가 있으면 그쪽으로 건다(양쪽 다 나오면 양쪽 다).
+    // 결과표에 아예 안 나오는 팀(=예선 탈락)은 **바꾼 뒤 이름 하나만** 쓴다 —
+    // 안 그러면 한 팀이 두 팀으로 불어나 참가 횟수가 부풀려진다.
+    const aliases = team.split(/[▶→]/).map((x) => x.trim()).filter(Boolean);
+    const played = aliases.filter((a) => inBouts.has(normTeam(a)));
+    for (const alias of played.length > 0 ? played : aliases.slice(-1)) {
+      const name = nameOf(alias);
+      if (known.has(normTeam(name))) continue;
+      season.teams[name] = members;
+      known.add(normTeam(name));
+      added++;
     }
+  }
+  if (handTeams) {
+    console.log(
+      `  손으로 적은 본선 ${Object.keys(handTeams).length}팀 + 참가팀 표에서 더한 ${added}팀`,
+    );
   }
   // 대진에만 있고 참가팀 표에 없는 팀 — 대개 예선에서 올라와 본선 표에 안 실린 팀이다.
   // 경기가 있었던 건 사실이므로 **로스터를 비운 채 남긴다**. 나중에 로스터를 알게 되면
   // 다시 돌려 그 팀의 조우가 살아난다. 지우면 그 경기 자체가 사라진다.
-  const known = new Set(Object.keys(season.teams).map(normTeam));
   const noRoster = [];
   for (const b of season.bouts) {
     for (const t of [b[2], b[3]]) {
@@ -329,8 +404,9 @@ if (drawnCount > 0) console.log(`  (2세트제라 무승부 ${drawnCount}경기 
 const wikiPlacements = (await fetchPlacements(season.namu[0])) ?? {};
 const placements = {};
 for (const [team, label] of Object.entries(wikiPlacements)) {
-  const canonName = canon.get(normTeam(team));
-  if (canonName) placements[canonName] = label;
+  // 결과표에 나온 팀은 그쪽 표기로 맞춘다. 안 나온 팀(=예선 탈락)은 맞출 대상이 없으니
+  // 참가팀 표의 표기를 그대로 쓴다 — 예전엔 여기서 조용히 버려졌다.
+  placements[canon.get(normTeam(team)) ?? team] = label;
 }
 const fromWiki = Object.keys(placements).length;
 
@@ -348,7 +424,9 @@ const fromBracket = Object.keys(placements).length - fromWiki;
 console.log(
   `\n순위: 나무위키 색에서 ${fromWiki}팀` +
     (fromBracket > 0 ? ` + 대진에서 유도 ${fromBracket}팀` : "") +
-    ` (대진에 나온 팀 ${new Set(season.bouts.flatMap((b) => [b[2], b[3]])).size}개 중)`,
+    ` (참가팀 ${Object.keys(season.teams).length}개 중 · 그중 대진에 나온 팀 ${
+      new Set(season.bouts.flatMap((b) => [b[2], b[3]])).size
+    }개)`,
 );
 
 // ── 방송국 아이디 해석 → 기존 slug 재사용 또는 FA 로 신규 등록 ─────────
@@ -410,7 +488,14 @@ const fa = new Map(faList.map((f) => [f.userId, f]));
 const sql = db();
 const rows = await sql`
   select c.channel_id, s.slug from streamer_channel c join streamer s on s.id = c.streamer_id`;
+// 나무위키 인물 문서 → slug. 옛 표기('BJ이상호')를 잇는 근거다.
+// 출처가 직접 동일인이라고 말한 것만 쓴다 — npm run link:namu 가 채운다.
+const slugByPage = new Map(
+  (await sql`select namu_page, slug from streamer where namu_page is not null`)
+    .map((r) => [r.namu_page, r.slug]),
+);
 await closeDb();
+const personLinks = await fetchPersonLinks(season.namu[0]);
 const known = new Map(rows.map((r) => [r.channel_id, r.slug]));
 const slugSet = new Set(rows.map((r) => r.slug));
 console.log(`\nFA 등록 ${faList.length}명 · 이미 등록된 방송국 ${known.size}개`);
@@ -422,10 +507,33 @@ const teams = {};
  * 포지션을 알아야 가려낼 수 있다. 팀 대 팀 상대전적과 1:1 맞라인은 다른 사실이다.
  */
 const positions = {};
+/**
+ * 한 대회에서 한 사람은 한 팀이다 — 스키마도 그렇다(`event_team_member` PK 는
+ * `(event_id, streamer_id)`). 같은 사람이 두 팀에 나오면 나중 것이 앞의 것을
+ * **조용히 덮어쓰고**, 하필 덮이는 쪽이 경기를 가진 본선 팀이면 그 사람의 대회
+ * 기록이 통째로 사라진다. 실제로 그렇게 이상호의 2026 시즌1 본선 경기를 날렸다.
+ * 먼저 배정된 쪽(= 손으로 적은 본선 명단이 앞에 온다)을 지키고, 뒤엣것은 버리되
+ * **반드시 보고한다** — 조용히 버리면 출처가 어긋난 걸 아무도 모른다.
+ */
+const placedIn = new Map();
+const dupPlaced = [];
+const place = (team, slug, i) => {
+  const prev = placedIn.get(slug);
+  if (prev !== undefined) {
+    if (prev !== team) dupPlaced.push(`${slug} — '${prev}' 에 이미 있는데 '${team}' 에도 나온다`);
+    return false;
+  }
+  teams[team].push(slug);
+  positions[slug] = POSITION[i];
+  placedIn.set(slug, team);
+  return true;
+};
 const newStreamers = [];
 const dropped = [];
 // 장식만 떼서 이어붙인 건 따로 남겨 사람이 훑어볼 수 있게 한다.
 const decoMatched = [];
+// 나무위키 인물 문서로 이어붙인 것 — 검토용으로 따로 남긴다.
+const viaNamu = [];
 let reused = 0;
 
 for (const [team, members] of Object.entries(season.teams)) {
@@ -435,7 +543,20 @@ for (const [team, members] of Object.entries(season.teams)) {
 
     // 이미 등록된 사람은 slug 로 바로 적어도 된다. SOOP 표시명이 그새 바뀌었을 수 있어서,
     // 닉네임 검색에 의존하지 않는 경로를 남겨 둔다.
-    if (slugSet.has(nick)) { teams[team].push(nick); positions[nick] = POSITION[i]; reused++; continue; }
+    if (slugSet.has(nick)) { if (place(team, nick, i)) reused++; continue; }
+
+    // ★ 나무위키가 이 표기를 어느 인물 문서로 링크했고, 그 문서가 이미 우리 스트리머의
+    //   것이면 그게 가장 단단한 근거다. SOOP 검색이 동명이인으로 갈리는 표기
+    //   ('BJ이상호' → 다른 두 사람) 도 이걸로는 정확히 이어진다.
+    const page = personLinks.get(nick);
+    const byPage = page ? slugByPage.get(page) : null;
+    if (byPage) {
+      if (place(team, byPage, i)) {
+        viaNamu.push(`${team} ${nick} → ${byPage} (문서 ${page})`);
+        reused++;
+      }
+      continue;
+    }
 
     const found = await soopChannelId(nick);
     await new Promise((s) => setTimeout(s, 250));
@@ -446,15 +567,14 @@ for (const [team, members] of Object.entries(season.teams)) {
     }
 
     const existing = known.get(channelId);
-    if (existing) { teams[team].push(existing); positions[existing] = POSITION[i]; reused++; continue; }
+    if (existing) { if (place(team, existing, i)) reused++; continue; }
 
     const slug = ROMAN[nick];
     if (!slug) { dropped.push(`${team} ${nick} (${channelId}) — ROMAN 에 slug 가 없다`); continue; }
     const f = fa.get(channelId);
     if (!f) { dropped.push(`${team} ${nick} (${channelId}) — FA 등록에 없어 라이엇 ID 근거가 없다`); continue; }
 
-    teams[team].push(slug);
-    positions[slug] = POSITION[i];
+    if (!place(team, slug, i)) continue;
     const riotIds = (f.totalGameNickList?.length ? f.totalGameNickList : [f.gameNick]).filter(Boolean);
     newStreamers.push({
       slug,
@@ -559,6 +679,17 @@ writeFileSync(
 
 console.log(`\n${outStreamers} — 신규 ${newStreamers.length}명 (기존 재사용 ${reused}명)`);
 console.log(`${outTournament} — 팀 ${Object.keys(teams).length} · 경기 ${resolved.length} · 세트 ${games.length}판`);
+if (dupPlaced.length) {
+  console.log(
+    `\n⚠ 한 대회에서 두 팀에 나온 참가자 ${dupPlaced.length}명 — 먼저 나온 팀만 남겼다.` +
+      ` 출처가 어긋난 것이니 확인해라:`,
+  );
+  for (const d of dupPlaced) console.log(`   ${d}`);
+}
+if (viaNamu.length) {
+  console.log(`\n· 나무위키 인물 문서로 이어붙인 참가자 ${viaNamu.length}명:`);
+  for (const v of viaNamu) console.log(`   ${v}`);
+}
 if (decoMatched.length) {
   console.log(`\n· 장식(BJ 접두어·♥ ^^ _ 등)만 떼어 이어붙인 참가자 ${decoMatched.length}명 — 검토용:`);
   for (const d of decoMatched) console.log(`   ${d}`);
