@@ -1,28 +1,70 @@
 /**
  * 멸망전 회차 데이터. scripts/build-meljang.mjs 가 이걸 읽어 시드를 만든다.
  *
- * 회차를 추가할 때 손으로 적는 것은 **대진과 로스터뿐**이다. 승패는 적지 않는다 —
- * 빌더가 진출 경로로 유도하고, 모순이 있으면 거기서 멈춘다.
- * 유일한 예외가 `final_winner` 다. 결승은 유도할 근거가 없어서 외부 출처가 필요하다.
+ * 손으로 적는 것은 **대진과 로스터뿐**이다. 승패도 스코어도 적지 않는다 —
+ * 빌더가 두 출처에서 가져와 서로 대조한다:
+ *   (1) 진출 경로 유도 (GSL) 또는 2패 탈락 정합성 (더블 엘리미네이션)
+ *   (2) `namu` 에 적은 나무위키 문서의 경기 결과표 스코어
+ * 어긋나면 시드를 만들지 않는다. 그래서 여기에 승패를 적을 필요가 없다.
  *
  * 대진의 출처는 공식 방송국 VOD 제목이다. 복원 방법은 seed/README.md 참고.
+ *
+ * roster 항목은 **SOOP 닉네임**을 적는다. 이미 등록된 사람은 slug 를 적어도 된다
+ * (표시명이 그새 바뀌어 검색이 안 되는 경우가 있다).
  */
 
 /** 포지션 순서 — 로스터 배열의 자리와 대응한다. */
 export const POSITION = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
 
 export const SEASONS = {
+  "meljang-2026-geng": {
+    name: "2026 LoL 멸망전 with Gen.G",
+    organizer: "SOOP",
+    starts_at: "2026-07-19",
+    ends_at: "2026-08-01",
+    format: "de", // 8팀 더블 엘리미네이션 / 전 경기 3판 2선승
+    namu: [
+      "2026 LoL 멸망전 with Gen.G",
+      "2026 LoL 멸망전 with Gen.G/승자조",
+      "2026 LoL 멸망전 with Gen.G/패자조",
+      "2026 LoL 멸망전 with Gen.G/결승",
+    ],
+    // 이 회차 참가자는 전원 등록돼 있어 slug 로 적는다
+    teams: {
+      "교권보호국": ["nyongi", "clid1", "kimmingyo", "kimrain", "ber05"],
+      "딕닦꺼 브라더즈": ["junghyunmin", "junbad", "jangjisu", "handweoreol", "kimgugeogugeo"],
+      "명 수": ["smebim", "seodoil", "haku", "urimming", "annyeongsuya"],
+      "막차타요": ["ssodaejang", "natali", "minchangi", "danuri", "rakoxd"],
+      "노종뀨뀨낭": ["shacotime0", "jungyunjong", "kkyuppi", "okkyu", "maunang"],
+      "임부장": ["baekjirago", "yeongjae", "kimjinsol", "imani", "ppuri"],
+      "저로듀스lol": ["addy", "jeoradet", "eunaengi", "mingjuindeyo", "huijinirago"],
+      "고점폭발": ["rancho", "leesangho", "ivory", "sangeonyeo", "seonghun"],
+    },
+    bouts: [
+      [1, "UB 1R", "명 수", "노종뀨뀨낭", "2026-07-19"],
+      [2, "UB 1R", "막차타요", "저로듀스lol", "2026-07-19"],
+      [3, "UB 1R", "교권보호국", "임부장", "2026-07-20"],
+      [4, "UB 1R", "딕닦꺼 브라더즈", "고점폭발", "2026-07-21"],
+      [5, "UB 2R", "노종뀨뀨낭", "막차타요", "2026-07-22"],
+      [6, "LB 1R", "명 수", "저로듀스lol", "2026-07-23"],
+      [7, "UB 2R", "교권보호국", "고점폭발", "2026-07-23"],
+      [8, "LB 1R", "임부장", "딕닦꺼 브라더즈", "2026-07-23"],
+      [9, "LB 2R", "노종뀨뀨낭", "저로듀스lol", "2026-07-24"],
+      [10, "LB 2R", "교권보호국", "딕닦꺼 브라더즈", "2026-07-26"],
+      [11, "UB 3R", "막차타요", "고점폭발", "2026-07-26"],
+      [12, "LB 3R", "노종뀨뀨낭", "교권보호국", "2026-07-27"],
+      [13, "LB 4R", "막차타요", "교권보호국", "2026-07-28"],
+      [14, "결승", "고점폭발", "교권보호국", "2026-08-01"],
+    ],
+  },
+
   "meljang-2026-s1": {
     name: "2026 LoL 멸망전 시즌1",
     organizer: "SOOP",
     starts_at: "2026-03-06",
     ends_at: "2026-03-14",
     format: "gsl",
-    wiki: "https://namu.wiki/w/2026%20LoL%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C1",
-    final_winner: "알아할게",
-    final_evidence:
-      "인벤 2026-03-15 '김성태와 상윤의 알아할게, 2026 멸망전 시즌1 우승' (3:1). " +
-      "https://www.inven.co.kr/webzine/news/?news=314392&site=lol",
+    namu: ["2026 LoL 멸망전 시즌1", "2026 LoL 멸망전 시즌1/8강"],
     teams: {
       "팀 릴동파": ["애디_", "봉준", "강만식", "한둬얼", "하하는하하루"],
       "왕밤빵이오": ["오리-3-", "피넛ㅁ", "박이언", "바밤바*", "나옹이빵"],
@@ -58,11 +100,7 @@ export const SEASONS = {
     starts_at: "2025-11-28",
     ends_at: "2025-12-07",
     format: "gsl",
-    wiki: "https://namu.wiki/w/2025%20LoL%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C2",
-    final_winner: "킹깐만",
-    final_evidence:
-      "나무위키 '멸망전/리그 오브 레전드' 역대 우승 표(2025 시즌2 우승 킹깐만 / 준우승 jJ이야). " +
-      "공식 VOD 결승 당일 '[클립]깐숙 인터뷰 결승'(깐숙은 킹깐만 소속) 과 일치한다.",
+    namu: ["2025 LoL 멸망전 시즌2", "2025 LoL 멸망전 시즌2/8강"],
     teams: {
       "킹깐만": ["버돌이", "봉준", "깐숙", "이경민+_+.", "빈그레_"],
       "jJ이야": ["BJ용후니", "저라뎃", "존스미스1", "한남맛종욱", "김야미♥"],
@@ -96,12 +134,7 @@ export const SEASONS = {
     starts_at: "2025-03-19",
     ends_at: "2025-03-29",
     format: "gsl",
-    wiki: "https://namu.wiki/w/2025%20LoL%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C1",
-    final_winner: "1.단애디를던져",
-    final_evidence:
-      "나무위키 '멸망전/리그 오브 레전드' 역대 우승 표(2025 시즌1 우승 1.단애디를던져 / 준우승 오추리알). " +
-      "⚠ 같은 표의 2021~2026 항목은 공식 VOD 클립·언론으로 교차 확인했지만, " +
-      "이 회차만은 독립 출처를 찾지 못했다 — 결승 승자에 한해 근거가 한 곳뿐이다.",
+    namu: ["2025 LoL 멸망전 시즌1"],
     teams: {
       "상황파악끄읏": ["류창이", "클리드1", "김민교.", "임아니", "하이요♥"],
       "중증매장센터": ["스맵임", "이상호", "박이언", "땅우양", "하하는하하루"],

@@ -21,6 +21,7 @@ import { rederiveEncounters } from "@soop-lol/core/lib/db/ingest";
 import {
   listEventGames,
   mainPuuidsBySlug,
+  pruneEventMatches,
   saveTournamentGame,
   upsertEvent,
 } from "@soop-lol/core/lib/db/tournaments";
@@ -199,6 +200,11 @@ try {
       games++;
       console.log(`  경기 ${g.id}  ${g.blue} vs ${g.red} → ${g.winner} 승  (참가자 ${participants.length})`);
     }
+
+    // ★ 시드 파일이 이 대회의 전부다. 이전에 넣었다가 이번 파일엔 없는 경기는 지운다.
+    //   안 그러면 경기 단위를 바꿨을 때(시리즈 → 세트) 낡은 행이 남아 두 배로 잡힌다.
+    const pruned = await pruneEventMatches(eventId, matchIds);
+    if (pruned > 0) console.log(`  이번 시드에 없는 낡은 경기 ${pruned}건을 지웠다`);
 
     // 조우 파생. 공개 큐와 같은 경로를 쓴다 — 대회를 위한 별도 계보를 만들지 않는다.
     if (matchIds.length > 0) {

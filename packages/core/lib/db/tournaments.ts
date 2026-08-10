@@ -112,6 +112,26 @@ export async function saveTournamentGame(g: TournamentGameInput): Promise<void> 
   });
 }
 
+/**
+ * 이 대회에 남아 있는 경기 중 이번 시드에 없는 것을 지운다.
+ *
+ * ★ 없으면 낡은 행이 그대로 남아 이중 계상된다. 실제로 겪었다 —
+ *   시리즈를 1판으로 넣었다가 세트 단위로 다시 넣으니 `…:g01` 과 `…:g01s1` 이
+ *   동시에 남아 조우가 두 배로 잡혔다. 시드 파일이 곧 그 대회의 전부여야 한다.
+ *
+ * match_participant·streamer_encounter 는 ON DELETE CASCADE 로 같이 사라진다.
+ */
+export async function pruneEventMatches(eventId: string, keepMatchIds: string[]): Promise<number> {
+  const sql = db();
+  const rows = await sql<{ match_id: string }[]>`
+    DELETE FROM match
+     WHERE event_id = ${eventId}
+       AND match_id <> ALL(${keepMatchIds})
+    RETURNING match_id
+  `;
+  return rows.length;
+}
+
 export async function listEventGames(eventSlug: string): Promise<{ match_id: string }[]> {
   const sql = db();
   return sql<{ match_id: string }[]>`
