@@ -50,6 +50,12 @@ export default async function StreamerProfile({
   const year = sp.year && /^\d{4}$/.test(sp.year) ? Number(sp.year) : undefined;
   const rivalSort = isRivalSort(sp.sort) ? sp.sort : DEFAULT_RIVAL_SORT;
   // 한쪽 필터를 눌러도 다른 쪽 선택이 살아 있어야 한다.
+  //
+  // ★ 이 링크들에는 전부 `scroll={false}` 를 단다.
+  //   <Link> 는 기본이 scroll={true} 이고, 이동 시점에 Page 요소가 화면 밖이면
+  //   **맨 위로 올려 버린다**(next/dist/docs .../components/link.md 의 `scroll` 항목).
+  //   필터가 페이지 아래쪽에 있으니 누를 때마다 맨 위로 튕겨서, 필터를 고치려면
+  //   매번 다시 스크롤해 내려와야 했다. 필터는 지금 보고 있는 자리를 지켜야 한다.
   const linkTo = (next: { year?: number | null; sort?: string | null } = {}) => {
     const y = next.year === undefined ? year : (next.year ?? undefined);
     const so = next.sort === undefined ? rivalSort : (next.sort ?? DEFAULT_RIVAL_SORT);
@@ -204,6 +210,7 @@ export default async function StreamerProfile({
                 <span className="text-[11px] text-ink-400">연도</span>
                 <Link
                   href={linkTo({ year: null })}
+                  scroll={false}
                   className={`rounded-full border px-3 py-1 text-xs ${
                     year === undefined
                       ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
@@ -216,6 +223,7 @@ export default async function StreamerProfile({
                   <Link
                     key={y}
                     href={linkTo({ year: y })}
+                    scroll={false}
                     className={`rounded-full border px-3 py-1 text-xs ${
                       year === y
                         ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
@@ -312,6 +320,7 @@ export default async function StreamerProfile({
                   <Link
                     key={o.key}
                     href={linkTo({ sort: o.key })}
+                    scroll={false}
                     title={o.hint}
                     className={`rounded-full border px-3 py-1 text-xs ${
                       rivalSort === o.key
@@ -328,6 +337,7 @@ export default async function StreamerProfile({
                   <span className="w-8 shrink-0 text-[11px] text-ink-400">연도</span>
                   <Link
                     href={linkTo({ year: null })}
+                    scroll={false}
                     className={`rounded-full border px-3 py-1 text-xs ${
                       year === undefined
                         ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
@@ -340,6 +350,7 @@ export default async function StreamerProfile({
                     <Link
                       key={y}
                       href={linkTo({ year: y })}
+                      scroll={false}
                       className={`rounded-full border px-3 py-1 text-xs ${
                         year === y
                           ? "border-accent-400/50 bg-accent-400/10 text-accent-300"
