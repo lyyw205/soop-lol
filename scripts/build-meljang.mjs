@@ -445,7 +445,10 @@ for (const r of resolved) {
   const loser = r.winner === r.a ? r.b : r.a;
   const wWins = Math.max(r.wa, r.wb);
   const lWins = Math.min(r.wa, r.wb);
-  // 세트 순서는 맞대결 합계에 영향이 없다. 승자 세트를 먼저 적는다.
+  // ★ 출처는 시리즈 스코어만 준다 — 세트별로 누가 이겼는지는 없다.
+  //   그래서 승자 세트를 앞에 몰아 넣는다. 합계는 맞지만 **순서는 우리가 만든 것**이다.
+  //   화면에서 '1세트 승 / 2세트 패' 식으로 보여주면 모르는 걸 아는 척하게 되므로
+  //   세트 단위 목록은 두지 않는다 (마이그레이션 0009 주석 참고).
   const order = [...Array(wWins).fill(r.winner), ...Array(lWins).fill(loser)];
   for (const [k, setWinner] of order.entries()) {
     games.push({
