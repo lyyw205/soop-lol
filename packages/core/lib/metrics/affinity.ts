@@ -19,9 +19,21 @@ export const SMALL_SAMPLE_THRESHOLD = 5;
 export interface HeadToHead {
   wins: number;
   losses: number;
+  /**
+   * 무승부. 2014~2017 회차 조별리그가 2세트제라 1:1 로 끝나는 경기가 있다.
+   * 없는 회차가 대부분이라 선택 항목이다.
+   *
+   * ★ 승률에서 무승부는 **분모에서도 뺀다**. 1승 1무면 50% 가 아니라 100% 다 —
+   *   무승부는 진 게 아니다. 대신 화면에는 `1승 1무` 로 무승부 수를 항상 같이 적는다.
+   */
+  draws?: number;
 }
 
+/** 승부가 난 경기 수. 승률의 분모다. */
 export const games = (h: HeadToHead) => h.wins + h.losses;
+
+/** 무승부까지 포함한 전체 경기 수. 표본 크기를 말할 때 쓴다. */
+export const played = (h: HeadToHead) => h.wins + h.losses + (h.draws ?? 0);
 
 /** 보정 없는 생 승률. 표시용으로만 쓰고 정렬에는 쓰지 않는다. */
 export function rawWinRate(h: HeadToHead): number | null {
@@ -39,7 +51,7 @@ export function affinity(h: HeadToHead, alpha = SHRINKAGE_ALPHA): number {
 }
 
 export function isSmallSample(h: HeadToHead): boolean {
-  return games(h) < SMALL_SAMPLE_THRESHOLD;
+  return played(h) < SMALL_SAMPLE_THRESHOLD;
 }
 
 export interface OpponentRecord<T = unknown> extends HeadToHead {
@@ -97,9 +109,11 @@ export function mostFrequent<T>(records: OpponentRecord<T>[], limit = 5): Ranked
 
 /** 화면 표기용. 표본이 작으면 그렇다고 말한다. */
 export function formatRecord(h: HeadToHead): string {
+  const total = played(h);
+  if (total === 0) return "맞대결 없음";
+  const d = h.draws ?? 0;
+  const body = d > 0 ? `${h.wins}승 ${d}무 ${h.losses}패` : `${h.wins}승 ${h.losses}패`;
   const n = games(h);
-  if (n === 0) return "맞대결 없음";
-  const rate = Math.round((h.wins / n) * 100);
-  const base = `${h.wins}승 ${h.losses}패 (${rate}%)`;
-  return isSmallSample(h) ? `${base} · ${n}경기 참고용` : base;
+  const base = n === 0 ? body : `${body} (${Math.round((h.wins / n) * 100)}%)`;
+  return isSmallSample(h) ? `${base} · ${total}경기 참고용` : base;
 }

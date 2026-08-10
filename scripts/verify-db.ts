@@ -317,6 +317,50 @@ try {
   check("포지션을 모르는 대회 경기는 맞라인으로 세지 않는다 (§11-10 — 애매하면 판정하지 않는다)",
     noPos[0]?.is_lane_matchup === false, JSON.stringify(noPos[0]));
 
+  // ── 무승부: 2세트제 조별리그(2014~2017)는 1:1 로 끝나는 경기가 있다 ──
+  //
+  // 세트 단위로는 무승부가 없다(각 세트는 누군가 이긴다). 시리즈로 접었을 때만 생긴다.
+  // 이걸 패로 세면 2014~2017 전적이 통째로 틀어진다.
+  for (const [i, w] of ([100, 200] as const).entries()) {
+    await tournaments.saveTournamentGame({
+      match_id: `verify-cup:draw${i + 1}`,
+      event_id: eventId,
+      played_at: new Date(`2026-08-1${i}T12:00:00Z`),
+      duration: 1800,
+      source_url: "https://example.com/vod",
+      series_id: "verify-cup:draw",
+      series_game_no: i + 1,
+      winning_team: w,
+      participants: [
+        { puuid: puuids.get("alpha")!, team_id: 100, position: "MIDDLE" },
+        { puuid: puuids.get("beta")!, team_id: 200, position: "MIDDLE" },
+      ],
+    });
+  }
+  await ingestDb.rederiveEncounters(["verify-cup:draw1", "verify-cup:draw2"]);
+
+  await sqlClient()`UPDATE streamer SET visibility = 'public' WHERE slug = 'alpha'`;
+  const drawRow = await sqlClient()<{ sets: number; wins: number; draws: number }[]>`
+    WITH e AS (
+      SELECT se.series_key,
+             CASE WHEN sa.slug = 'alpha' THEN se.a_win ELSE se.b_win END AS alpha_win
+        FROM core_public.streamer_encounter se
+        JOIN core_public.streamer sa ON sa.streamer_id = se.streamer_a_id
+       WHERE se.match_id LIKE 'verify-cup:draw%'
+    ), s AS (
+      SELECT series_key, count(*)::int AS sets, count(*) FILTER (WHERE alpha_win)::int AS a_sets
+        FROM e GROUP BY series_key
+    )
+    SELECT sum(sets)::int AS sets,
+           count(*) FILTER (WHERE a_sets * 2 > sets)::int AS wins,
+           count(*) FILTER (WHERE a_sets * 2 = sets)::int AS draws
+      FROM s
+  `;
+  check("★ 1:1 로 끝난 다전제는 무승부다 (패로 세지 않는다)",
+    drawRow[0]?.sets === 2 && drawRow[0]?.wins === 0 && drawRow[0]?.draws === 1,
+    JSON.stringify(drawRow[0]));
+  await sqlClient()`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'alpha'`;
+
   // ── 대회 팀 (마이그레이션 0008) ──────────────────────────────────────
   const teamIds = await tournaments.saveEventTeams(eventId, [
     { name: "알파팀", members: [{ streamer_id: s1.id, position: "MIDDLE" }] },

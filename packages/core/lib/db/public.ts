@@ -148,10 +148,13 @@ export interface RivalRow {
   /** 매치(경기) 단위 — 다전제 한 판이 1로 센다 */
   vs_matches: number;
   vs_match_wins: number;
+  vs_match_draws: number;
   ally_matches: number;
   ally_match_wins: number;
+  ally_match_draws: number;
   lane_matches: number;
   lane_match_wins: number;
+  lane_match_draws: number;
   last_met: Date;
 }
 
@@ -283,19 +286,25 @@ export async function listRivals(
     ),
     by_match AS (
       SELECT other_id,
+             -- ★ 2세트제 조별리그(2014~2017)는 1:1 무승부가 있다. 진 게 아니므로
+             --    패로 세지 않고 따로 센다. my_sets * 2 = sets 이면 무승부다.
              count(*) FILTER (WHERE relation = 'opponent')::int                          AS vs_matches,
              count(*) FILTER (WHERE relation = 'opponent' AND my_sets * 2 > sets)::int    AS vs_match_wins,
+             count(*) FILTER (WHERE relation = 'opponent' AND my_sets * 2 = sets)::int    AS vs_match_draws,
              count(*) FILTER (WHERE relation = 'ally')::int                               AS ally_matches,
              count(*) FILTER (WHERE relation = 'ally' AND my_sets * 2 > sets)::int        AS ally_match_wins,
+             count(*) FILTER (WHERE relation = 'ally' AND my_sets * 2 = sets)::int         AS ally_match_draws,
              count(*) FILTER (WHERE all_lane)::int                                        AS lane_matches,
-             count(*) FILTER (WHERE all_lane AND my_sets * 2 > sets)::int                 AS lane_match_wins
+             count(*) FILTER (WHERE all_lane AND my_sets * 2 > sets)::int                 AS lane_match_wins,
+             count(*) FILTER (WHERE all_lane AND my_sets * 2 = sets)::int                 AS lane_match_draws
         FROM per_series GROUP BY other_id
     )
     SELECT s.streamer_id, s.slug, s.display_name,
            b.vs_sets, b.vs_set_wins, b.ally_sets, b.ally_set_wins,
            b.lane_sets, b.lane_set_wins, b.last_met,
-           m.vs_matches, m.vs_match_wins, m.ally_matches, m.ally_match_wins,
-           m.lane_matches, m.lane_match_wins
+           m.vs_matches, m.vs_match_wins, m.vs_match_draws,
+           m.ally_matches, m.ally_match_wins, m.ally_match_draws,
+           m.lane_matches, m.lane_match_wins, m.lane_match_draws
       FROM by_set b
       JOIN by_match m ON m.other_id = b.other_id
       JOIN core_public.streamer s ON s.streamer_id = b.other_id
@@ -318,6 +327,8 @@ export interface EventRecord {
   placement_rank: number | null;
   matches: number;
   match_wins: number;
+  /** 무승부. 2세트제 조별리그가 1:1 로 끝난 경기 (2014~2017). */
+  match_draws: number;
   sets: number;
   set_wins: number;
 }
@@ -352,14 +363,16 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
       SELECT event_id,
              count(*)::int                                        AS matches,
              count(*) FILTER (WHERE set_wins * 2 > sets)::int      AS match_wins,
+             count(*) FILTER (WHERE set_wins * 2 = sets)::int      AS match_draws,
              sum(sets)::int                                        AS sets,
              sum(set_wins)::int                                    AS set_wins
         FROM per_series GROUP BY event_id
     )
     SELECT e.slug AS event_slug, e.name AS event_name, e.starts_at,
            t.name AS team_name, tm.position, t.placement, t.placement_rank,
-           COALESCE(a.matches, 0)    AS matches,
-           COALESCE(a.match_wins, 0) AS match_wins,
+           COALESCE(a.matches, 0)     AS matches,
+           COALESCE(a.match_wins, 0)  AS match_wins,
+           COALESCE(a.match_draws, 0) AS match_draws,
            COALESCE(a.sets, 0)       AS sets,
            COALESCE(a.set_wins, 0)   AS set_wins
       FROM core_public.event_team_member tm

@@ -149,6 +149,7 @@ function checkDoubleElim(resolved) {
     for (const t of [r.a, r.b]) {
       if ((losses.get(t) ?? 0) >= 2) err.push(`경기 ${r.no}(${r.round}): '${t}' 은 이미 2패인데 다시 나온다`);
     }
+    if (!r.winner) continue;
     const loser = r.winner === r.a ? r.b : r.a;
     losses.set(loser, (losses.get(loser) ?? 0) + 1);
   }
@@ -165,7 +166,13 @@ if (rawSeries.length === 0) fail([`나무위키에서 경기 결과를 하나도
 const canon = new Map();
 for (const s of rawSeries) for (const t of [s.a, s.b]) if (!canon.has(normTeam(t))) canon.set(normTeam(t), t);
 const nameOf = (t) => canon.get(normTeam(t)) ?? t;
-const namuSeries = rawSeries.map((s) => ({ ...s, a: nameOf(s.a), b: nameOf(s.b) }));
+// 세트 승자 배열도 같은 표기로 맞춘다 — 안 그러면 시드의 winner 가 blue/red 와 안 맞는다.
+const namuSeries = rawSeries.map((s) => ({
+  ...s,
+  a: nameOf(s.a),
+  b: nameOf(s.b),
+  setWinners: s.setWinners?.map(nameOf) ?? null,
+}));
 
 /**
  * 대진을 데이터 파일에 안 적었으면 나무위키에서 그대로 가져온다.
@@ -187,8 +194,13 @@ if (!season.bouts) {
 
 // 로스터도 안 적었으면 참가팀 표에서 읽는다. 대진에 나온 팀만 남긴다.
 if (!season.teams) {
-  const rosters = await fetchRosters(season.namu[0]);
-  if (!rosters) fail([`나무위키 참가팀 표를 못 읽었다: ${season.namu[0]}`]);
+  // 참가팀 '표' 가 없는 회차가 있다 — 2014·2015 는 로스터가 산문으로 적혀 있다
+  // ('팀원: 카카롯(탑), Mid Nexus(미드)…'). 그래도 경기는 사실이므로 넣는다.
+  // 로스터가 비면 조우가 안 생길 뿐, 나중에 명단을 알게 되면 다시 돌려 살릴 수 있다.
+  const rosters = (await fetchRosters(season.namu[0])) ?? {};
+  if (Object.keys(rosters).length === 0) {
+    console.log(`  ⚠ 참가팀 표를 못 읽었다 — 팀 이름만 넣는다 (조우는 생기지 않는다)`);
+  }
   const inBouts = new Set(season.bouts.flatMap((b) => [normTeam(b[2]), normTeam(b[3])]));
   season.teams = {};
   for (const [team, members] of Object.entries(rosters)) {
@@ -270,13 +282,16 @@ for (const [no, round, a, b, date] of season.bouts) {
   if (!s) { errors.push(`경기 ${no}(${round}) '${a} vs ${b}': 나무위키에서 결과를 못 찾았다`); continue; }
 
   // 나무위키 표의 팀 순서를 우리 순서에 맞춘다
-  const [wa, wb] = s.a === a ? [s.sa, s.sb] : [s.sb, s.sa];
-  const namuWinner = wa > wb ? a : b;
+  const flip = s.a !== a;
+  const [wa, wb] = flip ? [s.sb, s.sa] : [s.sa, s.sb];
+  // 2세트제 조별리그(2014~2017)는 1:1 로 끝나는 무승부가 있다. 승자를 만들어내지 않는다.
+  const namuWinner = wa === wb ? null : wa > wb ? a : b;
+  const setWinners = s.setWinners ?? null;
 
   // 결승은 진출 경로로 유도할 수 없다 — 다음 라운드가 없으니 결과가 대진에 안 드러난다.
   // 그래서 결승만 나무위키 스코어 한 곳에 기댄다. 나머지는 전부 두 출처가 대조된다.
   const isFinal = /결승/.test(round);
-  if (season.format === "gsl" && !isFinal) {
+  if (season.format === "gsl" && !isFinal && namuWinner) {
     const d = derived.get(round);
     if (!d) errors.push(`경기 ${no}(${round}): 진출 경로로 승자를 유도하지 못했다`);
     else if (d !== namuWinner) {
@@ -286,7 +301,7 @@ for (const [no, round, a, b, date] of season.bouts) {
       );
     }
   }
-  resolved.push({ no, round, a, b, date, wa, wb, winner: namuWinner, namuRound: s.round });
+  resolved.push({ no, round, a, b, date, wa, wb, winner: namuWinner, setWinners, namuRound: s.round });
 }
 
 if (season.format === "de") errors.push(...checkDoubleElim(resolved));
@@ -299,9 +314,11 @@ const HOW = {
   table: "풀리그라 유도할 게 없다 — 나무위키 결과표를 그대로 읽었다",
 };
 console.log(`[${key}] 대조 OK — 경기 ${resolved.length}건 · 세트 ${totalGames}판 (${HOW[season.format]})`);
+const drawnCount = resolved.filter((r) => !r.winner).length;
 for (const r of resolved) {
-  console.log(`  ${r.round.padEnd(11)} ${r.a} ${r.wa}:${r.wb} ${r.b}  → ${r.winner}`);
+  console.log(`  ${r.round.padEnd(11)} ${r.a} ${r.wa}:${r.wb} ${r.b}  → ${r.winner ?? "무승부"}`);
 }
+if (drawnCount > 0) console.log(`  (2세트제라 무승부 ${drawnCount}경기 — 승자를 만들지 않는다)`);
 
 // ── 순위 ──────────────────────────────────────────────────────────────
 //
@@ -318,6 +335,7 @@ for (const [team, label] of Object.entries(wikiPlacements)) {
 const fromWiki = Object.keys(placements).length;
 
 for (const r of resolved) {
+  if (!r.winner) continue;                    // 무승부는 순위를 말해주지 않는다
   const loser = r.winner === r.a ? r.b : r.a;
   if (/결승|FINAL/i.test(r.round) && !/준결승/.test(r.round)) {
     placements[r.winner] ??= "우승";
@@ -474,14 +492,17 @@ for (const [team, members] of Object.entries(season.teams)) {
 
 const games = [];
 for (const r of resolved) {
-  const loser = r.winner === r.a ? r.b : r.a;
   const wWins = Math.max(r.wa, r.wb);
   const lWins = Math.min(r.wa, r.wb);
   // ★ 출처는 시리즈 스코어만 준다 — 세트별로 누가 이겼는지는 없다.
   //   그래서 승자 세트를 앞에 몰아 넣는다. 합계는 맞지만 **순서는 우리가 만든 것**이다.
   //   화면에서 '1세트 승 / 2세트 패' 식으로 보여주면 모르는 걸 아는 척하게 되므로
   //   세트 단위 목록은 두지 않는다 (마이그레이션 0009 주석 참고).
-  const order = [...Array(wWins).fill(r.winner), ...Array(lWins).fill(loser)];
+  //  세트별 승자가 출처에 있으면(2014~2017 의 O/X 표) 그 순서를 그대로 쓴다.
+  //  없으면 승자 세트를 앞에 몰아 넣는다 — 합계는 맞지만 순서는 우리가 만든 것이다.
+  const order = r.setWinners
+    ? r.setWinners
+    : [...Array(wWins).fill(r.winner), ...Array(lWins).fill(r.winner === r.a ? r.b : r.a)];
   for (const [k, setWinner] of order.entries()) {
     games.push({
       id: `g${String(r.no).padStart(2, "0")}s${k + 1}`,

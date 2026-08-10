@@ -252,7 +252,9 @@ export default async function StreamerProfile({
                     </p>
                   ) : (
                     <p className="tabular mt-2 text-sm text-ink-300">
-                      매치 {e.match_wins}승 {e.matches - e.match_wins}패
+                      매치 {e.match_wins}승
+                      {e.match_draws > 0 && ` ${e.match_draws}무`}
+                      {" "}{e.matches - e.match_wins - e.match_draws}패
                       <span className="ml-3 text-[11px] text-ink-500">
                         세트로는 {e.set_wins}승 {e.sets - e.set_wins}패
                       </span>
@@ -303,7 +305,11 @@ export default async function StreamerProfile({
                           </div>
                           <DualRecord
                             label="상대"
-                            match={{ wins: r.vs_match_wins, losses: r.vs_matches - r.vs_match_wins }}
+                            match={{
+                          wins: r.vs_match_wins,
+                          draws: r.vs_match_draws,
+                          losses: r.vs_matches - r.vs_match_wins - r.vs_match_draws,
+                        }}
                             set={{ wins: r.vs_set_wins, losses: r.vs_sets - r.vs_set_wins }}
                           />
                           {r.lane_matches > 0 && (
@@ -313,7 +319,11 @@ export default async function StreamerProfile({
                               </div>
                               <DualRecord
                                 label="맞라인"
-                                match={{ wins: r.lane_match_wins, losses: r.lane_matches - r.lane_match_wins }}
+                                match={{
+                                  wins: r.lane_match_wins,
+                                  draws: r.lane_match_draws,
+                                  losses: r.lane_matches - r.lane_match_wins - r.lane_match_draws,
+                                }}
                                 set={{ wins: r.lane_set_wins, losses: r.lane_sets - r.lane_set_wins }}
                               />
                             </div>
@@ -334,7 +344,11 @@ export default async function StreamerProfile({
                           </div>
                           <DualRecord
                             label="같은 팀"
-                            match={{ wins: r.ally_match_wins, losses: r.ally_matches - r.ally_match_wins }}
+                            match={{
+                              wins: r.ally_match_wins,
+                              draws: r.ally_match_draws,
+                              losses: r.ally_matches - r.ally_match_wins - r.ally_match_draws,
+                            }}
                             set={{ wins: r.ally_set_wins, losses: r.ally_sets - r.ally_set_wins }}
                           />
                           <SeriesLog games={allyRows} label="같은 팀으로" />

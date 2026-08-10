@@ -108,8 +108,11 @@ function validate(list: SeedTournament[]): string[] {
     //   한 명도 우리 스트리머로 매핑하지 못한 것뿐이다(옛 닉네임이라 해석 실패 등).
     //   경기는 그대로 넣는다 — 상대 팀 안에서 '같은 팀' 조우는 여전히 성립하고,
     //   나중에 그 팀 선수의 계정이 붙으면 재파생으로 상대전적이 되살아난다(§11-5).
+    // 로스터를 한 명도 못 붙인 대회도 넣는다. 경기가 있었던 건 사실이고,
+    // 나중에 명단을 알게 되면 다시 돌려 조우를 살릴 수 있다(§11-5).
+    // 다만 화면에 아무것도 안 나오므로 눈에 띄게 알린다.
     if (emptyTeams.length === teamNames.size && teamNames.size > 0) {
-      errors.push(`${at}: 모든 팀의 로스터가 비었다 — 넣을 게 없다`);
+      warnings.push(`${at}: 팀 ${teamNames.size}개 전부 로스터를 못 붙였다 — 경기만 들어가고 조우는 0이다`);
     } else if (emptyTeams.length > 0) {
       warnings.push(`${at}: 선수를 한 명도 매핑하지 못한 팀 ${emptyTeams.length}개 — ${emptyTeams.join(", ")}`);
     }

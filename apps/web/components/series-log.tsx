@@ -45,6 +45,8 @@ function foldToMatches(games: LogGame[]) {
         key,
         wins,
         losses: rows.length - wins,
+        // 2세트제 조별리그(2014~2017)는 1:1 무승부가 있다. 진 게 아니므로 따로 표시한다.
+        drawn: wins * 2 === rows.length,
         won: wins * 2 > rows.length,
         // 시리즈 안에서 가장 이른 시각이 그 경기의 날짜다
         played_at: rows.reduce((a, b) => (new Date(a.played_at) < new Date(b.played_at) ? a : b)).played_at,
@@ -69,8 +71,12 @@ export function SeriesLog({ games, label }: { games: LogGame[]; label: string })
       <ul className="mt-2 grid gap-1">
         {matches.map((m) => (
           <li key={m.key} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
-            <span className={`tabular w-7 shrink-0 font-medium ${m.won ? "text-win" : "text-lose"}`}>
-              {m.won ? "승" : "패"}
+            <span
+              className={`tabular w-7 shrink-0 font-medium ${
+                m.drawn ? "text-ink-400" : m.won ? "text-win" : "text-lose"
+              }`}
+            >
+              {m.drawn ? "무" : m.won ? "승" : "패"}
             </span>
             <span className="tabular w-20 shrink-0 text-ink-400">{ymd(m.played_at)}</span>
             <span className="tabular w-9 shrink-0 text-ink-300">
