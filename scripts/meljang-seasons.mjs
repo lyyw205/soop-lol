@@ -203,6 +203,109 @@ export const SEASONS = {
     format: "table",
     namu: ["2022 LoL BJ멸망전 시즌1"],
   },
+
+  "meljang-2024-s1": {
+    name: "2024 LoL 멸망전 시즌1",
+    organizer: "SOOP",
+    starts_at: "2024-09-02",
+    ends_at: "2024-09-15",
+    format: "table",
+    namu: [
+      "2024 LoL 멸망전 시즌1",
+      "2024 LoL 멸망전 시즌1/8강 A조",
+      "2024 LoL 멸망전 시즌1/8강 B조",
+    ],
+  },
+
+  "meljang-2021-encore": {
+    name: "2021 LoL BJ멸망전 앙코르전",
+    organizer: "SOOP",
+    starts_at: "2021-10-13",
+    ends_at: "2021-10-16",
+    format: "table",
+    namu: ["2021 LoL BJ멸망전 앙코르전"],
+  },
+
+  "meljang-2021-s2": {
+    name: "2021 LoL BJ멸망전 시즌2",
+    organizer: "SOOP",
+    starts_at: "2021-09-14",
+    ends_at: "2021-09-20",
+    format: "table",
+    namu: ["2021 LoL BJ멸망전 시즌2"],
+  },
+
+  "meljang-2021-s1": {
+    name: "2021 NH농협은행 올원뱅크 LoL 멸망전 시즌1",
+    organizer: "SOOP",
+    starts_at: "2021-03-29",
+    ends_at: "2021-04-20",
+    format: "table",
+    namu: ["2021 LoL BJ멸망전 시즌1"],
+  },
+
+  "meljang-2020-s3": {
+    name: "2020 LoL BJ멸망전 시즌3",
+    organizer: "SOOP",
+    starts_at: "2020-10-22",
+    ends_at: "2020-11-10",
+    format: "table",
+    namu: ["2020 LoL BJ멸망전 시즌3"],
+  },
+
+  "meljang-2020-s2": {
+    name: "2020 LoL BJ멸망전 시즌2",
+    organizer: "SOOP",
+    starts_at: "2020-05-18",
+    ends_at: "2020-06-07",
+    format: "table",
+    namu: ["2020 LoL BJ멸망전 시즌2"],
+  },
+
+  "meljang-2020-s1": {
+    name: "2020 LoL BJ멸망전 시즌1",
+    organizer: "SOOP",
+    starts_at: "2020-03-12",
+    ends_at: "2020-04-15",
+    format: "table",
+    namu: ["2020 LoL BJ멸망전 시즌1"],
+  },
+
+  "meljang-2019-s1": {
+    name: "2019 LoL BJ멸망전 시즌1",
+    organizer: "SOOP",
+    starts_at: "2019-01-02",
+    ends_at: "2019-01-23",
+    format: "table",
+    namu: ["2019 LoL BJ멸망전 시즌1"],
+  },
+
+  "meljang-2018-s3": {
+    name: "2018 LoL BJ멸망전 시즌3",
+    organizer: "SOOP",
+    starts_at: "2018-09-14",
+    ends_at: "2018-09-22",
+    format: "table",
+    namu: ["2018 LoL BJ멸망전 시즌3"],
+  },
+
+  "meljang-2018-s2": {
+    name: "2018 LoL BJ멸망전 시즌2",
+    organizer: "SOOP",
+    starts_at: "2018-06-02",
+    ends_at: "2018-06-10",
+    format: "table",
+    namu: ["2018 LoL BJ멸망전 시즌2"],
+  },
+
+  "meljang-2018-s1": {
+    name: "2018 LoL BJ멸망전 시즌1",
+    organizer: "SOOP",
+    starts_at: "2018-01-15",
+    ends_at: "2018-01-31",
+    format: "table",
+    namu: ["2018 LoL BJ멸망전 시즌1"],
+  },
 };
 
 /**
@@ -231,4 +334,5 @@ export const ROMAN = {
   "손민석": "sonminseok", "서포터라콩": "supporterakong", "깨박이깨박이": "kkaebagi",
   "양여명808": "yangyeomyeong", "따혁": "ttahyeok", "철구형2↑": "cheolgu",
   "백크.": "baekkeu", "유복실": "yuboksil", "송원섭이.": "songwonseop",
+
 };

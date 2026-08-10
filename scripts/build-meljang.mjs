@@ -183,10 +183,28 @@ if (!season.teams) {
   const inBouts = new Set(season.bouts.flatMap((b) => [normTeam(b[2]), normTeam(b[3])]));
   season.teams = {};
   for (const [team, members] of Object.entries(rosters)) {
-    if (inBouts.has(normTeam(team))) season.teams[nameOf(team)] = members;
+    // 대회 도중 이름을 바꾼 팀은 'togings ▶ 토없기왕' 처럼 둘 다 적혀 있다.
+    // 대진에는 둘 중 하나로만 나오므로 양쪽 이름으로 다 걸어 둔다.
+    for (const alias of team.split(/[▶→]/).map((x) => x.trim()).filter(Boolean)) {
+      if (inBouts.has(normTeam(alias))) season.teams[nameOf(alias)] = members;
+    }
   }
-  const missingTeams = [...inBouts].filter((t) => !Object.keys(season.teams).some((k) => normTeam(k) === t));
-  if (missingTeams.length) fail([`대진에는 있는데 참가팀 표에 없는 팀: ${missingTeams.join(", ")}`]);
+  // 대진에만 있고 참가팀 표에 없는 팀 — 대개 예선에서 올라와 본선 표에 안 실린 팀이다.
+  // 경기가 있었던 건 사실이므로 **로스터를 비운 채 남긴다**. 나중에 로스터를 알게 되면
+  // 다시 돌려 그 팀의 조우가 살아난다. 지우면 그 경기 자체가 사라진다.
+  const known = new Set(Object.keys(season.teams).map(normTeam));
+  const noRoster = [];
+  for (const b of season.bouts) {
+    for (const t of [b[2], b[3]]) {
+      if (known.has(normTeam(t))) continue;
+      season.teams[t] = [];
+      known.add(normTeam(t));
+      noRoster.push(t);
+    }
+  }
+  if (noRoster.length) {
+    console.log(`  ⚠ 참가팀 표에 없어 로스터를 비운 팀 ${noRoster.length}개: ${noRoster.join(", ")}`);
+  }
 }
 
 /**
