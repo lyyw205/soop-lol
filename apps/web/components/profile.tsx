@@ -2,14 +2,14 @@
  * 스트리머 프로필의 섹션들.
  *
  * ★ 왜 탭인가
- *   한 페이지에 아홉 섹션을 세로로 쌓았더니 스크롤이 너무 길어졌다. 라이벌만 65명이라
+ *   한 페이지에 아홉 섹션을 세로로 쌓았더니 스크롤이 너무 길어졌다. 상대만 65명이라
  *   그 아래(챔피언·최근 경기)는 사실상 아무도 못 본다.
  *   섹션마다 탭으로 갈라 두고, 첫 탭은 **요약판**을 준다 — 이 사람이 누구인지
  *   한 화면에서 보고, 더 볼 게 있으면 그 탭으로 들어간다.
  *
  * ★ 탭은 주소에 남는다(`?tab=`)
  *   클라이언트 상태로 두면 링크로 공유가 안 되고 새로고침에 사라진다.
- *   그리고 서버가 **그 탭에 필요한 것만 질의**할 수 있다 — 라이벌 탭이 아니면
+ *   그리고 서버가 **그 탭에 필요한 것만 질의**할 수 있다 — 상대 전적 탭이 아니면
  *   경기 이력(세트 전부)을 아예 안 읽는다.
  */
 
@@ -17,9 +17,9 @@ import Link from "next/link";
 
 import type {
   ChampionRow, EventRecord, PlacementSummary, ProfileAccount, RankPoint,
-  RecentGame, RivalGame, RivalRow,
+  RecentGame, OpponentGame, OpponentRow,
 } from "@soop-lol/core/lib/db/public";
-import { RIVAL_SORTS, type RivalSort } from "@soop-lol/core/lib/metrics/rivals";
+import { OPPONENT_SORTS, type OpponentSort } from "@soop-lol/core/lib/metrics/opponents";
 import { POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 import {
@@ -31,7 +31,7 @@ import { SeriesLog } from "./series-log";
 export const PROFILE_TABS = [
   { key: "summary", label: "요약" },
   { key: "events", label: "대회" },
-  { key: "rivals", label: "라이벌" },
+  { key: "opponents", label: "상대 전적" },
   { key: "champions", label: "챔피언" },
   { key: "games", label: "경기" },
 ] as const;
@@ -47,7 +47,7 @@ export function isProfileTab(v: string | null | undefined): v is ProfileTab {
 export type HrefFor = (next: {
   tab?: ProfileTab;
   year?: number | null;
-  sort?: RivalSort | null;
+  sort?: OpponentSort | null;
 }) => string;
 
 const chip = (on: boolean) =>
@@ -287,29 +287,29 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
 }
 
 /**
- * 라이벌 필터 — **정렬과 연도를 한 창에** 둔다.
+ * 상대 전적 필터 — **정렬과 연도를 한 창에** 둔다.
  *
  * 둘은 처음부터 같이 걸렸지만(주소에 둘 다 남는다) 창이 둘로 나뉘어 있어서
  * 따로 노는 것처럼 보였다. 필터가 두 상자면 "이 둘이 같이 적용되나?" 를
  * 화면이 대답해 주지 못한다. 하나로 합치고, 지금 뭐가 걸려 있는지 아래 줄에 적는다.
  */
-export function RivalFilters({
+export function OpponentFilters({
   sort, years, year, hrefFor, total,
 }: {
-  sort: RivalSort;
+  sort: OpponentSort;
   years: number[];
   year?: number;
   hrefFor: HrefFor;
   total: number;
 }) {
   const active = sort !== "games" || year !== undefined;
-  const sortHint = RIVAL_SORTS.find((o) => o.key === sort)?.hint;
+  const sortHint = OPPONENT_SORTS.find((o) => o.key === sort)?.hint;
 
   return (
     <div className="mb-3 rounded-xl border border-ink-800 bg-ink-900/40 px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="w-8 shrink-0 text-[11px] text-ink-400">정렬</span>
-        {RIVAL_SORTS.map((o) => (
+        {OPPONENT_SORTS.map((o) => (
           <Link
             key={o.key}
             href={hrefFor({ sort: o.key })}
@@ -357,7 +357,7 @@ export function RivalFilters({
 }
 
 /** 접힌 줄만 보고도 "누구를 몇 승 몇 패로" 가 보여야 접는 뜻이 있다. */
-function RivalHeadline({ r }: { r: RivalRow }) {
+function OpponentHeadline({ r }: { r: OpponentRow }) {
   return (
     <span className="tabular text-[11px] text-ink-400">
       {r.vs_matches > 0 ? (
@@ -380,26 +380,26 @@ function RivalHeadline({ r }: { r: RivalRow }) {
 }
 
 /** 요약판용 — 펼치지 않는 한 줄. 경기 이력을 안 읽으므로 질의도 가볍다. */
-export function RivalRowCompact({ r, slug }: { r: RivalRow; slug: string }) {
+export function OpponentRowCompact({ r, slug }: { r: OpponentRow; slug: string }) {
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-2.5">
       <Link href={`/vs/${slug}/${r.slug}`} className="font-medium text-ink-200 hover:text-accent-400">
         vs {r.display_name}
       </Link>
-      <RivalHeadline r={r} />
+      <OpponentHeadline r={r} />
       <span className="ml-auto text-[11px] text-ink-400">마지막 {relativeDate(r.last_met)}</span>
     </li>
   );
 }
 
-export function RivalCard({
+export function OpponentCard({
   r, slug, streamerName, vsRows, allyRows,
 }: {
-  r: RivalRow;
+  r: OpponentRow;
   slug: string;
   streamerName: string;
-  vsRows: RivalGame[];
-  allyRows: RivalGame[];
+  vsRows: OpponentGame[];
+  allyRows: OpponentGame[];
 }) {
   return (
     <li className="rounded-xl border border-ink-800 bg-ink-900/60">
@@ -411,7 +411,7 @@ export function RivalCard({
         <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 hover:bg-ink-800/30">
           <span className="text-ink-500 transition-transform group-open:rotate-90">›</span>
           <span className="font-medium text-ink-200">vs {r.display_name}</span>
-          <RivalHeadline r={r} />
+          <OpponentHeadline r={r} />
           <span className="ml-auto text-[11px] text-ink-400">마지막 {relativeDate(r.last_met)}</span>
         </summary>
 

@@ -75,7 +75,7 @@ function decorate<T>(r: OpponentRecord<T>): RankedOpponent<T> {
   };
 }
 
-export interface RivalryOptions {
+export interface NemesesOptions {
   /** 천적/밥 후보로 올릴 최소 경기 수. 기본은 '참고용' 경계와 같다. */
   minGames?: number;
   limit?: number;
@@ -85,9 +85,9 @@ export interface RivalryOptions {
  * 천적(가장 못 이기는 상대)과 밥(가장 잘 이기는 상대).
  * 표본이 모자란 상대는 애초에 후보에서 뺀다 — 1패뿐인 상대를 '천적'이라 부르면 안 된다.
  */
-export function rivalries<T>(
+export function nemesesAndPrey<T>(
   records: OpponentRecord<T>[],
-  opts: RivalryOptions = {},
+  opts: NemesesOptions = {},
 ): { nemeses: RankedOpponent<T>[]; prey: RankedOpponent<T>[] } {
   const minGames = opts.minGames ?? SMALL_SAMPLE_THRESHOLD;
   const limit = opts.limit ?? 3;

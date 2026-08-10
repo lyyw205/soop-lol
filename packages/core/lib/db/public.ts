@@ -134,7 +134,7 @@ export interface RecentGame {
  *
  * 단판(공개 큐)은 자기 자신이 곧 시리즈라 `sets` 와 `matches` 가 같다.
  */
-export interface RivalRow {
+export interface OpponentRow {
   streamer_id: string;
   slug: string;
   display_name: string;
@@ -243,25 +243,25 @@ export async function listRecentGames(streamerId: string, limit = 20): Promise<R
 }
 
 /**
- * 라이벌 — 이 프로필의 훅이다.
+ * 상대 전적 — 이 프로필의 훅이다.
  *
  * 상대편으로 만난 것과 같은 팀으로 만난 것을 **섞지 않는다.**
  * 같은 팀 승리를 상대전적에 넣으면 "이겼다"의 뜻이 달라진다.
  *
  * ★ `limit` 은 **화면에 몇 명 보일지가 아니라 안전 상한**이다.
- *   정렬(판수·최신·승률)은 `metrics/rivals.ts` 가 TS 에서 한다 — 승률 정렬이
+ *   정렬(판수·최신·승률)은 `metrics/opponents.ts` 가 TS 에서 한다 — 승률 정렬이
  *   베이지안 축소를 거쳐야 하고 그 계산은 `affinity.ts` 한 곳에만 두기로 했기 때문이다.
  *   여기서 20 명으로 잘라 버리면 "가장 많이 만난 20명을 승률로 정렬한 것" 이 되어
  *   정렬이 조용히 거짓말을 한다. 그래서 넉넉히 받아 가고, 자르는 건 정렬 뒤에 한다.
  *   (상한에 걸릴 만큼 상대가 많으면 많이 만난 쪽부터 남는다 — 아래 ORDER BY)
  */
-export async function listRivals(
+export async function listOpponents(
   streamerId: string,
   opts: { limit?: number; year?: number } = {},
-): Promise<RivalRow[]> {
+): Promise<OpponentRow[]> {
   const { limit = 300, year } = opts;
   const sql = db();
-  return sql<RivalRow[]>`
+  return sql<OpponentRow[]>`
     WITH e AS (
       SELECT CASE WHEN streamer_a_id = ${streamerId}::uuid THEN streamer_b_id ELSE streamer_a_id END AS other_id,
              CASE WHEN streamer_a_id = ${streamerId}::uuid THEN a_win ELSE b_win END AS me_win,
@@ -405,7 +405,7 @@ export async function listStreamerYears(streamerId: string): Promise<number[]> {
 }
 
 
-export interface RivalGame {
+export interface OpponentGame {
   other_id: string;
   match_id: string;
   series_key: string;
@@ -419,7 +419,7 @@ export interface RivalGame {
 }
 
 /**
- * 라이벌 카드를 펼쳤을 때 보여줄 경기 목록. **세트 한 판이 한 줄**이다.
+ * 상대 전적 카드를 펼쳤을 때 보여줄 경기 목록. **세트 한 판이 한 줄**이다.
  *
  * 매치 단위 목록은 화면에서 series_key 로 접어 만든다 — 여기서 미리 접어 버리면
  * '세트로 보기' 탭에서 다시 펼칠 수가 없다. 한 번 가져와 두 가지로 보여준다.
@@ -427,9 +427,9 @@ export interface RivalGame {
  * 승률 숫자만으로는 "언제 붙은 건데?" 를 답할 수 없다. 2020년 한 판과
  * 2026년 열 판이 같은 줄에 뭉쳐 있으면 뜻이 흐려진다.
  */
-export async function listRivalGames(streamerId: string, year?: number): Promise<RivalGame[]> {
+export async function listOpponentGames(streamerId: string, year?: number): Promise<OpponentGame[]> {
   const sql = db();
-  return sql<RivalGame[]>`
+  return sql<OpponentGame[]>`
     SELECT CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.streamer_b_id
                 ELSE se.streamer_a_id END                       AS other_id,
            se.match_id, se.series_key, se.series_game_no,

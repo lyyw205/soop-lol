@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { affinity, formatRecord, isSmallSample, mostFrequent, rawWinRate, rivalries } from "./affinity.ts";
+import { affinity, formatRecord, isSmallSample, mostFrequent, rawWinRate, nemesesAndPrey } from "./affinity.ts";
 
 test("작은 표본은 0.5 쪽으로 당겨진다 — 3승 0패는 100% 가 아니다", () => {
   assert.equal(rawWinRate({ wins: 3, losses: 0 }), 1);
@@ -26,7 +26,7 @@ test("천적·밥은 표본이 모자란 상대를 후보에서 뺀다", () => {
     { opponent: "밥", wins: 9, losses: 1 },
     { opponent: "보통", wins: 5, losses: 5 },
   ];
-  const { nemeses, prey } = rivalries(records);
+  const { nemeses, prey } = nemesesAndPrey(records);
   assert.equal(nemeses[0].opponent, "천적");
   assert.equal(prey[0].opponent, "밥");
   assert.ok(!nemeses.some((r) => r.opponent === "적은표본"));

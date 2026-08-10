@@ -8,27 +8,27 @@ import {
   listProfileAccounts,
   listPublicChannels,
   listRecentGames,
-  listRivals,
-  listRivalGames,
+  listOpponents,
+  listOpponentGames,
   listStreamerEvents,
   listStreamerYears,
   summarizePlacements,
 } from "@soop-lol/core/lib/db/public";
 import {
-  DEFAULT_RIVAL_SORT, isRivalSort, sortRivals, type RivalSort,
-} from "@soop-lol/core/lib/metrics/rivals";
+  DEFAULT_OPPONENT_SORT, isOpponentSort, sortOpponents, type OpponentSort,
+} from "@soop-lol/core/lib/metrics/opponents";
 
 import { EmptyLine, PageShell, RankChip, SectionTitle, SiteHeader } from "@/components/public";
 import {
   AccountList, ChampionList, DEFAULT_PROFILE_TAB, EventList, GameList,
-  isProfileTab, MoreLink, PlacementRibbon, RivalCard, RivalFilters, RivalRowCompact,
+  isProfileTab, MoreLink, PlacementRibbon, OpponentCard, OpponentFilters, OpponentRowCompact,
   TabBar, TierSection, YearFilter, type HrefFor, type ProfileTab,
 } from "@/components/profile";
 
 export const dynamic = "force-dynamic";
 
 /** 요약판에 몇 개씩 보여줄지. 전부 보여주면 요약이 아니다. */
-const SUMMARY = { rivals: 5, events: 3, champions: 4, games: 5 } as const;
+const SUMMARY = { opponents: 5, events: 3, champions: 4, games: 5 } as const;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -50,7 +50,7 @@ export default async function StreamerProfile({
   // 주소창에 아무거나 넣어도 화면이 깨지지 않아야 한다.
   const sp = await searchParams;
   const year = sp.year && /^\d{4}$/.test(sp.year) ? Number(sp.year) : undefined;
-  const rivalSort: RivalSort = isRivalSort(sp.sort) ? sp.sort : DEFAULT_RIVAL_SORT;
+  const opponentSort: OpponentSort = isOpponentSort(sp.sort) ? sp.sort : DEFAULT_OPPONENT_SORT;
   const tab: ProfileTab = isProfileTab(sp.tab) ? sp.tab : DEFAULT_PROFILE_TAB;
 
   // 탭을 옮겨도 연도·정렬 선택이 살아 있어야 한다.
@@ -62,11 +62,11 @@ export default async function StreamerProfile({
   const hrefFor: HrefFor = (next) => {
     const t = next.tab ?? tab;
     const y = next.year === undefined ? year : (next.year ?? undefined);
-    const so = next.sort === undefined ? rivalSort : (next.sort ?? DEFAULT_RIVAL_SORT);
+    const so = next.sort === undefined ? opponentSort : (next.sort ?? DEFAULT_OPPONENT_SORT);
     const q = new URLSearchParams();
     if (t !== DEFAULT_PROFILE_TAB) q.set("tab", t);
     if (y) q.set("year", String(y));
-    if (so !== DEFAULT_RIVAL_SORT) q.set("sort", so);
+    if (so !== DEFAULT_OPPONENT_SORT) q.set("sort", so);
     const qs = q.toString();
     return qs ? `/s/${slug}?${qs}` : `/s/${slug}`;
   };
@@ -74,18 +74,18 @@ export default async function StreamerProfile({
   const id = streamer.streamer_id;
 
   // ★ 탭마다 필요한 것만 읽는다. 전에는 어느 섹션을 보든 열 개 질의가 다 나갔고,
-  //   그중 `listRivalGames` 는 조우한 **세트를 전부** 끌어온다. 요약판을 보려고
+  //   그중 `listOpponentGames` 는 조우한 **세트를 전부** 끌어온다. 요약판을 보려고
   //   그걸 읽을 이유가 없다.
   const needs = {
     events: tab === "summary" || tab === "events",
-    rivals: tab === "summary" || tab === "rivals",
-    rivalGames: tab === "rivals",
+    opponents: tab === "summary" || tab === "opponents",
+    opponentGames: tab === "opponents",
     champions: tab === "summary" || tab === "champions",
     games: tab === "summary" || tab === "games",
     series: tab === "summary",
   };
 
-  const [channels, accounts, years, series, events, placements, rivals, rivalGames, champions, games] =
+  const [channels, accounts, years, series, events, placements, opponents, opponentGames, champions, games] =
     await Promise.all([
       listPublicChannels(id),
       listProfileAccounts(id),
@@ -95,26 +95,26 @@ export default async function StreamerProfile({
       // ★ 연도를 안 넘긴다. 수상 내역은 프로필 머리에 붙어 어느 탭에서도 같은 값이어야
       //   한다 — 연도를 누를 때마다 이름 옆 우승 횟수가 바뀌면 통산인지 그 해인지 모른다.
       summarizePlacements(id),
-      needs.rivals ? listRivals(id, { year }) : [],
-      needs.rivalGames ? listRivalGames(id, year) : [],
+      needs.opponents ? listOpponents(id, { year }) : [],
+      needs.opponentGames ? listOpponentGames(id, year) : [],
       needs.champions ? listChampions(id) : [],
       needs.games ? listRecentGames(id) : [],
     ]);
 
   // ★ 정렬은 TS 에서 한다. 승률 정렬이 베이지안 축소를 거쳐야 하고(§11-3),
   //   그 계산은 metrics/affinity.ts 한 곳에만 두기로 했다. SQL 은 세기만 한다.
-  const sortedRivals = sortRivals(rivals, rivalSort);
+  const sortedOpponents = sortOpponents(opponents, opponentSort);
 
-  // 상대별로 갈라 둔다. 화면에서 라이벌마다 다시 훑지 않게 한 번만 접는다.
-  const seriesByRival = new Map<string, typeof rivalGames>();
-  for (const r of rivalGames) {
-    const cur = seriesByRival.get(r.other_id) ?? [];
+  // 상대별로 갈라 둔다. 화면에서 상대마다 다시 훑지 않게 한 번만 접는다.
+  const seriesByOpponent = new Map<string, typeof opponentGames>();
+  for (const r of opponentGames) {
+    const cur = seriesByOpponent.get(r.other_id) ?? [];
     cur.push(r);
-    seriesByRival.set(r.other_id, cur);
+    seriesByOpponent.set(r.other_id, cur);
   }
 
   const main = accounts[0];
-  // 탭이 생기기 전 문구는 "대회 성적과 라이벌에만 적용됩니다" 였는데, 이제 탭마다
+  // 탭이 생기기 전 문구는 "대회 성적과 상대 전적에만 적용됩니다" 였는데, 이제 탭마다
   // 필터가 따로 있어 그 말이 안 맞는다. 대신 **맨 위 통산 수상 내역이 왜 안 바뀌는지**를
   // 적는다 — 그게 실제로 헷갈리는 지점이다.
   const yearNote = "이 목록에만 적용됩니다. 맨 위 수상 내역은 통산이라 연도와 무관합니다.";
@@ -167,14 +167,14 @@ export default async function StreamerProfile({
 
         {/*
           탭 개수는 **지금 탭에서 읽은 것만** 적는다. 안 읽은 걸 0 으로 적으면
-          "라이벌 0명" 이 사실처럼 보인다 — 모르는 건 안 적는 게 맞다.
+          "상대 0명" 이 사실처럼 보인다 — 모르는 건 안 적는 게 맞다.
         */}
         <TabBar
           active={tab}
           hrefFor={hrefFor}
           counts={{
             events: needs.events ? events.length : undefined,
-            rivals: needs.rivals ? sortedRivals.length : undefined,
+            opponents: needs.opponents ? sortedOpponents.length : undefined,
             champions: needs.champions ? champions.length : undefined,
             games: needs.games ? games.length : undefined,
           }}
@@ -185,19 +185,19 @@ export default async function StreamerProfile({
           <div className="mt-6 grid gap-8">
             <section>
               <SectionTitle hint="맞붙었을 때와 같은 팀이었을 때를 절대 섞지 않습니다">
-                라이벌
+                상대 전적
               </SectionTitle>
-              {sortedRivals.length === 0 ? (
+              {sortedOpponents.length === 0 ? (
                 <EmptyLine>아직 다른 스트리머와 만난 기록이 없습니다.</EmptyLine>
               ) : (
                 <>
                   <ul className="grid gap-2">
-                    {sortedRivals.slice(0, SUMMARY.rivals).map((r) => (
-                      <RivalRowCompact key={r.streamer_id} r={r} slug={slug} />
+                    {sortedOpponents.slice(0, SUMMARY.opponents).map((r) => (
+                      <OpponentRowCompact key={r.streamer_id} r={r} slug={slug} />
                     ))}
                   </ul>
-                  <MoreLink href={hrefFor({ tab: "rivals" })}>
-                    라이벌 {sortedRivals.length}명 전부 보기
+                  <MoreLink href={hrefFor({ tab: "opponents" })}>
+                    상대 {sortedOpponents.length}명 전부 보기
                   </MoreLink>
                 </>
               )}
@@ -244,33 +244,33 @@ export default async function StreamerProfile({
           </section>
         )}
 
-        {/* ── 라이벌 — 이 사이트의 훅 ── */}
-        {tab === "rivals" && (
+        {/* ── 상대 전적 — 이 사이트의 훅 ── */}
+        {tab === "opponents" && (
           <section className="mt-6">
             <SectionTitle hint="맞붙었을 때와 같은 팀이었을 때를 절대 섞지 않습니다">
-              라이벌
+              상대 전적
             </SectionTitle>
-            {/* 라이벌이 0명이어도 필터는 남긴다 — 연도를 잘못 걸어 0명이 됐을 때
+            {/* 상대가 0명이어도 필터는 남긴다 — 연도를 잘못 걸어 0명이 됐을 때
                 필터가 사라지면 되돌릴 방법이 없다. */}
-            {(sortedRivals.length > 0 || year !== undefined) && (
-              <RivalFilters
-                sort={rivalSort}
+            {(sortedOpponents.length > 0 || year !== undefined) && (
+              <OpponentFilters
+                sort={opponentSort}
                 years={years}
                 year={year}
                 hrefFor={hrefFor}
-                total={sortedRivals.length}
+                total={sortedOpponents.length}
               />
             )}
-            {sortedRivals.length === 0 ? (
+            {sortedOpponents.length === 0 ? (
               <EmptyLine>
                 {year ? `${year}년에 만난 스트리머가 없습니다.` : "아직 다른 스트리머와 만난 기록이 없습니다."}
               </EmptyLine>
             ) : (
               <ul className="grid gap-2">
-                {sortedRivals.map((r) => {
-                  const mine = seriesByRival.get(r.streamer_id) ?? [];
+                {sortedOpponents.map((r) => {
+                  const mine = seriesByOpponent.get(r.streamer_id) ?? [];
                   return (
-                    <RivalCard
+                    <OpponentCard
                       key={r.streamer_id}
                       r={r}
                       slug={slug}
