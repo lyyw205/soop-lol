@@ -174,6 +174,13 @@ if (!season.bouts) {
   const nth = (season.only_rounds ?? null);
   const picked = namuSeries.filter((s) => !nth || nth.some((r) => s.round.includes(r)));
   season.bouts = picked.map((s, i) => [i + 1, s.round, s.a, s.b, s.date ?? season.starts_at]);
+  // ★ 원본에 경기 날짜가 없으면 회차 시작일로 채운다. 그러면 그 회차의 모든 경기가
+  //   같은 날이 되어 '마지막으로 만난 날' 같은 표시가 틀린다. 채웠다는 사실을 남긴다 —
+  //   조용히 지어낸 날짜가 진짜인 척하는 게 제일 나쁘다.
+  season.dates_unknown = picked.filter((s) => !s.date).length;
+  if (season.dates_unknown > 0) {
+    console.log(`  ⚠ 원본에 날짜가 없는 경기 ${season.dates_unknown}건 — 회차 시작일(${season.starts_at})로 채운다`);
+  }
 }
 
 // 로스터도 안 적었으면 참가팀 표에서 읽는다. 대진에 나온 팀만 남긴다.
@@ -479,7 +486,10 @@ writeFileSync(
           `(2) 나무위키 경기 결과표의 스코어: ${(season.namu ?? []).map(namuUrl).join(" , ")}. ` +
           `${resolved.length}경기 전건이 일치했다. `) +
       `전 경기 다전제라 스코어대로 세트 단위(총 ${totalGames}판)로 펴서 넣는다 — ` +
-      `시리즈를 1판으로 적으면 판수가 틀리고 진 쪽이 딴 세트가 사라진다.`,
+      `시리즈를 1판으로 적으면 판수가 틀리고 진 쪽이 딴 세트가 사라진다.` +
+      (season.dates_unknown
+        ? ` ⚠ 원본에 경기 날짜가 없어 ${season.dates_unknown}경기를 회차 시작일(${season.starts_at})로 통일했다 — 그 회차 안의 경기 순서·날짜는 신뢰할 수 없다.`
+        : ``),
     teams,
     roster_positions: positions,
     games,

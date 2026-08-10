@@ -301,8 +301,10 @@ export const SEASONS = {
   "meljang-2018-s1": {
     name: "2018 LoL BJ멸망전 시즌1",
     organizer: "SOOP",
-    starts_at: "2018-01-15",
-    ends_at: "2018-01-31",
+    // 인벤 2018-01-08 기사에 실린 공식 포스터 기준 — 풀리그 1/9~1/18(화·목 17시),
+    // 와일드카드 1/23, 플레이오프 1/25, 파이널 1/27.
+    starts_at: "2018-01-09",
+    ends_at: "2018-01-27",
     format: "table",
     namu: ["2018 LoL BJ멸망전 시즌1"],
   },
