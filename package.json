@@ -27,7 +27,9 @@
     "seed": "node --env-file-if-exists=apps/web/.env.local scripts/seed-streamers.ts",
     "seed:tournament": "node --env-file-if-exists=apps/web/.env.local scripts/seed-tournament.ts",
     "//link:namu": "★ 대회 로스터의 나무위키 인물 문서를 스트리머에 붙인다. 옛 표기(BJ이상호…)를 잇는 근거가 된다.",
-    "link:namu": "node --env-file-if-exists=apps/web/.env.local scripts/link-namu-identity.ts"
+    "link:namu": "node --env-file-if-exists=apps/web/.env.local scripts/link-namu-identity.ts",
+    "//repair:puuid": "★ 낡은 puuid 를 현재 값으로 갈아끼운다. 기본은 확인만 — 옮기려면 -- --apply.",
+    "repair:puuid": "node --env-file-if-exists=apps/web/.env.local scripts/repair-puuid.ts"
   },
   "//": "★ 버전은 캐럿 없이 고정한다(hotplace-map과 같은 규칙). 캐럿으로 적으면 lock 재생성이 next/react를 통째로 끌어올려서, 무관한 커밋이 라이브러리 업그레이드를 같이 싣는다. 업그레이드는 별건으로.",
   "devDependencies": {

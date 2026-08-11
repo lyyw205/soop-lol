@@ -18,3 +18,6 @@ seed/streamers*.json
 seed/*.local.json
 seed/tournaments*.json
 !seed/*.example.json
+
+# Claude Code 개인 설정 — 세션 한도 같은 건 사람마다 다르다. 공유하지 않는다.
+.claude/settings.local.json
