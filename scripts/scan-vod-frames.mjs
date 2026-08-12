@@ -2,6 +2,11 @@
  * VOD **썸네일 시트**를 코드로 훑어 경기 구간과 밴픽 지점을 찾는다. **토큰 0.**
  *
  *   npm run ck:scan -- <채널아이디> [--days 10] [--limit 1]
+ *   npm run ck:scan -- lshooooo --from 2026-08-01 --to 2026-08-31 --all
+ *
+ * ★ `--all` 은 **제목을 안 보고** 그 기간 롤 카테고리 본방을 전부 훑는다.
+ *   제목에 ck·내전이 없는데 실제로는 내전을 한 방송을 찾으려는 것이다.
+ *   비용은 시트+채팅뿐이라 시간당 6초·11MB — 프레임은 안 받는다.
  *
  * ★ 이게 왜 필요한가 — 비용이 여기서 갈린다
  *   5시간 VOD 는 썸네일 시트 60장(6,000프레임, 3초 간격, 45MB)으로 통째로 훑을 수
@@ -37,7 +42,9 @@
  *     오버레이 구성이 달라서다. **두 명으로만 맞춘 규칙이다.**
  */
 
-import { detect, findVods, hms, playableFiles, scanSheets, vodDetail } from "./lib/soop-vod.mjs";
+import {
+  LOL_CATEGORY, detect, findVods, hms, listBroadcasts, noticesFrom, playableFiles, scanSheets, vodDetail,
+} from "./lib/soop-vod.mjs";
 import { makeOpt } from "./lib/cli.mjs";
 
 const args = process.argv.slice(2);
@@ -46,14 +53,31 @@ if (!CHANNEL) {
   console.error("사용법: node scripts/scan-vod-frames.mjs <채널아이디> [--days 10] [--limit 1]");
   process.exit(1);
 }
-const num = (n, d) => Number(makeOpt(args)(n, d));
-const DAYS = num("--days", 10);
-const LIMIT = num("--limit", 1);
-const since = new Date(Date.now() - DAYS * 86400_000).toISOString().slice(0, 10);
+const opt = makeOpt(args);
+const num = (n, d) => Number(opt(n, d));
+const ALL = args.includes("--all");
+const FROM = opt("--from", "");
+const TO = opt("--to", "");
+const SWEEP = ALL || Boolean(FROM) || Boolean(TO);
+const LOL = Number(LOL_CATEGORY);   // 40019
 
-const vods = (await findVods(CHANNEL, { since })).slice(0, LIMIT);
-console.log(`${CHANNEL} — 최근 ${DAYS}일 내전 VOD ${vods.length}건\n`);
+let vods;
+if (SWEEP) {
+  // 기간 훑기 — 본방만 주는 API 를 쓴다. 제목은 안 본다.
+  vods = await listBroadcasts(CHANNEL, { from: FROM, to: TO, category: LOL, maxPages: 40 });
+  const hours = vods.reduce((a, v) => a + v.hours, 0);
+  console.log(`${CHANNEL} — ${FROM || "처음"} ~ ${TO || "지금"} 롤 카테고리 본방 ${vods.length}건 · ${hours.toFixed(0)}시간`);
+  console.log(`  (본방 전체 ${vods.total}건 중${vods.truncated ? " · ⚠ 페이지 상한에 걸려 일부만 봤다" : ""})`);
+  console.log(`  예상 ${(hours * 6.1 / 60).toFixed(0)}분 · ${(hours * 11.4 / 1000).toFixed(1)}GB — 프레임은 받지 않는다\n`);
+} else {
+  const DAYS = num("--days", 10);
+  const LIMIT = num("--limit", 1);
+  const since = new Date(Date.now() - DAYS * 86400_000).toISOString().slice(0, 10);
+  vods = (await findVods(CHANNEL, { since })).slice(0, LIMIT);
+  console.log(`${CHANNEL} — 최근 ${DAYS}일 내전 VOD ${vods.length}건\n`);
+}
 
+const summary = [];
 for (const v of vods) {
   console.log(`▸ ${v.ended_at.slice(0, 16)}  ${v.title.slice(0, 52)}`);
   const files = playableFiles(await vodDetail(v.title_no)).filter((f) => f.snapshot);
@@ -67,11 +91,37 @@ for (const v of vods) {
     const tag = files.length > 1 ? `[파일 ${fi + 1}/${files.length}] ` : "";
     console.log(`   ${tag}${(total / 3600).toFixed(1)}h · 시트 ${Math.ceil(frames.length / 100)}장 ${(bytes / 1e6).toFixed(0)}MB`
       + ` · 프레임 ${frames.length}개 (${sec.toFixed(1)}초 간격)`);
-    console.log(`   롤 경기 구간 ${games.length}개 · 판독 후보 ${shots.length}곳`);
+    // ★ 채팅 `!공지` 는 내전의 강한 신호다. 제목에 없어도 여기서 걸린다.
+    let notice = null;
+    if (SWEEP && file.chat) {
+      try { notice = await noticesFrom(file); } catch { notice = null; }
+    }
+    console.log(`   롤 경기 구간 ${games.length}개 · 판독 후보 ${shots.length}곳`
+      + (notice ? ` · 채팅 !공지 ${notice.notices}건 → 경기 종료 ${notice.ends.length}건` : ""));
+    if (notice?.ends.length) {
+      for (const e of notice.ends) console.log(`      !공지 ${e.at ?? hms(e.t)}  ${e.score}  승 ${e.winner ?? "── 모순"}`);
+    }
     for (const g of games) {
       console.log(`      경기  ${hms(g.start)} ~ ${hms(g.end)}  (${((g.end - g.start) / 60).toFixed(0)}분)`);
     }
     console.log(`   → 프레임을 받을 지점: ` + shots.map(hms).join(", "));
     console.log(`   (전체 중 롤 화면 ${(gameRatio * 100).toFixed(0)}% · LLM 토큰 0)\n`);
+    summary.push({ title: v.title, at: v.ended_at.slice(0, 10), hours: total / 3600,
+      ratio: gameRatio, games: games.length, notices: notice?.ends.length ?? 0 });
   }
+}
+
+if (SWEEP && summary.length > 0) {
+  // ★ 이 표가 답할 질문: **제목에 ck·내전이 없는데 실제로 내전을 한 방송이 있나.**
+  const CK = /ck|씨케이|내전|멸망전|스크림|대회/i;
+  console.log("─".repeat(78));
+  console.log("날짜         롤%  경기  공지  제목CK  제목");
+  for (const s of summary.sort((a, b) => (a.at < b.at ? 1 : -1))) {
+    const isCk = CK.test(s.title);
+    console.log(`${s.at}  ${String(Math.round(s.ratio * 100)).padStart(3)}%  ${String(s.games).padStart(4)}  ${String(s.notices).padStart(4)}  ${(isCk ? "○" : "·").padStart(5)}   ${s.title.slice(0, 34)}`);
+  }
+  const hidden = summary.filter((s) => !CK.test(s.title) && (s.games > 0 || s.notices > 0));
+  console.log("─".repeat(78));
+  console.log(`제목에 CK 가 없는데 롤 경기가 잡힌 방송: ${hidden.length}건`);
+  for (const h of hidden) console.log(`   ${h.at}  경기 ${h.games}개 · 공지 ${h.notices}건  ${h.title.slice(0, 40)}`);
 }

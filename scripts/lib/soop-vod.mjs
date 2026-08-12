@@ -173,6 +173,70 @@ export async function findVods(channelId, { since, onlyCk = true, maxPages = 30 
   return out;
 }
 
+/**
+ * 채널의 **본방 목록**. `www.sooplive.com/station/<ch>/vod` 가 쓰는 API 다.
+ *
+ * ★ `vods/all`(chapi) 과 무엇이 다른가 — 실측(이상호, 2026-08-12)
+ *
+ *     chapi /api/<ch>/vods/all          이 함수 (/vod/all/streamer)
+ *     ─────────────────────────────     ──────────────────────────────
+ *     클립·하이라이트까지 전부 섞임        **본방만**
+ *     10,000 건에서 잘린다(하드 상한)      5,272 건 = 9년치가 다 나온다
+ *     그래서 6개월치밖에 못 본다           2017-06-24 부터 있다
+ *     날짜·키워드 필터 없음               startDate·endDate·keyword 를 서버가 받는다
+ *
+ *   클립까지 받느라 상한에 조기 도달하는 게 문제였다. 본방만 받으면 훨씬 멀리 간다.
+ *
+ * ⚠ 호스트가 `api-channel` 이다 — 515 로 잘 막히는 그 호스트다(soop-http 참조).
+ *   게이트웨이가 6초 간격을 주므로 페이지가 많으면 느리다. 날짜로 잘라 받는 이유다.
+ *
+ * ⚠ **카테고리를 믿지 마라.** 롤(40019)로 올라온 VOD 에 FC온라인·어몽어스·피파가
+ *   섞여 있다(실측). 스트리머가 카테고리를 안 바꾸고 방송한다. 최종 판정은
+ *   시트 훑기(`detect` 의 gameRatio)가 한다.
+ *
+ * @param {string} channelId
+ * @param {{from?: string, to?: string, keyword?: string, category?: number|null, maxPages?: number}} [opts]
+ *   `from`·`to` 는 'YYYY-MM-DD'. `category` 를 주면 그 카테고리만 남긴다.
+ */
+export async function listBroadcasts(channelId, { from = "", to = "", keyword = "", category = null, maxPages = 40 } = {}) {
+  const out = [];
+  out.truncated = false;
+  out.total = 0;
+  for (let page = 1; page <= maxPages; page++) {
+    const url = `https://api-channel.sooplive.com/v1.1/channel/${channelId}/vod/all/streamer?`
+      + new URLSearchParams({
+        startDate: from, endDate: to, keyword, orderBy: "reg_date",
+        perPage: "60", page: String(page), field: "title,contents,user_nick,user_id",
+      });
+    const r = await soopFetch(url, { headers: { ...UA, Referer: "https://www.sooplive.com/" } });
+    // ★ 실패를 빈 배열로 삼키지 않는다. 조용히 적게 가져오는 건 실패보다 나쁘다.
+    if (!r.ok) { out.truncated = true; return out; }
+    const j = await r.json();
+    const rows = j?.contents ?? [];
+    out.total = j?.meta?.totalItems ?? out.total;
+    if (rows.length === 0) break;
+    for (const v of rows) {
+      const u = v.ucc ?? {};
+      if (category != null && u.vodCategory !== category) continue;
+      out.push({
+        channel_id: channelId,
+        title_no: Number(v.titleNo),
+        title: v.titleName ?? "",
+        // regDate 는 **VOD 등록(=방송 종료) 시각**이다.
+        ended_at: v.regDate,
+        hours: (u.totalFileDuration ?? 0) / 3_600_000,
+        category: u.vodCategory ?? null,
+        views: v.count?.readCnt ?? 0,
+        url: `https://vod.sooplive.com/player/${v.titleNo}`,
+      });
+    }
+    const pages = j?.meta?.totalPages ?? 1;
+    if (page >= pages) break;
+    if (page === maxPages) out.truncated = true;
+  }
+  return out;
+}
+
 /** VOD 상세. **POST 여야 한다.** */
 export async function vodDetail(titleNo) {
   const r = await soopFetch("https://api.m.sooplive.co.kr/station/video/a/view", {
