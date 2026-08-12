@@ -52,6 +52,11 @@ const PER_SESSION = Number(opt("--per-session", 1));
  * 앞에서 자르면 방송 후반 경기를 통째로 잃는다.
  */
 const MAX_PER_FILE = Number(opt("--max-frames", 12));
+/**
+ * 채팅 `!공지` 시각에서 몇 초 앞을 잡을지. 공지는 사람이 결과 화면을 보고 치는 것이라
+ * 화면이 먼저 뜨고 공지가 뒤따른다. 실측 지연이 4초라 5초 앞을 잡는다.
+ */
+const RESULT_LEAD = Number(opt("--result-lead", 5));
 const OUT = join(process.cwd(), "out", "ck", DATE);
 
 /** N 개만 남기되 시간축에 고르게 남긴다. */
@@ -279,12 +284,30 @@ try {
           entry.files.push({
             index: fi + 1, hours: +(file.duration / 3_600_000).toFixed(2),
             games: [], shots_found: 0, shots_kept: 0, frames: [],
-            chat_game_ends: chat.ends.map((e) => ({ at: e.at ?? hms(e.t), winner: e.winner, score: e.score })),
+            chat_game_ends: chat.ends.map((e) => ({ at: e.at ?? hms(e.t), winner: e.winner, score: e.score, conflict: e.conflict ?? null })),
           });
           continue;
         }
         const { games, shots: allShots, gameRatio } = detect(frames, sec);
-        const shots = thin(allShots, MAX_PER_FILE);
+        // ★ 채팅 `!공지` 시각의 몇 초 **앞**이 판독 지점 중 가장 값어치가 높다.
+        //   그 자리에 LoL 최종 결과 화면(승리/패배 · 10명 챔피언 · KDA · 게임 길이)이
+        //   통째로 떠 있다. 실측: 공지 4초 전이 정확히 결과 화면이었다(2·4·5세트).
+        //   밝기·채도로 고르는 일반 규칙은 이걸 못 집는다 — 실제로 12장을 뽑고도
+        //   한 장도 안 걸려서, 공지가 틀린 판을 잡아내지 못했다.
+        //   솎아내기(thin)보다 **먼저** 자리를 잡아 준다. 승패의 정본이라 양보하지 않는다.
+        const anchors = chat.ends.map((e) => Math.max(0, Math.round(e.t) - RESULT_LEAD))
+          .filter((t) => t < total);
+        const shots = [...anchors, ...thin(allShots, Math.max(0, MAX_PER_FILE - anchors.length))]
+          .sort((x, y) => x - y)
+          .filter((t, i, arr) => i === 0 || t - arr[i - 1] > 2);
+        const contested = chat.ends.filter((e) => e.conflict);
+        if (contested.length > 0) {
+          console.log(`   ⚠ 공지가 서로 다른 승자를 말한 경기 ${contested.length}건 — 승자를 비워 뒀다. 결과 화면을 봐라`);
+          for (const e of contested) {
+            console.log(`      ${e.at}  "${e.conflict.first.score} ${e.conflict.first.winner}"`
+              + ` vs ${e.conflict.gap}초 뒤 "${e.conflict.second.score} ${e.conflict.second.winner}"`);
+          }
+        }
         console.log(`   [파일 ${fi + 1}/${files.length}] ${(total / 3600).toFixed(1)}h · 시트 ${(bytes / 1e6).toFixed(0)}MB`
           + ` · 롤 화면 ${(gameRatio * 100).toFixed(0)}% · 경기 ${games.length}구간 · 판독 지점 ${allShots.length}곳`
           + (allShots.length > shots.length ? ` → ${shots.length}곳으로 솎음 (--max-frames)` : ""));
@@ -331,7 +354,7 @@ try {
           index: fi + 1,
           hours: +(total / 3600).toFixed(2),
           games: games.map((g) => ({ start: hms(g.start), end: hms(g.end) })),
-          chat_game_ends: chat.ends.map((e) => ({ at: e.at ?? hms(e.t), winner: e.winner, score: e.score })),
+          chat_game_ends: chat.ends.map((e) => ({ at: e.at ?? hms(e.t), winner: e.winner, score: e.score, conflict: e.conflict ?? null })),
           // 솎아냈으면 그 사실을 남긴다 — 조용히 자르면 "다 봤다"로 읽힌다.
           shots_found: allShots.length,
           shots_kept: shots.length,

@@ -348,7 +348,13 @@ export async function loadChat(file) {
  *   시청자가 장난으로 올린 반대 점수(2:1 다음에 1:2)가 실제로 있었고 이게 걸러냈다.
  *
  * ⚠ **10개 채널 중 1개에만 있었다.** 대형 조직 내전의 습관이지 규격이 아니다.
+ *
+ * ★ 공지를 올리는 건 사람이라 **틀리고, 몇십 초 뒤에 고친다.** 같은 경기를 두고
+ *   서로 다른 승자를 말하는 공지가 둘 오면 `winner: null` 에 `conflict` 를 달아
+ *   넘긴다 — 어느 쪽이 맞는지는 결과 화면(프레임)을 봐야 안다.
  */
+const CORRECTION_WINDOW = 300;   // 초. 이 안에 들어온 모순 공지는 '정정' 후보로 본다
+
 export function gameEndsFromNotice(msgs) {
   // ★ 팀명을 헐겁게 잡으면 쓰레기가 팀이 된다.
   //   실측: `깐숙VS민교( 1 : 0 )` 에서 팀명이 `깐숙VS민교(` 와 `)` 로 잡혔다.
@@ -380,20 +386,54 @@ export function gameEndsFromNotice(msgs) {
   if (notices.length < 2) return { ends: [], notices: notices.length, rejected: 0 };
 
   const ends = [];
-  let prev = null, rejected = 0;
+  let prev = null;          // 지금까지 인정한 마지막 점수
+  let before = null;        // **그 직전** 점수 = 마지막 경기가 시작될 때의 점수
+  let rejected = 0, conflicts = 0;
+
   for (const n of notices) {
     const [, aName, a, b, bName] = n.sc;
     const cur = { a: Number(a), b: Number(b) };
     if (!prev) { prev = cur; continue; }
     const da = cur.a - prev.a, db = cur.b - prev.b;
-    if (cur.a === 0 && cur.b === 0) { prev = cur; continue; }                 // 새 시리즈
-    if (da > 0 && db === 0) ends.push({ t: n.t, at: hms(n.t), winner: aName, score: `${cur.a}:${cur.b}`, skipped: da - 1 });
-    else if (db > 0 && da === 0) ends.push({ t: n.t, at: hms(n.t), winner: bName, score: `${cur.a}:${cur.b}`, skipped: db - 1 });
-    else if (da === 0 && db === 0) continue;                                  // 같은 점수 재공지
-    else { rejected++; continue; }                                            // 앞뒤가 안 맞는다
-    prev = cur;
+    if (cur.a === 0 && cur.b === 0) { prev = cur; before = null; continue; }  // 새 시리즈
+    if (da === 0 && db === 0) continue;                                       // 같은 점수 재공지
+    if (da > 0 && db === 0) {
+      before = prev; prev = cur;
+      ends.push({ t: n.t, at: hms(n.t), winner: aName, score: `${cur.a}:${cur.b}`, skipped: da - 1 });
+      continue;
+    }
+    if (db > 0 && da === 0) {
+      before = prev; prev = cur;
+      ends.push({ t: n.t, at: hms(n.t), winner: bName, score: `${cur.a}:${cur.b}`, skipped: db - 1 });
+      continue;
+    }
+
+    // ★ 여기가 실제로 틀렸던 자리다.
+    //   1:1 다음에 `2:1`(4:45:37) 과 `1:2`(4:46:04) 가 27초 사이로 들어왔다.
+    //   **둘 다 1:1 에서 한 칸 나아간 유효한 점수**라 앞의 것만 보고는 못 고른다.
+    //   예전 코드는 먼저 온 것을 채택하고 뒤엣것을 '역행'으로 버렸는데,
+    //   실제로는 먼저 온 쪽이 오기였고 뒤엣것이 정정이었다.
+    //   프레임(결과 화면)으로 확인하기 전까지는 **승자를 만들지 않는다.**
+    //   틀린 상대전적이 들어가는 것보다 비어 있는 편이 낫다(§11-2·§11-3).
+    const last = ends[ends.length - 1];
+    if (before && last && n.t - last.t <= CORRECTION_WINDOW) {
+      const ea = cur.a - before.a, eb = cur.b - before.b;
+      if ((ea > 0 && eb === 0) || (eb > 0 && ea === 0)) {
+        if (last.winner !== null) conflicts++;
+        last.conflict = {
+          first: { score: last.score, winner: last.winner },
+          second: { score: `${cur.a}:${cur.b}`, winner: ea > 0 ? aName : bName },
+          gap: Math.round(n.t - last.t),
+        };
+        last.winner = null;                       // 고르지 않는다
+        last.score = `${cur.a}:${cur.b}`;         // 이후 경기를 세려면 하나는 이어야 한다
+        prev = cur;                               // 나중 것을 잇는다 — 보통 정정이 뒤에 온다
+        continue;
+      }
+    }
+    rejected++;                                                              // 앞뒤가 안 맞는다
   }
-  return { ends, notices: notices.length, rejected };
+  return { ends, notices: notices.length, rejected, conflicts };
 }
 
 /** `!공지` 가 없는 방송용 대비책. 경기가 끝나면 채팅이 튄다. */
