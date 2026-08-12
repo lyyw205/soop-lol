@@ -16,7 +16,7 @@
 import Link from "next/link";
 
 import type {
-  ChampionRow, EventRecord, PlacementSummary, ProfileAccount, RankPoint,
+  ChampionRow, EventRecord, PlacementSummary, ProfileAccount,
   RecentGame, OpponentGame, OpponentRow,
 } from "@soop-lol/core/lib/db/public";
 import { OPPONENT_SORTS, type OpponentSort } from "@soop-lol/core/lib/metrics/opponents";
@@ -24,7 +24,7 @@ import { POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 import {
   DualRecord, EmptyLine, Kda, PositionTag, QueueTag, RankChip, RecordBar,
-  SectionTitle, TierChart, WinPill, relativeDate,
+  SectionTitle, WinPill, relativeDate,
 } from "./public";
 import { SeriesLog } from "./series-log";
 
@@ -220,17 +220,6 @@ export function AccountList({ accounts }: { accounts: ProfileAccount[] }) {
           ))}
         </ul>
       )}
-    </section>
-  );
-}
-
-export function TierSection({ points }: { points: RankPoint[] }) {
-  return (
-    <section>
-      <SectionTitle hint="매일 09:00 KST 스냅샷">티어 추이</SectionTitle>
-      <div className="rounded-xl border border-ink-800 bg-ink-900/60 p-4">
-        <TierChart points={points} />
-      </div>
     </section>
   );
 }

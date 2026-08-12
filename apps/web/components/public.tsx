@@ -9,7 +9,7 @@ import {
   SMALL_SAMPLE_THRESHOLD,
   type HeadToHead,
 } from "@soop-lol/core/lib/metrics/affinity";
-import { formatRank, tierGridLines } from "@soop-lol/core/lib/metrics/lp";
+import { formatRank } from "@soop-lol/core/lib/metrics/lp";
 import { POSITION_LABEL, QUEUE_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 // ── 크롬 ─────────────────────────────────────────────────────────────
@@ -22,6 +22,10 @@ export function SiteHeader() {
           SOOP <span className="text-accent-500">LOL</span>
         </Link>
         <Link href="/streamers" className="text-ink-400 hover:text-ink-200">스트리머</Link>
+        {/* ★ 이 사이트의 한 문장이 곧 이 링크다 — "스트리머끼리 누가 누구를 이겼나".
+            실제 페이지는 /vs/<a>/<b> 라 두 slug 가 경로에 박혀 있어서 nav 로는 못 간다.
+            /vs 가 고르는 화면이 되어 준다. */}
+        <Link href="/vs" className="text-ink-400 hover:text-ink-200">상대전적</Link>
         <Link href="/m/leaderboard" className="text-ink-400 hover:text-ink-200">리더보드</Link>
       </nav>
     </header>
@@ -50,83 +54,6 @@ export function RankChip({
   );
 }
 
-/**
- * 티어 추이. 차트 라이브러리를 쓰지 않는다 — 선 하나에 라이브러리는 과하다.
- * 점이 하나뿐이면 그래프가 아니라 "아직 하루치" 라고 말한다.
- */
-export function TierChart({
-  points,
-}: { points: { snapshot_date: string; lp_absolute: number | null }[] }) {
-  const data = points.filter((p) => p.lp_absolute !== null) as { snapshot_date: string; lp_absolute: number }[];
-  if (data.length === 0) return <EmptyLine>아직 랭크 기록이 없습니다.</EmptyLine>;
-  if (data.length < 2) {
-    return (
-      <EmptyLine>
-        오늘 하루치만 있습니다 — 추이는 매일 09:00 스냅샷이 쌓이면서 그려집니다.
-      </EmptyLine>
-    );
-  }
-
-  const W = 720, H = 180, PAD = { l: 46, r: 12, t: 12, b: 22 };
-  const values = data.map((d) => d.lp_absolute);
-  const min = Math.min(...values), max = Math.max(...values);
-  const span = Math.max(max - min, 100);
-  const lo = min - span * 0.15, hi = max + span * 0.15;
-
-  const x = (i: number) => PAD.l + (i / (data.length - 1)) * (W - PAD.l - PAD.r);
-  const y = (v: number) => PAD.t + (1 - (v - lo) / (hi - lo)) * (H - PAD.t - PAD.b);
-
-  const line = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(d.lp_absolute).toFixed(1)}`).join(" ");
-  const area = `${line} L${x(data.length - 1).toFixed(1)},${H - PAD.b} L${x(0).toFixed(1)},${H - PAD.b} Z`;
-  const grid = tierGridLines(lo, hi);
-  const last = data[data.length - 1];
-
-  return (
-    <div className="overflow-x-auto">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full min-w-[520px]" role="img"
-           aria-label={`티어 추이, ${data.length}일치`}>
-        {grid.map((g) => (
-          <g key={g.value}>
-            <line x1={PAD.l} x2={W - PAD.r} y1={y(g.value)} y2={y(g.value)}
-                  stroke="currentColor" strokeWidth="1" className="text-ink-800" />
-            <text x={PAD.l - 8} y={y(g.value) + 3} textAnchor="end"
-                  className="fill-ink-400 text-[10px]">{g.label}</text>
-          </g>
-        ))}
-        <path d={area} className="fill-accent-600/10" />
-        <path d={line} fill="none" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
-              className="stroke-accent-500" />
-        <circle cx={x(data.length - 1)} cy={y(last.lp_absolute)} r="3.5" className="fill-accent-400" />
-        <text x={PAD.l} y={H - 6} className="fill-ink-400 text-[10px]">{data[0].snapshot_date}</text>
-        <text x={W - PAD.r} y={H - 6} textAnchor="end" className="fill-ink-400 text-[10px]">
-          {last.snapshot_date}
-        </text>
-      </svg>
-    </div>
-  );
-}
-
-// ── 전적 ─────────────────────────────────────────────────────────────
-
-/**
- * ★ 이 컴포넌트가 §11-3 을 강제한다.
- *   3승 0패를 "승률 100%" 로 크게 쓰지 않는다. 표본 수를 **항상** 같이 보여주고,
- *   표본이 작으면 '참고용' 이라고 화면에 적는다. 재미 사이트라도 숫자로 거짓말하면 안 된다.
- */
-/**
- * 매치 전적과 세트 전적을 같이 보여준다.
- *
- * 3판 2선승을 2:1 로 이기면 **매치로는 1승 0패, 세트로는 2승 1패**다.
- * 둘은 다른 사실이라 한 막대에 섞으면 둘 다 틀린다. 매치를 크게 쓰고
- * 세트를 밑에 작게 적는다 — 어느 쪽이 궁금한지는 사람마다 달라서
- * 한쪽을 지우면 그 사람이 답을 못 얻는다.
- *
- * 경기 하나하나를 어느 단위로 볼지는 펼침 목록(SeriesLog)의 탭에서 고른다.
- * 페이지 맨 위에 두면 목록을 보다가 위로 올라갔다 내려와야 한다.
- *
- * 전부 단판이면 두 수치가 같으므로 보조 줄을 그리지 않는다.
- * 같은 숫자를 두 번 쓰면 다른 뜻인 줄 오해한다.
- */
 export function DualRecord({
   match, set, label,
 }: { match: HeadToHead; set: HeadToHead; label?: string }) {

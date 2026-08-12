@@ -75,6 +75,49 @@ export async function listStreamerCards(opts: { q?: string } = {}): Promise<Stre
   `;
 }
 
+/** 선택기용 최소 목록. 카드 질의(listStreamerCards)는 티어·판수까지 붙여서 무겁다. */
+export async function listStreamerOptions(): Promise<{ slug: string; display_name: string }[]> {
+  const sql = db();
+  return sql`
+    SELECT slug, display_name FROM core_public.streamer ORDER BY display_name
+  `;
+}
+
+export interface TopPair {
+  a_slug: string; a_name: string;
+  b_slug: string; b_name: string;
+  sets: number;
+  /** 상대편으로 만난 세트. 같은 팀이었던 건 뺀다 — 이 사이트가 묻는 건 맞대결이다. */
+  vs_sets: number;
+  lane_sets: number;
+  last_met: Date;
+}
+
+/**
+ * 많이 붙은 쌍. `/vs` 첫 화면이 빈 선택기만 있으면 볼 게 없어서 같이 보여준다.
+ *
+ * ★ 정렬은 **맞대결 세트 수**다. 총 조우가 아니라. 같은 팀으로만 30판 만난 쌍이
+ *   맞대결 20판 쌍보다 위에 오면, 이 사이트가 무엇을 세는 곳인지 첫 화면부터 어긋난다.
+ */
+export async function listTopPairs(limit = 20): Promise<TopPair[]> {
+  const sql = db();
+  return sql<TopPair[]>`
+    SELECT a.slug AS a_slug, a.display_name AS a_name,
+           b.slug AS b_slug, b.display_name AS b_name,
+           count(*)::int                                            AS sets,
+           count(*) FILTER (WHERE e.relation = 'opponent')::int      AS vs_sets,
+           count(*) FILTER (WHERE e.is_lane_matchup)::int            AS lane_sets,
+           max(e.game_creation)                                      AS last_met
+      FROM core_public.streamer_encounter e
+      JOIN core_public.streamer a ON a.streamer_id = e.streamer_a_id
+      JOIN core_public.streamer b ON b.streamer_id = e.streamer_b_id
+     GROUP BY 1, 2, 3, 4
+    HAVING count(*) FILTER (WHERE e.relation = 'opponent') > 0
+     ORDER BY vs_sets DESC, sets DESC
+     LIMIT ${limit}
+  `;
+}
+
 // ── 프로필 ───────────────────────────────────────────────────────────
 
 export interface ProfileAccount {
@@ -89,14 +132,6 @@ export interface ProfileAccount {
   lp_absolute: number | null;
   wins: number | null;
   losses: number | null;
-}
-
-export interface RankPoint {
-  snapshot_date: string;
-  lp_absolute: number | null;
-  tier: string | null;
-  division: string | null;
-  league_points: number | null;
 }
 
 export interface ChampionRow {
@@ -198,19 +233,6 @@ export async function listProfileAccounts(streamerId: string): Promise<ProfileAc
            ) r ON true
      WHERE a.streamer_id = ${streamerId}::uuid
      ORDER BY a.is_main DESC, r.lp_absolute DESC NULLS LAST
-  `;
-}
-
-/** 티어 추이. 계정이 여러 개면 날짜별로 가장 높은 계정을 쓴다. */
-export async function getRankSeries(streamerId: string): Promise<RankPoint[]> {
-  const sql = db();
-  return sql<RankPoint[]>`
-    SELECT DISTINCT ON (snapshot_date)
-           snapshot_date::text AS snapshot_date, lp_absolute, tier, division, league_points
-      FROM core_public.rank_snapshot
-     WHERE streamer_id = ${streamerId}::uuid AND queue_type = 'RANKED_SOLO_5x5'
-       AND lp_absolute IS NOT NULL
-     ORDER BY snapshot_date, lp_absolute DESC
   `;
 }
 

@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
-  getRankSeries,
   getStreamerBySlug,
   listChampions,
   listProfileAccounts,
@@ -22,7 +21,7 @@ import { EmptyLine, PageShell, RankChip, SectionTitle, SiteHeader } from "@/comp
 import {
   AccountList, ChampionList, DEFAULT_PROFILE_TAB, EventList, GameList,
   isProfileTab, MoreLink, PlacementRibbon, OpponentCard, OpponentFilters, OpponentRowCompact,
-  TabBar, TierSection, YearFilter, type HrefFor, type ProfileTab,
+  TabBar, YearFilter, type HrefFor, type ProfileTab,
 } from "@/components/profile";
 
 export const dynamic = "force-dynamic";
@@ -82,15 +81,13 @@ export default async function StreamerProfile({
     opponentGames: tab === "opponents",
     champions: tab === "summary" || tab === "champions",
     games: tab === "summary" || tab === "games",
-    series: tab === "summary",
   };
 
-  const [channels, accounts, years, series, events, placements, opponents, opponentGames, champions, games] =
+  const [channels, accounts, years, events, placements, opponents, opponentGames, champions, games] =
     await Promise.all([
       listPublicChannels(id),
       listProfileAccounts(id),
       listStreamerYears(id),
-      needs.series ? getRankSeries(id) : [],
       needs.events ? listStreamerEvents(id, year) : [],
       // ★ 연도를 안 넘긴다. 수상 내역은 프로필 머리에 붙어 어느 탭에서도 같은 값이어야
       //   한다 — 연도를 누를 때마다 이름 옆 우승 횟수가 바뀌면 통산인지 그 해인지 모른다.
@@ -210,8 +207,6 @@ export default async function StreamerProfile({
                 <MoreLink href={hrefFor({ tab: "events" })}>대회 {events.length}개 전부 보기</MoreLink>
               )}
             </section>
-
-            <TierSection points={series} />
 
             <section>
               <SectionTitle hint="전체 기간">모스트 챔피언</SectionTitle>
