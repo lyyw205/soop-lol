@@ -24,7 +24,7 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 
-import { createFakeRiot, type FakeMatch } from "./fake-riot.ts";
+import { buildMatchDto, createFakeRiot, type FakeMatch } from "./fake-riot.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const PORT = Number(process.env.VERIFY_INGEST_PORT ?? 5434);
@@ -230,6 +230,12 @@ try {
   check("★ puuid 없는 spectator 참가자는 후보가 되지 않는다 (실전에서 잡을 죽인 케이스)",
     cands.every((c) => typeof c.puuid === "string" && c.puuid.length > 0),
     JSON.stringify(cands.map((c) => c.puuid)));
+  // ★ 공개 큐(KR_1003, 솔랭)에는 미매핑 참가자가 8명 있는데 후보로 안 쌓였다.
+  //   쌓으면 스트리머 400명 × 수백 판이 승인 큐를 무작위 유저로 덮는다 —
+  //   내전 참가자가 그 아래 묻히면 이 큐는 아무도 안 보게 된다.
+  check("★ 공개 큐의 남 8명은 후보가 되지 않는다 (승인 큐가 노이즈로 덮인다)",
+    cands.every((c) => !c.puuid.startsWith("filler")),
+    JSON.stringify(cands.map((c) => c.puuid.slice(0, 12))));
 
   // 두 번째 틱: sweep 이 아니고, A 는 여전히 게임 중이므로 match-v5 호출이 없어야 한다.
   const matchIdsBefore = fake.calls.matchIds;
@@ -327,6 +333,64 @@ try {
   const afterUnlink = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM streamer_encounter`;
   check("감마의 조우 4쌍이 지워진다", afterUnlink[0].n === 2,
     `${afterUnlink[0].n}쌍 / ${JSON.stringify(pruneRun.detail)}`);
+
+  // ── 내전 ───────────────────────────────────────────────────────────
+  // 토너먼트 코드 방(queue 3130)은 **내전을 잡는 유일한 경로**다. 여기가 틀리면
+  // 내전이 공개 큐로 섞여 들어가는데(§11-7), 섞이고 나면 어느 경기가 원래
+  // 내전이었는지 되돌릴 방법이 없다.
+  console.log("\n▸ 내전 (토너먼트 코드)");
+  // 픽스처는 fake-riot 의 빌더 하나만 쓴다. 손으로 만든 MatchDto 사본을 두면
+  // 타입이 바뀌어도 컴파일러가 그 사본은 못 잡는다 — 실제로 그랬다(`as never` 캐스팅).
+  // 나머지 8명(모르는 사람)은 빌더가 fillerPrefix/fillerNamePrefix 로 채운다.
+  const scrimDto = buildMatchDto({
+    matchId: "KR_3130001",
+    gameCreation: NOW - 2 * HOUR,
+    queueId: 3130,
+    tournamentCode: "KR050c3-aad2ff79",
+    gameType: "CUSTOM_GAME",
+    fillerPrefix: "scrim",
+    fillerNamePrefix: "모르는사람",
+    roster: [
+      { puuid: PUUID_A, teamId: 100, position: "MIDDLE", win: true, championId: 157 },
+      { puuid: PUUID_B, teamId: 200, position: "MIDDLE", win: false, championId: 238 },
+    ],
+  });
+
+  const scrimSaved = await ingest.saveMatch(scrimDto);
+  const scrimRow = await sql<{ source: string; tournament_code: string | null; queue_id: number }[]>`
+    SELECT source, tournament_code, queue_id FROM match WHERE match_id = 'KR_3130001'
+  `;
+  check("★ 내전은 source='tournament_code' 로 들어간다 (§11-7 — 공개 큐와 안 섞인다)",
+    scrimRow[0]?.source === "tournament_code", JSON.stringify(scrimRow[0]));
+  check("토너먼트 코드가 저장된다 (같은 코드 = 같은 내전 세션)",
+    scrimRow[0]?.tournament_code === "KR050c3-aad2ff79", scrimRow[0]?.tournament_code ?? "null");
+
+  const scrimEnc = await sql<{ source: string; is_lane_matchup: boolean }[]>`
+    SELECT source, is_lane_matchup FROM streamer_encounter WHERE match_id = 'KR_3130001'
+  `;
+  check("내전 조우도 source 로 갈린다",
+    scrimEnc.length === 1 && scrimEnc[0].source === "tournament_code", JSON.stringify(scrimEnc));
+  check("내전은 드래프트라 맞라인 판정이 선다 (queue 3130 이 협곡 목록에 있다)",
+    scrimEnc[0]?.is_lane_matchup === true, JSON.stringify(scrimEnc[0]));
+
+  const scrimCands = await sql<{ puuid: string; game_name: string | null; seen_with: string[] }[]>`
+    SELECT puuid, game_name, seen_with FROM account_candidate WHERE puuid LIKE 'scrim%'
+  `;
+  check("★ 내전의 모르는 참가자 8명이 승인 큐로 간다 (자동 등록은 안 한다)",
+    scrimCands.length === 8 && scrimSaved.candidates === 8,
+    `${scrimCands.length}건 / saveMatch=${scrimSaved.candidates}`);
+  check("사람이 알아볼 이름이 함께 남는다 (표시용 — 조인엔 안 쓴다)",
+    scrimCands.every((c) => c.game_name?.startsWith("모르는사람")),
+    JSON.stringify(scrimCands.slice(0, 2).map((c) => c.game_name)));
+  check("누구와 같이 있었는지가 근거로 남는다",
+    scrimCands.every((c) => c.seen_with.length === 2),
+    JSON.stringify(scrimCands[0]?.seen_with.length));
+
+  const stillPending = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM streamer_account WHERE puuid LIKE 'scrim%'
+  `;
+  check("★ 후보는 계정으로 자동 등록되지 않는다 (§11-2 — 근거 없는 매핑 금지)",
+    stillPending[0].n === 0, `${stillPending[0].n}건`);
 
   // ── 운영 기록 ──────────────────────────────────────────────────────
   console.log("\n▸ job_run");

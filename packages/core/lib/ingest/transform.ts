@@ -10,13 +10,20 @@ import { isLaneMatchup, resolvePosition, totalCs } from "../metrics/matchup.ts";
 import { parseMatchId } from "../riot/regions.ts";
 import {
   SUMMONERS_RIFT_QUEUES,
+  TOURNAMENT_QUEUES,
   type MatchDto,
   type MatchInfoDto,
   type ParticipantDto,
 } from "../riot/types.ts";
-import type { MatchSource } from "../db/types.ts";
 
 // ── match / match_participant ────────────────────────────────────────
+
+/**
+ * 경기의 출처. **공개 큐와 내전을 절대 섞지 않는다**(§11-7)의 축이 되는 타입이다.
+ * 정의가 여기(ingest) 있는 이유: 출처 판정(classifySource)이 이 파일 소관이고,
+ * db/types 에 두면 db ↔ ingest 타입 순환이 생긴다. db/types 가 재수출한다.
+ */
+export type MatchSource = "public_queue" | "tournament_code" | "manual";
 
 export interface MatchRow {
   match_id: string;
@@ -34,6 +41,8 @@ export interface MatchRow {
   winning_team: number | null;
   ended_in_surrender: boolean;
   source: MatchSource;
+  /** 토너먼트 코드. 같은 코드 = 같은 내전 세션. 공개 큐면 null. */
+  tournament_code: string | null;
 }
 
 export interface ParticipantRow {
@@ -84,7 +93,28 @@ export function durationSeconds(info: Pick<MatchInfoDto, "gameDuration" | "gameE
 const ms = (v: number | undefined | null): Date | null =>
   typeof v === "number" && v > 0 ? new Date(v) : null;
 
-export function toMatchRow(dto: MatchDto, source: MatchSource = "public_queue"): MatchRow {
+/**
+ * 이 경기가 내전인가. **응답을 보고 판정한다** — 호출부가 정하게 두지 않는다.
+ *
+ * 두 신호를 모두 본다:
+ *   · `tournamentCode` 가 있으면 무조건 내전이다 (큐 번호가 뭐든)
+ *   · queueId 3130 은 토너먼트 코드 협곡방이다
+ * 하나만 봐도 대부분 맞지만, 둘 다 보는 건 §11-7(공개 큐와 절대 안 섞는다)이
+ * **한쪽이 비어 오는 경우까지** 버텨야 하는 규칙이라서다. 잘못 섞이면
+ * 사후에 되돌리기 어렵다 — 어느 경기가 원래 내전이었는지 알 길이 없어진다.
+ */
+export function classifySource(info: MatchInfoDto): MatchSource {
+  if (typeof info.tournamentCode === "string" && info.tournamentCode.length > 0) {
+    return "tournament_code";
+  }
+  return TOURNAMENT_QUEUES.includes(info.queueId) ? "tournament_code" : "public_queue";
+}
+
+/**
+ * `source` 를 넘기지 않으면 응답을 보고 판정한다.
+ * 수기 데이터(`'manual'`)처럼 응답으로 알 수 없는 것만 호출부가 지정한다.
+ */
+export function toMatchRow(dto: MatchDto, source?: MatchSource): MatchRow {
   const info = dto.info;
   const matchId = dto.metadata.matchId;
   // platformId 가 비어 오는 경기가 있다 — matchId 앞부분이 곧 platformId 다.
@@ -105,7 +135,8 @@ export function toMatchRow(dto: MatchDto, source: MatchSource = "public_queue"):
     game_duration: durationSeconds(info),
     winning_team: info.teams?.find((t) => t.win)?.teamId ?? null,
     ended_in_surrender: (info.participants ?? []).some((p) => p.gameEndedInSurrender === true),
-    source,
+    source: source ?? classifySource(info),
+    tournament_code: info.tournamentCode || null,
   };
 }
 

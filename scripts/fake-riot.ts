@@ -21,6 +21,13 @@ export interface FakeMatch {
   roster: FakeParticipant[];
   /** true 면 상세 조회가 404 를 낸다 (2년 지나 삭제된 경기). */
   dead?: boolean;
+  /** 내전 픽스처용. 있으면 info.tournamentCode 로 들어간다. */
+  tournamentCode?: string;
+  /** 기본 MATCHED_GAME. 내전은 CUSTOM_GAME. */
+  gameType?: string;
+  /** 채움 참가자의 puuid 접두사(기본 'filler')·표시 이름 접두사. 내전 테스트가 구분에 쓴다. */
+  fillerPrefix?: string;
+  fillerNamePrefix?: string;
 }
 
 export interface FakeRiotOptions {
@@ -56,23 +63,34 @@ const json = (body: unknown, status = 200) =>
 const notFound = () => json({ status: { message: "Data not found", status_code: 404 } }, 404);
 
 /** 10인 정원을 채운다. 이름 없는 참가자는 그냥 일반인이다. */
-function fullRoster(m: FakeMatch): FakeParticipant[] {
-  const out = [...m.roster];
+function fullRoster(m: FakeMatch): (FakeParticipant & { fillerIndex?: number })[] {
+  const out: (FakeParticipant & { fillerIndex?: number })[] = [...m.roster];
   const positions = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
+  const prefix = m.fillerPrefix ?? "filler";
   let filler = 0;
   while (out.length < 10) {
     const teamId = out.filter((p) => p.teamId === 100).length < 5 ? 100 : 200;
     const used = new Set(out.filter((p) => p.teamId === teamId).map((p) => p.position));
     const position = positions.find((p) => !used.has(p)) ?? "MIDDLE";
     out.push({
-      puuid: `filler${String(filler++).padStart(2, "0")}${m.matchId}`.padEnd(78, "x"),
+      puuid: `${prefix}${String(filler).padStart(2, "0")}${m.matchId}`.padEnd(78, "x"),
       teamId,
       position,
       win: teamId === 100,
-      championId: 100 + filler,
+      championId: 100 + filler + 1,
+      fillerIndex: filler,
     });
+    filler++;
   }
   return out;
+}
+
+/**
+ * 픽스처 빌더. verify-ingest 가 내전 검증에서도 이걸 쓴다 —
+ * 손으로 만든 MatchDto 사본이 생기면 타입이 바뀌어도 컴파일러에 안 걸린다.
+ */
+export function buildMatchDto(m: FakeMatch) {
+  return matchDto(m);
 }
 
 function matchDto(m: FakeMatch) {
@@ -88,7 +106,8 @@ function matchDto(m: FakeMatch) {
       gameEndTimestamp: m.gameCreation + 30_000 + duration * 1000,
       gameDuration: duration,
       gameMode: m.queueId === 450 ? "ARAM" : "CLASSIC",
-      gameType: "MATCHED_GAME",
+      gameType: m.gameType ?? "MATCHED_GAME",
+      ...(m.tournamentCode ? { tournamentCode: m.tournamentCode } : {}),
       gameVersion: "16.3.512.1234",
       mapId: m.queueId === 450 ? 12 : 11,
       queueId: m.queueId,
@@ -98,6 +117,9 @@ function matchDto(m: FakeMatch) {
       ],
       participants: roster.map((p, i) => ({
         puuid: p.puuid,
+        ...(m.fillerNamePrefix != null && p.fillerIndex != null
+          ? { riotIdGameName: `${m.fillerNamePrefix}${p.fillerIndex}`, riotIdTagline: "KR1" }
+          : {}),
         participantId: i + 1,
         teamId: p.teamId,
         win: p.win,

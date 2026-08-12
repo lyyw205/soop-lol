@@ -63,6 +63,11 @@ export interface MatchInfoDto {
   mapId: number;
   queueId: number;
   endOfGameResult?: string;
+  /**
+   * 토너먼트 코드로 연 방에만 있다. 같은 코드로 만든 경기끼리 한 세션이다 —
+   * 우리 `series_id` 와 같은 뜻이라 내전을 회차로 묶는 유일한 단서다.
+   */
+  tournamentCode?: string;
   participants: ParticipantDto[];
   teams: TeamDto[];
 }
@@ -79,6 +84,13 @@ export interface ParticipantDto {
   participantId: number;
   teamId: number;
   win: boolean;
+
+  /**
+   * 경기 시점의 Riot ID. **표시용 힌트일 뿐이다** — 닉네임은 바뀌므로 조인에 쓰지 않는다(§11-1).
+   * 미매핑 참가자를 승인 큐에 올릴 때 사람이 알아볼 이름이 있으라고 들고 온다.
+   */
+  riotIdGameName?: string;
+  riotIdTagline?: string;
 
   /**
    * ★ 포지션은 Riot 의 **추론값**이다. 스왑 라인·특이 조합에서 틀린다.
@@ -159,6 +171,12 @@ export const QUEUE = {
   QUICKPLAY: 490,
   CLASH: 700,
   ARENA: 1700,
+  /**
+   * 토너먼트 코드로 연 협곡 5v5. **내전을 잡는 유일한 큐다.**
+   * 그냥 만든 사용자 설정 방(queue 0)은 match-v5 로 사후 조회가 안 된다 —
+   * 여기 잡히는 건 주최측이 토너먼트 코드를 쓴 경기뿐이다. docs/TOURNAMENT-CODE.md
+   */
+  TOURNAMENT_CODE: 3130,
 } as const;
 
 export const QUEUE_LABEL: Record<number, string> = {
@@ -171,10 +189,23 @@ export const QUEUE_LABEL: Record<number, string> = {
   490: "빠른 대전",
   700: "클래시",
   1700: "아레나",
+  3130: "내전(토너먼트 코드)",
 };
 
-/** 5v5 소환사의 협곡 큐만. 맞라인 분석이 의미 있는 범위. */
-export const SUMMONERS_RIFT_QUEUES: number[] = [400, 420, 430, 440, 490, 700];
+/**
+ * 5v5 소환사의 협곡 큐. **맞라인 분석이 의미 있는 범위**다.
+ *
+ * 3130(내전)이 여기 들어 있는 이유: 토너먼트 코드 방은 드래프트라 포지션이
+ * 제대로 나온다. 공개 큐와 섞이는 걱정은 여기서 하지 않는다 — 분리는
+ * `source`(§11-7)가 하고, 이 목록은 "포지션을 믿어도 되는가"만 답한다.
+ */
+export const SUMMONERS_RIFT_QUEUES: number[] = [400, 420, 430, 440, 490, 700, QUEUE.TOURNAMENT_CODE];
+
+/**
+ * 내전으로 취급하는 큐. 공개 큐 전적과 절대 섞지 않는다(§11-7).
+ * 큐 번호만으로 판정하지 않는다 — `info.tournamentCode` 가 있으면 그것도 내전이다.
+ */
+export const TOURNAMENT_QUEUES: number[] = [QUEUE.TOURNAMENT_CODE];
 
 export const POSITIONS = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] as const;
 export type Position = (typeof POSITIONS)[number];

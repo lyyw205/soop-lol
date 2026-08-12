@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { MatchDto, ParticipantDto } from "../riot/types.ts";
 import {
+  classifySource,
   deriveEncounters,
   durationSeconds,
   toMatchRow,
@@ -91,6 +92,41 @@ test("toMatchRow — platformId 가 비면 matchId 에서 복구한다", () => {
 test("toMatchRow — 항복 종료를 참가자에서 집계한다", () => {
   const row = toMatchRow(match({}, [participant({ puuid: "p1", gameEndedInSurrender: true })]));
   assert.equal(row.ended_in_surrender, true);
+});
+
+// ── 내전 판정 ─────────────────────────────────────────────────────────
+// §11-7: 공개 큐와 내전은 **절대** 섞이면 안 된다. 한 번 섞이면 어느 경기가
+// 원래 내전이었는지 되돌릴 방법이 없어서, 두 신호를 각각 못 박아 둔다.
+
+test("classifySource — queue 3130 은 내전이다", () => {
+  assert.equal(classifySource(match({ queueId: 3130 }).info), "tournament_code");
+});
+
+test("classifySource — tournamentCode 가 있으면 큐가 뭐든 내전이다", () => {
+  assert.equal(classifySource(match({ queueId: 0, tournamentCode: "KR050c3-aa" }).info), "tournament_code");
+});
+
+test("classifySource — 빈 tournamentCode 는 내전 근거가 아니다", () => {
+  assert.equal(classifySource(match({ queueId: 420, tournamentCode: "" }).info), "public_queue");
+});
+
+test("classifySource — 솔랭은 공개 큐다", () => {
+  assert.equal(classifySource(match().info), "public_queue");
+});
+
+test("toMatchRow — 내전이면 source 와 tournament_code 가 함께 들어간다", () => {
+  const row = toMatchRow(match({ queueId: 3130, tournamentCode: "KR050c3-aa" }));
+  assert.equal(row.source, "tournament_code");
+  assert.equal(row.tournament_code, "KR050c3-aa");
+});
+
+test("toMatchRow — 공개 큐는 tournament_code 가 null 이다", () => {
+  assert.equal(toMatchRow(match()).tournament_code, null);
+});
+
+test("toMatchRow — source 를 넘기면 판정보다 우선한다 (수기 데이터용)", () => {
+  const row = toMatchRow(match({ queueId: 3130 }), "manual");
+  assert.equal(row.source, "manual");
 });
 
 test("toParticipantRows — CS 는 미니언+정글몹 합이고 아이템은 7칸 고정", () => {

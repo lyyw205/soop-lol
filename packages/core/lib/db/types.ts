@@ -10,7 +10,8 @@ export type Platform = "soop" | "chzzk" | "youtube" | "twitch" | "other";
 export type Visibility = "public" | "hidden";
 export type StreamerStatus = "active" | "inactive" | "retired";
 export type Confidence = "verified" | "likely" | "unverified";
-export type MatchSource = "public_queue" | "tournament_code" | "manual";
+// MatchSource 의 정의는 ingest/transform.ts 에 있다(출처 판정의 소유자). 여기선 재수출만.
+export type { MatchSource } from "../ingest/transform.ts";
 
 export interface StreamerRow {
   id: string;

@@ -169,13 +169,18 @@ export interface SaveMatchResult {
   inserted: boolean;
   encounters: number;
   game_creation: Date;
+  /** 이 경기에서 새로 쌓인 미매핑 참가자 수. 내전이면 여기가 곧 '모르는 사람' 수다. */
+  candidates: number;
 }
 
 /**
  * 매치 하나를 적재하고 조우까지 파생한다. **한 트랜잭션**이다 —
  * 매치만 들어가고 참가자가 빠진 상태가 남으면 파생이 조용히 틀어진다.
+ *
+ * `source` 를 넘기지 않으면 응답을 보고 판정한다(`classifySource`).
+ * 수기 데이터처럼 응답으로 알 수 없는 것만 호출부가 지정한다.
  */
-export async function saveMatch(dto: MatchDto, source: MatchSource = "public_queue"): Promise<SaveMatchResult> {
+export async function saveMatch(dto: MatchDto, source?: MatchSource): Promise<SaveMatchResult> {
   const sql = db();
   const matchRow = toMatchRow(dto, source);
   const participantRows = toParticipantRows(dto);
@@ -192,9 +197,107 @@ export async function saveMatch(dto: MatchDto, source: MatchSource = "public_que
     }
     // 이미 있던 매치라도 파생은 다시 돈다 — 새 스트리머가 등록됐을 수 있다.
     const encounters = await writeEncounters(tx, matchRow, participantRows);
+    // ★ 후보는 **첫 적재 때만** 쌓는다. 백필이 이미 아는 매치를 다시 만나는 건
+    //   흔한 일인데(창 겹침·live 선점), 그때마다 seen_count 를 올리면 "몇 번 봤나"가
+    //   "몇 번 저장을 시도했나"로 변질되고 파생 멱등 약속도 깨진다.
+    const candidates = inserted.length > 0
+      ? await recordCandidatesFromMatch(tx, matchRow, participantRows, riotIdsOf(dto))
+      : 0;
 
-    return { inserted: inserted.length > 0, encounters, game_creation: matchRow.game_creation };
+    return {
+      inserted: inserted.length > 0,
+      encounters,
+      game_creation: matchRow.game_creation,
+      candidates,
+    };
   }) as Promise<SaveMatchResult>;
+}
+
+/**
+ * account_candidate 한 건 UPSERT. **후보를 쌓는 두 경로의 단일 출처다** —
+ * 스펙테이터(Engine B, recordAccountCandidates)와 매치 적재(recordCandidatesFromMatch).
+ * 한때 같은 SQL 이 두 곳에 글자 단위로 복붙돼 있었다. 한쪽만 고치면 조용히 어긋난다.
+ */
+async function upsertCandidate(
+  tx: Tx,
+  e: { puuid: string; game_name?: string | null; tag_line?: string | null; seen_with: string[] },
+): Promise<boolean> {
+  const rows = await tx`
+    INSERT INTO account_candidate (puuid, game_name, tag_line, seen_with)
+    VALUES (${e.puuid}, ${e.game_name ?? null}, ${e.tag_line ?? null}, ${e.seen_with}::uuid[])
+    ON CONFLICT (puuid) DO UPDATE SET
+      seen_count   = account_candidate.seen_count + 1,
+      last_seen_at = now(),
+      game_name    = coalesce(EXCLUDED.game_name, account_candidate.game_name),
+      tag_line     = coalesce(EXCLUDED.tag_line, account_candidate.tag_line),
+      seen_with    = (SELECT array_agg(DISTINCT x)
+                        FROM unnest(account_candidate.seen_with || EXCLUDED.seen_with) x)
+     WHERE account_candidate.state = 'pending'
+    RETURNING puuid
+  `;
+  return rows.length > 0;
+}
+
+/** 경기 시점의 Riot ID. 표시용 힌트다 — 조인에 쓰지 않는다(§11-1). */
+function riotIdsOf(dto: MatchDto): Map<string, { game_name: string | null; tag_line: string | null }> {
+  return new Map(
+    (dto.info.participants ?? [])
+      .filter((p) => p.puuid)
+      .map((p) => [p.puuid, { game_name: p.riotIdGameName || null, tag_line: p.riotIdTagline || null }]),
+  );
+}
+
+/**
+ * 같은 경기에 있던 **미매핑 참가자**를 후보로 쌓는다.
+ *
+ * ★ 왜 매치 적재 시점에 하나
+ *   지금까지 후보는 스펙테이터(Engine B 실시간)에서만 쌓였다. 그래서 **끝난 뒤에
+ *   수집한 경기**의 미등록 참가자는 그냥 버려졌다. 내전은 대부분 이 경로로 들어온다
+ *   (경기 중에 우리가 보고 있을 이유가 없다) — 정작 제일 중요한 데서 안 쌓이고 있었다.
+ *
+ * ★ **내전만** 쌓는다. 공개 큐는 쌓지 않는다
+ *   처음엔 "아는 스트리머가 2명 이상인 경기"로 넓게 잡았는데, verify:ingest 에서
+ *   솔랭 한 판이 후보를 8명 만들어냈다. 스트리머 400명 × 수백 판이면 승인 큐가
+ *   무작위 유저로 덮이고, 정작 봐야 할 내전 참가자가 그 아래 묻힌다.
+ *
+ *   내전 방은 다르다 — 아무나 못 들어간다. 거기 있는 10명은 **초대받은 사람들**이라
+ *   모르는 참가자도 스트리머일 가능성이 실제로 높다. 그래서 내전은 아는 사람이
+ *   한 명만 있어도 나머지 아홉을 전부 본다.
+ *
+ *   공개 큐의 미매핑 계정은 지금처럼 스펙테이터(Engine B)가 맡는다. 실시간으로
+ *   본 것만 쌓이므로 양이 저절로 제한된다.
+ *
+ * 자동 등록은 여기서도 하지 않는다(§11-2). 후보는 승인 큐로만 간다.
+ */
+async function recordCandidatesFromMatch(
+  tx: Tx,
+  match: Pick<MatchRow, "queue_id" | "source">,
+  participants: ParticipantRow[],
+  riotIds: Map<string, { game_name: string | null; tag_line: string | null }>,
+): Promise<number> {
+  if (match.source !== "tournament_code") return 0;
+
+  const owners = await ownerMap(tx, participants.map((p) => p.puuid));
+  const knownStreamerIds = [...new Set(owners.values())];
+  // 아는 사람이 하나도 없는 방은 우리 관심사가 아니다 — 근거 없이 명단만 부풀린다.
+  if (knownStreamerIds.length === 0) return 0;
+
+  const unmapped = participants.filter((p) => p.puuid && !owners.has(p.puuid));
+  if (unmapped.length === 0) return 0;
+
+  let n = 0;
+  for (const p of unmapped) {
+    // game_name/tag_line 은 매치 응답에 있지만 **낡았을 수 있다**(닉네임은 바뀐다).
+    // 여기선 그대로 넣고, 식별 잡이 account-v1 으로 현재 값을 다시 푼다.
+    const id = riotIds.get(p.puuid);
+    if (await upsertCandidate(tx, {
+      puuid: p.puuid,
+      game_name: id?.game_name ?? null,
+      tag_line: id?.tag_line ?? null,
+      seen_with: knownStreamerIds,
+    })) n++;
+  }
+  return n;
 }
 
 /**
@@ -468,20 +571,7 @@ export async function recordAccountCandidates(
   let n = 0;
   await sql.begin(async (tx) => {
     for (const e of clean) {
-      const rows = await tx`
-        INSERT INTO account_candidate (puuid, game_name, tag_line, seen_with)
-        VALUES (${e.puuid}, ${e.game_name ?? null}, ${e.tag_line ?? null}, ${e.seen_with}::uuid[])
-        ON CONFLICT (puuid) DO UPDATE SET
-          seen_count   = account_candidate.seen_count + 1,
-          last_seen_at = now(),
-          game_name    = coalesce(EXCLUDED.game_name, account_candidate.game_name),
-          tag_line     = coalesce(EXCLUDED.tag_line, account_candidate.tag_line),
-          seen_with    = (SELECT array_agg(DISTINCT x)
-                            FROM unnest(account_candidate.seen_with || EXCLUDED.seen_with) x)
-         WHERE account_candidate.state = 'pending'
-        RETURNING puuid
-      `;
-      n += rows.length;
+      if (await upsertCandidate(tx, e)) n++;
     }
   });
   return n;
