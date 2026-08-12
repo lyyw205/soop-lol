@@ -38,9 +38,10 @@ import {
   fetchAllSeries, fetchPersonLinks, fetchPlacements, fetchRosters, namuUrl, normTeam,
 } from "./lib/namu.mjs";
 import { POSITION, ROMAN, SEASONS } from "./meljang-seasons.mjs";
+import { fetchFaList } from "./lib/soop-fa.mjs";
+import { soopFetch } from "./lib/soop-http.mjs";
 
 const FA_PAGE = "https://bjmatchfa.sooplive.com/fa/27";
-const FA_API = "https://gpapi.sooplive.com/api/v1/bjmatchfa/fa/list";
 const SOOP_SEARCH = "https://sch.sooplive.co.kr/api.php";
 const VODS = "https://ch.sooplive.co.kr/lolbjmatch/vods";
 
@@ -445,7 +446,7 @@ async function search(q) {
   const url =
     `${SOOP_SEARCH}?m=bjSearch&v=3.0&szOrder=&szKeyword=${encodeURIComponent(q)}&nPageNo=1&nListCnt=20`;
   try {
-    const r = await fetch(url, { headers: { Referer: "https://www.sooplive.co.kr/" } });
+    const r = await soopFetch(url, { headers: { Referer: "https://www.sooplive.co.kr/" } });
     if (!r.ok) return [];
     return (await r.json())?.DATA ?? [];
   } catch {
@@ -474,15 +475,15 @@ async function soopChannelId(nick) {
   return null;
 }
 
-const faRes = await fetch(FA_API, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    orderType: "point_desc", filter: [], searchBjNick: "", minPoint: 0, maxPoint: 1000,
-    positionIdx: "", pageNo: 1, perPageNo: 500, seasonIdx: 27,
-  }),
-});
-const faList = (await faRes.json()).data.faList;
+// FA 호출은 lib/soop-fa 가 단일 출처다 — 여기만 perPageNo 500 으로 남아
+// 501번째 등록자부터 잘려 나가고 있었다(적대 리뷰에서 발견).
+const faList = await fetchFaList(27);
+// ★ 0건이면 멈춘다. 예전 코드는 응답 형태가 바뀌면 TypeError 로 죽어서 **아무 파일도
+//   안 만들었는데**, lib 이 `?? []` 로 삼키게 되면서 그 안전망이 사라졌다.
+//   그대로 두면 참가자 전원이 '근거 없음'으로 드롭된 채 시드 파일이 만들어진다 —
+//   조용히 적게 가져오는 게 실패보다 나쁘다는 규칙에 정면으로 어긋난다.
+//   같은 API 를 쓰는 build-soop-fa·identify-candidates 에는 이미 이 가드가 있다.
+if (faList.length === 0) fail(["FA 명단이 0건이다 (API 형태 변경 의심). 시드를 만들지 않는다."]);
 const fa = new Map(faList.map((f) => [f.userId, f]));
 
 const sql = db();
@@ -559,7 +560,6 @@ for (const [team, members] of Object.entries(season.teams)) {
     }
 
     const found = await soopChannelId(nick);
-    await new Promise((s) => setTimeout(s, 250));
     if (!found) { dropped.push(`${team} ${nick} — SOOP 검색에서 단일 해석 실패`); continue; }
     const channelId = found.id;
     if (found.via === "deco") {

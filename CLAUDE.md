@@ -13,7 +13,8 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 - **[docs/SETUP.md](docs/SETUP.md)** — 셋업·검증. 지금 뭐가 막혀 있는지도 여기 있다
 - **[docs/PLAN.md](docs/PLAN.md)** — 설계 전문. 도메인 모델·수집 파이프라인·지표 정의·화면·스택·로드맵
 - **[docs/RESEARCH.md](docs/RESEARCH.md)** — 경쟁 지형·데이터 소스·Riot API 제약·법적 체크리스트
-- **[docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md)** — 내전 데이터를 잡는 유일한 경로 (2단계)
+- **[docs/CK-COLLECTION.md](docs/CK-COLLECTION.md)** — 내전 수집. 두 경로(토너먼트 코드·방송 VOD)의 실측 결과와 한계
+- **[docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md)** — 토너먼트 코드 자체의 구조
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — 식별자 분류·모듈 계약·core_public 경계
 - **[db/migrations/](db/migrations/)** — 스키마의 유일한 출처. 설계 결정이 주석으로 박혀 있다
 

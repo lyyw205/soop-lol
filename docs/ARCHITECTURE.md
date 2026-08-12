@@ -47,7 +47,10 @@ streamer 1 ─── N streamer_account   (본계 + 부계, 근거·신뢰도 �
 ```
 db/migrations/          스키마의 유일한 출처. 스냅샷 파일은 두지 않는다
 packages/core/
-  lib/db/               core 테이블의 유일한 쓰기 주체
+  lib/db/               core 테이블의 유일한 쓰기 주체 (웹·워커·모듈 기준.
+                        운영 스크립트의 raw SQL 은 관행상 허용하되, **부작용이 계약인
+                        쓰기**(linkAccount 의 ingest_cursor 등록 같은)는 반드시 접근자를
+                        경유한다 — 우회했다가 백필 큐 누락 사고가 실제로 났다)
   lib/riot/             Riot 게이트웨이 (레이트리밋·재시도·404)
   lib/metrics/          지표 계산 — 웹·워커·모듈이 같은 함수를 쓴다
   lib/ingest/           Riot 응답 → 행 변환 (순수)

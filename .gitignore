@@ -21,3 +21,8 @@ seed/tournaments*.json
 
 # Claude Code 개인 설정 — 세션 한도 같은 건 사람마다 다르다. 공유하지 않는다.
 .claude/settings.local.json
+
+# ★ VOD 에서 뽑은 프레임은 커밋하지 않는다 — 저장소가 공개다.
+#   남의 방송 화면이고 얼굴캠까지 들어 있다. 판독 결과(누가 누구와 붙었나)만 DB 에 남긴다.
+#   근거는 manifest 의 vod_url 로 되짚는다. docs/CK-COLLECTION.md
+out/

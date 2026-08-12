@@ -26,6 +26,7 @@ import { setNamuPage } from "@soop-lol/core/lib/db/streamers";
 
 import { fetchPersonLinks, fetchRosters } from "./lib/namu.mjs";
 import { SEASONS } from "./meljang-seasons.mjs";
+import { soopFetch } from "./lib/soop-http.mjs";
 
 const dryRun = process.argv.includes("--dry-run");
 const SEARCH = "https://sch.sooplive.co.kr/api.php";
@@ -36,7 +37,7 @@ const stripDeco = (s: string) =>
 async function search(q: string): Promise<{ user_id: string; user_nick: string }[]> {
   const url = `${SEARCH}?m=bjSearch&v=3.0&szOrder=&szKeyword=${encodeURIComponent(q)}&nPageNo=1&nListCnt=20`;
   try {
-    const r = await fetch(url, { headers: { Referer: "https://www.sooplive.co.kr/" } });
+    const r = await soopFetch(url, { headers: { Referer: "https://www.sooplive.co.kr/" } });
     if (!r.ok) return [];
     return ((await r.json()) as { DATA?: { user_id: string; user_nick: string }[] })?.DATA ?? [];
   } catch {
@@ -88,7 +89,6 @@ try {
       if (already.has(page)) { skipped++; continue; }
 
       const ch = await channelId(nick);
-      await new Promise((s) => setTimeout(s, 250));
       if (!ch) continue;
       const target = slugByChannel.get(ch);
       if (!target) continue;

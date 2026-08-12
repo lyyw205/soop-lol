@@ -1,0 +1,16 @@
+{
+  "savedAt": "2026-08-11T16:40:44.926Z",
+  "project": "soop-lol",
+  "scoreboard": {
+    "moduleCycles": 1,
+    "fileCycles": 0,
+    "filesInCycle": 0,
+    "backflow": 0,
+    "unclassified": 0,
+    "leaky": 3,
+    "painful": 0,
+    "god": 4,
+    "orphans": 28
+  },
+  "score": 69
+}

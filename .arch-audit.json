@@ -1,0 +1,29 @@
+{
+  "declared": true,
+  "//": "의도는 docs/ARCHITECTURE.md §2·§3 에서 옮겼다. 위가 아래를 쓰면 정상, 아래가 위를 쓰면 역행.",
+  "//모듈규칙": "모듈은 core/lib/contract 만 import 할 수 있다 — 이 선형 계층으로는 못 적는 규칙이라 verify:modules 가 따로 강제한다.",
+  "layers": [
+    { "name": "진입점", "match": ["apps/web/**", "apps/worker/**", "scripts/**"] },
+    { "name": "모듈", "match": ["packages/modules/**"] },
+    { "name": "계약", "match": ["packages/core/lib/contract/**"] },
+    { "name": "코어", "match": ["packages/core/**"] }
+  ],
+  "allow": [],
+  "ignore": [
+    "**/*.test.*",
+    "db/migrations/**",
+    "seed/**",
+    "docs/**",
+    "out/**",
+    "**/registry.generated.ts",
+    "apps/web/.next/**"
+  ],
+  "budget": { "moduleCycles": 0, "fileCycles": 0, "backflow": 0, "leaky": 3, "god": 5 },
+  "scenarios": [
+    "새 수집 경로 추가 (예: 다른 플랫폼 VOD)",
+    "SOOP API 형태 변경 (호스트·응답 스키마가 바뀜)",
+    "event_lead 를 admin 화면에 노출",
+    "새 지표 추가 (예: 내전 승률)",
+    "모듈 하나 떼서 삭제"
+  ]
+}

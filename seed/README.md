@@ -28,6 +28,45 @@ curl -s -X POST https://gpapi.sooplive.com/api/v1/bjmatchfa/fa/list \
 - 응답의 `gameNick` / `totalGameNickList` 가 라이엇 ID. 부계정까지 들어 있다
 - `userId` 가 SOOP 채널 아이디, `userNick` 이 표시명
 - **2026-08-09 기준 418명**이 등록돼 있다. 명단 확장의 1차 소스다
+- ⚠️ **열려 있는 건 현재 시즌뿐이다.** `seasonIdx` 를 26 이하로 내리면 빈 응답이 온다 —
+  과거 회차 FA 는 못 받는다 (2026-08-11 확인)
+
+이걸 스크립트로 묶어 뒀다. **인지도(애청자 수) 순으로 정렬된 시드 파일**을 만든다:
+
+```bash
+npm run seed:soop-fa                      # seed/streamers-soop-fa-27.json
+npm run seed:soop-fa -- --min-fan 20000   # 애청자 2만 이상만
+npm run seed -- seed/streamers-soop-fa-27.json --dry-run
+```
+
+이미 등록된 사람은 빼고 쓴다(`--all` 로 포함). 2026-08-11 에 이걸로 **325명을 추가**해
+스트리머 93 → 418명, 라이엇 계정 104 → 485건이 됐다.
+
+### 인지도 순서 — SOOP 방송국 API 의 `fan_cnt`
+
+```bash
+curl -s 'https://chapi.sooplive.co.kr/api/<채널아이디>/station' \
+  -H 'User-Agent: Mozilla/5.0'          # ★ UA 없으면 404 가 온다
+```
+
+`station.upd.fan_cnt` 가 **애청자 수**다. SOOP 이 직접 세는 숫자라 우리가 만든 점수가 아니다.
+
+FA 의 `bjmatchPoint` 는 쓰지 않는다 — 그건 대회 밸런스용 **체급(실력)** 점수이고
+인지도가 아니다. 정렬에 쓰면 뜻이 어긋난다.
+
+2026-08-11 분포(FA 418명): 50만+ 6명 · 20만~50만 9명 · 10만~20만 26명 ·
+5만~10만 23명 · 2만~5만 43명 · 5천~2만 56명 · 5천 미만 254명.
+
+### FA 밖의 사람을 찾으려면 — LoL 카테고리 실시간 목록
+
+```
+https://sch.sooplive.co.kr/api.php?m=categoryContentsList&v=1.0
+  &szCateNo=00040019&nPageNo=1&nListCnt=60&szOrder=view_cnt
+```
+
+`00040019` = 리그 오브 레전드. **지금 롤 방송 중인 사람 전원**을 시청자순으로 준다
+(`user_id` = 채널 아이디). 주기적으로 스냅샷을 쌓으면 발견과 인지도 측정이 같이 된다.
+라이엇 ID 는 안 주므로, 계정은 FA 에 있을 때만 붙는다.
 
 ### SOOP 닉네임 → 채널 아이디
 
@@ -92,7 +131,7 @@ VOD 제목은 대진만 주고 승패를 안 준다. 대신 **진출 경로가 �
 UB 1R 의 승자만 UB 2R 에 나타나고 패자는 LB 1R 로 떨어진다.
 이미 2패한 팀이 다시 나오거나 승자가 대진에 없으면 거기서 멈춘다.
 
-**GSL 조별 + 4강 + 결승** (`scripts/build-meljang-2026-s1.mjs` — 2026 시즌1):
+**GSL 조별 + 4강 + 결승** (`scripts/build-meljang.mjs` 의 GSL 유도 — 2026 시즌1):
 ```
 승자전 = 1경기 승자 vs 2경기 승자        → 1·2경기 승자가 정해진다
 패자전 = 1경기 패자 vs 2경기 패자        → 위와 어긋나면 대진 복원이 틀린 것 (검사)
@@ -197,6 +236,29 @@ npm run link:namu -- --dry-run # 뭐가 붙을지만 본다
    - `likely` — 정황은 강하지만 본인 확인은 없다
    - `unverified` — 제보만 있다
    이 값은 화면에 그대로 노출된다. 애매한 걸 `verified` 로 올리지 않는다.
+
+## 내전에서 만난 모르는 사람 — 승인 큐
+
+내전(토너먼트 코드, `queue 3130`)을 수집하면 참가자 10명 중 **우리가 모르는 사람**이
+`account_candidate` 에 쌓인다. 공개 큐는 쌓지 않는다 — 솔랭 한 판이 후보 8명을 만들어서
+승인 큐가 무작위 유저로 덮이기 때문이다(`packages/core/lib/db/ingest.ts` 주석 참조).
+
+```bash
+npm run candidates:identify              # 확인만 (기본값)
+npm run candidates:identify -- --apply   # 실제로 등록
+```
+
+후보 puuid → 현재 라이엇 ID(account-v1) → **FA 명단과 puuid 로 대조**한다.
+이름이 비슷한 걸로는 절대 붙이지 않는다 — 이름 일치는 후보군을 좁히는 데만 쓰고,
+최종 판정은 언제나 puuid 다(§11-1).
+
+⚠️ **FA 대조의 수확은 이제 거의 없다.** 2026-08-11 에 FA 418명을 전부 등록했으므로,
+FA 에 있는 사람은 애초에 후보가 되지 않는다. 이 잡이 잡는 건 **그 뒤에 새로 FA 에
+등록한 사람**뿐이다. FA 밖의 사람(다른 플랫폼·해외 스트리머·일반인)은 여기서 안 풀린다 —
+`/admin/candidates` 에서 사람이 보고 근거를 달아 연결한다.
+
+실제로 첫 실행(후보 28명)에서 **FA 일치 0명**이었다. 남은 28명은 `Anhuanhuan#huya`,
+`Sanling#FPX` 같은 해외 계정과 FA 미등록 SOOP 스트리머가 섞여 있다.
 
 ## 적재된 회차 — 25회차 · 473경기 · 776세트
 
