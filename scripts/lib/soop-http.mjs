@@ -46,7 +46,7 @@ const TIMEOUT_MS = Number.isFinite(rawTimeout) && rawTimeout >= 1000 ? rawTimeou
  *
  *   api-channel — 게시판. 30회에 막혔다. 채널당 1회씩만 치는데도 넉넉히 벌린다
  *   gpapi       — FA 명단. 하루 몇 번 안 부른다
- *   sch         — 전역 검색. --discover 때만, 페이지를 여러 장 넘긴다
+ *   sch         — 방송국 검색(이름으로 채널 찾기). link:namu · seed:meljang · 미등록자 조회에 쓴다
  *   chapi       — 채널 VOD 목록·댓글·방송국. 제일 많이 부르는 곳
  *   api.m       — VOD 상세(POST)
  *   videoimg    — 시트·채팅. 한 VOD 에 100회 이상. 가장 관대했지만 그래도 쉰다

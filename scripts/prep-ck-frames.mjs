@@ -8,8 +8,8 @@
  *
  * ★ 발견을 다시 하지 않는다 — event_lead 가 대상 목록이다
  *   한동안 이 스크립트가 418채널을 자체 순회해 VOD 를 재발견했다. 그러면 1단계가
- *   모은 신청글·!공지 단서가 대표 선정에 반영되지 않고, --discover 로 잡힌 미등록
- *   채널 내전은 여기서 영영 안 보였다(감사에서 발견). 지금은 **ck:collect 가 먼저**고,
+ *   모은 신청글·!공지 단서가 대표 선정에 반영되지 않았다(감사에서 발견).
+ *   지금은 **ck:collect 가 먼저**고,
  *   그날 lead 가 없으면 여기서 멈추고 그렇게 말한다 — 조용한 전체 재발견 폴백은 없다.
  *
  * 아침에 CLI 에서 `out/ck/<날짜>/` 를 열어 프레임을 판독하고,
@@ -90,8 +90,8 @@ try {
     SELECT channel_id, streamer_id, title, observed_at, raw
       FROM event_lead
      WHERE source = 'vod_title'
-       AND kind = 'scrim'   -- --discover 가 심는 비-롤 lead(kind='unknown')는 여기 볼 일이 없다.
-                            -- 미등록 채널의 진짜 내전은 롤 카테고리라 'scrim' 으로 들어온다.
+       AND kind = 'scrim'   -- ck:collect 가 화면으로 판정해 넣은 것만. 롤 경기가 실제로
+                            -- 잡힌 VOD 라야 'scrim' 이 된다.
        AND (observed_at AT TIME ZONE 'Asia/Seoul')::date = ${DATE}::date`;
   console.log(`${DATE} 치 준비 — event_lead 에서 내전 VOD ${leads.length}건\n`);
   if (leads.length === 0) {

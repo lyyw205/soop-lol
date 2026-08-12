@@ -57,66 +57,12 @@ export async function fanCount(channelId) {
 
 // ── VOD 찾기 ─────────────────────────────────────────────────────────
 
-/**
- * **전역** VOD 검색. 채널을 순회하지 않고 SOOP 전체를 한 번에 훑는다.
- * 우리가 등록하지 않은 채널의 내전까지 잡히므로 **로스터 확장 경로이기도 하다.**
- *
- * 날짜 필터가 없다. 최신순으로 받다가 목표일을 지나면 그 검색어를 멈춘다.
- * 검색어 하나로는 못 잡는다 — 사람마다 부르는 이름이 다르다.
- */
-export async function searchVods(date, { keywords = ["ck", "내전", "멸망전", "스크림"], maxPages = 40 } = {}) {
-  const found = new Map();
-  // ★ 목표일에 **닿지 못하고** 페이지 상한에서 멈춘 검색어. 조용히 넘기면 안 된다.
-  //   실측: maxPages=8 로는 이틀 전까지 못 갔고, 그래서 이상호 시그니처ck 가
-  //   통째로 빠졌는데 결과는 "80건 찾음" 이라 정상처럼 보였다.
-  const truncated = [];
-  for (const kw of keywords) {
-    let reached = false;
-    for (let page = 1; page <= maxPages; page++) {
-      const url = "https://sch.sooplive.co.kr/api.php?m=vodSearch&v=3.0"
-        + `&szKeyword=${encodeURIComponent(kw)}&nPageNo=${page}&nListCnt=60&szOrder=reg_date`;
-      // ★ 실패를 빈 배열로 삼키면 **그 페이지가 조용히 사라진다.**
-      //   실측: 같은 날짜를 두 번 돌렸는데 한 번은 채널 4개, 한 번은 1개가 나왔다.
-      //   원인이 이것이었다 — 페이지 하나가 빠지면 그만큼 결과가 줄어드는데
-      //   로그는 정상으로 보인다. 한 번 다시 치고, 그래도 안 되면 기록한다.
-      let rows = null;
-      for (let attempt = 0; attempt < 2 && rows === null; attempt++) {
-        if (attempt > 0) await new Promise((s) => setTimeout(s, 1500));
-        rows = await soopFetch(url, { headers: UA })
-          .then((r) => (r.ok ? r.json() : null)).then((d) => d?.DATA ?? null).catch(() => null);
-      }
-      if (rows === null) { truncated.push(`${kw}(p${page} 실패)`); break; }
-      if (rows.length === 0) break;
-      let passed = false;
-      for (const r of rows) {
-        const day = String(r.reg_date ?? "").slice(0, 10);
-        if (day > date) continue;                       // 아직 목표일에 못 왔다
-        if (day < date) { passed = true; continue; }    // 지나쳤다
-        // 본방만. CATCH·CLIP 은 편집본이라 경기 전체가 없다.
-        if (r.file_type !== "REVIEW") continue;
-        if (!CK_TITLE.test(String(r.title ?? ""))) continue;
-        // ★ vodSearch 는 title_no 를 **문자열**로, vods/all 은 **숫자**로 준다.
-        //   섞이면 Set·Map 비교가 조용히 전부 어긋난다(실측: 같은 VOD 15건이
-        //   '겹치는 것 0건' 으로 나왔다). 경계에서 숫자로 못 박는다.
-        found.set(Number(r.title_no), {
-          title_no: Number(r.title_no),
-          channel_id: String(r.user_id),
-          title: String(r.title ?? ""),
-          at: String(r.reg_date),
-          category: String(r.vod_category ?? ""),
-          views: Number(r.vod_view_cnt ?? 0),
-        });
-      }
-      if (passed) { reached = true; break; }
-      if (page === maxPages) truncated.push(kw);
-    }
-    // 결과가 동나서 끝난 것도 '도달' 로 본다 — 그 검색어엔 더 없다는 뜻이다.
-    if (!reached && !truncated.includes(kw)) reached = true;
-  }
-  const vods = [...found.values()];
-  vods.truncated = truncated;
-  return vods;
-}
+// ★ `searchVods`(SOOP 전역 검색)를 없앴다.
+//   제목에 ck 가 든 VOD 를 SOOP 전체에서 긁어 오던 경로인데 **93% 가 잡음**이었고,
+//   그렇게 쌓인 단서 504건 중 대회로 확정된 것은 0건이었다. 무엇보다 이제는
+//   제목이 아니라 **화면**으로 판정하므로(listBroadcasts + scanSheets),
+//   전역에 같은 걸 하려면 SOOP 전체를 시트로 훑어야 해서 비용이 성립하지 않는다.
+//   와치리스트 밖 스트리머는 경기 결과 화면에서 읽은 이름으로 발견해 등록한다.
 
 /**
  * 채널의 롤 **본방**(REVIEW) VOD. 클립은 뺀다 — 편집본이라 경기 전체가 없다.

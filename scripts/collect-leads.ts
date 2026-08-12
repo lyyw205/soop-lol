@@ -6,7 +6,6 @@
  *   npm run ck:collect                          # 어제
  *   npm run ck:collect -- --date 2026-08-09
  *   npm run ck:collect -- --dry-run             # 무엇이 쌓일지만 본다
- *   npm run ck:collect -- --discover            # 전역 검색으로 새 채널까지 (주 1회면 충분)
  *
  * ★ 왜 매일 돌아야 하나
  *   참가 신청 게시글은 지워지고, 방송 채팅은 VOD 가 사라지면 같이 사라진다.
@@ -33,7 +32,9 @@
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 
 import { BoardBlocked, comments, posts } from "./lib/soop-board.mjs";
-import { LOL_CATEGORY, findVods, noticesFrom, playableFiles, searchVods, vodDetail } from "./lib/soop-vod.mjs";
+import {
+  LOL_CATEGORY, detect, listBroadcasts, noticesFrom, playableFiles, scanSheets, vodDetail,
+} from "./lib/soop-vod.mjs";
 import { soopPace } from "./lib/soop-http.mjs";
 import { kstDate, makeOpt } from "./lib/cli.mjs";
 
@@ -61,9 +62,15 @@ const CHAT_BUDGET = Number(opt("--chat-budget", "20"));
  *   → 매일 할 일이 아니다. 다만 미등록 채널 303개를 찾아준 건 전역이라
  *     **로스터 확장용으로 가끔** 돌린다. 주 1회면 충분하다.
  */
-const DISCOVER = argv.includes("--discover");
 
 /** 게시판 검색어. **여기를 늘리면 그만큼 차단에 가까워진다** — 채널당 호출 수다. */
+/** 시트 훑기를 건너뛴다 — 제목만으로 빠르게 돌려 볼 때. 평소엔 쓰지 않는다. */
+const NO_SCAN = process.argv.includes("--no-scan");
+/**
+ * 하룻밤에 훑을 시간 상한. 넘으면 남은 VOD 는 건너뛰고 그렇게 말한다.
+ * 실측 6.1초·11.4MB/시간이라 400시간이면 41분·4.6GB 다.
+ */
+const SCAN_BUDGET_H = Number(opt("--scan-budget", "400"));
 const KEYWORD_BOARD = String(opt("--board-keywords", "ck")).split(",").map((x) => x.trim()).filter(Boolean);
 /**
  * 신청 댓글로 읽을 패턴. 포지션이나 명시적 신청어가 있어야 한다.
@@ -97,35 +104,75 @@ try {
   );
   console.log(`등록 채널 ${known.size}개 · 그중 매일 훑을 대상 ${[...known.values()].filter((k) => k.watch).length}명`);
 
-  // ── 1. 그날 내전을 찾는다 — **와치리스트 채널을 직접 본다** ──────
-  //   전역 검색이 아니라 채널별 조회다. 이유는 DISCOVER 주석에 실측으로 적었다.
+  // ── 1. 그날 롤 본방을 **전부** 가져와, 시트로 훑어 경기가 있는 것만 남긴다 ──
+  //
+  // ★ 제목 필터를 버렸다. 회수율이 10% 였다
+  //   이상호 2026-08 실측: 롤 경기가 실제로 잡힌 방송 10건 중 제목에 ck·내전이
+  //   들어간 건 **1건**뿐이었다. `!공지` 4건이 붙은 다전제가 "이상호 피파" 라는
+  //   제목 아래 있었다. 제목으로 거르면 그런 게 통째로 사라진다.
+  //
+  // ★ 카테고리도 양방향으로 못 믿는다
+  //   "덕몽어스 출격합니다" 가 롤 화면 84%, "좋은아침 신길동요리왕" 이 1% 였다.
+  //   그래서 카테고리로 **후보만** 좁히고, 판정은 시트가 한다.
+  //
+  // ★ 그래도 event_lead 에는 **경기가 잡힌 것만** 넣는다
+  //   전부 넣으면 채널당 하루 열 건씩 쌓이는데 대부분 롤이 아니다. 단서 표에
+  //   쓰레기가 차면 정작 볼 것을 못 본다 — 실제로 그렇게 524건이 쌓여 있었다.
   const watchList = [...known.entries()].filter(([, v]) => v.watch).map(([ch]) => ch);
   const vods: Vod[] = [];
+  const evidence = new Map<number, { ratio: number; games: number; notices: number; ends: unknown[] }>();
   let truncatedChannels = 0;
+  let scannedHours = 0, skippedNoGame = 0;
+
   for (const ch of watchList) {
-    const list = (await findVods(ch, { since: DATE })) as ChannelVod[] & { truncated?: boolean };
+    const list = (await listBroadcasts(ch, { from: DATE, to: DATE, category: Number(LOL_CATEGORY) })) as
+      Awaited<ReturnType<typeof listBroadcasts>> & { truncated?: boolean };
     if (list.truncated) truncatedChannels++;
     for (const v of list) {
       if (v.ended_at.slice(0, 10) !== DATE) continue;
-      // findVods 는 롤 카테고리(40019)만 돌려주므로 category 를 채워 준다.
-      vods.push({ ...v, at: v.ended_at, category: LOL_CATEGORY });
+      const cand: Vod = { ...v, at: v.ended_at, category: LOL_CATEGORY, views: v.views };
+      if (NO_SCAN) { vods.push(cand); continue; }
+      if (scannedHours >= SCAN_BUDGET_H) { skippedNoGame++; continue; }
+
+      // 시트로 훑는다 — 시간당 6.1초·11.4MB. 프레임은 여기서 받지 않는다.
+      let ratio = 0, games = 0, notices = 0;
+      const ends: unknown[] = [];
+      try {
+        for (const file of playableFiles(await vodDetail(v.title_no))) {
+          const sheet = await scanSheets(file);
+          scannedHours += file.duration / 3_600_000;
+          if (sheet.frames.length === 0) continue;
+          const d = detect(sheet.frames, sheet.sec);
+          ratio = Math.max(ratio, d.gameRatio);
+          games += d.games.length;
+          // ★ 채팅은 경기가 잡힌 파일에서만 본다. 롤이 아닌 방송까지 훑으면 비용이 두 배다.
+          if (d.games.length > 0 && file.chat) {
+            const n = await noticesFrom(file);
+            notices += n.ends.length;
+            ends.push(...n.ends);
+          }
+        }
+      } catch { /* 한 VOD 실패가 그날 수집을 죽이지 않는다 */ }
+
+      if (games === 0 && notices === 0) { skippedNoGame++; continue; }
+      evidence.set(v.title_no, { ratio, games, notices, ends });
+      vods.push(cand);
     }
   }
-  console.log(`\n▸ 와치리스트 ${watchList.length}명 조회 → 내전 VOD ${vods.length}건`
-    + ` · 채널 ${new Set(vods.map((v) => v.channel_id)).size}개`);
+  console.log(`\n▸ 와치리스트 ${watchList.length}명 → 롤 본방을 시트로 훑음`
+    + ` (${scannedHours.toFixed(0)}시간)`);
+  console.log(`   경기가 잡힌 VOD ${vods.length}건 · 경기 없어 버린 것 ${skippedNoGame}건`);
   if (truncatedChannels > 0) {
-    // 페이지 상한에 닿아 목표일까지 못 내려간 채널. **빠진 게 있다는 뜻이다.**
     console.log(`   ⚠ ${truncatedChannels}개 채널이 페이지 상한에서 멈췄다 — 그만큼 빠졌다`);
   }
 
-  // 새 채널 발견은 별개 작업이다. --discover 일 때만 전역을 훑는다.
-  if (DISCOVER) {
-    const g = (await searchVods(DATE)) as Vod[] & { truncated?: string[] };
-    const fresh = g.filter((v) => !known.has(v.channel_id));
-    console.log(`   [발견] 전역 ${g.length}건 · 미등록 채널 ${new Set(fresh.map((v) => v.channel_id)).size}개`);
-    if (g.truncated?.length) console.log(`   ⚠ 전역 검색 '${g.truncated.join("', '")}' 가 상한에서 멈췄다`);
-    for (const v of g) if (!vods.some((x) => x.title_no === v.title_no)) vods.push(v);
-  }
+  // ★ 전역 검색(--discover)은 없앴다.
+  //   SOOP 전체를 훑어 제목에 ck 가 든 VOD 를 긁어 오던 경로인데, **93% 가 잡음**이었다.
+  //   실측: 그렇게 쌓인 단서 504건 중 대회로 확정된 것은 **0건**이다.
+  //   지금은 제목이 아니라 화면으로 판정하므로 전역에 같은 걸 하려면 SOOP 전체를
+  //   시트로 훑어야 하는데 그건 감당이 안 된다.
+  //   와치리스트 밖 스트리머는 **결과 화면에서 읽은 이름**으로 발견해 등록한다
+  //   (seed-tournament 가 미등록이면 이름을 찍고 멈춘다).
 
   let leadCount = 0;
   for (const v of vods) {
@@ -137,7 +184,8 @@ try {
       VALUES ('vod_title', ${key}, ${`https://vod.sooplive.com/player/${v.title_no}`},
               ${v.channel_id}, ${who?.id ?? null}, ${v.category === LOL_CATEGORY ? "scrim" : "unknown"},
               ${v.title}, ${new Date(`${v.at.replace(" ", "T")}+09:00`)},
-              ${sql.json({ title_no: v.title_no, category: v.category, views: v.views } as never)})
+              ${sql.json({ title_no: v.title_no, category: v.category, views: v.views,
+                            ...(evidence.get(v.title_no) ?? {}) } as never)})
       ON CONFLICT (source, source_key) DO UPDATE SET title = EXCLUDED.title, updated_at = now()
       RETURNING id
     `;
@@ -145,6 +193,21 @@ try {
     leadCount++;
   }
   console.log(`   단서 ${leadCount}건 ${DRY ? "쌓을 예정" : "쌓았다"}`);
+  // ★ 무엇을 보고 단서로 삼았는지 그 자리에서 보여준다. 근거 없이 쌓이면
+  //   나중에 "이건 왜 여기 있지" 를 아무도 답할 수 없다(524건이 그랬다).
+  if (evidence.size > 0) {
+    const withNotice = [...evidence.values()].filter((e) => e.notices > 0).length;
+    const games = [...evidence.values()].reduce((a, e) => a + e.games, 0);
+    console.log(`   근거: 경기 구간 ${games}개 · 채팅 !공지가 있는 VOD ${withNotice}건`);
+    const top = [...evidence.entries()]
+      .map(([no, e]) => ({ no, ...e, v: vods.find((x) => x.title_no === no) }))
+      .sort((a, b) => b.notices - a.notices || b.games - a.games)
+      .slice(0, 8);
+    for (const t of top) {
+      console.log(`     ${String(Math.round(t.ratio * 100)).padStart(3)}%  경기 ${String(t.games).padStart(2)}`
+        + `  공지 ${String(t.notices).padStart(2)}  ${(t.v?.channel_id ?? "").padEnd(14)} ${String(t.v?.title ?? "").slice(0, 38)}`);
+    }
+  }
 
   // ── 2. 게시판 — 제한된 호출이라 예산 안에서만 ───────────────────
   //   watch 명단을 먼저, 그다음 조회수 높은 채널 순.
@@ -306,7 +369,14 @@ try {
 
   console.log(`\n${"─".repeat(58)}`);
   console.log(`단서  VOD ${leadCount}건 · 게시글 ${postCount}건`);
-  console.log(`채팅 !공지  VOD ${noticeVods}개에서 경기 종료 ${noticeEnds}건 (채팅 ${chatMB.toFixed(0)}MB 훑고 버림 — 원문 미저장)`);
+  // ★ 예전엔 3단계(채팅 전용 훑기)의 카운터만 찍어서, 1단계 스캔이 찾은 !공지 가
+  //   요약에서 통째로 사라졌다 — 실제로 4개 VOD·13건을 찾고도 "0건" 이라고 찍혔다.
+  //   두 경로를 합쳐서 말한다.
+  const scanNoticeVods = [...evidence.values()].filter((e) => e.notices > 0).length;
+  const scanNoticeEnds = [...evidence.values()].reduce((a, e) => a + e.notices, 0);
+  console.log(`채팅 !공지  VOD ${noticeVods + scanNoticeVods}개에서 경기 종료 ${noticeEnds + scanNoticeEnds}건`
+    + `  (시트 훑기에서 ${scanNoticeVods}개 · 채팅 전용 훑기에서 ${noticeVods}개)`);
+  console.log(`            채팅 원문은 저장하지 않는다 — 창 단위로 훑고 바로 버린다`);
   console.log(`참가자 관측 ${partCount}건 — 등록된 사람 ${linked}명 · 아직 모르는 사람 ${partCount - linked}명`);
   if (relinked > 0) console.log(`과거 관측 ${relinked}건이 새로 이어졌다 (그 사이 등록된 사람)`);
   if (blocked.length > 0 || skipped.length > 0) {
