@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { kstDate, makeOpt } from "./lib/cli.mjs";
 import { soopPace } from "./lib/soop-http.mjs";
 import {
-  detect, hms, hlsSegments, noticesFrom, playableFiles, scanSheets, segmentAt, vodDetail,
+  detect, hms, hlsSegments, noticesFrom, playableFiles, resultShots, scanSheets, segmentAt, vodDetail,
 } from "./lib/soop-vod.mjs";
 
 const args = process.argv.slice(2);
@@ -52,11 +52,6 @@ const PER_SESSION = Number(opt("--per-session", 1));
  * 앞에서 자르면 방송 후반 경기를 통째로 잃는다.
  */
 const MAX_PER_FILE = Number(opt("--max-frames", 12));
-/**
- * 채팅 `!공지` 시각에서 몇 초 앞을 잡을지. 공지는 사람이 결과 화면을 보고 치는 것이라
- * 화면이 먼저 뜨고 공지가 뒤따른다. 실측 지연이 4초라 5초 앞을 잡는다.
- */
-const RESULT_LEAD = Number(opt("--result-lead", 5));
 const OUT = join(process.cwd(), "out", "ck", DATE);
 
 /** N 개만 남기되 시간축에 고르게 남긴다. */
@@ -202,6 +197,7 @@ try {
   mkdirSync(OUT, { recursive: true });
   const manifest = { date: DATE, sessions: [] };
   let frameCount = 0, downloadMB = 0;
+  let resultGot = 0, resultWant = 0;   // 결과 화면 확보 — 승패의 정본이라 따로 센다
   const skippedFiles = [];   // 타임아웃 등으로 못 훑은 파일. 끝에 보고한다
 
   // ★ 이름 대조표를 같이 낸다
@@ -283,23 +279,24 @@ try {
           console.log("   시트가 없다" + (chat.ends.length ? ` (채팅 종료 ${chat.ends.length}건은 기록)` : ""));
           entry.files.push({
             index: fi + 1, hours: +(file.duration / 3_600_000).toFixed(2),
-            games: [], shots_found: 0, shots_kept: 0, frames: [],
+            games: [], shots_found: 0, shots_kept: 0, frames: [], result_frames: 0,
             chat_game_ends: chat.ends.map((e) => ({ at: e.at ?? hms(e.t), winner: e.winner, score: e.score, conflict: e.conflict ?? null })),
           });
           continue;
         }
         const { games, shots: allShots, gameRatio } = detect(frames, sec);
-        // ★ 채팅 `!공지` 시각의 몇 초 **앞**이 판독 지점 중 가장 값어치가 높다.
-        //   그 자리에 LoL 최종 결과 화면(승리/패배 · 10명 챔피언 · KDA · 게임 길이)이
-        //   통째로 떠 있다. 실측: 공지 4초 전이 정확히 결과 화면이었다(2·4·5세트).
-        //   밝기·채도로 고르는 일반 규칙은 이걸 못 집는다 — 실제로 12장을 뽑고도
-        //   한 장도 안 걸려서, 공지가 틀린 판을 잡아내지 못했다.
-        //   솎아내기(thin)보다 **먼저** 자리를 잡아 준다. 승패의 정본이라 양보하지 않는다.
-        const anchors = chat.ends.map((e) => Math.max(0, Math.round(e.t) - RESULT_LEAD))
-          .filter((t) => t < total);
-        const shots = [...anchors, ...thin(allShots, Math.max(0, MAX_PER_FILE - anchors.length))]
-          .sort((x, y) => x - y)
-          .filter((t, i, arr) => i === 0 || t - arr[i - 1] > 2);
+
+        // ── 결과 화면은 **필수**다 ─────────────────────────────────────
+        //   승패의 정본은 채팅 공지가 아니라 LoL 최종 결과 화면이다(soop-vod resultShots).
+        //   그래서 이 지점들은 --max-frames 예산 **밖**에서 무조건 잡는다.
+        //   판독 지점(밝기·채도)은 남는 자리만 쓴다 — 밀리면 밀리는 건 그쪽이다.
+        //   실제로 밝기·채도 규칙은 12장을 뽑고도 결과 화면을 한 장도 못 집었고,
+        //   그래서 공지가 틀린 판을 아무도 못 봤다.
+        const must = resultShots({ games, chatEnds: chat.ends, total });
+        const mustSet = new Set(must);
+        const extra = thin(allShots.filter((t) => !mustSet.has(t)), MAX_PER_FILE);
+        const shots = [...new Set([...must, ...extra])].sort((x, y) => x - y);
+
         const contested = chat.ends.filter((e) => e.conflict);
         if (contested.length > 0) {
           console.log(`   ⚠ 공지가 서로 다른 승자를 말한 경기 ${contested.length}건 — 승자를 비워 뒀다. 결과 화면을 봐라`);
@@ -309,8 +306,9 @@ try {
           }
         }
         console.log(`   [파일 ${fi + 1}/${files.length}] ${(total / 3600).toFixed(1)}h · 시트 ${(bytes / 1e6).toFixed(0)}MB`
-          + ` · 롤 화면 ${(gameRatio * 100).toFixed(0)}% · 경기 ${games.length}구간 · 판독 지점 ${allShots.length}곳`
-          + (allShots.length > shots.length ? ` → ${shots.length}곳으로 솎음 (--max-frames)` : ""));
+          + ` · 롤 화면 ${(gameRatio * 100).toFixed(0)}% · 경기 ${games.length}구간`
+          + ` · 결과화면 ${must.length}장(필수) + 판독 ${extra.length}장`
+          + (allShots.length > extra.length ? ` (판독 ${allShots.length}곳에서 솎음)` : ""));
 
         let hls;
         try {
@@ -347,7 +345,7 @@ try {
               rmSync(tmp, { force: true });    // 영상은 남기지 않는다
             }
           }
-          shotRecs.push({ file: name, at_sec: Math.round(at), at: hms(at) });
+          shotRecs.push({ file: name, at_sec: Math.round(at), at: hms(at), kind: mustSet.has(at) ? "result" : "scan" });
           frameCount++;
         }
         entry.files.push({
@@ -358,21 +356,35 @@ try {
           // 솎아냈으면 그 사실을 남긴다 — 조용히 자르면 "다 봤다"로 읽힌다.
           shots_found: allShots.length,
           shots_kept: shots.length,
+          result_frames: shotRecs.filter((r) => r.kind === "result").length,
+          result_wanted: must.length,
           frames: shotRecs,
         });
-        console.log(`   프레임 ${shotRecs.length}장 저장`);
+        resultGot += shotRecs.filter((r) => r.kind === "result").length;
+        resultWant += must.length;
+        console.log(`   프레임 ${shotRecs.length}장 저장 (결과화면 ${shotRecs.filter((r) => r.kind === "result").length}/${must.length})`);
       }
       rec.vods.push(entry);
     }
     manifest.sessions.push(rec);
   }
 
-  manifest.summary = { frames: frameCount, download_mb: Math.round(downloadMB) };
+  manifest.summary = { frames: frameCount, download_mb: Math.round(downloadMB), result_frames: resultGot, result_wanted: resultWant };
   writeFileSync(join(OUT, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
   console.log(`\n${"─".repeat(60)}`);
   const pace = soopPace();
   console.log(`프레임 ${frameCount}장 · 다운로드 ${downloadMB.toFixed(0)}MB · LLM 토큰 0`);
+  // ★ 결과 화면은 승패의 정본이라 따로 보고한다. 못 잡았으면 그 경기는 넣지 못한다 —
+  //   seed-tournament 가 result_evidence 없는 내전 경기를 거부한다.
+  if (resultWant > 0) {
+    const miss = resultWant - resultGot;
+    console.log(`결과 화면 ${resultGot}/${resultWant}장 확보`
+      + (miss > 0 ? `  ⚠ ${miss}장 실패 — 그 경기는 승패를 확정할 수 없다` : "  ✓"));
+  } else {
+    console.log(`⚠ 결과 화면 지점을 하나도 못 잡았다 — 경기 구간도 채팅 공지도 없다.`
+      + ` 이 방송으로는 승패를 확정할 수 없다.`);
+  }
   if (skippedFiles.length > 0) {
     console.log(`\n⚠ 못 훑은 파일 ${skippedFiles.length}개 — 다음 실행이 다시 시도한다`);
     for (const x of skippedFiles.slice(0, 5)) console.log(`   ${x}`);

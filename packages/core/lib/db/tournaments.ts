@@ -116,6 +116,12 @@ export interface TournamentGameInput {
   duration: number | null;
   source_url: string | null;
   /**
+   * 승패를 확정한 **결과 화면**의 지점 (VOD 시각 · 프레임 파일명).
+   * 채팅 `!공지` 는 사람이 치는 거라 틀리고 뒤늦게 고쳐진다 — 단서일 뿐 정본이 아니다.
+   * 방송을 읽어 넣는 내전은 seed-tournament 가 이걸 필수로 요구한다 (마이그레이션 0015).
+   */
+  result_evidence?: string | null;
+  /**
    * 다전제라면 그 시리즈를 묶는 키와 몇 번째 세트인지.
    * 단판이면 둘 다 비운다 — 그러면 질의에서 자기 자신이 곧 시리즈가 된다.
    * 세트로도 매치로도 셀 수 있어야 해서 필요하다 (마이그레이션 0007).
@@ -148,10 +154,11 @@ export async function saveTournamentGame(g: TournamentGameInput): Promise<void> 
   await sql.begin(async (tx) => {
     await tx`
       INSERT INTO match (match_id, queue_id, game_mode, game_creation, game_duration,
-                         winning_team, source, event_id, source_url,
+                         winning_team, source, event_id, source_url, result_evidence,
                          series_id, series_game_no, blue_team_id, red_team_id)
       VALUES (${g.match_id}, 0, 'CUSTOM', ${g.played_at}, ${g.duration},
               ${g.winning_team}, 'manual', ${g.event_id}::uuid, ${g.source_url},
+              ${g.result_evidence ?? null},
               ${g.series_id ?? null}, ${g.series_game_no ?? null},
               ${g.blue_team_id ?? null}, ${g.red_team_id ?? null})
       ON CONFLICT (match_id) DO UPDATE SET
@@ -160,6 +167,7 @@ export async function saveTournamentGame(g: TournamentGameInput): Promise<void> 
         winning_team   = EXCLUDED.winning_team,
         event_id       = EXCLUDED.event_id,
         source_url     = EXCLUDED.source_url,
+        result_evidence = EXCLUDED.result_evidence,
         series_id      = EXCLUDED.series_id,
         series_game_no = EXCLUDED.series_game_no,
         blue_team_id   = EXCLUDED.blue_team_id,

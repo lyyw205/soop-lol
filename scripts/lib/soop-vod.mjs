@@ -436,6 +436,54 @@ export function gameEndsFromNotice(msgs) {
   return { ends, notices: notices.length, rejected, conflicts };
 }
 
+/**
+ * **경기 종료 지점마다 결과 화면을 반드시 잡는다.** 선택이 아니라 마지막 검증 관문이다.
+ *
+ * ★ 왜 여기가 정본인가
+ *   LoL 최종 결과 화면 한 장에 승리/패배 · 10명 챔피언 · KDA · 게임 길이가 다 있고
+ *   사람이 잘못 칠 여지가 없다. 반면 채팅 `!공지` 는 사람이 치는 거라 틀리고
+ *   뒤늦게 고쳐진다 — 실제로 승자가 뒤집힌 채 사이트에 올라간 적이 있다.
+ *   공지는 **어디를 볼지 알려주는 단서**로만 쓴다.
+ *
+ * ★ 왜 한 장으로는 모자란가 (2026-08-08 시그니처CK 실측)
+ *   화면이 떠 있는 시간이 25초 안쪽이다 — 스트리머가 바로 리플레이를 켠다.
+ *   게다가 공지 시각이 종료보다 **앞설 때도 뒤설 때도** 있다:
+ *     1세트 공지 +14초 · 2세트 +10초 · 3세트 **−9초** · 4세트 −4초 · 5세트 −4초
+ *   그래서 한 지점을 찍으면 절반은 빗나간다. 앞뒤로 셋을 잡는다.
+ *
+ * 종료 표시는 두 곳에서 온다 — 채팅 공지(정확)와 시트 판독의 경기 구간 끝(대략).
+ * 공지가 없는 방송이 열에 아홉이라 구간 끝도 같이 쓴다.
+ */
+/**
+ * 종료 표시 기준 오프셋(초). **실측으로 정했다** (2026-08-08 시그니처CK 5세트).
+ *
+ *   공지 대비 결과 화면 위치:  1세트 +12~+21 · 2세트 +10 · 3세트 +5~+11 · 4세트 −4 · 5세트 −4~+22
+ *   화면이 떠 있는 시간:        9초(1세트)부터 27초(5세트)까지
+ *
+ * 앞뒤 −6~+24 를 6초 간격으로 훑는다. 제일 짧았던 9초보다 촘촘해야 확실히 걸린다.
+ * 처음엔 [−6, +8, +22] 셋만 잡았다가 1세트를 놓쳤다 — +8 은 이르고 +22 는 1초 늦었다.
+ */
+export const RESULT_OFFSETS = [-6, 0, 6, 12, 18, 24];
+
+export function resultShots({ games = [], chatEnds = [], total = Infinity }) {
+  // ★ 공지가 있으면 **공지만** 쓴다.
+  //   시트 판독의 경기 구간 끝은 종료 지점으로는 못 쓴다 — 스트리머가 끝나고
+  //   리플레이를 켜면 그것도 '롤 화면' 이라 구간이 몇 분씩 늘어난다.
+  //   실측에서 구간 끝이 실제 종료보다 5~8분 뒤였다. 공지가 없을 때의 차선일 뿐이다.
+  const marks = chatEnds.map((e) => e.t).filter(Number.isFinite);
+  if (marks.length === 0) {
+    marks.push(...games.map((g) => g.endSec ?? g.end).filter(Number.isFinite));
+  }
+  const out = new Set();
+  for (const m of marks) {
+    for (const d of RESULT_OFFSETS) {
+      const t = Math.round(m + d);
+      if (t >= 0 && t < total) out.add(t);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
 /** `!공지` 가 없는 방송용 대비책. 경기가 끝나면 채팅이 튄다. */
 export function chatSpikes(msgs, total, { bin = 60, ratio = 2.5 } = {}) {
   const n = Math.ceil(total / bin);

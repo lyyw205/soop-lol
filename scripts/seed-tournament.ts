@@ -53,6 +53,17 @@ interface SeedGame {
   winner: string;
   duration?: number;
   source_url?: string;
+  /**
+   * ★ 이 경기의 승패를 확정한 **결과 화면** 지점. VOD 시각(`1:05:00`)이나
+   *   프레임 파일명(`lshooooo_203787373_f1_10500.jpg`).
+   *
+   *   `kind: "scrim"` 대회(=방송을 읽어 넣는 내전)에는 **필수**다.
+   *   채팅 `!공지` 만 믿었다가 실제로 승자가 뒤집혔다 — 2026-08-08 시그니처CK
+   *   2부 3세트에서 공지 두 개가 27초 사이로 서로 다른 승자를 말했고, 먼저 온
+   *   오기를 채택해 사이트에 잘못 올라갔다. 공지는 **어디를 볼지 알려주는 단서**고,
+   *   정본은 LoL 최종 결과 화면이다. 그걸 봤다는 사실을 여기 남긴다.
+   */
+  result_evidence?: string;
   lineup?: Record<string, SeedLineupEntry[]>;
 }
 
@@ -145,6 +156,13 @@ function validate(list: SeedTournament[]): string[] {
       }
       if (g.blue && g.red && g.blue === g.red) errors.push(`${gat}: 같은 팀끼리 붙을 수 없다`);
       if (!g.winner) errors.push(`${gat}: winner 가 없다`);
+      // ★ 결과 화면 확인은 선택이 아니라 **마지막 필수 관문**이다.
+      //   내전 승패의 정본은 방송의 LoL 최종 결과 화면뿐이다.
+      //   (주최측이 발표하는 대회 kind='tournament' 는 발표문이 원천이라 해당 없다)
+      if (t.kind === "scrim" && !g.result_evidence?.trim()) {
+        errors.push(`${gat}: result_evidence 가 없다 — 내전은 결과 화면을 확인해야 넣는다`
+          + ` (예: "1:05:00" · 프레임 파일명). 채팅 공지는 단서일 뿐이다`);
+      }
       else if (g.winner !== g.blue && g.winner !== g.red) {
         errors.push(`${gat}: winner '${g.winner}' 가 blue/red 중 하나가 아니다`);
       }
@@ -209,7 +227,8 @@ try {
 
     if (dryRun) {
       for (const g of t.games ?? []) {
-        console.log(`  경기 ${g.id}  ${g.blue} vs ${g.red} → ${g.winner} 승  (${g.round ?? "-"})`);
+        console.log(`  경기 ${g.id}  ${g.blue} vs ${g.red} → ${g.winner} 승`
+          + `  (결과화면 ${g.result_evidence ?? "-"})`);
       }
       games += (t.games ?? []).length;
       continue;
@@ -265,6 +284,7 @@ try {
         played_at: new Date(g.played_at),
         duration: g.duration ?? null,
         source_url: g.source_url ?? t.source_url ?? null,
+        result_evidence: g.result_evidence?.trim() || null,
         series_id: g.series ? `${t.slug}:${g.series}` : null,
         series_game_no: g.series ? (g.set_no ?? null) : null,
         blue_team_id: teamIdByName.get(g.blue) ?? null,
@@ -274,7 +294,8 @@ try {
       });
       matchIds.push(matchId);
       games++;
-      console.log(`  경기 ${g.id}  ${g.blue} vs ${g.red} → ${g.winner} 승  (참가자 ${participants.length})`);
+      console.log(`  경기 ${g.id}  ${g.blue} vs ${g.red} → ${g.winner} 승  (참가자 ${participants.length}`
+        + `${g.result_evidence ? ` · 결과화면 ${g.result_evidence}` : ""})`);
     }
 
     // ★ 시드 파일이 이 대회의 전부다. 이전에 넣었다가 이번 파일엔 없는 경기는 지운다.
