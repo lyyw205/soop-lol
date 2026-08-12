@@ -4,6 +4,14 @@
      따라 다른 CSS 를 낸다. (hotplace-map 에서 같은 이유로 정한 규칙) */
 @import "tailwindcss" source("../");
 
+/* ★ 모듈 UI 도 훑는다.
+   `source("../")` 는 apps/web/ 안만 본다. 그런데 모듈 화면은 packages/modules/ 에
+   살면서 apps/web 의 `/m/[module]` 라우트가 렌더한다 — 즉 **화면에는 뜨는데 클래스는
+   안 만들어지는** 상태가 된다. 실제로 리더보드가 그랬다: text-neutral-500 ·
+   divide-neutral-800 · max-w-3xl 이 하나도 CSS 에 없어서 사실상 스타일 없이 떠 있었다.
+   모듈을 새로 만들 때마다 되풀이될 일이라 디렉터리 단위로 못박는다. */
+@source "../../../packages/modules";
+
 @theme {
   --color-ink-950: #0a0b0f;
   --color-ink-900: #101219;
