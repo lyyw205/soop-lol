@@ -81,13 +81,27 @@ export async function listStreamerCards(opts: { q?: string } = {}): Promise<Stre
  * ★ 별칭을 같이 준다. 사람들은 방송 이름 말고 부르는 이름으로 찾는다 —
  *   /streamers 검색이 이미 별칭을 보고 있어서, 여기만 안 보면 같은 이름을 쳐도
  *   한쪽에서만 찾아지는 상태가 된다.
+ *
+ * ★ 화면에 곁들여 보여줄 것은 **방송국 아이디**지 slug 가 아니다
+ *   slug 는 우리가 주소에 쓰려고 붙인 값이라 사람이 확인할 방법이 없다. 게다가
+ *   419명 중 324명(77%)만 채널 아이디와 같아서(FA 명단에서 자동 등록된 사람들),
+ *   목록에 slug 를 늘어놓으면 "채널 아이디처럼 보이는데 77%만 맞는 값" 이 된다.
+ *   채널 아이디는 ch.sooplive.co.kr/<id> 로 확인되고, 닉네임과 달리 안 바뀐다.
+ *
+ * 채널이 여럿이면 대표(is_primary)를 쓴다. 아직 채널을 못 붙인 사람은 null 이다.
  */
 export async function listStreamerOptions(): Promise<
-  { slug: string; display_name: string; aliases: string[] }[]
+  { slug: string; display_name: string; aliases: string[]; channel_id: string | null }[]
 > {
   const sql = db();
   return sql`
-    SELECT slug, display_name, aliases FROM core_public.streamer ORDER BY display_name
+    SELECT s.slug, s.display_name, s.aliases, ch.channel_id
+      FROM core_public.streamer s
+      LEFT JOIN LATERAL (
+             SELECT channel_id FROM core_public.streamer_channel
+              WHERE streamer_id = s.streamer_id ORDER BY is_primary DESC LIMIT 1
+           ) ch ON true
+     ORDER BY s.display_name
   `;
 }
 
@@ -100,11 +114,15 @@ export async function resolveStreamerSlug(input: string): Promise<string | null>
   const q = input.trim();
   if (!q) return null;
   const sql = db();
+  // ★ 선택기가 화면에 보여주고 검색도 받는 값(방송국 아이디)은 여기서도 받아야 한다.
+  //   보이는 값을 주소창에 붙였는데 안 되면, 사용자는 규칙을 짐작할 방법이 없다.
   const rows = await sql<{ slug: string }[]>`
-    SELECT slug FROM core_public.streamer
-     WHERE slug = ${q} OR display_name = ${q}
-        OR EXISTS (SELECT 1 FROM unnest(aliases) a WHERE a = ${q})
-     ORDER BY (slug = ${q}) DESC, (display_name = ${q}) DESC
+    SELECT s.slug FROM core_public.streamer s
+     WHERE s.slug = ${q} OR s.display_name = ${q}
+        OR EXISTS (SELECT 1 FROM unnest(s.aliases) a WHERE a = ${q})
+        OR EXISTS (SELECT 1 FROM core_public.streamer_channel c
+                    WHERE c.streamer_id = s.streamer_id AND c.channel_id = ${q})
+     ORDER BY (s.slug = ${q}) DESC, (s.display_name = ${q}) DESC
      LIMIT 1
   `;
   return rows[0]?.slug ?? null;

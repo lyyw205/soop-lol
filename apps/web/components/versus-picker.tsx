@@ -24,6 +24,8 @@ export interface PickerOption {
   slug: string;
   display_name: string;
   aliases: string[];
+  /** SOOP 방송국 아이디. 화면에 곁들여 보여주고 검색에도 넣는다. 없는 사람도 있다. */
+  channel_id: string | null;
 }
 
 /** 띄어쓰기는 무시한다 — '항상#킴성태' 같은 이름을 사람마다 다르게 띄운다. */
@@ -31,8 +33,11 @@ const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
 
 function matches(o: PickerOption, q: string): boolean {
   const n = norm(q);
+  // ★ 화면에 보이는 값(채널 아이디)은 반드시 검색도 돼야 한다. 눈에 보이는데
+  //   쳐도 안 나오면 사용자는 목록이 고장 났다고 생각한다.
   return norm(o.display_name).includes(n)
     || norm(o.slug).includes(n)
+    || (o.channel_id != null && norm(o.channel_id).includes(n))
     || o.aliases.some((a) => norm(a).includes(n));
 }
 
@@ -106,7 +111,9 @@ function OneField({
                             ${i === cursor ? "bg-ink-800 text-ink-100" : "text-ink-300"}`}
               >
                 <span className="truncate">{o.display_name}</span>
-                <span className="ml-auto shrink-0 text-[11px] text-ink-400">{o.slug}</span>
+                {o.channel_id && (
+                  <span className="ml-auto shrink-0 text-[11px] text-ink-400">{o.channel_id}</span>
+                )}
               </button>
             </li>
           ))}
