@@ -138,6 +138,15 @@ export interface TournamentGameInput {
     team_id: 100 | 200;
     position?: string | null;
     champion_id?: number | null;
+    /**
+     * match-v5 의 `championName` 과 같은 영문 키(`Thresh`). 화면이 이걸로 이름을 낸다 —
+     * 없으면 '챔피언 412' 라고 뜬다. champions.ko.json 의 `en` 이 같은 값이다.
+     */
+    champion_name?: string | null;
+    /** 결과 화면에서 읽은 값. 모르면 비운다 — 0 으로 채우지 않는다. */
+    kills?: number | null;
+    deaths?: number | null;
+    assists?: number | null;
   }[];
 }
 
@@ -181,11 +190,11 @@ export async function saveTournamentGame(g: TournamentGameInput): Promise<void> 
       await tx`
         INSERT INTO match_participant
           (match_id, puuid, participant_id, team_id, team_position, individual_position,
-           champion_id, win, kills, deaths, assists)
+           champion_id, champion_name, win, kills, deaths, assists)
         VALUES (${g.match_id}, ${p.puuid}, ${i + 1}, ${p.team_id},
                 ${p.position ?? null}, ${p.position ?? null},
-                ${p.champion_id ?? 0}, ${p.team_id === g.winning_team},
-                0, 0, 0)
+                ${p.champion_id ?? 0}, ${p.champion_name ?? null}, ${p.team_id === g.winning_team},
+                ${p.kills ?? 0}, ${p.deaths ?? 0}, ${p.assists ?? 0})
       `;
     }
   });

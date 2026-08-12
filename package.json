@@ -42,6 +42,8 @@
     "ck:scan": "node scripts/scan-vod-frames.mjs",
     "//ck:scan-chat": "★ 한 VOD 의 채팅에서 !공지(경기 종료·승자)를 뽑아 본다. 진단용.",
     "ck:scan-chat": "node scripts/scan-vod-chat.mjs",
+    "//build:champions": "★ 챔피언 한글 이름 → ID 표를 Riot Data Dragon 에서 다시 만든다. 새 챔피언이 나오면 돌린다.",
+    "build:champions": "node scripts/build-champions.mjs",
     "//repair:puuid": "★ 낡은 puuid 를 현재 값으로 갈아끼운다. 기본은 확인만 — 옮기려면 -- --apply.",
     "repair:puuid": "node --env-file-if-exists=apps/web/.env.local scripts/repair-puuid.ts"
   },

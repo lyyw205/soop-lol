@@ -27,13 +27,25 @@ import {
   streamerIdsBySlug,
   upsertEvent,
 } from "@soop-lol/core/lib/db/tournaments";
+import { championByName } from "@soop-lol/core/lib/riot/champions";
 import { POSITIONS } from "@soop-lol/core/lib/riot/types";
 import { placementRank } from "@soop-lol/core/lib/metrics/placement";
 
 interface SeedLineupEntry {
   slug: string;
   position?: string;
+  /**
+   * ★ 결과 화면에 적힌 **한글 이름 그대로** 적는다 (`쓰레쉬` · `자르반 4세` · `미스 포츈`).
+   *   띄어쓰기는 안 맞아도 된다. 모르는 이름이면 여기서 거부한다 —
+   *   ID 를 사람이 옮겨 적으면 조용히 다른 챔피언 전적이 된다(§11-2).
+   */
+  champion?: string;
+  /** 이름 대신 ID 를 직접 적어도 된다. 둘 다 있으면 champion 이 이긴다. */
   champion_id?: number;
+  /** 결과 화면의 K/D/A. 모르면 비운다. */
+  kills?: number;
+  deaths?: number;
+  assists?: number;
 }
 
 interface SeedGame {
@@ -174,6 +186,12 @@ function validate(list: SeedTournament[]): string[] {
           if (e.position && !positions.has(e.position)) {
             errors.push(`${gat}: 포지션 '${e.position}' 은 ${[...positions].join("/")} 중 하나여야 한다`);
           }
+          // ★ 못 읽은 챔피언 이름을 조용히 넘기면 champion_id 가 0(='모른다')으로
+          //   들어가 판독이 실패한 사실 자체가 사라진다. 여기서 멈춘다.
+          if (e.champion && championByName(e.champion) === null) {
+            errors.push(`${gat}: 챔피언 '${e.champion}' 을 못 찾았다 — 결과 화면의 한글 이름 그대로 적어라`
+              + ` (표가 낡았으면 npm run build:champions)`);
+          }
         }
       }
     }
@@ -269,10 +287,19 @@ try {
         for (const e of entries) {
           const puuid = puuidBySlug.get(e.slug);
           if (!puuid) continue; // 계정 없는 스트리머는 건너뛴다 — 위에서 집계해 보고한다
+          const champ = e.champion ? championByName(e.champion) : null;
           participants.push({
             puuid, team_id: teamId,
-            position: e.position ?? null,
-            champion_id: e.champion_id ?? null,
+            // ★ 포지션은 lineup 이 안 적었으면 대회 로스터 포지션으로 메운다.
+            //   lineup 을 쓰는 순간 roster_positions 가 통째로 무시돼서
+            //   맞라인 판정이 조용히 사라졌다(§11-10 은 '틀린 맞라인' 이 없느니만
+            //   못하다고 하지, 있는 걸 버리라는 뜻이 아니다).
+            position: e.position ?? t.roster_positions?.[e.slug] ?? null,
+            champion_id: champ?.id ?? e.champion_id ?? null,
+            champion_name: champ?.en ?? null,
+            kills: e.kills ?? null,
+            deaths: e.deaths ?? null,
+            assists: e.assists ?? null,
           });
         }
       }
