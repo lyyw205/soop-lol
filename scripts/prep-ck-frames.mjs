@@ -90,8 +90,11 @@ try {
     SELECT channel_id, streamer_id, title, observed_at, raw
       FROM event_lead
      WHERE source = 'vod_title'
-       AND kind = 'scrim'   -- ck:collect 가 화면으로 판정해 넣은 것만. 롤 경기가 실제로
-                            -- 잡힌 VOD 라야 'scrim' 이 된다.
+       AND kind = 'scrim'   -- ck:collect 가 시트로 '게임 화면'을 확인한 것만.
+       -- ★ 사람이 기각한 것은 뺀다. 시트는 롤과 FC온라인을 못 가르므로(§4)
+       --   확인 프레임을 보고 기각한 VOD 가 섞여 있다. 안 빼면 FC온라인 방송에서
+       --   결과창을 찾겠다고 세그먼트를 수백 MB 씩 받는다.
+       AND state <> 'rejected'
        AND (observed_at AT TIME ZONE 'Asia/Seoul')::date = ${DATE}::date`;
   console.log(`${DATE} 치 준비 — event_lead 에서 내전 VOD ${leads.length}건\n`);
   if (leads.length === 0) {
