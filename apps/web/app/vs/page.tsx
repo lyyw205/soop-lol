@@ -5,9 +5,11 @@
  *   실제 상대전적은 `/vs/<a>/<b>` 라 **두 slug 가 경로에 박혀 있다.** 상단 nav 는
  *   링크 하나뿐이라 거기로 곧장 갈 수가 없다. 여기서 고르게 하고 넘긴다.
  *
- * ★ 클라이언트 JS 를 쓰지 않는다
- *   폼은 GET 으로 이 페이지에 되돌아오고, 서버가 `/vs/a/b` 로 redirect 한다.
- *   선택기 두 개에 라우터를 붙일 이유가 없다 — 네이티브 select 는 타이핑 검색도 된다.
+ * ★ 고르는 건 클라이언트, 넘기는 건 서버
+ *   419명을 드롭다운에 넣으면 이름을 아는 사람도 못 찾는다. 그래서 입력칸에 치면
+ *   아래로 후보가 뜨는 선택기(VersusPicker)를 쓴다 — 필터는 브라우저가 한다.
+ *   폼은 여전히 GET 으로 이 페이지에 돌아오고, 서버가 `/vs/a/b` 로 redirect 한다.
+ *   라우터를 클라이언트에 붙이지 않으므로 주소를 직접 쳐도 같은 길로 흐른다.
  *
  * ★ 빈 선택기만 두지 않는다
  *   nav 를 눌러 들어왔는데 고를 것만 있으면 볼 게 없다. **많이 붙은 쌍**을 같이
@@ -17,9 +19,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { listStreamerOptions, listTopPairs } from "@soop-lol/core/lib/db/public";
+import { listStreamerOptions, listTopPairs, resolveStreamerSlug } from "@soop-lol/core/lib/db/public";
 
 import { EmptyLine, PageShell, SectionTitle, SiteHeader } from "../../components/public";
+import { VersusPicker } from "../../components/versus-picker";
 
 export const metadata = { title: "상대전적 — SOOP LOL" };
 
@@ -30,11 +33,18 @@ export default async function VersusIndexPage(
   { searchParams }: { searchParams: Promise<{ a?: string; b?: string }> },
 ) {
   const { a, b } = await searchParams;
+  // ★ 선택기가 slug 를 실어 보내지만, 사람이 주소를 직접 치거나 JS 가 안 도는
+  //   경우도 있다. 그때도 이름·별칭으로 한 번 더 해석해 준다 (정확히 일치할 때만).
+  const [ra, rb] = await Promise.all([
+    a ? resolveStreamerSlug(a) : null,
+    b ? resolveStreamerSlug(b) : null,
+  ]);
   // 둘 다 골랐으면 진짜 상대전적으로 보낸다. 같은 사람이면 보낼 곳이 없다.
-  if (a && b && a !== b) redirect(`/vs/${encodeURIComponent(a)}/${encodeURIComponent(b)}`);
+  if (ra && rb && ra !== rb) redirect(`/vs/${encodeURIComponent(ra)}/${encodeURIComponent(rb)}`);
 
   const [options, pairs] = await Promise.all([listStreamerOptions(), listTopPairs(20)]);
-  const sameChosen = Boolean(a && b && a === b);
+  const sameChosen = Boolean(ra && rb && ra === rb);
+  const notFound = [a && !ra ? a : null, b && !rb ? b : null].filter(Boolean) as string[];
 
   return (
     <>
@@ -47,31 +57,14 @@ export default async function VersusIndexPage(
           같은 라인에서 1:1로 만난 판은 따로 셉니다.
         </p>
 
-        <form method="get" action="/vs" className="mt-6 flex flex-wrap items-end gap-3">
-          {(["a", "b"] as const).map((side) => (
-            <label key={side} className="flex flex-col gap-1">
-              <span className="text-[11px] text-ink-400">{side === "a" ? "누가" : "누구와"}</span>
-              <select
-                name={side}
-                defaultValue={(side === "a" ? a : b) ?? ""}
-                className="min-w-[190px] rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm text-ink-200"
-              >
-                <option value="">— 스트리머 선택 —</option>
-                {options.map((o) => (
-                  <option key={o.slug} value={o.slug}>{o.display_name}</option>
-                ))}
-              </select>
-            </label>
-          ))}
-          <button
-            type="submit"
-            className="rounded-lg border border-ink-700 bg-ink-800 px-4 py-2 text-sm text-ink-200 hover:border-ink-600"
-          >
-            보기
-          </button>
-        </form>
+        <VersusPicker options={options} a={ra ?? undefined} b={rb ?? undefined} />
         {sameChosen && (
           <p className="mt-2 text-[11px] text-amber-300">같은 사람 둘을 고를 수는 없습니다.</p>
+        )}
+        {notFound.length > 0 && (
+          <p className="mt-2 text-[11px] text-amber-300">
+            찾지 못했습니다: {notFound.join(", ")} — 목록에서 골라 주세요.
+          </p>
         )}
 
         <section className="mt-10">

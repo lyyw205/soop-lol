@@ -75,12 +75,39 @@ export async function listStreamerCards(opts: { q?: string } = {}): Promise<Stre
   `;
 }
 
-/** 선택기용 최소 목록. 카드 질의(listStreamerCards)는 티어·판수까지 붙여서 무겁다. */
-export async function listStreamerOptions(): Promise<{ slug: string; display_name: string }[]> {
+/**
+ * 선택기용 최소 목록. 카드 질의(listStreamerCards)는 티어·판수까지 붙여서 무겁다.
+ *
+ * ★ 별칭을 같이 준다. 사람들은 방송 이름 말고 부르는 이름으로 찾는다 —
+ *   /streamers 검색이 이미 별칭을 보고 있어서, 여기만 안 보면 같은 이름을 쳐도
+ *   한쪽에서만 찾아지는 상태가 된다.
+ */
+export async function listStreamerOptions(): Promise<
+  { slug: string; display_name: string; aliases: string[] }[]
+> {
   const sql = db();
   return sql`
-    SELECT slug, display_name FROM core_public.streamer ORDER BY display_name
+    SELECT slug, display_name, aliases FROM core_public.streamer ORDER BY display_name
   `;
+}
+
+/**
+ * 사람이 친 글자 → slug. 선택기가 slug 를 못 실어 보냈을 때(JS 가 안 도는 경우 등)
+ * 서버가 한 번 더 해석한다. **정확히 일치할 때만** 인정한다 — 부분 일치로 넘겨짚으면
+ * 엉뚱한 사람의 전적을 보여주게 된다.
+ */
+export async function resolveStreamerSlug(input: string): Promise<string | null> {
+  const q = input.trim();
+  if (!q) return null;
+  const sql = db();
+  const rows = await sql<{ slug: string }[]>`
+    SELECT slug FROM core_public.streamer
+     WHERE slug = ${q} OR display_name = ${q}
+        OR EXISTS (SELECT 1 FROM unnest(aliases) a WHERE a = ${q})
+     ORDER BY (slug = ${q}) DESC, (display_name = ${q}) DESC
+     LIMIT 1
+  `;
+  return rows[0]?.slug ?? null;
 }
 
 export interface TopPair {
