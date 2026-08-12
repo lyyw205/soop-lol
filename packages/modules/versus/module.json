@@ -1,0 +1,23 @@
+{
+  "name": "versus",
+  "version": "0.1.0",
+  "title": "상대전적",
+  "description": "코어의 조우를 읽어 두 스트리머의 맞대결·같은 팀·맞라인을 계산해 보여준다.",
+  "schema": "mod_versus",
+  "routes": [
+    {
+      "path": "/m/versus",
+      "title": "상대전적"
+    }
+  ],
+  "jobs": [
+    {
+      "name": "recompute",
+      "everyMinutes": 60
+    }
+  ],
+  "provides": [
+    "versus"
+  ],
+  "navOrder": 10
+}

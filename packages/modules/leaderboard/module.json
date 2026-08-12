@@ -4,6 +4,17 @@
   "title": "리더보드",
   "description": "스트리머 티어 순위. rank_snapshot 을 mod_leaderboard 로 롤업한다.",
   "schema": "mod_leaderboard",
-  "routes": [{ "path": "/m/leaderboard", "title": "리더보드" }],
-  "jobs": [{ "name": "recompute", "everyMinutes": 30 }]
+  "routes": [
+    {
+      "path": "/m/leaderboard",
+      "title": "리더보드"
+    }
+  ],
+  "jobs": [
+    {
+      "name": "recompute",
+      "everyMinutes": 30
+    }
+  ],
+  "navOrder": 20
 }

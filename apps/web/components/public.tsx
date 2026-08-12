@@ -1,4 +1,6 @@
 import Link from "next/link";
+
+import { moduleNavRoutes } from "@soop-lol/modules/registry";
 import type { ReactNode } from "react";
 
 import {
@@ -22,11 +24,12 @@ export function SiteHeader() {
           SOOP <span className="text-accent-500">LOL</span>
         </Link>
         <Link href="/streamers" className="text-ink-400 hover:text-ink-200">스트리머</Link>
-        {/* ★ 이 사이트의 한 문장이 곧 이 링크다 — "스트리머끼리 누가 누구를 이겼나".
-            실제 페이지는 /vs/<a>/<b> 라 두 slug 가 경로에 박혀 있어서 nav 로는 못 간다.
-            /vs 가 고르는 화면이 되어 준다. */}
-        <Link href="/vs" className="text-ink-400 hover:text-ink-200">상대전적</Link>
-        <Link href="/m/leaderboard" className="text-ink-400 hover:text-ink-200">리더보드</Link>
+        {/* ★ 모듈 메뉴는 **등록부에서 나온다.** 이름을 여기 적으면 모듈을 지울 때마다
+            core 를 고쳐야 하고, 그게 곧 역방향 의존이다(계약 4조).
+            모듈 디렉터리를 지우고 modules:sync 를 돌리면 메뉴에서도 저절로 빠진다. */}
+        {moduleNavRoutes().map((r) => (
+          <Link key={r.path} href={r.path} className="text-ink-400 hover:text-ink-200">{r.title}</Link>
+        ))}
       </nav>
     </header>
   );

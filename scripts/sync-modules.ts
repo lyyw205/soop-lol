@@ -19,6 +19,7 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dirname, "..");
 const MODULES_DIR = join(ROOT, "packages", "modules");
 const OUT = join(MODULES_DIR, "registry.generated.ts");
+const OUT_UI = join(MODULES_DIR, "ui.generated.ts");
 
 interface Manifest {
   name: string;
@@ -27,6 +28,10 @@ interface Manifest {
   description?: string;
   schema: string;
   routes?: { path: string; title?: string }[];
+  /** 이 모듈이 채우는 역할. core 는 이름이 아니라 역할로 모듈을 찾는다. */
+  provides?: string[];
+  /** nav 에 뜨는 순서. 작을수록 앞. 안 적으면 100. */
+  navOrder?: number;
   jobs?: { name: string; everyMinutes: number }[];
 }
 
@@ -68,9 +73,17 @@ export interface RegisteredModule {
   description?: string;
   schema: string;
   routes: ModuleRoute[];
+  /**
+   * 이 모듈이 채우는 역할.
+   * ★ core 가 특정 모듈 이름을 아는 건 역방향 의존이다(계약 4조). 대신 core 는
+   *   "상대전적을 보여주는 자리" 같은 **역할**을 묻고, 등록부가 누가 채우는지 답한다.
+   *   그 모듈을 지우면 링크가 저절로 사라진다 — core 는 한 줄도 안 고친다.
+   */
+  provides: string[];
+  navOrder: number;
   jobs: ModuleJob[];
-  /** UI 가 있는 모듈만. Next 가 코드 스플리팅할 수 있게 동적 import 로 둔다. */
-  ui?: () => Promise<{ default: React.ComponentType<Record<string, never>> }>;
+  /** 화면이 있는 모듈인가. 실제 컴포넌트는 ui.generated.ts 에 있다 (아래 ★ 참조). */
+  hasUi: boolean;
 }
 
 ${manifests
@@ -95,9 +108,12 @@ ${manifests
     description: ${JSON.stringify(m.description ?? "")},
     schema: ${JSON.stringify(m.schema)},
     routes: ${JSON.stringify(m.routes ?? [])},
+    provides: ${JSON.stringify(m.provides ?? [])},
+    navOrder: ${m.navOrder ?? 100},
     jobs: [
 ${jobs}
-    ],${hasUi(m.name) ? `\n    ui: () => import("./${m.name}/ui/page.tsx"),` : ""}
+    ],
+    hasUi: ${hasUi(m.name)},
   },`;
   })
   .join("\n")}
@@ -105,9 +121,41 @@ ${jobs}
 
 export const moduleByName = (name: string): RegisteredModule | undefined =>
   MODULES.find((m) => m.name === name);
+
+/** 그 역할을 채우는 모듈. 없으면 undefined — 부르는 쪽이 링크를 안 그리면 된다. */
+export const moduleProviding = (capability: string): RegisteredModule | undefined =>
+  MODULES.find((m) => m.provides.includes(capability));
+
+/** nav 에 걸 모듈 경로. 하드코딩하지 않는다 — 모듈을 지우면 메뉴에서도 사라진다. */
+export const moduleNavRoutes = (): { path: string; title: string }[] =>
+  [...MODULES]
+    .sort((a, b) => a.navOrder - b.navOrder || a.name.localeCompare(b.name))
+    .flatMap((m) => m.routes.map((r) => ({ path: r.path, title: r.title ?? m.title })));
 `;
 
 writeFileSync(OUT, body);
+
+/**
+ * ★ 화면은 **따로 뽑는다.**
+ *   등록부에 `ui: () => import("./x/ui/page.tsx")` 를 두면 그 파일을 읽는 쪽 전부가
+ *   TSX 를 타입 그래프에 끌어안는다 — 잡만 돌리는 워커까지. 실제로 워커 타입검사가
+ *   DOM 을 모른 채 모듈 화면을 검사하다 깨졌다. 워커는 잡을, 웹은 화면을 본다.
+ */
+const uiBody = `// ⚠️ 생성 파일이다. 직접 고치지 말 것 — \`npm run modules:sync\` 가 다시 만든다.
+//
+// 모듈 화면만 모은다. **웹만 이 파일을 읽는다** — 워커는 registry.generated.ts 만 본다.
+
+import type { ComponentType } from "react";
+
+export type ModuleView = ComponentType<{ searchParams: Record<string, string | string[] | undefined> }>;
+
+export const MODULE_UI: Record<string, () => Promise<{ default: ModuleView }>> = {
+${manifests.filter((m) => hasUi(m.name)).map((m) => `  ${JSON.stringify(m.name)}: () => import("./${m.name}/ui/page.tsx"),`).join("\n")}
+};
+
+export const moduleUi = (name: string) => MODULE_UI[name];
+`;
+writeFileSync(OUT_UI, uiBody);
 console.log(
   `모듈 등록부 생성: ${manifests.length}개 — ${manifests.map((m) => m.name).join(", ") || "(없음)"}`,
 );

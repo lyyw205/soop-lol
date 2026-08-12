@@ -15,6 +15,8 @@
 
 import Link from "next/link";
 
+import { versusHref } from "@/lib/module-links";
+
 import type {
   ChampionRow, EventRecord, PlacementSummary, ProfileAccount,
   RecentGame, OpponentGame, OpponentRow,
@@ -383,7 +385,7 @@ function OpponentHeadline({ r }: { r: OpponentRow }) {
 export function OpponentRowCompact({ r, slug }: { r: OpponentRow; slug: string }) {
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-2.5">
-      <Link href={`/vs/${slug}/${r.slug}`} className="font-medium text-ink-200 hover:text-accent-400">
+      <Link href={versusHref(slug, r.slug) ?? `/s/${r.slug}`} className="font-medium text-ink-200 hover:text-accent-400">
         vs {r.display_name}
       </Link>
       <OpponentHeadline r={r} />
@@ -417,7 +419,7 @@ export function OpponentCard({
 
         <div className="px-4 pb-3">
           <Link
-            href={`/vs/${slug}/${r.slug}`}
+            href={versusHref(slug, r.slug) ?? `/s/${r.slug}`}
             className="text-[11px] text-ink-400 hover:text-accent-400"
           >
             {streamerName} vs {r.display_name} 상대전적 페이지 →

@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { versusHref } from "@/lib/module-links";
+
 import { countPublic, listRecentEncounters } from "@soop-lol/core/lib/db/public";
 
 import { EmptyLine, PageShell, QueueTag, SectionTitle, SiteHeader, WinPill, relativeDate } from "@/components/public";
@@ -53,7 +55,7 @@ export default async function Home() {
             <ul className="divide-y divide-ink-800 rounded-xl border border-ink-800 bg-ink-900/60">
               {recent.map((e) => (
                 <li key={`${e.match_id}-${e.a_slug}-${e.b_slug}`} className="flex flex-wrap items-center gap-2 px-4 py-3">
-                  <Link href={`/vs/${e.a_slug}/${e.b_slug}`} className="min-w-0 flex-1 text-sm text-ink-200 hover:text-accent-400">
+                  <Link href={versusHref(e.a_slug, e.b_slug) ?? `/s/${e.a_slug}`} className="min-w-0 flex-1 text-sm text-ink-200 hover:text-accent-400">
                     <span className={e.a_win ? "text-ink-200" : "text-ink-400"}>{e.a_name}</span>
                     <span className="mx-1.5 text-ink-400">{e.relation === "opponent" ? "vs" : "&"}</span>
                     <span className={e.b_win ? "text-ink-200" : "text-ink-400"}>{e.b_name}</span>

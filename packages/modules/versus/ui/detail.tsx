@@ -24,10 +24,12 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+// ★ 모듈은 계약만 import 한다. core/lib/db·metrics 를 직접 부르면 verify:modules 가 막는다 —
+//   좁은 계약이 곧 core 가 내부를 바꿀 수 있는 자유다.
 import {
-  affinity, isSmallSample, rawWinRate, SMALL_SAMPLE_THRESHOLD,
-} from "@soop-lol/core/lib/metrics/affinity";
-import { POSITION_LABEL, QUEUE_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
+  affinity, isSmallSample, rawWinRate, POSITION_LABEL, QUEUE_LABEL,
+  SMALL_SAMPLE_THRESHOLD, type Position,
+} from "@soop-lol/core/lib/contract";
 
 // ── 화면에 오는 모양 ─────────────────────────────────────────────────
 
@@ -352,7 +354,7 @@ function FlowChart({
 
 // ── 본체 ─────────────────────────────────────────────────────────────
 
-export function VersusView({ x, y, sets, rosters }: Props) {
+export function VersusDetail({ x, y, sets, rosters }: Props) {
   const [rel, setRel] = useState<"o" | "a">("o");
   const [year, setYear] = useState<"all" | string>("all");
   const [sort, setSort] = useState<"recent" | "oldest">("recent");
@@ -420,9 +422,12 @@ export function VersusView({ x, y, sets, rosters }: Props) {
 
   return (
     <>
-      {/* ── 히어로 밴드 ── */}
-      <section className="border-b border-ink-800 bg-[linear-gradient(180deg,#12151f_0%,#0a0b0f_100%)]">
-        <div className="mx-auto box-border max-w-[1120px] px-6 pb-[26px] pt-[34px]">
+      {/* ── 히어로 ──
+          ★ 틀(머리말·본문 폭)은 host 의 /m/[module] 이 씌운다. 모듈이 제 <main> 과
+            전체폭 밴드를 그리면 <main> 이 겹치고 폭이 두 번 잡힌다. 여기서는
+            테두리 있는 패널로 앉는다. */}
+      <section className="overflow-hidden rounded-xl border border-ink-800 bg-[linear-gradient(180deg,#12151f_0%,#0a0b0f_100%)]">
+        <div className="box-border px-5 pb-[26px] pt-[26px]">
           <div className="grid items-start gap-[34px] lg:grid-cols-[352px_minmax(0,1fr)]">
             {/* 좌측 */}
             <div>
@@ -512,7 +517,7 @@ export function VersusView({ x, y, sets, rosters }: Props) {
       </section>
 
       {/* ── 연대기 ── */}
-      <main className="mx-auto box-border w-full max-w-[1120px] flex-1 px-6 pb-12 pt-[26px]">
+      <section className="mt-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <h2 className="text-[15px] font-semibold text-ink-200">
             연대기 <span className="tabular ml-1.5 text-xs font-normal text-ink-400">{matches.length}경기</span>
@@ -577,7 +582,7 @@ export function VersusView({ x, y, sets, rosters }: Props) {
           표본이 {SMALL_SAMPLE_THRESHOLD}경기 미만인 칸에는 <span className="text-amber-300">참고용</span> 표시를 답니다.
           포지션 추론이 어긋난 경기는 맞라인에서 제외합니다.
         </p>
-      </main>
+      </section>
     </>
   );
 }

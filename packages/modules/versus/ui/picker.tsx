@@ -75,8 +75,11 @@ function OneField({
           autoComplete="off"
           placeholder="이름을 입력하세요"
           value={text}
+          // ★ e.target 이 아니라 e.currentTarget 이다. 핸들러가 붙은 그 input 이라는 뜻이라
+          //   의미가 정확하고, @types/node 의 EventTarget 과 lib.dom 이 겹쳐 생기는
+          //   타입 충돌(EventTarget & HTMLInputElement 에 value 가 없다)도 피한다.
           onChange={(e) => {
-            setText(e.target.value);
+            setText(e.currentTarget.value);
             setSlug("");                     // 글자가 바뀌면 고른 것은 무효다
             setOpen(true);
             setCursor(0);
@@ -132,7 +135,7 @@ export function VersusPicker(
   { options, a, b }: { options: PickerOption[]; a?: string; b?: string },
 ) {
   return (
-    <form method="get" action="/vs" className="mt-6 flex flex-wrap items-end gap-3">
+    <form method="get" action="/m/versus" className="mt-6 flex flex-wrap items-end gap-3">
       <OneField name="a" label="누가" options={options} initialSlug={a} />
       <OneField name="b" label="누구와" options={options} initialSlug={b} />
       <button
