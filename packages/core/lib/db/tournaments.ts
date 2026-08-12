@@ -134,7 +134,10 @@ export interface TournamentGameInput {
   /** 100 = blue, 200 = red */
   winning_team: 100 | 200;
   participants: {
-    puuid: string;
+    /** 계정을 붙였으면 puuid. 아직이면 null 이고 streamer_id 로 사람을 식별한다(0017). */
+    puuid: string | null;
+    /** 계정이 없어도 방송에서 확인된 사람. 둘 다 비면 저장이 거부된다. */
+    streamer_id?: string | null;
     team_id: 100 | 200;
     position?: string | null;
     champion_id?: number | null;
@@ -189,9 +192,9 @@ export async function saveTournamentGame(g: TournamentGameInput): Promise<void> 
     for (const [i, p] of g.participants.entries()) {
       await tx`
         INSERT INTO match_participant
-          (match_id, puuid, participant_id, team_id, team_position, individual_position,
+          (match_id, puuid, streamer_id, participant_id, team_id, team_position, individual_position,
            champion_id, champion_name, win, kills, deaths, assists)
-        VALUES (${g.match_id}, ${p.puuid}, ${i + 1}, ${p.team_id},
+        VALUES (${g.match_id}, ${p.puuid}, ${p.streamer_id ?? null}, ${i + 1}, ${p.team_id},
                 ${p.position ?? null}, ${p.position ?? null},
                 ${p.champion_id ?? 0}, ${p.champion_name ?? null}, ${p.team_id === g.winning_team},
                 ${p.kills ?? 0}, ${p.deaths ?? 0}, ${p.assists ?? 0})

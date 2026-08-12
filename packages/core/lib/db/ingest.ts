@@ -277,12 +277,15 @@ async function recordCandidatesFromMatch(
 ): Promise<number> {
   if (match.source !== "tournament_code") return 0;
 
-  const owners = await ownerMap(tx, participants.map((p) => p.puuid));
+  const owners = await ownerMap(tx, participants.map((p) => p.puuid).filter((x): x is string => x != null));
   const knownStreamerIds = [...new Set(owners.values())];
   // 아는 사람이 하나도 없는 방은 우리 관심사가 아니다 — 근거 없이 명단만 부풀린다.
   if (knownStreamerIds.length === 0) return 0;
 
-  const unmapped = participants.filter((p) => p.puuid && !owners.has(p.puuid));
+  // ★ 후보는 **계정이 있는데 주인을 모르는 사람**이다. puuid 가 아예 없는 참가자는
+  //   우리가 이미 누군지 아는(streamer_id 로 넣은) 사람이라 후보가 아니다.
+  const unmapped = participants.filter((p): p is typeof p & { puuid: string } =>
+    p.puuid != null && !owners.has(p.puuid));
   if (unmapped.length === 0) return 0;
 
   let n = 0;
@@ -309,7 +312,7 @@ async function recordCandidatesFromMatch(
 async function insertParticipant(tx: Tx, p: ParticipantRow): Promise<void> {
   await tx`
     INSERT INTO match_participant (
-      match_id, puuid, participant_id, team_id,
+      match_id, puuid, streamer_id, participant_id, team_id,
       team_position, individual_position, lane, role,
       champion_id, champion_name, champ_level, win,
       kills, deaths, assists, gold_earned, cs,
@@ -317,7 +320,7 @@ async function insertParticipant(tx: Tx, p: ParticipantRow): Promise<void> {
       wards_placed, wards_killed, control_wards, turret_kills, first_blood_kill,
       summoner1_id, summoner2_id, items, perks, challenges
     ) VALUES (
-      ${p.match_id}, ${p.puuid}, ${p.participant_id}, ${p.team_id},
+      ${p.match_id}, ${p.puuid}, ${p.streamer_id ?? null}, ${p.participant_id}, ${p.team_id},
       ${p.team_position}, ${p.individual_position}, ${p.lane}, ${p.role},
       ${p.champion_id}, ${p.champion_name}, ${p.champ_level}, ${p.win},
       ${p.kills}, ${p.deaths}, ${p.assists}, ${p.gold_earned}, ${p.cs},
@@ -327,7 +330,10 @@ async function insertParticipant(tx: Tx, p: ParticipantRow): Promise<void> {
       ${p.perks === null ? null : tx.json(p.perks as never)},
       ${tx.json(p.challenges as never)}
     )
-    ON CONFLICT (match_id, puuid) DO NOTHING
+    -- ★ PK 가 (match_id, participant_id) 로 바뀌었다(0017). (match_id, puuid) 는
+    --   이제 **부분** 유니크 인덱스(WHERE puuid IS NOT NULL)라 ON CONFLICT 이
+    --   같은 조건 없이는 추론하지 못한다 — 실제로 42P10 으로 적재가 죽었다.
+    ON CONFLICT (match_id, participant_id) DO NOTHING
   `;
 }
 
@@ -370,7 +376,7 @@ async function writeEncounters(
   // ParticipantRow 도 그대로 들어온다 — EncounterParticipant 가 그 부분집합이다.
   participants: EncounterParticipant[],
 ): Promise<number> {
-  const owners = await ownerMap(tx, participants.map((p) => p.puuid));
+  const owners = await ownerMap(tx, participants.map((p) => p.puuid).filter((x): x is string => x != null));
   const rows = deriveEncounters(
     {
       match_id: match.match_id,
@@ -455,13 +461,20 @@ export async function findMatchesNeedingEncounters(limit = 500): Promise<string[
 export async function pruneOrphanEncounters(): Promise<number> {
   const sql = db();
   const rows = await sql`
+    -- ★ "근거를 잃은 조우" 는 **계정으로 맺힌 조우의 계정이 떨어져 나간 것**이다.
+    --   a_puuid 가 애초에 NULL 인 조우는 방송에서 사람을 직접 확인해 넣은 것이라
+    --   계정 매핑에 기댄 적이 없다 — 지울 근거가 없다(0017).
+    --   이 조건을 안 달았더니 이라333 의 조우 45쌍이 만들어지자마자 통째로 지워졌다.
     DELETE FROM streamer_encounter se
-     WHERE NOT EXISTS (
+     WHERE (se.a_puuid IS NOT NULL AND NOT EXISTS (
              SELECT 1 FROM streamer_account sa
-              WHERE sa.streamer_id = se.streamer_a_id AND sa.puuid = se.a_puuid AND sa.active_to IS NULL)
-        OR NOT EXISTS (
+              WHERE sa.streamer_id = se.streamer_a_id AND sa.puuid = se.a_puuid AND sa.active_to IS NULL))
+        OR (se.b_puuid IS NOT NULL AND NOT EXISTS (
              SELECT 1 FROM streamer_account sa
-              WHERE sa.streamer_id = se.streamer_b_id AND sa.puuid = se.b_puuid AND sa.active_to IS NULL)
+              WHERE sa.streamer_id = se.streamer_b_id AND sa.puuid = se.b_puuid AND sa.active_to IS NULL))
+        -- 사람도 계정도 없는 조우는 남아 있을 이유가 없다.
+        OR (se.a_puuid IS NULL AND NOT EXISTS (SELECT 1 FROM streamer WHERE id = se.streamer_a_id))
+        OR (se.b_puuid IS NULL AND NOT EXISTS (SELECT 1 FROM streamer WHERE id = se.streamer_b_id))
     RETURNING match_id
   `;
   return rows.length;
@@ -481,7 +494,7 @@ export async function rederiveEncounters(matchIds: string[]): Promise<number> {
       `;
       if (matches.length === 0) return 0;
       const participants = await tx<EncounterParticipant[]>`
-        SELECT puuid, team_id, team_position, individual_position, win, champion_id,
+        SELECT puuid, streamer_id, team_id, team_position, individual_position, win, champion_id,
                kills, deaths, assists, cs, gold_earned, damage_to_champions
           FROM match_participant WHERE match_id = ${matchId}
       `;
@@ -619,7 +632,7 @@ export async function recomputeChampionStats(): Promise<number> {
     const rows = await tx`
       INSERT INTO champion_stat
         (streamer_id, champion_id, queue_id, season, games, wins, kills, deaths, assists, cs, seconds_played, category)
-      SELECT sa.streamer_id, mp.champion_id, m.queue_id, s.season,
+      SELECT sid.streamer_id, mp.champion_id, m.queue_id, s.season,
              count(*)::int                             AS games,
              count(*) FILTER (WHERE mp.win)::int       AS wins,
              coalesce(sum(mp.kills), 0)::int           AS kills,
@@ -631,7 +644,10 @@ export async function recomputeChampionStats(): Promise<number> {
         FROM match_participant mp
         JOIN match m             ON m.match_id = mp.match_id
         LEFT JOIN event ev       ON ev.id = m.event_id
-        JOIN streamer_account sa ON sa.puuid = mp.puuid AND sa.active_to IS NULL
+        -- ★ 계정이 붙었으면 매핑으로, 아니면 참가자 행에 적힌 사람으로.
+        --   계정 없는 참가자를 빼면 그 사람의 모스트 챔피언이 통째로 빈다(0017).
+        LEFT JOIN streamer_account sa ON sa.puuid = mp.puuid AND sa.active_to IS NULL
+        JOIN LATERAL (SELECT COALESCE(sa.streamer_id, mp.streamer_id) AS streamer_id) sid ON true
         -- KST 고정 오프셋(+9h). tzdata 에 의존하지 않는다 — core 의 kstYear 와 같은 규칙.
         CROSS JOIN LATERAL (
           VALUES ('ALL'), (to_char(m.game_creation + interval '9 hours', 'YYYY'))
@@ -640,7 +656,7 @@ export async function recomputeChampionStats(): Promise<number> {
         --   누가 어느 팀으로 이겼는지는 근거가 있어도 챔피언까진 없을 때가 많고,
         --   saveTournamentGame 이 그런 참가자를 0 으로 넣는다(없는 값을 지어내지 않는다).
         --   거르지 않으면 모스트 챔피언 1위가 '알 수 없는 챔피언'이 되어 버린다.
-       WHERE mp.champion_id > 0
+       WHERE mp.champion_id > 0 AND sid.streamer_id IS NOT NULL
        GROUP BY 1, 2, 3, 4, 12
       RETURNING streamer_id
     `;

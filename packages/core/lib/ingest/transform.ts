@@ -47,7 +47,13 @@ export interface MatchRow {
 
 export interface ParticipantRow {
   match_id: string;
-  puuid: string;
+  /** Riot 이 준 puuid. 방송을 읽어 넣은 내전에서 계정을 모르면 null (0017). */
+  puuid: string | null;
+  /**
+   * 그 자리에 있던 우리 스트리머. 공개 큐는 계정 매핑에서 파생되므로 비워 두고,
+   * 계정을 못 붙인 참가자만 여기로 식별한다. 둘 다 비면 저장이 거부된다.
+   */
+  streamer_id?: string | null;
   participant_id: number;
   team_id: number;
   team_position: string | null;
@@ -187,7 +193,13 @@ export function toParticipantRows(dto: MatchDto): ParticipantRow[] {
 
 /** 조우 판정에 필요한 최소 필드. match_participant 에서 그대로 읽어온다. */
 export interface EncounterParticipant {
-  puuid: string;
+  /**
+   * Riot 계정. **방송을 읽어 넣은 내전에서는 없을 수 있다** —
+   * 그때는 `streamer_id` 로 사람을 식별한다(마이그레이션 0017).
+   */
+  puuid: string | null;
+  /** 계정을 아직 못 붙였지만 그 자리에 있던 게 확인된 우리 스트리머. */
+  streamer_id?: string | null;
   team_id: number;
   team_position: string | null;
   individual_position: string | null;
@@ -213,8 +225,9 @@ export interface EncounterRow {
   match_id: string;
   streamer_a_id: string;
   streamer_b_id: string;
-  a_puuid: string;
-  b_puuid: string;
+  /** 어느 계정으로 뛰었는지 되짚는 참고값. 계정을 모르면 null 이다(0017). */
+  a_puuid: string | null;
+  b_puuid: string | null;
   relation: "opponent" | "ally";
   a_position: string | null;
   b_position: string | null;
@@ -260,7 +273,10 @@ export function deriveEncounters(
 
   const seen = new Map<string, EncounterParticipant>();
   for (const p of participants) {
-    const streamerId = ownerOf.get(p.puuid);
+    // ★ 계정이 붙어 있으면 그걸로, 아니면 사람으로 식별한다.
+    //   조우는 **사람 사이**의 사실이라 계정이 없다고 빠뜨리면 안 된다 —
+    //   실제로 이라333 이 시그니처CK 5경기에서 통째로 사라져 있었다.
+    const streamerId = (p.puuid ? ownerOf.get(p.puuid) : null) ?? p.streamer_id ?? null;
     if (!streamerId) continue;
     if (!seen.has(streamerId)) seen.set(streamerId, p);
   }

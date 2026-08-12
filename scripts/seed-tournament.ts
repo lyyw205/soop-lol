@@ -285,11 +285,16 @@ try {
           g.lineup?.[team] ??
           (t.teams[team] ?? []).map((slug) => ({ slug, position: t.roster_positions?.[slug] }));
         for (const e of entries) {
-          const puuid = puuidBySlug.get(e.slug);
-          if (!puuid) continue; // 계정 없는 스트리머는 건너뛴다 — 위에서 집계해 보고한다
+          // ★ 계정이 없어도 **경기에는 넣는다.** 우리가 아는 사실은 "이 사람이 이 판에
+          //   있었다" 지 "이 계정이 있었다" 가 아니다. 예전엔 여기서 건너뛰어서
+          //   이라333 이 시그니처CK 5경기에서 통째로 사라졌다 — 팀·포지션·챔피언·KDA 를
+          //   결과 화면에서 다 읽어 놓고도 화면에는 성훈팀이 4명으로 나왔다.
+          const puuid = puuidBySlug.get(e.slug) ?? null;
+          const streamerId = idBySlug.get(e.slug) ?? null;
+          if (!puuid && !streamerId) continue;   // 등록조차 안 된 사람은 넣을 수 없다
           const champ = e.champion ? championByName(e.champion) : null;
           participants.push({
-            puuid, team_id: teamId,
+            puuid, streamer_id: streamerId, team_id: teamId,
             // ★ 포지션은 lineup 이 안 적었으면 대회 로스터 포지션으로 메운다.
             //   lineup 을 쓰는 순간 roster_positions 가 통째로 무시돼서
             //   맞라인 판정이 조용히 사라졌다(§11-10 은 '틀린 맞라인' 이 없느니만
@@ -341,8 +346,9 @@ try {
   console.log(`\n경기 ${games}건 · 조우 ${encounters}쌍${dryRun ? "  (dry-run — 쓰지 않았다)" : ""}`);
   if (missing.size > 0) {
     console.log(
-      `\n⚠ 라이엇 계정이 없어 조우에 못 들어간 스트리머 ${missing.size}명: ${[...missing].join(", ")}\n` +
-        `  계정을 연결하고 이 스크립트를 다시 돌리면 그 사람의 대회 조우가 되살아난다.`,
+      `\n· 라이엇 계정이 아직 없는 스트리머 ${missing.size}명: ${[...missing].join(", ")}\n` +
+        `  경기·조우·모스트 챔피언에는 **들어갔다** (0017 — 사람으로 식별한다).\n` +
+        `  계정을 연결하면 공개 큐 전적까지 이어 붙는다.`,
     );
   }
 } catch (e) {
