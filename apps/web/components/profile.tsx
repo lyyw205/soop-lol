@@ -28,6 +28,17 @@ import {
 } from "./public";
 import { SeriesLog } from "./series-log";
 
+/**
+ * 챔피언 표시 이름.
+ * ★ `champion_id = 0` 은 챔피언이 아니라 **'모른다'** 다 — 방송을 읽어 넣은 내전 중
+ *   결과 화면을 못 구해 챔피언까지는 확정하지 못한 경기가 그렇게 저장된다
+ *   (없는 값을 지어내지 않는다). 그대로 두면 화면에 '챔피언 0' 이라고 뜬다.
+ */
+function championLabel(c: { champion_name: string | null; champion_id: number }): string {
+  if (c.champion_id === 0) return "챔피언 미상";
+  return c.champion_name ?? `챔피언 ${c.champion_id}`;
+}
+
 export const PROFILE_TABS = [
   { key: "summary", label: "요약" },
   { key: "events", label: "대회" },
@@ -504,7 +515,7 @@ export function ChampionList({ champions }: { champions: ChampionRow[] }) {
       {champions.map((c) => (
         <li key={c.champion_id} className="rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-3">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-sm text-ink-200">{c.champion_name ?? `챔피언 ${c.champion_id}`}</span>
+            <span className="text-sm text-ink-200">{championLabel(c)}</span>
             <Kda
               k={Math.round(c.kills / c.games)}
               d={Math.round(c.deaths / c.games)}
@@ -528,7 +539,7 @@ export function GameList({ games }: { games: RecentGame[] }) {
         <li key={g.match_id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
           <WinPill win={g.win} />
           <span className="min-w-0 flex-1 truncate text-sm text-ink-200">
-            {g.champion_name ?? `챔피언 ${g.champion_id}`}
+            {championLabel(g)}
           </span>
           <PositionTag position={g.team_position} />
           <Kda k={g.kills} d={g.deaths} a={g.assists} />

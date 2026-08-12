@@ -11,6 +11,7 @@
  */
 
 import { db } from "./client.ts";
+import { expandCategory, type MatchCategoryFilter } from "../metrics/category.ts";
 import { PLACEMENT_BUCKETS, placementBucket } from "../metrics/placement.ts";
 
 // ── 목록 ─────────────────────────────────────────────────────────────
@@ -115,6 +116,8 @@ export interface RecentGame {
   game_creation: Date;
   game_duration: number | null;
   queue_id: number;
+  /** 경기 분류 (solo/scrim/tournament …). 화면이 뱃지를 달 때 쓴다. */
+  category: string;
   champion_id: number;
   champion_name: string | null;
   team_position: string | null;
@@ -211,7 +214,17 @@ export async function getRankSeries(streamerId: string): Promise<RankPoint[]> {
   `;
 }
 
-export async function listChampions(streamerId: string, limit = 8): Promise<ChampionRow[]> {
+export async function listChampions(
+  streamerId: string,
+  limit = 8,
+  /**
+   * 분류 필터. 없으면 전부 합친다.
+   * ★ 합친 값이 기본인 건 "이 사람이 뭘 잘 하나" 를 묻는 칸이라서다. 다만 화면은
+   *   **무엇을 합쳤는지 말해야 한다** — 솔랭 1판과 내전 3판이 아무 표시 없이
+   *   한 줄에 있으면 §11-7 이 막으려던 바로 그 상태가 된다.
+   */
+  category?: MatchCategoryFilter,
+): Promise<ChampionRow[]> {
   const sql = db();
   return sql<ChampionRow[]>`
     SELECT cs.champion_id,
@@ -222,26 +235,37 @@ export async function listChampions(streamerId: string, limit = 8): Promise<Cham
            sum(cs.cs)::bigint AS cs, sum(cs.seconds_played)::bigint AS seconds_played
       FROM core_public.champion_stat cs
      WHERE cs.streamer_id = ${streamerId}::uuid AND cs.season = 'ALL'
+       AND (${expandCategory(category)}::text[] IS NULL
+            OR cs.category = ANY(${expandCategory(category)}::text[]))
      GROUP BY cs.champion_id
      ORDER BY sum(cs.games) DESC
      LIMIT ${limit}
   `;
 }
 
-export async function listRecentGames(streamerId: string, limit = 20): Promise<RecentGame[]> {
+export async function listRecentGames(
+  streamerId: string,
+  limit = 20,
+  /**
+   * 기본은 **공개 큐 묶음**이다(§11-7) — 화면도 "공개 큐만" 이라고 써 놨다.
+   * 'scrim' 을 주면 내전 목록이 되고, 'all' 은 말 그대로 전부다.
+   */
+  category: MatchCategoryFilter = "public_queue",
+): Promise<RecentGame[]> {
   const sql = db();
   return sql<RecentGame[]>`
-    SELECT mp.match_id, m.game_creation, m.game_duration, m.queue_id,
+    SELECT mp.match_id, m.game_creation, m.game_duration, m.queue_id, m.category,
            mp.champion_id, mp.champion_name, mp.team_position, mp.win,
            mp.kills, mp.deaths, mp.assists, mp.cs
       FROM core_public.match_participant mp
       JOIN core_public.match m ON m.match_id = mp.match_id
      WHERE mp.streamer_id = ${streamerId}::uuid
-       -- ★ 공개 큐만이다(§11-7). 화면이 이 목록에 "공개 큐만" 이라고 써 두는데
-       --   거르지 않으면 그 말이 거짓이 된다. 실제로 그랬다 — 내전을 처음 넣자마자
-       --   수기 경기 5건이 최근 경기 맨 위를 차지했고, 챔피언을 모르니 '챔피언 0' 으로
-       --   떴다. 내전은 '대회 성적' 이 따로 보여준다. 두 전적은 섞지 않는다.
-       AND m.source = 'public_queue'
+       -- ★ 아무 것도 안 주면 **공개 큐만**이다(§11-7). 화면이 이 목록에 "공개 큐만"
+       --   이라고 써 두는데 거르지 않으면 그 말이 거짓이 된다. 실제로 그랬다 —
+       --   내전을 처음 넣자마자 수기 경기 5건이 최근 경기 맨 위를 차지했고,
+       --   챔피언을 모르니 '챔피언 0' 으로 떴다.
+       AND (${expandCategory(category)}::text[] IS NULL
+            OR m.category = ANY(${expandCategory(category)}::text[]))
      ORDER BY m.game_creation DESC
      LIMIT ${limit}
   `;
@@ -432,13 +456,22 @@ export interface OpponentGame {
  * 승률 숫자만으로는 "언제 붙은 건데?" 를 답할 수 없다. 2020년 한 판과
  * 2026년 열 판이 같은 줄에 뭉쳐 있으면 뜻이 흐려진다.
  */
-export async function listOpponentGames(streamerId: string, year?: number): Promise<OpponentGame[]> {
+export async function listOpponentGames(
+  streamerId: string,
+  year?: number,
+  /**
+   * 경기 분류 필터 (`solo` · `scrim` · `tournament` …). 'all' 이거나 없으면 전부.
+   * 분류 규칙은 core 의 matchCategory() 하나이고, 여기서는 이미 계산돼 저장된
+   * `category` 컬럼만 본다 — 질의마다 다시 판정하면 규칙이 두 벌이 된다.
+   */
+  category?: MatchCategoryFilter,
+): Promise<OpponentGame[]> {
   const sql = db();
   return sql<OpponentGame[]>`
     SELECT CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.streamer_b_id
                 ELSE se.streamer_a_id END                       AS other_id,
            se.match_id, se.series_key, se.series_game_no,
-           se.relation, se.source, se.is_lane_matchup,
+           se.relation, se.source, se.category, se.is_lane_matchup,
            se.game_creation                                     AS played_at,
            CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.a_win
                 ELSE se.b_win END                               AS me_win,
@@ -449,6 +482,8 @@ export async function listOpponentGames(streamerId: string, year?: number): Prom
      WHERE (se.streamer_a_id = ${streamerId}::uuid OR se.streamer_b_id = ${streamerId}::uuid)
        AND (${year ?? null}::int IS NULL
             OR EXTRACT(YEAR FROM se.game_creation) = ${year ?? null}::int)
+       AND (${expandCategory(category)}::text[] IS NULL
+            OR se.category = ANY(${expandCategory(category)}::text[]))
      ORDER BY se.game_creation DESC, se.series_game_no DESC
   `;
 }

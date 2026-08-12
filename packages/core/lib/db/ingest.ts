@@ -397,18 +397,26 @@ async function insertEncounter(tx: Tx, r: EncounterRow): Promise<void> {
       a_win, b_win, a_champion_id, b_champion_id,
       a_kills, a_deaths, a_assists, a_cs, a_gold, a_damage,
       b_kills, b_deaths, b_assists, b_cs, b_gold, b_damage,
-      queue_id, source, game_creation, game_duration
+      queue_id, source, game_creation, game_duration, category
     ) VALUES (
       ${r.match_id}, ${r.streamer_a_id}::uuid, ${r.streamer_b_id}::uuid, ${r.a_puuid}, ${r.b_puuid},
       ${r.relation}, ${r.a_position}, ${r.b_position}, ${r.is_lane_matchup},
       ${r.a_win}, ${r.b_win}, ${r.a_champion_id}, ${r.b_champion_id},
       ${r.a_kills}, ${r.a_deaths}, ${r.a_assists}, ${r.a_cs}, ${r.a_gold}, ${r.a_damage},
       ${r.b_kills}, ${r.b_deaths}, ${r.b_assists}, ${r.b_cs}, ${r.b_gold}, ${r.b_damage},
-      ${r.queue_id}, ${r.source}, ${r.game_creation}, ${r.game_duration}
+      ${r.queue_id}, ${r.source}, ${r.game_creation}, ${r.game_duration},
+      -- ★ 분류는 SQL 함수 하나로만 낸다. TS 에도 같은 규칙이 있지만(화면이 이름을
+      --   붙여야 해서) **쓰는 쪽은 한 곳**이라야 어긋날 여지가 없다.
+      lol_match_category(${r.source}, ${r.queue_id},
+        (SELECT ev.kind FROM match m LEFT JOIN event ev ON ev.id = m.event_id
+          WHERE m.match_id = ${r.match_id}))
     )
     ON CONFLICT (match_id, streamer_a_id, streamer_b_id) DO UPDATE SET
       relation        = EXCLUDED.relation,
       is_lane_matchup = EXCLUDED.is_lane_matchup,
+      -- 대회를 나중에 붙이면 분류가 바뀐다(예: 코드 내전 → 이름 붙은 대회).
+      -- 재파생이 이걸 안 갱신하면 필터가 옛 분류에 갇힌다.
+      category        = EXCLUDED.category,
       derived_at      = now()
   `;
 }
@@ -610,7 +618,7 @@ export async function recomputeChampionStats(): Promise<number> {
     await tx`DELETE FROM champion_stat`;
     const rows = await tx`
       INSERT INTO champion_stat
-        (streamer_id, champion_id, queue_id, season, games, wins, kills, deaths, assists, cs, seconds_played)
+        (streamer_id, champion_id, queue_id, season, games, wins, kills, deaths, assists, cs, seconds_played, category)
       SELECT sa.streamer_id, mp.champion_id, m.queue_id, s.season,
              count(*)::int                             AS games,
              count(*) FILTER (WHERE mp.win)::int       AS wins,
@@ -618,9 +626,11 @@ export async function recomputeChampionStats(): Promise<number> {
              coalesce(sum(mp.deaths), 0)::int          AS deaths,
              coalesce(sum(mp.assists), 0)::int         AS assists,
              coalesce(sum(mp.cs), 0)::bigint           AS cs,
-             coalesce(sum(m.game_duration), 0)::bigint AS seconds_played
+             coalesce(sum(m.game_duration), 0)::bigint AS seconds_played,
+             lol_match_category(m.source, m.queue_id, ev.kind)  AS category
         FROM match_participant mp
         JOIN match m             ON m.match_id = mp.match_id
+        LEFT JOIN event ev       ON ev.id = m.event_id
         JOIN streamer_account sa ON sa.puuid = mp.puuid AND sa.active_to IS NULL
         -- KST 고정 오프셋(+9h). tzdata 에 의존하지 않는다 — core 의 kstYear 와 같은 규칙.
         CROSS JOIN LATERAL (
@@ -631,7 +641,7 @@ export async function recomputeChampionStats(): Promise<number> {
         --   saveTournamentGame 이 그런 참가자를 0 으로 넣는다(없는 값을 지어내지 않는다).
         --   거르지 않으면 모스트 챔피언 1위가 '알 수 없는 챔피언'이 되어 버린다.
        WHERE mp.champion_id > 0
-       GROUP BY 1, 2, 3, 4
+       GROUP BY 1, 2, 3, 4, 12
       RETURNING streamer_id
     `;
     return rows.length;

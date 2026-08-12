@@ -50,6 +50,7 @@ const tournaments = await import("../packages/core/lib/db/tournaments.ts");
 const ingestDb = await import("../packages/core/lib/db/ingest.ts");
 const publicDb = await import("../packages/core/lib/db/public.ts");
 const { lpAbsolute } = await import("../packages/core/lib/metrics/lp.ts");
+const { MATCH_CATEGORIES, matchCategory } = await import("../packages/core/lib/metrics/category.ts");
 
 try {
   console.log("\n▸ 스키마 적용");
@@ -95,6 +96,43 @@ try {
 
   const unranked = await db.query<{ v: number | null }>("SELECT lol_lp_absolute(NULL, NULL, NULL) AS v");
   check("언랭은 NULL", unranked.rows[0].v === null);
+
+  // ── 경기 분류 ───────────────────────────────────────────────────
+  //   화면 필터(전체 / 솔로랭크 / 내전 / 대회 …)의 기준이라, SQL 과 TS 가 어긋나면
+  //   "내전만" 을 눌렀는데 대회가 섞여 나오는 식으로 **조용히** 거짓말을 한다.
+  //   lp_absolute 와 같은 이유로 전 조합을 대조한다.
+  console.log("\n▸ match_category — SQL 과 TS 가 같은 값을 낸다");
+  const sources = ["public_queue", "tournament_code", "manual", "??"];
+  const queues = [420, 440, 450, 400, 430, 490, 700, 3130, 0, 1700, null];
+  const kinds = [null, "scrim", "tournament", "showmatch", "other", "??"];
+  let catMismatch = 0, catCombos = 0;
+  for (const source of sources) {
+    for (const queue_id of queues) {
+      for (const event_kind of kinds) {
+        catCombos++;
+        const res = await db.query<{ v: string }>(
+          "SELECT lol_match_category($1, $2, $3) AS v", [source, queue_id, event_kind]);
+        const ts = matchCategory({ source, queue_id, event_kind });
+        if (res.rows[0].v !== ts) {
+          catMismatch++;
+          if (catMismatch <= 3) {
+            console.log(`      ${source}/${queue_id}/${event_kind}: SQL=${res.rows[0].v} TS=${ts}`);
+          }
+        }
+      }
+    }
+  }
+  check(`${catCombos}개 조합 전부 일치`, catMismatch === 0, catMismatch ? `${catMismatch}개 불일치` : "");
+  // 분류값이 우리가 아는 목록 안에 있어야 한다 — SQL 이 오타로 새 값을 내면 필터에서 통째로 사라진다.
+  const known = new Set(MATCH_CATEGORIES.map((c) => c.key));
+  const stray = await db.query<{ v: string }>(
+    `SELECT DISTINCT lol_match_category(s, q, k) AS v
+       FROM unnest(ARRAY['public_queue','tournament_code','manual']) s,
+            unnest(ARRAY[420,440,450,400,430,490,700,3130,0]) q,
+            unnest(ARRAY[NULL,'scrim','tournament','showmatch','other']) k`);
+  check("SQL 이 내는 값이 전부 알려진 분류다",
+    stray.rows.every((r) => known.has(r.v as never) && r.v !== "all"),
+    stray.rows.map((r) => r.v).join(","));
 
   console.log("\n▸ 제약 — 잘못된 데이터를 실제로 거부한다");
   const s1 = await streamers.createStreamer({ slug: "alpha", display_name: "알파", channel: { channel_id: "alpha" } });
