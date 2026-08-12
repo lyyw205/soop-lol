@@ -12,7 +12,7 @@
     "dev:db": "node scripts/dev-db.ts",
     "build": "npm run build -w @soop-lol/web",
     "start": "npm run start -w @soop-lol/web",
-    "test": "node --test \"packages/**/*.test.ts\" \"apps/**/*.test.ts\"",
+    "test": "node --test \"packages/**/*.test.ts\" \"apps/**/*.test.ts\" \"scripts/**/*.test.ts\"",
     "typecheck": "tsc -p packages/core --noEmit && tsc -p apps/web --noEmit && tsc -p apps/worker --noEmit && tsc -p packages/modules --noEmit && tsc -p scripts --noEmit",
     "verify:db": "node scripts/verify-db.ts",
     "verify:ingest": "node scripts/verify-ingest.ts",
