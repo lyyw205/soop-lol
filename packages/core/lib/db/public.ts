@@ -665,6 +665,56 @@ export interface VersusGame {
   a_cs: number | null; a_gold: number | null;
   b_kills: number | null; b_deaths: number | null; b_assists: number | null;
   b_cs: number | null; b_gold: number | null;
+  /** 경기 분류 (solo/scrim/tournament …). 화면이 줄마다 무슨 판인지 말할 때 쓴다. */
+  category: string;
+  /** 대회 이름. 공개 큐면 null — 그때는 큐 이름을 쓴다. */
+  event_name: string | null;
+}
+
+/** 펼침 패널의 로스터 한 줄. **계정이 붙은 스트리머만** 나온다(§11-2). */
+export interface VersusRosterEntry {
+  match_id: string;
+  streamer_id: string;
+  slug: string;
+  display_name: string;
+  team_id: number;
+  /**
+   * 대회 팀 이름(`상호팀`·`교권보호국`). 공개 큐는 팀에 이름이 없으므로 null 이고,
+   * 그때는 화면이 블루/레드로 부른다 — 없는 이름을 지어내지 않는다.
+   */
+  team_name: string | null;
+  team_position: string | null;
+  champion_id: number;
+  champion_name: string | null;
+  win: boolean;
+  kills: number; deaths: number; assists: number;
+}
+
+/**
+ * 경기별 로스터. 상대전적 화면이 한 판을 펼칠 때 "그 판에 누가 있었나" 를 보여준다.
+ *
+ * ★ 계정이 매핑된 스트리머만 나온다. `core_public.match_participant` 자체가
+ *   streamer_id 가 붙은 행만 내보내므로 여기서 더 거를 것이 없다 —
+ *   모르는 참가자를 이름 없이 채워 넣지 않는다(§11-2). 공개 큐 솔로랭크는
+ *   두 사람만 나오는 게 정상이고, 화면이 그렇다고 말해 준다.
+ */
+export async function listVersusRosters(matchIds: string[]): Promise<VersusRosterEntry[]> {
+  if (matchIds.length === 0) return [];
+  const sql = db();
+  return sql<VersusRosterEntry[]>`
+    SELECT mp.match_id, mp.streamer_id, s.slug, s.display_name,
+           mp.team_id, mp.team_position, mp.champion_id, mp.champion_name, mp.win,
+           mp.kills, mp.deaths, mp.assists,
+           t.name AS team_name
+      FROM core_public.match_participant mp
+      JOIN core_public.streamer s ON s.streamer_id = mp.streamer_id
+      JOIN core_public.match m    ON m.match_id = mp.match_id
+      -- 100 = 블루, 200 = 레드. 대회 경기만 팀이 이름을 갖는다(마이그레이션 0008).
+      LEFT JOIN core_public.event_team t
+             ON t.event_team_id = CASE WHEN mp.team_id = 100 THEN m.blue_team_id ELSE m.red_team_id END
+     WHERE mp.match_id = ANY(${matchIds}::text[])
+     ORDER BY mp.match_id, mp.team_id, mp.team_position NULLS LAST, s.display_name
+  `;
 }
 
 /**
@@ -678,14 +728,17 @@ export async function getVersus(xId: string, yId: string): Promise<{ flip: boole
   const [a, b] = [xId, yId].sort();
   const flip = a !== xId;
   const games = await sql<VersusGame[]>`
-    SELECT match_id, series_key, series_game_no, source,
-           game_creation, game_duration, queue_id, relation, is_lane_matchup,
-           a_win, b_win, a_position, b_position, a_champion_id, b_champion_id,
-           a_kills, a_deaths, a_assists, a_cs, a_gold,
-           b_kills, b_deaths, b_assists, b_cs, b_gold
-      FROM core_public.streamer_encounter
-     WHERE streamer_a_id = ${a}::uuid AND streamer_b_id = ${b}::uuid
-     ORDER BY game_creation DESC, series_game_no DESC
+    SELECT e.match_id, e.series_key, e.series_game_no, e.source, e.category,
+           e.game_creation, e.game_duration, e.queue_id, e.relation, e.is_lane_matchup,
+           e.a_win, e.b_win, e.a_position, e.b_position, e.a_champion_id, e.b_champion_id,
+           e.a_kills, e.a_deaths, e.a_assists, e.a_cs, e.a_gold,
+           e.b_kills, e.b_deaths, e.b_assists, e.b_cs, e.b_gold,
+           ev.name AS event_name
+      FROM core_public.streamer_encounter e
+      JOIN core_public.match m ON m.match_id = e.match_id
+      LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
+     WHERE e.streamer_a_id = ${a}::uuid AND e.streamer_b_id = ${b}::uuid
+     ORDER BY e.game_creation DESC, e.series_game_no DESC
   `;
   return { flip, games };
 }

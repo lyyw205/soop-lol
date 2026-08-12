@@ -83,10 +83,10 @@ export function RecordBar({ record, label }: { record: HeadToHead; label?: strin
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="tabular text-sm text-ink-200">
-          {formatRecord(record)}
-          <span className="ml-2 text-ink-400">{pct}%</span>
-        </span>
+        {/* ★ formatRecord 가 이미 괄호 승률을 포함한다. 뒤에 pct 를 또 찍어서
+            화면에 "5승 2패 (71%) 71%" 로 나왔다. 표본이 작으면 formatRecord 의
+            '· N경기 참고용' 과 옆 뱃지 '표본 N판 · 참고용' 까지 겹쳐 세 번 경고했다. */}
+        <span className="tabular text-sm text-ink-200">{formatRecord(record)}</span>
         {small && (
           <span className="rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-300">
             표본 {n}판 · 참고용
