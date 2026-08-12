@@ -33,15 +33,39 @@ import { closeDb, db } from "@soop-lol/core/lib/db/client";
 
 import { BoardBlocked, comments, posts } from "./lib/soop-board.mjs";
 import {
-  LOL_CATEGORY, detect, listBroadcasts, noticesFrom, playableFiles, scanSheets, vodDetail,
+  LOL_CATEGORY, confirmShots, detect, hlsSegments, hms, listBroadcasts, noticesFrom,
+  playableFiles, scanSheets, segmentAt, vodDetail,
 } from "./lib/soop-vod.mjs";
 import { soopPace } from "./lib/soop-http.mjs";
 import { kstDate, makeOpt } from "./lib/cli.mjs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const argv = process.argv.slice(2);
 const opt = makeOpt(argv);
 const DRY = argv.includes("--dry-run");
 const DATE = opt("--date", kstDate(1));   // 기본 = 어제(KST)
+/**
+ * 날짜 **범위**. 안 주면 --date 하루치다.
+ * listBroadcasts 가 서버에서 범위를 걸러 주므로, 12일치를 훑어도 채널당 호출은 한 번이다
+ * (api-channel 은 515 로 잘 막히는 호스트라 호출 수가 곧 위험이다).
+ */
+const FROM = opt("--from", "") || DATE;
+const TO = opt("--to", "") || DATE;
+/**
+ * 채널 하나만 본다. 새 경로를 한 사람으로 검증하거나, 과거를 사람별로 채울 때 쓴다.
+ * 와치리스트 여부와 무관하게 그 채널을 본다 — 등록만 돼 있으면 된다.
+ */
+const ONLY_CHANNEL = opt("--channel", "");
+/**
+ * 확인 프레임을 둘 곳. 시트로는 롤인지 FC온라인인지 못 가르므로(detect 주석),
+ * 후보마다 원본 해상도 한 장을 남긴다. 판정이 끝나면 지워도 된다.
+ */
+const CONFIRM_DIR = join(process.cwd(), "out", "confirm", DATE);
+const FFMPEG = process.env.FFMPEG_PATH ?? "ffmpeg";
+/** VOD 하나에서 뽑을 확인 프레임 상한. 구간당 6MB — 넘치면 긴 구간부터 자른다. */
+const MAX_CONFIRM = 6;
 const BOARD_BUDGET = Number(opt("--board-budget", "10"));
 /**
  * 채팅에서 `!공지`(경기 종료·승자)를 뽑을 VOD 수.
@@ -92,7 +116,7 @@ interface Comment { channel_id: string; nickname: string; text: string; at: stri
 
 const sql = db();
 try {
-  console.log(`${DATE} 치 단서 수집${DRY ? "  (확인만 — 아무것도 쓰지 않는다)" : ""}\n`);
+  console.log(`${FROM === TO ? DATE : `${FROM} ~ ${TO}`} 치 단서 수집${DRY ? "  (확인만 — 아무것도 쓰지 않는다)" : ""}\n`);
 
   // 등록된 채널 ↔ 스트리머. 참가자를 즉시 이어붙이는 데 쓴다.
   const known = new Map<string, { id: string; name: string; watch: boolean }>(
@@ -118,18 +142,21 @@ try {
   // ★ 그래도 event_lead 에는 **경기가 잡힌 것만** 넣는다
   //   전부 넣으면 채널당 하루 열 건씩 쌓이는데 대부분 롤이 아니다. 단서 표에
   //   쓰레기가 차면 정작 볼 것을 못 본다 — 실제로 그렇게 524건이 쌓여 있었다.
-  const watchList = [...known.entries()].filter(([, v]) => v.watch).map(([ch]) => ch);
+  const watchList = ONLY_CHANNEL
+    ? [ONLY_CHANNEL]
+    : [...known.entries()].filter(([, v]) => v.watch).map(([ch]) => ch);
   const vods: Vod[] = [];
-  const evidence = new Map<number, { ratio: number; games: number; notices: number; ends: unknown[] }>();
+  const evidence = new Map<number, { ratio: number; games: number; notices: number; ends: unknown[]; confirm?: string[] }>();
   let truncatedChannels = 0;
   let scannedHours = 0, skippedNoGame = 0;
 
   for (const ch of watchList) {
-    const list = (await listBroadcasts(ch, { from: DATE, to: DATE, category: Number(LOL_CATEGORY) })) as
+    const list = (await listBroadcasts(ch, { from: FROM, to: TO, category: Number(LOL_CATEGORY) })) as
       Awaited<ReturnType<typeof listBroadcasts>> & { truncated?: boolean };
     if (list.truncated) truncatedChannels++;
     for (const v of list) {
-      if (v.ended_at.slice(0, 10) !== DATE) continue;
+      const day = v.ended_at.slice(0, 10);
+      if (day < FROM || day > TO) continue;
       const cand: Vod = { ...v, at: v.ended_at, category: LOL_CATEGORY, views: v.views };
       if (NO_SCAN) { vods.push(cand); continue; }
       if (scannedHours >= SCAN_BUDGET_H) { skippedNoGame++; continue; }
@@ -137,6 +164,8 @@ try {
       // 시트로 훑는다 — 시간당 6.1초·11.4MB. 프레임은 여기서 받지 않는다.
       let ratio = 0, games = 0, notices = 0;
       const ends: unknown[] = [];
+      // 확인 프레임을 뽑을 자리 — 경기 구간마다 한 곳. 파일이 여럿이면 파일별로 모은다.
+      const spots: { file: unknown; at: number }[] = [];
       try {
         for (const file of playableFiles(await vodDetail(v.title_no))) {
           const sheet = await scanSheets(file);
@@ -145,6 +174,7 @@ try {
           const d = detect(sheet.frames, sheet.sec);
           ratio = Math.max(ratio, d.gameRatio);
           games += d.games.length;
+          for (const at of confirmShots(d.games)) spots.push({ file, at });
           // ★ 채팅은 경기가 잡힌 파일에서만 본다. 롤이 아닌 방송까지 훑으면 비용이 두 배다.
           if (d.games.length > 0 && file.chat) {
             const n = await noticesFrom(file);
@@ -155,12 +185,33 @@ try {
       } catch { /* 한 VOD 실패가 그날 수집을 죽이지 않는다 */ }
 
       if (games === 0 && notices === 0) { skippedNoGame++; continue; }
-      evidence.set(v.title_no, { ratio, games, notices, ends });
+
+      // ★ 확인 프레임. 시트로는 게임 종류를 못 가르므로(detect 주석 참조)
+      //   경기 구간마다 원본 해상도 한 장을 남겨 사람이 1초 만에 판정하게 한다.
+      const confirm: string[] = [];
+      if (!DRY && FFMPEG) {
+        for (const spot of spots.slice(0, MAX_CONFIRM)) {
+          try {
+            const seg = await segmentAt(await hlsSegments(spot.file as never), spot.at);
+            if (!seg) continue;
+            mkdirSync(CONFIRM_DIR, { recursive: true });
+            const out = join(CONFIRM_DIR, `${v.channel_id}_${v.title_no}_${hms(spot.at).replace(/:/g, "")}.jpg`);
+            const tmp = join(CONFIRM_DIR, `.tmp_${process.pid}.mp4`);
+            writeFileSync(tmp, seg.data);
+            try {
+              execFileSync(FFMPEG, ["-v", "error", "-ss", seg.offset.toFixed(2), "-i", tmp,
+                "-frames:v", "1", "-vf", "scale=1568:-2", "-q:v", "3", "-y", out], { stdio: "ignore" });
+              confirm.push(out);
+            } finally { rmSync(tmp, { force: true }); }   // 영상은 남기지 않는다
+          } catch { /* 확인 프레임 실패가 수집을 죽이지 않는다 */ }
+        }
+      }
+      evidence.set(v.title_no, { ratio, games, notices, ends, confirm });
       vods.push(cand);
     }
   }
-  console.log(`\n▸ 와치리스트 ${watchList.length}명 → 롤 본방을 시트로 훑음`
-    + ` (${scannedHours.toFixed(0)}시간)`);
+  console.log(`\n▸ ${ONLY_CHANNEL ? `채널 ${ONLY_CHANNEL}` : `와치리스트 ${watchList.length}명`}`
+    + ` → 롤 본방을 시트로 훑음 (${scannedHours.toFixed(0)}시간)`);
   console.log(`   경기가 잡힌 VOD ${vods.length}건 · 경기 없어 버린 것 ${skippedNoGame}건`);
   if (truncatedChannels > 0) {
     console.log(`   ⚠ ${truncatedChannels}개 채널이 페이지 상한에서 멈췄다 — 그만큼 빠졌다`);
@@ -195,6 +246,12 @@ try {
   console.log(`   단서 ${leadCount}건 ${DRY ? "쌓을 예정" : "쌓았다"}`);
   // ★ 무엇을 보고 단서로 삼았는지 그 자리에서 보여준다. 근거 없이 쌓이면
   //   나중에 "이건 왜 여기 있지" 를 아무도 답할 수 없다(524건이 그랬다).
+  const confirms = [...evidence.values()].reduce((n, e) => n + (e.confirm?.length ?? 0), 0);
+  if (confirms > 0) {
+    console.log(`\n   ⚠ 시트는 **게임 종류를 못 가른다** — FC온라인·덕몽어스가 롤로 잡힌다(실측 오탐 67%).`);
+    console.log(`     확인 프레임 ${confirms}장 (경기 구간마다 한 장): ${CONFIRM_DIR}`);
+    console.log(`     한 방송이 게임을 갈아타기도 한다 — 구간별로 보고 롤 아닌 것만 뺀다.`);
+  }
   if (evidence.size > 0) {
     const withNotice = [...evidence.values()].filter((e) => e.notices > 0).length;
     const games = [...evidence.values()].reduce((a, e) => a + e.games, 0);
