@@ -230,18 +230,27 @@ for (const w of warnings) console.warn(`  ⚠ ${w}`);
 let games = 0;
 let encounters = 0;
 const missing = new Set<string>();
+/** 명단에 아예 없는 사람. 이게 곧 **내가 SOOP 에서 찾아 등록할 목록**이다. */
+const unknownPeople = new Set<string>();
 
 try {
   for (const t of list) {
     console.log(`\n▸ ${t.name} (${t.slug})${dryRun ? "  [dry-run]" : ""}`);
 
-    // slug → puuid. 계정이 없는 스트리머는 조우를 맺을 수 없다(조우는 puuid 로 맺힌다).
+    // ★ 두 가지를 구분한다. 예전엔 한 덩어리로 "계정 없음" 이라 불러서,
+    //   **아예 등록조차 안 된 사람**이 조용히 빠지는 걸 못 봤다.
+    //     · 등록됨 + 계정 없음  → 경기·조우에는 들어간다(0017). 나중에 계정만 붙이면 된다
+    //     · 등록조차 안 됨      → 어디에도 못 들어간다. **여기서 멈춰야 한다**
     const allSlugs = [...new Set(Object.values(t.teams).flat())];
-    const puuidBySlug = await mainPuuidsBySlug(allSlugs);
-    for (const s of allSlugs) if (!puuidBySlug.has(s)) missing.add(s);
+    const [puuidBySlug, knownIds] = await Promise.all([
+      mainPuuidsBySlug(allSlugs), streamerIdsBySlug(allSlugs),
+    ]);
+    const unregistered = allSlugs.filter((s) => !knownIds.has(s));
+    for (const s of allSlugs) if (knownIds.has(s) && !puuidBySlug.has(s)) missing.add(s);
+    for (const s of unregistered) unknownPeople.add(`${s}  (${t.name})`);
 
     console.log(`  팀 ${Object.keys(t.teams).length} · 선수 ${allSlugs.length}명 ` +
-      `(계정 있음 ${puuidBySlug.size} / 없음 ${allSlugs.length - puuidBySlug.size})`);
+      `(계정 있음 ${puuidBySlug.size} / 등록만 ${knownIds.size - puuidBySlug.size} / 미등록 ${unregistered.length})`);
 
     if (dryRun) {
       for (const g of t.games ?? []) {
@@ -344,7 +353,19 @@ try {
   }
 
   console.log(`\n경기 ${games}건 · 조우 ${encounters}쌍${dryRun ? "  (dry-run — 쓰지 않았다)" : ""}`);
-  if (missing.size > 0) {
+  // ★ 미등록은 **경고가 아니라 실패**다.
+  //   빠진 채로 들어가면 그 경기의 로스터가 영영 한 명 모자란 채 굳는다.
+  //   실제로 이라333 이 그렇게 다섯 경기에서 사라져 있었고, 화면을 보고서야 알았다.
+  if (unknownPeople.size > 0) {
+    console.error(`\n명단에 없는 사람 ${unknownPeople.size}명이다. 등록하기 전에는 넣지 않는다:\n`);
+    for (const p of unknownPeople) console.error(`  ✖ ${p}`);
+    console.error(`\nSOOP 에서 찾아 등록한 뒤 다시 돌려라:`);
+    console.error(`  1. https://sch.sooplive.co.kr 에서 방송국을 찾는다 (또는 나에게 이름을 주면 찾아 준다)`);
+    console.error(`  2. seed/streamers-*.json 에 slug·display_name·channel_id 로 적는다`);
+    console.error(`  3. npm run seed -- seed/streamers-*.json`);
+    console.error(`\n★ 라이엇 계정은 없어도 된다 — 등록만 되면 경기·조우·모스트 챔피언에 다 들어간다.`);
+    process.exitCode = 1;
+  } else if (missing.size > 0) {
     console.log(
       `\n· 라이엇 계정이 아직 없는 스트리머 ${missing.size}명: ${[...missing].join(", ")}\n` +
         `  경기·조우·모스트 챔피언에는 **들어갔다** (0017 — 사람으로 식별한다).\n` +
