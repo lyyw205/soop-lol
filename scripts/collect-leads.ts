@@ -128,6 +128,17 @@ try {
   );
   console.log(`등록 채널 ${known.size}개 · 그중 매일 훑을 대상 ${[...known.values()].filter((k) => k.watch).length}명`);
 
+  /**
+   * 이미 사람이 판정한 VOD. 확인 프레임을 다시 받지 않는다.
+   * 판정은 **한 번**만 하면 되는 일인데, 안 걸러 두면 범위를 다시 훑을 때마다
+   * 기각된 FC온라인 방송의 프레임을 매번 다시 내려받는다.
+   */
+  const judged = new Set<string>(
+    (await sql<{ source_key: string }[]>`
+      SELECT source_key FROM event_lead WHERE source = 'vod_title' AND state <> 'new'
+    `).map((r) => r.source_key),
+  );
+
   // ── 1. 그날 롤 본방을 **전부** 가져와, 시트로 훑어 경기가 있는 것만 남긴다 ──
   //
   // ★ 제목 필터를 버렸다. 회수율이 10% 였다
@@ -165,16 +176,18 @@ try {
       let ratio = 0, games = 0, notices = 0;
       const ends: unknown[] = [];
       // 확인 프레임을 뽑을 자리 — 경기 구간마다 한 곳. 파일이 여럿이면 파일별로 모은다.
-      const spots: { file: unknown; at: number }[] = [];
+      const spots: { file: unknown; at: number; fi: number }[] = [];
+      let fi = 0;
       try {
         for (const file of playableFiles(await vodDetail(v.title_no))) {
+          fi++;
           const sheet = await scanSheets(file);
           scannedHours += file.duration / 3_600_000;
           if (sheet.frames.length === 0) continue;
           const d = detect(sheet.frames, sheet.sec);
           ratio = Math.max(ratio, d.gameRatio);
           games += d.games.length;
-          for (const at of confirmShots(d.games)) spots.push({ file, at });
+          for (const at of confirmShots(d.games)) spots.push({ file, at, fi });
           // ★ 채팅은 경기가 잡힌 파일에서만 본다. 롤이 아닌 방송까지 훑으면 비용이 두 배다.
           if (d.games.length > 0 && file.chat) {
             const n = await noticesFrom(file);
@@ -189,13 +202,15 @@ try {
       // ★ 확인 프레임. 시트로는 게임 종류를 못 가르므로(detect 주석 참조)
       //   경기 구간마다 원본 해상도 한 장을 남겨 사람이 1초 만에 판정하게 한다.
       const confirm: string[] = [];
-      if (!DRY && FFMPEG) {
+      if (!DRY && FFMPEG && !judged.has(`vod:${v.title_no}`)) {
         for (const spot of spots.slice(0, MAX_CONFIRM)) {
           try {
             const seg = await segmentAt(await hlsSegments(spot.file as never), spot.at);
             if (!seg) continue;
             mkdirSync(CONFIRM_DIR, { recursive: true });
-            const out = join(CONFIRM_DIR, `${v.channel_id}_${v.title_no}_${hms(spot.at).replace(/:/g, "")}.jpg`);
+            // ★ 파일 번호를 반드시 넣는다 — `at` 은 **파일별 오프셋**이라 파일이 둘이면
+            //   f1 의 3:21 과 f2 의 1:39 중 뭐가 먼저인지 이름만 보고는 알 수 없다.
+            const out = join(CONFIRM_DIR, `${v.channel_id}_${v.title_no}_f${spot.fi}_${hms(spot.at).replace(/:/g, "")}.jpg`);
             const tmp = join(CONFIRM_DIR, `.tmp_${process.pid}.mp4`);
             writeFileSync(tmp, seg.data);
             try {
