@@ -626,6 +626,11 @@ export async function recomputeChampionStats(): Promise<number> {
         CROSS JOIN LATERAL (
           VALUES ('ALL'), (to_char(m.game_creation + interval '9 hours', 'YYYY'))
         ) AS s(season)
+        -- ★ champion_id 0 은 챔피언이 아니라 **'모른다'** 다. 수기 대회 경기는
+        --   누가 어느 팀으로 이겼는지는 근거가 있어도 챔피언까진 없을 때가 많고,
+        --   saveTournamentGame 이 그런 참가자를 0 으로 넣는다(없는 값을 지어내지 않는다).
+        --   거르지 않으면 모스트 챔피언 1위가 '알 수 없는 챔피언'이 되어 버린다.
+       WHERE mp.champion_id > 0
        GROUP BY 1, 2, 3, 4
       RETURNING streamer_id
     `;

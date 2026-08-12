@@ -150,6 +150,18 @@ export default async function VersusPage({ params }: { params: Promise<{ a: stri
                       <span className="rounded border border-ink-700 bg-ink-800 px-1.5 py-0.5 text-[11px] text-ink-400">
                         {QUEUE_LABEL[g.queue_id] ?? `큐 ${g.queue_id}`}
                       </span>
+                      {/* ★ 관측과 수기를 화면에서 구분한다(§11-8). 내전은 Riot API 로
+                          조회가 안 돼서 방송 화면·공지를 보고 손으로 넣은 것이다 —
+                          KDA 가 0/0/0 인 것도 그래서다. 같은 줄에 섞어 놓고 말을
+                          안 하면 읽는 사람은 Riot 이 준 기록으로 오해한다. */}
+                      {g.source === "manual" && (
+                        <span
+                          className="rounded border border-ink-600 bg-ink-800 px-1.5 py-0.5 text-[11px] text-ink-300"
+                          title="Riot API 로 조회되지 않는 내전이라 방송 기록을 보고 손으로 넣었습니다"
+                        >
+                          수기
+                        </span>
+                      )}
                       <span className="ml-auto text-[11px] text-ink-400">{relativeDate(g.game_creation)}</span>
                     </div>
 

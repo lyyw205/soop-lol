@@ -237,6 +237,11 @@ export async function listRecentGames(streamerId: string, limit = 20): Promise<R
       FROM core_public.match_participant mp
       JOIN core_public.match m ON m.match_id = mp.match_id
      WHERE mp.streamer_id = ${streamerId}::uuid
+       -- ★ 공개 큐만이다(§11-7). 화면이 이 목록에 "공개 큐만" 이라고 써 두는데
+       --   거르지 않으면 그 말이 거짓이 된다. 실제로 그랬다 — 내전을 처음 넣자마자
+       --   수기 경기 5건이 최근 경기 맨 위를 차지했고, 챔피언을 모르니 '챔피언 0' 으로
+       --   떴다. 내전은 '대회 성적' 이 따로 보여준다. 두 전적은 섞지 않는다.
+       AND m.source = 'public_queue'
      ORDER BY m.game_creation DESC
      LIMIT ${limit}
   `;
@@ -515,6 +520,10 @@ export async function listRecentEncounters(limit = 10): Promise<RecentEncounter[
       FROM core_public.streamer_encounter e
       JOIN core_public.streamer a ON a.streamer_id = e.streamer_a_id
       JOIN core_public.streamer b ON b.streamer_id = e.streamer_b_id
+     -- ★ 첫 화면도 "공개 큐만" 이라고 써 둔다(§11-7). 내전 한 판을 넣는 순간
+     --   최신순 첫 화면이 통째로 내전으로 덮인다 — 수기 기록은 한 방송에서
+     --   5~10건이 한꺼번에 들어오기 때문이다.
+     WHERE e.source = 'public_queue'
      ORDER BY e.game_creation DESC
      LIMIT ${limit}
   `;
