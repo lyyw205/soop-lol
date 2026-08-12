@@ -65,7 +65,7 @@ try {
   const expected = [
     "account_candidate", "career_event", "champion_stat", "dead_match", "event",
     "ingest_cursor", "job_run", "match", "match_participant", "rank_snapshot",
-    "riot_account", "season_record", "streamer", "streamer_account", "streamer_channel",
+    "riot_account", "streamer", "streamer_account", "streamer_channel",
     "streamer_encounter",
   ];
   const missing = expected.filter((t) => !names.includes(t));

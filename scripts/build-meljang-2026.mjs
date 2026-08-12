@@ -8,7 +8,10 @@
  */
 import { writeFileSync } from "node:fs";
 
-const OUT = "/home/lyyw2/repos/soop-lol/seed/tournaments.json";
+// ★ 절대경로를 박아 두면 이 저장소를 받은 다른 사람 기계에서 안 돈다.
+//   시드 파일은 gitignore 라 **이 빌더가 유일한 재현 경로**인데, 그게 내 기계에서만
+//   돌면 재현이 아니다.
+const OUT = new URL("../seed/tournaments-meljang-2026-geng.json", import.meta.url).pathname;
 const WIKI = "https://namu.wiki/w/2026%20LoL%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20with%20Gen.G";
 const NEWS = "https://www.betanews.net/article/view/beta202608030040";
 const VODS = "https://ch.sooplive.co.kr/lolbjmatch/vods";
