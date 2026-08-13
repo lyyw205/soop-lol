@@ -118,6 +118,15 @@ interface SeedTournament {
    */
   roster_positions?: Record<string, string>;
   /**
+   * slug → 그 대회에서 쓴 **인게임 계정 이름**. 등록 계정과 다를 때만 적는다.
+   *
+   * 경기별 `lineup[].unlinked_account` 와 같은 일을 대회 단위로 한다.
+   * ★ 이게 없으면 **lineup 을 안 적은 경기**가 로스터에서 참가자를 만들면서
+   *   대표 puuid 를 붙인다 — 뛰지도 않은 계정에 판이 달라붙는 그 버그가 다시 난다.
+   *   실제로 2026-08 롤선생 3세트(결과창을 못 구해 lineup 을 비운 판)가 그랬다.
+   */
+  unlinked_accounts?: Record<string, string>;
+  /**
    * 팀명 → 순위 표기 (우승 / 준우승 / 4강 / 2차예선 탈락 …). 출처가 쓴 그대로 넣는다.
    * 모르는 팀은 아예 없다 — 순위를 지어내지 않는다.
    */
@@ -321,7 +330,8 @@ try {
           //   결과 화면에서 다 읽어 놓고도 화면에는 성훈팀이 4명으로 나왔다.
           // ★ 인게임 계정이 등록 계정과 다르면 puuid 를 붙이지 않는다.
           //   안 그러면 안 뛴 계정에 경기가 달라붙는다(SeedLineupEntry.unlinked_account 주석).
-          const puuid = e.unlinked_account ? null : (puuidBySlug.get(e.slug) ?? null);
+          const unlinked = e.unlinked_account ?? t.unlinked_accounts?.[e.slug];
+          const puuid = unlinked ? null : (puuidBySlug.get(e.slug) ?? null);
           const streamerId = idBySlug.get(e.slug) ?? null;
           if (!puuid && !streamerId) continue;   // 등록조차 안 된 사람은 넣을 수 없다
           const champ = e.champion ? championByName(e.champion) : null;
