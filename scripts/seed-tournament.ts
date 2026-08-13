@@ -42,6 +42,20 @@ interface SeedLineupEntry {
   champion?: string;
   /** 이름 대신 ID 를 직접 적어도 된다. 둘 다 있으면 champion 이 이긴다. */
   champion_id?: number;
+  /**
+   * ★ 그 판에서 쓴 **인게임 계정이 등록된 계정과 다를 때** 그 이름을 적는다.
+   *
+   *   내전은 부계정으로 자주 한다. 그런데 slug 만 적으면 그 사람의 **대표 puuid**
+   *   가 붙어서, **뛰지도 않은 계정에 경기가 달린다.**
+   *   실제로 겪었다 — 2026-07-01 강만식CK 에서 영재애애의 인게임명은 `영 재` 였는데
+   *   등록 계정 `YoungDisney#KR111` 의 전적으로 들어갔다. 그 계정의 챔피언 통계가
+   *   조용히 오염된다. `puuid` 가 유일한 키라는 §11-1 이 무너지는 자리다.
+   *
+   *   이걸 적으면 puuid 를 **비우고** `streamer_id` 로만 넣는다. "이 사람이 이 판에
+   *   있었다" 는 사실은 지키고, "이 계정이 뛰었다" 는 거짓은 안 만든다.
+   *   나중에 그 계정을 근거와 함께 등록하면 재파생으로 이어 붙일 수 있다.
+   */
+  unlinked_account?: string;
   /** 결과 화면의 K/D/A. 모르면 비운다. */
   kills?: number;
   deaths?: number;
@@ -298,7 +312,9 @@ try {
           //   있었다" 지 "이 계정이 있었다" 가 아니다. 예전엔 여기서 건너뛰어서
           //   이라333 이 시그니처CK 5경기에서 통째로 사라졌다 — 팀·포지션·챔피언·KDA 를
           //   결과 화면에서 다 읽어 놓고도 화면에는 성훈팀이 4명으로 나왔다.
-          const puuid = puuidBySlug.get(e.slug) ?? null;
+          // ★ 인게임 계정이 등록 계정과 다르면 puuid 를 붙이지 않는다.
+          //   안 그러면 안 뛴 계정에 경기가 달라붙는다(SeedLineupEntry.unlinked_account 주석).
+          const puuid = e.unlinked_account ? null : (puuidBySlug.get(e.slug) ?? null);
           const streamerId = idBySlug.get(e.slug) ?? null;
           if (!puuid && !streamerId) continue;   // 등록조차 안 된 사람은 넣을 수 없다
           const champ = e.champion ? championByName(e.champion) : null;
