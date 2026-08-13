@@ -19,6 +19,12 @@
  *       M >= N  →  덮였다. 건너뛴다
  *       M <  N  →  일부만 덮였다. 안 덮인 만큼만 판독한다
  *
+ * ★ "있다" 와 "다 찼다" 는 다르다
+ *   경기 행이 있어도 **챔피언·KDA 가 비어 있으면 덮인 게 아니다.** 실제로 멸망전
+ *   36경기는 승패·로스터만 있고 참가행 344개 전부 champion_id=0, KDA=0 이었다.
+ *   그걸 "덮임" 으로 걸러 버리면 채울 기회를 영영 잃는다.
+ *   → **내용이 있는 판만** 덮인 것으로 센다.
+ *
  * ⚠ **날짜 단위 근사다.** 경기 단위로 정확히 맞추려면 결과창을 읽어야 하는데,
  *   그걸 아끼려고 만든 검사라 그렇게 하면 뜻이 없다. 그래서 `--mark` 는
  *   **완전히 덮인 것만** 건드리고, 부분은 사람이 보라고 숫자만 보여 준다.
@@ -49,9 +55,13 @@ try {
   if (!who) { console.error(`채널 '${CHANNEL}' 의 스트리머가 등록돼 있지 않다.`); process.exit(1); }
 
   // 그 사람이 이미 참가자로 들어간 수기 경기 (날짜별)
-  const seen = await sql<{ d: string; n: number; events: string[] }[]>`
+  const seen = await sql<{ d: string; n: number; thin: number; events: string[] }[]>`
     SELECT (m.game_creation AT TIME ZONE 'Asia/Seoul')::date::text AS d,
-           count(*)::int AS n,
+           -- ★ 내용이 찬 판만 '덮였다' 로 센다. 승패만 있는 행은 채울 거리가 남아 있다.
+           count(*) FILTER (WHERE mp.champion_id > 0
+                              OR mp.kills + mp.deaths + mp.assists > 0)::int AS n,
+           count(*) FILTER (WHERE mp.champion_id = 0
+                             AND mp.kills + mp.deaths + mp.assists = 0)::int AS thin,
            array_agg(DISTINCT e.name) AS events
       FROM match_participant mp
       JOIN match m ON m.match_id = mp.match_id
@@ -72,7 +82,10 @@ try {
      ORDER BY observed_at`;
 
   console.log(`${who.display_name} (${CHANNEL}) · ${FROM} ~ ${TO}`);
-  console.log(`이미 기록된 수기 경기 ${seen.reduce((a, s) => a + s.n, 0)}판 · 단서 ${leads.length}건\n`);
+  const thin = seen.reduce((a, s) => a + s.thin, 0);
+  console.log(`내용까지 찬 경기 ${seen.reduce((a, s) => a + s.n, 0)}판`
+    + (thin > 0 ? ` · **승패만 있는 판 ${thin}개(채울 거리)**` : "")
+    + ` · 단서 ${leads.length}건\n`);
 
   let covered = 0, partial = 0, fresh = 0;
   const toMark: string[] = [];
@@ -84,8 +97,9 @@ try {
       covered++; toMark.push(l.source_key);
       console.log(`  ✓ 덮임   ${l.d} 경기${l.games} ≤ 기록${m}  ${l.title.slice(0, 34)}`);
       console.log(`           → ${(s?.events ?? []).filter(Boolean).join(", ")}`);
-    } else if (m > 0) {
+    } else if (m > 0 || (s?.thin ?? 0) > 0) {
       partial++;
+      if ((s?.thin ?? 0) > 0) console.log(`  ~ 채움   ${l.d} 승패만 있는 판 ${s!.thin}개 — 챔피언·KDA 를 채울 수 있다`);
       console.log(`  ~ 일부   ${l.d} 경기${l.games} > 기록${m}  ${l.title.slice(0, 34)}`);
       console.log(`           → 안 덮인 ${l.games - m}판만 판독하면 된다`);
     } else {
