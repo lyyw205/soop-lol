@@ -64,6 +64,18 @@ const ONLY_CHANNEL = opt("--channel", "");
  */
 const CONFIRM_DIR = join(process.cwd(), "out", "confirm", DATE);
 const FFMPEG = process.env.FFMPEG_PATH ?? "ffmpeg";
+/**
+ * ffmpeg 이 실제로 도는지 **시작할 때 한 번** 본다.
+ *
+ * ★ 왜 여기서 보나 — 2026-08-13 에 조용히 당했다
+ *   확인 프레임 뽑기가 try/catch 안에 있어서, ffmpeg 이 없어도 예외가 삼켜지고
+ *   실행은 성공으로 끝났다. 세그먼트 548개(≈3GB)를 받아 놓고 프레임은 0장인데
+ *   아무도 그 말을 안 했다. **비싼 일이 헛돌면 반드시 시끄러워야 한다.**
+ */
+function ffmpegWorks(): boolean {
+  try { execFileSync(FFMPEG, ["-version"], { stdio: "ignore" }); return true; }
+  catch { return false; }
+}
 /** VOD 하나에서 뽑을 확인 프레임 상한. 구간당 6MB — 넘치면 긴 구간부터 자른다. */
 const MAX_CONFIRM = 6;
 const BOARD_BUDGET = Number(opt("--board-budget", "10"));
@@ -128,6 +140,15 @@ try {
   );
   console.log(`등록 채널 ${known.size}개 · 그중 매일 훑을 대상 ${[...known.values()].filter((k) => k.watch).length}명`);
 
+  const FFMPEG_OK = DRY || NO_SCAN || ffmpegWorks();
+  if (!FFMPEG_OK) {
+    console.error(`\n✖ ffmpeg 을 못 찾았다 (${FFMPEG}).`);
+    console.error(`  확인 프레임 없이 훑으면 시트가 '게임'이라고 한 것을 롤인지 FC온라인인지`);
+    console.error(`  가릴 수 없다 — 세그먼트만 수 GB 받고 판정은 못 하는 헛일이 된다.`);
+    console.error(`  설치하고 다시 돌려라:  npm i -g ffmpeg-static  또는  FFMPEG_PATH=... 지정`);
+    process.exit(1);
+  }
+
   /**
    * 이미 사람이 판정한 VOD. 확인 프레임을 다시 받지 않는다.
    * 판정은 **한 번**만 하면 되는 일인데, 안 걸러 두면 범위를 다시 훑을 때마다
@@ -159,7 +180,7 @@ try {
   const vods: Vod[] = [];
   const evidence = new Map<number, { ratio: number; games: number; notices: number; ends: unknown[]; confirm?: string[] }>();
   let truncatedChannels = 0;
-  let scannedHours = 0, skippedNoGame = 0;
+  let scannedHours = 0, skippedNoGame = 0, confirmFailed = 0;
 
   for (const ch of watchList) {
     const list = (await listBroadcasts(ch, { from: FROM, to: TO, category: Number(LOL_CATEGORY) })) as
@@ -218,7 +239,7 @@ try {
                 "-frames:v", "1", "-vf", "scale=1568:-2", "-q:v", "3", "-y", out], { stdio: "ignore" });
               confirm.push(out);
             } finally { rmSync(tmp, { force: true }); }   // 영상은 남기지 않는다
-          } catch { /* 확인 프레임 실패가 수집을 죽이지 않는다 */ }
+          } catch { confirmFailed++; /* 한 장 실패가 수집을 죽이지 않는다 */ }
         }
       }
       evidence.set(v.title_no, { ratio, games, notices, ends, confirm });
@@ -266,6 +287,10 @@ try {
     console.log(`\n   ⚠ 시트는 **게임 종류를 못 가른다** — FC온라인·덕몽어스가 롤로 잡힌다(실측 오탐 67%).`);
     console.log(`     확인 프레임 ${confirms}장 (경기 구간마다 한 장): ${CONFIRM_DIR}`);
     console.log(`     한 방송이 게임을 갈아타기도 한다 — 구간별로 보고 롤 아닌 것만 뺀다.`);
+  }
+  // ★ 뽑아야 했는데 못 뽑은 것을 반드시 말한다. 조용하면 "판정 끝났다" 로 읽힌다.
+  if (confirmFailed > 0) {
+    console.log(`\n   ✖ 확인 프레임 ${confirmFailed}장 실패 — 그만큼은 게임 종류를 못 가렸다.`);
   }
   if (evidence.size > 0) {
     const withNotice = [...evidence.values()].filter((e) => e.notices > 0).length;
