@@ -54,7 +54,9 @@
     "//repair:puuid": "★ 낡은 puuid 를 현재 값으로 갈아끼운다. 기본은 확인만 — 옮기려면 -- --apply.",
     "repair:puuid": "node --env-file-if-exists=apps/web/.env.local scripts/repair-puuid.ts",
     "ck:pick": "node scripts/pick-result-frame.mjs",
-    "ck:cross": "node --env-file-if-exists=apps/web/.env.local scripts/cross-collect.ts"
+    "ck:cross": "node --env-file-if-exists=apps/web/.env.local scripts/cross-collect.ts",
+    "ck:gate": "node --env-file-if-exists=apps/web/.env.local scripts/ck-gate.ts",
+    "ck:seen": "node --env-file-if-exists=apps/web/.env.local scripts/ck-seen.ts"
   },
   "//": "★ 버전은 캐럿 없이 고정한다(hotplace-map과 같은 규칙). 캐럿으로 적으면 lock 재생성이 next/react를 통째로 끌어올려서, 무관한 커밋이 라이브러리 업그레이드를 같이 싣는다. 업그레이드는 별건으로.",
   "devDependencies": {

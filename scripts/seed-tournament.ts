@@ -13,6 +13,7 @@
  * 같은 파일을 다시 돌려도 안전하다(멱등).
  */
 
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -404,6 +405,27 @@ try {
         `  경기·조우·모스트 챔피언에는 **들어갔다** (0017 — 사람으로 식별한다).\n` +
         `  계정을 연결하면 공개 큐 전적까지 이어 붙는다.`,
     );
+  }
+  // ── 관문 ── 적재가 끝나면 **스스로 검사받는다** ────────────────────
+  //
+  // ★ 왜 여기서 부르나 — "검사를 돌리는 걸 기억하기" 도 규칙이라 안 지켜진다
+  //   교차검증 규칙을 문서·스킬에 적어 뒀는데도 세 대회 연속 건너뛰었다.
+  //   그래서 적재 자체가 관문을 통과해야 성공으로 끝나게 만든다.
+  //   ⚠ 관문이 걸려도 **쓴 것을 되돌리지는 않는다** — 시드는 멱등이라 고쳐서
+  //     다시 돌리면 되고, 되돌리면 오히려 부분 적재 상태가 헷갈린다.
+  //     대신 exit code 를 1 로 만들어 "끝났다" 고 말하지 않는다.
+  if (!dryRun && process.exitCode !== 1) {
+    let blocked = 0;
+    for (const t of list) {
+      const r = spawnSync("npm", ["run", "ck:gate", "--", "--event", t.slug],
+        { stdio: "inherit" });
+      if (r.status !== 0) blocked++;
+    }
+    if (blocked > 0) {
+      console.error(`\n관문에 걸린 대회 ${blocked}개 — 적재는 됐지만 **완료가 아니다.**`);
+      console.error(`위 ✖ 를 지우고 다시 돌려라. .claude/skills/ck-research 참조.`);
+      process.exitCode = 1;
+    }
   }
 } catch (e) {
   console.error(`\n실패: ${e instanceof Error ? e.message : String(e)}`);
