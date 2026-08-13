@@ -52,7 +52,8 @@
     "//build:champions": "★ 챔피언 한글 이름 → ID 표를 Riot Data Dragon 에서 다시 만든다. 새 챔피언이 나오면 돌린다.",
     "build:champions": "node scripts/build-champions.mjs",
     "//repair:puuid": "★ 낡은 puuid 를 현재 값으로 갈아끼운다. 기본은 확인만 — 옮기려면 -- --apply.",
-    "repair:puuid": "node --env-file-if-exists=apps/web/.env.local scripts/repair-puuid.ts"
+    "repair:puuid": "node --env-file-if-exists=apps/web/.env.local scripts/repair-puuid.ts",
+    "ck:pick": "node scripts/pick-result-frame.mjs"
   },
   "//": "★ 버전은 캐럿 없이 고정한다(hotplace-map과 같은 규칙). 캐럿으로 적으면 lock 재생성이 next/react를 통째로 끌어올려서, 무관한 커밋이 라이브러리 업그레이드를 같이 싣는다. 업그레이드는 별건으로.",
   "devDependencies": {
