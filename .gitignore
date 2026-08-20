@@ -26,3 +26,6 @@ seed/tournaments*.json
 #   남의 방송 화면이고 얼굴캠까지 들어 있다. 판독 결과(누가 누구와 붙었나)만 DB 에 남긴다.
 #   근거는 manifest 의 vod_url 로 되짚는다. docs/CK-COLLECTION.md
 out/
+
+# 손으로 판독한 경기 라인업. 부계정 인게임명이 들어가므로 시드와 같이 숨긴다.
+seed/lineups/
