@@ -5,6 +5,8 @@
  *   npm run ck:prep                        # 어제치, 5세션
  *   npm run ck:prep -- --date 2026-08-09
  *   npm run ck:prep -- --sessions 3 --per-session 2
+ *   npm run ck:prep -- --date 2026-03-07 --only 188993475   # 이 VOD 만 (상한 무시)
+ *   npm run ck:prep -- --date 2026-06-30 --only lshooooo    # 이 채널만
  *
  * ★ 발견을 다시 하지 않는다 — event_lead 가 대상 목록이다
  *   한동안 이 스크립트가 418채널을 자체 순회해 VOD 를 재발견했다. 그러면 1단계가
@@ -44,6 +46,24 @@ const opt = makeOpt(args);
 const DATE = opt("--date", kstDate(1));   // 기본 = 어제(KST)
 const SESSIONS = Number(opt("--sessions", 5));
 const PER_SESSION = Number(opt("--per-session", 1));
+/**
+ * **이것만 뽑는다.** VOD 번호나 채널 아이디를 쉼표로 나열한다.
+ *
+ *   npm run ck:prep -- --date 2026-03-07 --only 188993475
+ *   npm run ck:prep -- --date 2026-06-30 --only lshooooo
+ *
+ * ★ 왜 필요한가 — 대표 선정이 "지금 누구를 조사 중인지"를 모른다
+ *   §0-4 의 대표 순서에 **"VOD 가 짧은 채널 우선"** 이 있다. 그게 두 번 사고를 냈다:
+ *     · 2026-06-30 이상호 CK — 이상호 VOD 가 길어 --per-session 5 밖으로 밀려 **통째로 빠졌다**
+ *     · 2026-03-07 멸망전    — 30분짜리 **하이라이트**가 4시간 본경기를 밀어냈다
+ *   둘 다 조용히 빠졌고 사람이 폴더를 보고서야 알았다. `--per-session` 을 올려
+ *   우회할 수는 있지만 그러면 안 볼 것까지 받아 다운로드가 배로 는다.
+ *
+ * ★ 상한을 건너뛴다
+ *   이름을 대고 부른 것은 --sessions·--per-session 에 잘리지 않는다. 그게 이 옵션의 전부다.
+ *   "골라 달라" 가 아니라 "이건 무조건" 이므로, 조용히 빠지는 경로를 남기지 않는다.
+ */
+const ONLY = new Set(String(opt("--only", "")).split(",").map((s) => s.trim()).filter(Boolean));
 /**
  * 파일 하나에서 뽑을 프레임 상한.
  * 실측 밀도는 시간당 2.4~5.2곳인데, 오버레이가 계속 어두운 방송은 **2.7시간에
@@ -150,6 +170,27 @@ try {
   }
   if (vods.length === 0) { console.log("상세를 하나도 못 열었다 — VOD 가 벌써 내려갔을 수 있다."); process.exit(0); }
 
+  // ── 1.5 --only 로 이름을 댄 것만 남긴다 ────────────────────────────
+  //
+  // ★ 못 찾은 이름은 **조용히 넘기지 않는다.** 오타 하나로 "그날 아무것도 없었다" 가
+  //   되면 그게 제일 나쁘다 — 사람은 돌았다고 믿고 넘어간다.
+  let onlyPicked = null;
+  if (ONLY.size > 0) {
+    const hit = vods.filter((v) => ONLY.has(String(v.title_no)) || ONLY.has(v.channel_id));
+    const matched = new Set(hit.flatMap((v) => [String(v.title_no), v.channel_id]));
+    const missing = [...ONLY].filter((k) => !matched.has(k));
+    console.log(`\n--only ${[...ONLY].join(", ")} → 그날 단서에서 ${hit.length}건 일치`);
+    if (missing.length > 0) {
+      console.error(`✖ 단서에 없는 --only 값: ${missing.join(", ")}`);
+      console.error(`  그 VOD 가 event_lead 에 없다는 뜻이다. ck:collect 를 먼저 돌렸는지,`);
+      console.error(`  날짜(--date)가 맞는지, state='rejected' 로 기각돼 있지 않은지 본다.`);
+    }
+    if (hit.length === 0) { console.error(`\n일치하는 VOD 가 없어 아무것도 하지 않았다.`); process.exit(1); }
+    vods.length = 0;
+    vods.push(...hit);
+    onlyPicked = true;
+  }
+
   // ── 2. 시간이 겹치면 같은 세션이다 ─────────────────────────────────
   //
   // ★ 겹치면 무조건 잇는 방식은 못 쓴다
@@ -183,9 +224,12 @@ try {
     }
     sessions.push({ vods: [rep, ...mates.sort(repRank)] });
   }
-  const picked = sessions.slice(0, SESSIONS);
+  // ★ --only 로 이름을 댄 것은 상한에 안 잘린다. 그게 이 옵션의 전부다.
+  const picked = onlyPicked ? sessions : sessions.slice(0, SESSIONS);
+  const perSession = onlyPicked ? Number.POSITIVE_INFINITY : PER_SESSION;
 
-  console.log(`\n내전 VOD ${vods.length}건 → 동시 방송 묶음 ${sessions.length}개 → 상위 ${picked.length}개 처리`);
+  console.log(`\n내전 VOD ${vods.length}건 → 동시 방송 묶음 ${sessions.length}개 → 상위 ${picked.length}개 처리`
+    + (onlyPicked ? "  (--only — 상한 무시)" : ""));
   for (const [i, s] of picked.entries()) {
     const r0 = s.vods[0];
     const clue = [r0.hasSignup ? "신청글" : null, r0.hasNotice ? "!공지" : null].filter(Boolean).join("·");
@@ -202,6 +246,8 @@ try {
   let frameCount = 0, downloadMB = 0;
   let resultGot = 0, resultWant = 0;   // 결과 화면 확보 — 승패의 정본이라 따로 센다
   const skippedFiles = [];   // 타임아웃 등으로 못 훑은 파일. 끝에 보고한다
+  /** 시트보다 영상이 짧아 뒷부분을 아예 못 받는 VOD. 다른 POV 로 가야 하므로 따로 센다. */
+  const shortVods = [];
 
   // ★ 이름 대조표를 같이 낸다
   //   프레임에는 **방송 닉네임**(김민교)과 **인게임 닉네임**(사나이묵직한주먹)이 섞여
@@ -232,7 +278,7 @@ try {
       }),
       vods: [],
     };
-    for (const v of s.vods.slice(0, PER_SESSION)) {
+    for (const v of s.vods.slice(0, perSession)) {
       const who = byChannel.get(v.channel_id);
       console.log(`\n▸ 세션 ${si + 1} · ${who?.display_name ?? v.channel_id} · ${v.title.slice(0, 44)}`);
       const files = v.files;   // §1 에서 이미 걸러 뒀다 (재생 가능 파일만)
@@ -321,8 +367,35 @@ try {
           skippedFiles.push(`${v.channel_id}/${v.title_no} 파일${fi + 1}: HLS ${e instanceof Error ? e.name : e}`);
           hls = null;
         }
+        // ── 시트의 시간축과 영상 길이가 다를 수 있다 — **말없이 지지 않게 한다** ──
+        //
+        // ★ 실측 (2026-08-19, 멸망전 공식채널 lolbjmatch VOD 188993475)
+        //     API files[].duration   4.00h   ← 시트 훑기가 이 시간축을 쓴다
+        //     HLS 실제 세그먼트 합계  2.18h   ← 전 화질(540p·720p·1080p) 모두 동일
+        //   시트는 4시간치를 훑어 2:34~3:30 을 경기 구간으로 잡았는데 **그 구간의 영상이
+        //   아예 없다.** 그래서 결과 화면 6장이 매번 실패했고, 재실행해도 재현됐다.
+        //   그런데 화면에는 `⚠ 6장 실패` 라고만 떠서 **왜** 실패했는지 알 수 없었다 —
+        //   ffmpeg 이 없는 채로 3GB 를 받고 프레임 0장으로 끝났던 것과 같은 종류의
+        //   조용한 실패다. 받을 수 있는 범위를 미리 재서 이유를 말한다.
+        let hlsSec = null;
+        if (hls?.segs?.length > 0) {
+          const last = hls.segs[hls.segs.length - 1];
+          hlsSec = last.start + last.dur;
+          if (hlsSec < total - 60) {          // 60초는 인코딩 오차 여유
+            const lost = shots.filter((t) => t >= hlsSec);
+            const lostMust = lost.filter((t) => mustSet.has(t)).length;
+            console.log(`   ⚠ 영상이 시트보다 짧다 — 시트 ${(total / 3600).toFixed(2)}h vs 영상 ${(hlsSec / 3600).toFixed(2)}h`);
+            console.log(`     ${hms(hlsSec)} 이후는 **받을 수 없다.** 못 뽑는 지점 ${lost.length}곳(그중 결과화면 ${lostMust}장)`);
+            console.log(`     그 구간의 경기는 이 VOD 로는 못 채운다 — **다른 참가자 POV 로 가야 한다.**`);
+            shortVods.push(`${v.channel_id}/${v.title_no} 파일${fi + 1}: 시트 ${(total / 3600).toFixed(2)}h > 영상 `
+              + `${(hlsSec / 3600).toFixed(2)}h · ${hms(hlsSec)} 이후 결과화면 ${lostMust}장 못 받음`);
+          }
+        }
+        // ★ 범위 밖 지점은 **시도조차 하지 않는다.** 실패로 세면 "CDN 오류"와 구분이 안 된다.
+        const reachable = hlsSec == null ? shots : shots.filter((t) => t < hlsSec);
+
         const shotRecs = [];
-        for (const at of (hls ? shots : [])) {
+        for (const at of (hls ? reachable : [])) {
           // ★ title_no 를 넣는다. 같은 채널이 하루에 방송을 두 번 하면
           //   (실제로 BJ댕라칸이 그랬다) 채널+시각만으로는 파일명이 겹쳐 덮어쓴다.
           const name = `${v.channel_id}_${v.title_no}_f${fi + 1}_${hms(at).replace(/:/g, "")}.jpg`;
@@ -391,6 +464,13 @@ try {
   if (skippedFiles.length > 0) {
     console.log(`\n⚠ 못 훑은 파일 ${skippedFiles.length}개 — 다음 실행이 다시 시도한다`);
     for (const x of skippedFiles.slice(0, 5)) console.log(`   ${x}`);
+  }
+  // ★ 이건 **다시 시도해도 안 된다.** 위 skippedFiles 와 성격이 다르므로 따로 말한다.
+  //   재실행으로 해결되는 실패(타임아웃·CDN)와 섞으면 사람이 계속 헛돌린다.
+  if (shortVods.length > 0) {
+    console.log(`\n⚠ 영상이 시트보다 짧아 뒷부분을 **영영 못 받는** VOD ${shortVods.length}개`);
+    console.log(`   재실행해도 안 된다. 그 구간은 다른 참가자 POV 로 가야 한다 (ck:cross).`);
+    for (const x of shortVods.slice(0, 5)) console.log(`   ${x}`);
   }
   console.log(`SOOP 호출 (배속 ${pace.pace}x): `
     + Object.entries(pace.hosts).map(([h, n]) => `${h.split(".")[0]} ${n}`).join(" · "));
