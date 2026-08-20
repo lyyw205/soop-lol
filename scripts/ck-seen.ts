@@ -25,9 +25,19 @@
  *   그걸 "덮임" 으로 걸러 버리면 채울 기회를 영영 잃는다.
  *   → **내용이 있는 판만** 덮인 것으로 센다.
  *
- * ⚠ **날짜 단위 근사다.** 경기 단위로 정확히 맞추려면 결과창을 읽어야 하는데,
- *   그걸 아끼려고 만든 검사라 그렇게 하면 뜻이 없다. 그래서 `--mark` 는
- *   **완전히 덮인 것만** 건드리고, 부분은 사람이 보라고 숫자만 보여 준다.
+ * ── 두 가지로 맞춘다 ────────────────────────────────────────────────
+ * 1. **VOD 번호** (정확) — 단서의 `url` 에 있는 번호가 이미 적재된 경기의
+ *    `source_url` 에 있으면 **그 방송은 이미 판독했다.** 날짜와 무관하다.
+ * 2. **날짜** (근사) — 그 사람이 그날 이미 기록된 판이 단서의 경기 수 이상이면 덮였다고 본다.
+ *
+ * ⚠ **날짜만으로는 틀린다 — 실제로 틀렸다(2026-08-19).**
+ *   · 06-26 02:34 '학살CK' 를 같은 날 21:50 시작한 '깐부CK' 로 덮였다고 했다.
+ *     **다른 판이다.** 그대로 건너뛰었으면 3판을 통째로 잃었다.
+ *   · 06-14 단서는 이미 적재된 **06-13 호진CK 와 같은 VOD** 인데 날짜가 달라
+ *     '새것' 으로 나왔다. VOD 번호로 봤으면 즉시 잡혔다.
+ *
+ * → 그래서 `--mark` 는 **VOD 번호가 맞은 것만** 건드린다. 날짜만 맞은 건
+ *   `? 날짜만` 으로 보여 주고 사람이 판단한다.
  */
 
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
@@ -54,6 +64,19 @@ try {
      WHERE c.platform = 'soop' AND c.channel_id = ${CHANNEL} AND c.active_to IS NULL`;
   if (!who) { console.error(`채널 '${CHANNEL}' 의 스트리머가 등록돼 있지 않다.`); process.exit(1); }
 
+  // ── 이미 판독한 VOD 번호 ─────────────────────────────────────────
+  // 채널을 가리지 않고 본다 — 남의 방송에서 결과창을 회수한 판도 그 VOD 는 이미 판독한 것이다.
+  const loadedVods = new Map<string, Set<string>>();   // VOD 번호 → 대회 slug 들
+  for (const r of await sql<{ url: string; slug: string | null }[]>`
+    SELECT DISTINCT m.source_url AS url, e.slug
+      FROM match m LEFT JOIN event e ON e.id = m.event_id
+     WHERE m.source = 'manual' AND m.source_url IS NOT NULL`) {
+    const id = /(\d{6,})/u.exec(r.url ?? "")?.[1];
+    if (!id) continue;
+    if (!loadedVods.has(id)) loadedVods.set(id, new Set());
+    if (r.slug) loadedVods.get(id)!.add(r.slug);
+  }
+
   // 그 사람이 이미 참가자로 들어간 수기 경기 (날짜별)
   const seen = await sql<{ d: string; n: number; thin: number; events: string[] }[]>`
     SELECT (m.game_creation AT TIME ZONE 'Asia/Seoul')::date::text AS d,
@@ -72,8 +95,8 @@ try {
   const seenBy = new Map(seen.map((s) => [s.d, s]));
 
   // 그 채널의 단서 (아직 판독 안 한 것)
-  const leads = await sql<{ source_key: string; title: string; d: string; games: number; state: string }[]>`
-    SELECT source_key, title, state,
+  const leads = await sql<{ source_key: string; title: string; d: string; games: number; state: string; url: string | null }[]>`
+    SELECT source_key, title, state, url,
            (observed_at AT TIME ZONE 'Asia/Seoul')::date::text AS d,
            coalesce((raw->>'games')::int, 0) AS games
       FROM event_lead
@@ -93,10 +116,20 @@ try {
     if (l.state !== "new") continue;
     const s = seenBy.get(l.d);
     const m = s?.n ?? 0;
-    if (m > 0 && m >= l.games) {
+    const vod = /(\d{6,})/u.exec(l.url ?? "")?.[1];
+    const byVod = vod ? loadedVods.get(vod) : undefined;
+
+    // ★ VOD 번호가 맞으면 날짜와 무관하게 확정이다. 이것만 --mark 대상이다.
+    if (byVod) {
       covered++; toMark.push(l.source_key);
-      console.log(`  ✓ 덮임   ${l.d} 경기${l.games} ≤ 기록${m}  ${l.title.slice(0, 34)}`);
+      console.log(`  ✓ 판독함 ${l.d} VOD ${vod}  ${l.title.slice(0, 34)}`);
+      console.log(`           → ${[...byVod].join(", ")}`);
+    } else if (m > 0 && m >= l.games) {
+      // 날짜만 맞았다. 같은 날 **다른** 내전일 수 있다 — 자동으로 건너뛰지 않는다.
+      partial++;
+      console.log(`  ? 날짜만 ${l.d} 경기${l.games} ≤ 기록${m}  ${l.title.slice(0, 34)}`);
       console.log(`           → ${(s?.events ?? []).filter(Boolean).join(", ")}`);
+      console.log(`           ⚠ VOD 번호는 안 맞는다. 같은 날 다른 판일 수 있으니 사람이 본다.`);
     } else if (m > 0 || (s?.thin ?? 0) > 0) {
       partial++;
       if ((s?.thin ?? 0) > 0) console.log(`  ~ 채움   ${l.d} 승패만 있는 판 ${s!.thin}개 — 챔피언·KDA 를 채울 수 있다`);
@@ -108,14 +141,14 @@ try {
     }
   }
 
-  console.log(`\n덮임 ${covered} · 일부 ${partial} · 새것 ${fresh}`);
+  console.log(`\n판독함 ${covered} · 확인필요 ${partial} · 새것 ${fresh}`);
   if (covered > 0 && !MARK) {
-    console.log(`\n덮인 ${covered}건을 건너뛰려면:  npm run ck:seen -- --channel ${CHANNEL} --range ${RANGE} --mark`);
+    console.log(`\nVOD 번호가 맞은 ${covered}건을 건너뛰려면:  npm run ck:seen -- --channel ${CHANNEL} --range ${RANGE} --mark`);
   }
   if (MARK && toMark.length > 0) {
     const r = await sql`
       UPDATE event_lead SET state = 'ignored',
-             note = '다른 스트리머 조사에서 이미 기록된 경기 — 같은 판을 두 번 파지 않는다 (ck:seen)',
+             note = '이미 판독한 VOD 다 (source_url 번호 일치) — 같은 방송을 두 번 파지 않는다 (ck:seen)',
              updated_at = now()
        WHERE source = 'vod_title' AND source_key = ANY(${toMark}) AND state = 'new'
       RETURNING source_key`;
