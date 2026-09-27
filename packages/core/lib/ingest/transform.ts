@@ -24,12 +24,16 @@ import {
  * db/types 에 두면 db ↔ ingest 타입 순환이 생긴다. db/types 가 재수출한다.
  */
 export type MatchSource = "public_queue" | "tournament_code" | "manual";
+export type GameCode = "lol" | "fconline";
+export type MatchOutcome = "win" | "draw" | "loss" | "unknown";
 
 export interface MatchRow {
   match_id: string;
+  game_code: GameCode;
   platform_id: string;
-  game_id: number;
-  queue_id: number;
+  riot_game_id: number;
+  queue_id: number | null;
+  mode_key: string;
   game_mode: string | null;
   game_type: string | null;
   map_id: number | null;
@@ -55,15 +59,17 @@ export interface ParticipantRow {
    */
   streamer_id?: string | null;
   participant_id: number;
-  team_id: number;
+  team_id: number | null;
+  side_no: number;
   team_position: string | null;
   individual_position: string | null;
   lane: string | null;
   role: string | null;
-  champion_id: number;
+  champion_id: number | null;
   champion_name: string | null;
   champ_level: number | null;
-  win: boolean;
+  /** 승패의 유일한 표현. boolean win 은 0028 에서 은퇴했다 — 무승부를 표현하지 못한다. */
+  outcome: MatchOutcome;
   kills: number;
   deaths: number;
   assists: number;
@@ -128,9 +134,11 @@ export function toMatchRow(dto: MatchDto, source?: MatchSource): MatchRow {
 
   return {
     match_id: matchId,
+    game_code: "lol",
     platform_id: platformId.toUpperCase(),
-    game_id: info.gameId,
+    riot_game_id: info.gameId,
     queue_id: info.queueId,
+    mode_key: String(info.queueId),
     game_mode: info.gameMode ?? null,
     game_type: info.gameType ?? null,
     map_id: info.mapId ?? null,
@@ -155,6 +163,7 @@ export function toParticipantRow(matchId: string, p: ParticipantDto): Participan
     puuid: p.puuid,
     participant_id: p.participantId,
     team_id: p.teamId,
+    side_no: p.teamId === 100 ? 1 : 2,
     // 빈 문자열은 "판정 실패"다. NULL 로 눕혀야 SQL 에서 `IS NULL` 하나로 걸린다.
     team_position: p.teamPosition || null,
     individual_position: p.individualPosition || null,
@@ -163,7 +172,8 @@ export function toParticipantRow(matchId: string, p: ParticipantDto): Participan
     champion_id: p.championId,
     champion_name: p.championName ?? null,
     champ_level: int(p.champLevel),
-    win: p.win,
+    // Riot DTO 의 boolean 은 여기서 outcome 으로 번역되고 그걸로 끝이다.
+    outcome: p.win ? "win" : "loss",
     kills: p.kills ?? 0,
     deaths: p.deaths ?? 0,
     assists: p.assists ?? 0,
@@ -200,14 +210,20 @@ export interface EncounterParticipant {
   puuid: string | null;
   /** 계정을 아직 못 붙였지만 그 자리에 있던 게 확인된 우리 스트리머. */
   streamer_id?: string | null;
-  team_id: number;
+  team_id: number | null;
+  side_no: number | null;
   team_position: string | null;
   individual_position: string | null;
-  win: boolean;
-  champion_id: number;
-  kills: number;
-  deaths: number;
-  assists: number;
+  outcome: MatchOutcome;
+  champion_id: number | null;
+  /**
+   * ★ 못 읽었으면 NULL (0020). 공개 큐는 Riot 이 늘 주지만, 방송 결과 화면을 읽어
+   *   넣는 내전은 그래프 탭이면 승패만 읽힌다. **여기서 산술하지 말 것** —
+   *   지금은 그대로 조우로 넘기기만 한다(streamer_encounter 도 nullable 이다).
+   */
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
   cs: number | null;
   gold_earned: number | null;
   damage_to_champions: number | null;
@@ -215,7 +231,9 @@ export interface EncounterParticipant {
 
 export interface EncounterMatch {
   match_id: string;
-  queue_id: number;
+  game_code: GameCode;
+  queue_id: number | null;
+  mode_key: string | null;
   source: string;
   game_creation: Date;
   game_duration: number | null;
@@ -232,15 +250,18 @@ export interface EncounterRow {
   a_position: string | null;
   b_position: string | null;
   is_lane_matchup: boolean;
-  a_win: boolean;
-  b_win: boolean;
-  a_champion_id: number;
-  b_champion_id: number;
-  a_kills: number; a_deaths: number; a_assists: number;
+  a_outcome: MatchOutcome;
+  b_outcome: MatchOutcome;
+  a_champion_id: number | null;
+  b_champion_id: number | null;
+  /** 못 읽었으면 NULL (0020). streamer_encounter 의 컬럼도 0001 부터 nullable 이다. */
+  a_kills: number | null; a_deaths: number | null; a_assists: number | null;
   a_cs: number | null; a_gold: number | null; a_damage: number | null;
-  b_kills: number; b_deaths: number; b_assists: number;
+  b_kills: number | null; b_deaths: number | null; b_assists: number | null;
   b_cs: number | null; b_gold: number | null; b_damage: number | null;
-  queue_id: number;
+  game_code: GameCode;
+  queue_id: number | null;
+  mode_key: string | null;
   source: string;
   game_creation: Date;
   game_duration: number | null;
@@ -268,8 +289,8 @@ export function deriveEncounters(
   participants: EncounterParticipant[],
   ownerOf: ReadonlyMap<string, string>,
 ): EncounterRow[] {
-  const laneCapable =
-    SUMMONERS_RIFT_QUEUES.includes(match.queue_id) || match.source === "manual";
+  const laneCapable = match.game_code === "lol"
+    && ((match.queue_id != null && SUMMONERS_RIFT_QUEUES.includes(match.queue_id)) || match.source === "manual");
 
   const seen = new Map<string, EncounterParticipant>();
   for (const p of participants) {
@@ -295,22 +316,24 @@ export function deriveEncounters(
         streamer_b_id: bId,
         a_puuid: a.puuid,
         b_puuid: b.puuid,
-        relation: a.team_id === b.team_id ? "ally" : "opponent",
+        relation: (a.side_no ?? a.team_id) === (b.side_no ?? b.team_id) ? "ally" : "opponent",
         a_position: resolvePosition({ teamPosition: a.team_position ?? undefined, individualPosition: a.individual_position ?? undefined }),
         b_position: resolvePosition({ teamPosition: b.team_position ?? undefined, individualPosition: b.individual_position ?? undefined }),
-        is_lane_matchup: laneCapable && isLaneMatchup(
+        is_lane_matchup: laneCapable && a.team_id !== null && b.team_id !== null && isLaneMatchup(
           { teamId: a.team_id, teamPosition: a.team_position ?? undefined, individualPosition: a.individual_position ?? undefined },
           { teamId: b.team_id, teamPosition: b.team_position ?? undefined, individualPosition: b.individual_position ?? undefined },
         ),
-        a_win: a.win,
-        b_win: b.win,
+        a_outcome: a.outcome,
+        b_outcome: b.outcome,
         a_champion_id: a.champion_id,
         b_champion_id: b.champion_id,
         a_kills: a.kills, a_deaths: a.deaths, a_assists: a.assists,
         a_cs: a.cs, a_gold: a.gold_earned, a_damage: a.damage_to_champions,
         b_kills: b.kills, b_deaths: b.deaths, b_assists: b.assists,
         b_cs: b.cs, b_gold: b.gold_earned, b_damage: b.damage_to_champions,
+        game_code: match.game_code,
         queue_id: match.queue_id,
+        mode_key: match.mode_key,
         source: match.source,
         game_creation: match.game_creation,
         game_duration: match.game_duration,

@@ -2,6 +2,8 @@
 
 export interface WorkerConfig {
   riotApiKey: string;
+  /** FC 엔진을 실행할 때 필요. LoL 전용 명령은 없어도 계속 동작한다. */
+  nexonApiKey: string | null;
 
   /** Engine A — 랭크 스냅샷을 돌릴 KST 시각 (docs/PLAN.md §5). */
   rankHourKst: number;
@@ -24,6 +26,11 @@ export interface WorkerConfig {
   /** Engine D — 파생. */
   deriveIntervalMs: number;
   championStatIntervalMs: number;
+
+  /** Engine E — FC 온라인 일일 수집을 돌릴 KST 시각. NEXON_API_KEY 없으면 조용히 쉰다. */
+  fcoHourKst: number;
+  /** FC 목록 조회 매치 타입. 기본 30·40·50·60 — 감독(52)·볼타는 저장 모델 확인 전(계획 계약 2). */
+  fcoMatchtypes: number[];
 
   /** 할 일이 없을 때 쉬는 시간. */
   idleMs: number;
@@ -52,6 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
 
   return {
     riotApiKey,
+    nexonApiKey: env.NEXON_API_KEY?.trim() || null,
     rankHourKst: num(env.RANK_HOUR_KST, 9),
     profileMaxAgeMs: num(env.PROFILE_MAX_AGE_HOURS, 20) * 60 * 60 * 1000,
 
@@ -65,6 +73,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
 
     deriveIntervalMs: num(env.DERIVE_INTERVAL_MINUTES, 15) * 60 * 1000,
     championStatIntervalMs: num(env.CHAMPION_STAT_INTERVAL_HOURS, 6) * 60 * 60 * 1000,
+
+    fcoHourKst: num(env.FCO_HOUR_KST, 10),
+    // 친선(40)만 — 스트리머끼리 붙는 건 서로 초대하는 친선이다. 공식경기(50·60)는 랜덤 매칭이라
+    // 스트리머끼리 경기가 거의 없는데(1,085건 중 1건) 하루 1,000회 호출 한도의 대부분을 먹었다(2026-09-26 결정).
+    fcoMatchtypes: (env.FCO_MATCHTYPES ?? "40").split(",").map(Number).filter((n) => Number.isInteger(n) && n >= 0),
 
     idleMs: num(env.IDLE_SECONDS, 30) * 1000,
     verbose: bool(env.WORKER_VERBOSE, false),

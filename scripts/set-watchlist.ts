@@ -5,6 +5,9 @@
  *   npm run watch -- --add 김민교 이상호 저라뎃
  *   npm run watch -- --add-file seed/watchlist.txt
  *   npm run watch -- --remove 저라뎃
+ *   npm run watch -- --vod-usually-unavailable <이름또는채널>
+ *   npm run watch -- --vod-usually-available <이름또는채널>
+ *   npm run watch -- --vod-unknown <이름또는채널>
  *   npm run watch -- --clear
  *   npm run watch -- --suggest 60        # 애청자 상위 N 명을 제안만 한다
  *
@@ -107,6 +110,36 @@ try {
   ];
   const removes = after("--remove");
 
+  // 채널별 VOD 성향은 교차 POV의 기대 비용을 판단하는 힌트다. 이 값을 바꿔도 watch나
+  // 일일 목록 조회는 꺼지지 않는다. 이름이 여러 SOOP 채널에 걸리면 채널 id를 요구한다.
+  const availabilityOps = [
+    ["--vod-usually-unavailable", "usually_unavailable"],
+    ["--vod-usually-available", "usually_available"],
+    ["--vod-unknown", "unknown"],
+  ] as const;
+  for (const [option, availability] of availabilityOps) {
+    for (const raw of after(option)) {
+      const hits = await sql<{ id: string; channel_id: string; display_name: string; slug: string }[]>`
+        SELECT c.id, c.channel_id, s.display_name, s.slug
+          FROM streamer_channel c JOIN streamer s ON s.id = c.streamer_id
+         WHERE c.platform = 'soop' AND c.active_to IS NULL
+           AND (c.channel_id = ${raw} OR s.slug = ${raw} OR s.display_name = ${raw})
+         ORDER BY c.is_primary DESC, c.created_at
+      `;
+      if (hits.length === 0) { console.log(`  ✖ ${raw} — 활성 SOOP 채널을 찾지 못했다`); continue; }
+      if (hits.length > 1) {
+        console.log(`  ⚠ ${raw} — SOOP 채널 ${hits.length}개가 걸린다: ${hits.map((hit) => hit.channel_id).join(", ")} · 채널 id로 다시 지정할 것`);
+        continue;
+      }
+      await sql`
+        UPDATE streamer_channel
+           SET vod_availability = ${availability}, vod_availability_checked_at = now()
+         WHERE id = ${hits[0].id}::uuid
+      `;
+      console.log(`  VOD ${hits[0].display_name}(${hits[0].channel_id}) → ${availability}`);
+    }
+  }
+
   for (const [list, on] of [[names, true], [removes, false]] as const) {
     for (const raw of list) {
       // 표시명 · slug · SOOP 채널 아이디 셋 다 받는다.
@@ -127,15 +160,16 @@ try {
     }
   }
 
-  const now = await sql<{ display_name: string; slug: string; channel_id: string | null }[]>`
-    SELECT s.display_name, s.slug, c.channel_id
+  const now = await sql<{ display_name: string; slug: string; channel_id: string | null; vod_availability: string | null }[]>`
+    SELECT s.display_name, s.slug, c.channel_id, c.vod_availability
       FROM streamer s
       LEFT JOIN streamer_channel c ON c.streamer_id = s.id AND c.platform = 'soop' AND c.active_to IS NULL
      WHERE s.watch
      ORDER BY s.display_name
   `;
   console.log(`\n=== 매일 훑을 명단 ${now.length}명 ===`);
-  for (const r of now) console.log(`  ${r.display_name.padEnd(16)} ${r.slug.padEnd(18)} ${r.channel_id ?? "(채널 없음)"}`);
+  for (const r of now) console.log(`  ${r.display_name.padEnd(16)} ${r.slug.padEnd(18)} ${r.channel_id ?? "(채널 없음)"}`
+    + `${r.vod_availability && r.vod_availability !== "unknown" ? ` · VOD ${r.vod_availability}` : ""}`);
   const noChannel = now.filter((r) => !r.channel_id);
   if (noChannel.length > 0) {
     console.log(`\n⚠ 채널이 없어 훑을 수 없는 ${noChannel.length}명: ${noChannel.map((r) => r.display_name).join(", ")}`);

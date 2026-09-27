@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-09-25T06:32:33.605Z",
+  "viewports": [
+    1440,
+    390,
+    360
+  ],
+  "variants": [
+    "a",
+    "b"
+  ],
+  "tabs": [
+    "overview",
+    "matches",
+    "bracket",
+    "teams",
+    "records",
+    "info"
+  ],
+  "browserErrors": [],
+  "result": "pass"
+}

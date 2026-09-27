@@ -43,3 +43,9 @@ test("공동 N위", () => {
   assert.equal(placementRank("공동3위"), 3);
   assert.equal(placementRank("5위"), 5);
 });
+
+test("N-M위 범위는 대시 종류와 무관하게 앞 숫자", () => {
+  for (const label of ["5-6위", "5–6위", "5—6위", "5~6위", "공동 7–8위"]) {
+    assert.equal(placementRank(label), label.includes("7") ? 7 : 5, label);
+  }
+});

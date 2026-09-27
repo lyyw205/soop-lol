@@ -17,7 +17,7 @@
  * ⚠ 후보는 답이 아니다. **확대해서 확인하고** 쓴다(SKILL.md 7단계).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 
@@ -30,6 +30,15 @@ if (args.length === 0) {
 
 /** 공백·구두점만 지운다. 그 이상 뭉개면 다른 사람이 붙는다. */
 const norm = (s) => String(s ?? "").normalize("NFKC").replace(/[\s\-_.]+/gu, "").toLowerCase();
+
+/**
+ * ★ 결과 화면은 **긴 이름을 잘라서** `꼬우면여물고니가탱…` 처럼 보여준다.
+ * 잘린 이름은 편집거리로는 절대 안 잡힌다 — 뒤가 통째로 없으니 거리가 10 을 넘는다.
+ * 2026-08-21 조사에서 `꼬우면여물고니가탱` 이 "가까운 것도 없다" 로 나왔는데
+ * 실제로는 등록된 `꼬우면여물고니가탱커해띠발럼들아#칼챔해뿔라`(정현민)였다.
+ * 그래서 **앞부분 일치**를 따로 본다.
+ */
+const stripEllipsis = (s) => String(s ?? "").replace(/[.\u2026\u22ef]+$/u, "");
 
 /**
  * 한글을 자모로 편다. **글자 단위 거리만으로는 순위가 안 갈린다** —
@@ -75,6 +84,36 @@ for (const r of await sql`
     LEFT JOIN streamer s ON s.id = sa.streamer_id`) {
   push(r.game_name, { kind: "인게임", raw: `${r.game_name}#${r.tag_line}`, slug: r.slug, name: r.display_name });
 }
+/**
+ * ★ **앞선 조사에서 `unlinked_account` 로 확정한 이름도 본다.**
+ * `riot_account` 에는 태그를 몰라 안 넣은 계정이 많다 — 그건 시드의 `unlinked_accounts`
+ * 에만 남는다. 2026-08-21 에 `임팡벌레` 를 세 대회에서 '미등록' 으로 버렸는데,
+ * 2026-04-01 시드에 이미 **임아니**로 확정돼 있었다. 같은 실수를 막는다.
+ */
+const seedFiles = existsSync("seed") ? readdirSync("seed").filter((f) => f.startsWith("tournaments-") && f.endsWith(".json")) : [];
+const bySlug = new Map();
+const seedSeen = new Set();
+for (const r of await sql`SELECT slug, display_name FROM streamer`) bySlug.set(r.slug, r.display_name);
+for (const f of seedFiles) {
+  let doc;
+  try { doc = JSON.parse(readFileSync(`seed/${f}`, "utf8")); } catch { continue; }
+  for (const ev of Array.isArray(doc) ? doc : [doc]) {
+    const take = (slug, name) => {
+      if (!slug || !name) return;
+      const key = `${slug}|${norm(name)}`;
+      if (seedSeen.has(key)) return;          // 같은 매핑이 여러 시드에 있다 — 한 번만 보여준다
+      seedSeen.add(key);
+      push(name, { kind: "시드", raw: name, slug, name: bySlug.get(slug) ?? slug });
+    };
+    for (const [slug, name] of Object.entries(ev.unlinked_accounts ?? {})) take(slug, name);
+    for (const g of ev.games ?? []) {
+      for (const arr of Object.values(g.lineup ?? {})) {
+        for (const e of arr ?? []) take(e.slug, e.unlinked_account);
+      }
+    }
+  }
+}
+
 for (const r of await sql`SELECT slug, display_name, aliases FROM streamer`) {
   push(r.display_name, { kind: "표시명", raw: r.display_name, slug: r.slug, name: r.display_name });
   for (const a of r.aliases ?? []) push(a, { kind: "별명", raw: a, slug: r.slug, name: r.display_name });
@@ -88,9 +127,28 @@ const champByNorm = new Map(champs.map((c) => [norm(c.name), c]));
 console.log(`사람 ${people.size}종 · 챔피언 ${champs.length}종 · 편집거리 ${MAX} 까지 본다\n`);
 
 for (const q of args) {
-  const k = norm(q);
+  const k = norm(stripEllipsis(q));
   const exactP = people.get(k) ?? [];
   const exactC = champByNorm.get(k);
+
+  /**
+   * 잘린 이름 후보. 3 글자부터 본다 — `진철수` 가 등록 계정 `진철수아빠`(진성준짱)의
+   * 앞부분인데 4 글자 문턱에 걸려 안 잡혔다. 2 글자는 아무 데나 걸려서 안 본다.
+   */
+  const prefixP = [];
+  if (k.length >= 3 && !exactP.length) {
+    for (const [key, vs] of people) {
+      if (key.length > k.length && key.startsWith(k)) for (const v of vs) prefixP.push(v);
+    }
+  }
+  if (prefixP.length > 0) {
+    console.log(`▸ ${q}  — **잘린 이름**이다. 앞부분이 이것과 맞는다`);
+    for (const v of prefixP.slice(0, 8)) {
+      console.log(`    ${v.slug ?? "(매핑없음)"} ${v.name ?? ""} [${v.kind} ${v.raw}]`);
+    }
+    if (prefixP.length > 1) console.log(`    ⚠ 후보가 ${prefixP.length} 개다 — 하나로 안 좁혀지면 로스터에서 뺀다.`);
+    continue;
+  }
 
   // ★ 한쪽만 정확히 맞아도 **다른 쪽 후보는 계속 찾는다.**
   //   결과 화면은 이름 칸과 챔피언 칸이 위아래로 붙어 있어 어느 쪽을 읽은 건지 헷갈린다 —

@@ -131,14 +131,16 @@ try {
   console.log(`${FROM === TO ? DATE : `${FROM} ~ ${TO}`} 치 단서 수집${DRY ? "  (확인만 — 아무것도 쓰지 않는다)" : ""}\n`);
 
   // 등록된 채널 ↔ 스트리머. 참가자를 즉시 이어붙이는 데 쓴다.
-  const known = new Map<string, { id: string; name: string; watch: boolean }>(
-    (await sql<{ channel_id: string; id: string; display_name: string; watch: boolean }[]>`
-      SELECT c.channel_id, s.id, s.display_name, s.watch
+  const known = new Map<string, { id: string; name: string; watch: boolean; vod_availability: string }>(
+    (await sql<{ channel_id: string; id: string; display_name: string; watch: boolean; vod_availability: string }[]>`
+      SELECT c.channel_id, s.id, s.display_name, s.watch, c.vod_availability
         FROM streamer_channel c JOIN streamer s ON s.id = c.streamer_id
        WHERE c.platform = 'soop' AND c.active_to IS NULL
-    `).map((r) => [r.channel_id, { id: r.id, name: r.display_name, watch: r.watch }]),
+    `).map((r) => [r.channel_id, { id: r.id, name: r.display_name, watch: r.watch, vod_availability: r.vod_availability }]),
   );
   console.log(`등록 채널 ${known.size}개 · 그중 매일 훑을 대상 ${[...known.values()].filter((k) => k.watch).length}명`);
+  const unlikelyVod = [...known.values()].filter((k) => k.watch && k.vod_availability === "usually_unavailable").length;
+  if (unlikelyVod > 0) console.log(`VOD 미저장 경향 ${unlikelyVod}명 · 힌트일 뿐이라 목록 조회는 그대로 수행한다`);
 
   const FFMPEG_OK = DRY || NO_SCAN || ffmpegWorks();
   if (!FFMPEG_OK) {
@@ -267,9 +269,9 @@ try {
     const who = known.get(v.channel_id);
     if (DRY) { leadCount++; continue; }
     const [row] = await sql<{ id: string }[]>`
-      INSERT INTO event_lead (source, source_key, url, channel_id, streamer_id, kind, title, observed_at, raw)
+      INSERT INTO event_lead (source, source_key, url, channel_id, streamer_id, title, observed_at, raw)
       VALUES ('vod_title', ${key}, ${`https://vod.sooplive.com/player/${v.title_no}`},
-              ${v.channel_id}, ${who?.id ?? null}, ${v.category === LOL_CATEGORY ? "scrim" : "unknown"},
+              ${v.channel_id}, ${who?.id ?? null},
               ${v.title}, ${new Date(`${v.at.replace(" ", "T")}+09:00`)},
               ${sql.json({ title_no: v.title_no, category: v.category, views: v.views,
                             ...(evidence.get(v.title_no) ?? {}) } as never)})
@@ -367,8 +369,8 @@ try {
       let leadId: string | null = null;
       if (!DRY) {
         const [row] = await sql<{ id: string }[]>`
-          INSERT INTO event_lead (source, source_key, url, channel_id, streamer_id, kind, title, observed_at, raw)
-          VALUES ('board_post', ${key}, ${p.url}, ${ch}, ${known.get(ch)?.id ?? null}, 'unknown',
+          INSERT INTO event_lead (source, source_key, url, channel_id, streamer_id, title, observed_at, raw)
+          VALUES ('board_post', ${key}, ${p.url}, ${ch}, ${known.get(ch)?.id ?? null},
                   ${p.title}, ${new Date(`${p.at.replace(" ", "T")}+09:00`)},
                   ${sql.json({ title_no: p.title_no, author: p.author_nick, comments: p.comments } as never)})
           ON CONFLICT (source, source_key) DO UPDATE SET title = EXCLUDED.title, updated_at = now()
@@ -441,9 +443,9 @@ try {
     console.log(`   ★ ${known.get(ch)?.name ?? ch} — !공지로 경기 종료 ${allEnds.length}건 (승자까지)`);
     if (DRY) continue;
     await sql`
-      INSERT INTO event_lead (source, source_key, url, channel_id, streamer_id, kind, title, observed_at, raw)
+      INSERT INTO event_lead (source, source_key, url, channel_id, streamer_id, title, observed_at, raw)
       VALUES ('chat_notice', ${`chat:${best.title_no}`}, ${`https://vod.sooplive.com/player/${best.title_no}`},
-              ${ch}, ${known.get(ch)?.id ?? null}, 'scrim', ${best.title},
+              ${ch}, ${known.get(ch)?.id ?? null}, ${best.title},
               ${new Date(`${best.at.replace(" ", "T")}+09:00`)},
               ${sql.json({ game_ends: allEnds, files: files.length } as never)})
       ON CONFLICT (source, source_key) DO UPDATE SET raw = EXCLUDED.raw, updated_at = now()

@@ -14,6 +14,7 @@ import type {
   StreamerAccountView,
   StreamerChannelRow,
   StreamerRow,
+  VodAvailability,
   Visibility,
 } from "./types.ts";
 
@@ -221,6 +222,22 @@ export async function removeStreamerChannel(id: string, close = false): Promise<
     ? await sql`UPDATE streamer_channel SET active_to = now() WHERE id = ${id}::uuid AND active_to IS NULL RETURNING id`
     : await sql`DELETE FROM streamer_channel WHERE id = ${id}::uuid RETURNING id`;
   return rows.length > 0;
+}
+
+/**
+ * 채널의 VOD 보존 성향을 기록한다. 수집 제외 스위치가 아니라 다른 POV 선택용 힌트다.
+ * 실제 목록 조회는 이 값과 무관하게 계속한다 — 습관과 플랫폼 설정은 바뀔 수 있다.
+ */
+export async function setStreamerChannelVodAvailability(
+  id: string, availability: VodAvailability,
+): Promise<StreamerChannelRow | null> {
+  const rows = await db()<StreamerChannelRow[]>`
+    UPDATE streamer_channel
+       SET vod_availability = ${availability}, vod_availability_checked_at = now()
+     WHERE id = ${id}::uuid AND active_to IS NULL
+    RETURNING *
+  `;
+  return rows[0] ?? null;
 }
 
 // ── 계정 매핑 ────────────────────────────────────────────────────────

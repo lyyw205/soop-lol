@@ -9,9 +9,11 @@
 export type Platform = "soop" | "chzzk" | "youtube" | "twitch" | "other";
 export type Visibility = "public" | "hidden";
 export type StreamerStatus = "active" | "inactive" | "retired";
+export type VodAvailability = "unknown" | "usually_available" | "usually_unavailable";
 export type Confidence = "verified" | "likely" | "unverified";
-// MatchSource 의 정의는 ingest/transform.ts 에 있다(출처 판정의 소유자). 여기선 재수출만.
-export type { MatchSource } from "../ingest/transform.ts";
+// MatchSource·MatchOutcome 의 정의는 ingest/transform.ts 에 있다(출처·승패 판정의 소유자).
+// 여기선 재수출만.
+export type { MatchOutcome, MatchSource } from "../ingest/transform.ts";
 
 export interface StreamerRow {
   id: string;
@@ -43,6 +45,8 @@ export interface StreamerChannelRow {
   channel_url: string | null;
   label: string | null;
   is_primary: boolean;
+  vod_availability: VodAvailability;
+  vod_availability_checked_at: string | null;
   active_from: string | null;
   active_to: string | null;
 }

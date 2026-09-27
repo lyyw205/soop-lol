@@ -11,12 +11,14 @@
  */
 
 import { db } from "./client.ts";
+import type { MatchOutcome } from "./types.ts";
 import { expandCategory, type MatchCategoryFilter } from "../metrics/category.ts";
 import { PLACEMENT_BUCKETS, placementBucket } from "../metrics/placement.ts";
 
 // ── 목록 ─────────────────────────────────────────────────────────────
 
 export interface StreamerCard {
+  profile_image_url: string | null;
   streamer_id: string;
   slug: string;
   display_name: string;
@@ -32,17 +34,27 @@ export interface StreamerCard {
   lp_absolute: number | null;
   matches: number;
   encounters: number;
+  /** 대표 게임 계정(본계 우선)의 인게임 이름. 붙인 계정이 없으면 null. */
+  account_name: string | null;
+  account_tag: string | null;
+  /** 붙어 있는 계정 수. 2 이상이면 화면에 `외 N` 을 붙인다. */
+  account_count: number;
+  /** 대회 우승 횟수(팀 순위 1위). 순위를 모르는 대회는 세지 않는다. */
+  titles: number;
 }
 
 export async function listStreamerCards(opts: { q?: string } = {}): Promise<StreamerCard[]> {
   const sql = db();
   const q = opts.q?.trim();
   return sql<StreamerCard[]>`
-    SELECT s.streamer_id, s.slug, s.display_name, s.aliases, s.is_pro, s.team_name,
+    SELECT s.streamer_id, s.slug, s.display_name, s.aliases, s.is_pro, s.team_name, s.profile_image_url,
            ch.channel_id, ch.channel_url, ch.platform,
            r.tier, r.division, r.league_points, r.lp_absolute,
            coalesce(mc.n, 0)::int AS matches,
-           coalesce(ec.n, 0)::int AS encounters
+           coalesce(ec.n, 0)::int AS encounters,
+           acc.game_name AS account_name, acc.tag_line AS account_tag,
+           coalesce(acc.total, 0)::int AS account_count,
+           coalesce(tt.n, 0)::int AS titles
       FROM core_public.streamer s
       LEFT JOIN LATERAL (
              SELECT platform, channel_id, channel_url FROM core_public.streamer_channel
@@ -64,6 +76,22 @@ export async function listStreamerCards(opts: { q?: string } = {}): Promise<Stre
              SELECT count(*) AS n FROM core_public.streamer_encounter
               WHERE streamer_a_id = s.streamer_id OR streamer_b_id = s.streamer_id
            ) ec ON true
+      -- ★ 순위를 **모르는** 대회는 세지 않는다. 우승 옆의 숫자가 무슨 뜻인지 흐려진다.
+      LEFT JOIN LATERAL (
+             SELECT count(*) AS n
+               FROM core_public.event_team_member tm
+               JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
+              WHERE tm.streamer_id = s.streamer_id AND t.placement_rank = 1
+           ) tt ON true
+      -- 대표 계정은 **본계 우선**이다. 부계정이 대표로 뜨면 같은 사람을 못 알아본다.
+      LEFT JOIN LATERAL (
+             SELECT a.game_name, a.tag_line,
+                    (SELECT count(*) FROM core_public.streamer_account
+                      WHERE streamer_id = s.streamer_id) AS total
+               FROM core_public.streamer_account a
+              WHERE a.streamer_id = s.streamer_id
+              ORDER BY a.is_main DESC, a.game_name LIMIT 1
+           ) acc ON true
      WHERE ${q
        ? sql`(s.display_name ILIKE ${"%" + q + "%"}
               OR s.slug ILIKE ${"%" + q + "%"}
@@ -99,8 +127,124 @@ export interface ChampionRow {
   kills: number;
   deaths: number;
   assists: number;
+  /**
+   * ★ KDA 평균의 분모. `games` 가 아니다 — 방송에서 승패만 읽은 판은 KDA 가 NULL 이고
+   *   합에서 빠지므로, `games` 로 나누면 평균이 묽어진다(0020 ⑧). 0 이면 평균을 내지 않는다.
+   */
+  kda_games: number;
   cs: number;
   seconds_played: number;
+}
+
+/** 한 챔피언으로 맞라인에서 만난 상대 챔피언 한 줄. */
+export interface ChampionMatchup {
+  champion_id: number;
+  champion_name: string | null;
+  games: number;
+  wins: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  kda_games: number;
+}
+
+export interface ChampionRecord extends ChampionRow {
+  /** 맞라인 상대 챔피언별 전적. 경기 많은 순. */
+  matchups: ChampionMatchup[];
+}
+
+export interface ChampionScope {
+  category?: MatchCategoryFilter;
+  /** KST 달력 날짜(`YYYY-MM-DD`). 경기 하나 단위로 자른다. */
+  from?: string;
+  to?: string;
+}
+
+/**
+ * 챔피언 탭이 쓰는 집계. **`champion_stat` 이 아니라 원본 참가 기록에서 센다.**
+ *
+ * ★ 왜 파생 테이블을 안 쓰나
+ *   `champion_stat` 은 (스트리머 × 챔피언 × 큐 × 시즌) 으로 이미 접힌 표라
+ *   **기간으로 자를 수가 없다.** 날짜 필터를 붙이려면 경기 단위로 되돌아가야 한다.
+ *   프로필 카드의 '통산 모스트' 는 기간 개념이 없으므로 그대로 `listChampions` 를 쓴다.
+ *
+ * ★ 맞라인 = 같은 경기 · 다른 팀 · **같은 포지션**
+ *   `core_public.match_participant` 는 `individual_position` 을 내보내지 않으므로
+ *   여기서는 `team_position` 만 본다. 포지션이 비어 있으면(판독 실패) 아무것도 세지 않는다
+ *   — 틀린 맞라인 전적은 없느니만 못하다(CLAUDE.md 원칙 10).
+ *
+ * ⚠ 한 포지션에 상대가 둘로 읽힌 경기(방송 판독 실패)는 두 줄로 각각 세어진다.
+ *   그래서 맞라인 줄의 경기 수 합이 그 챔피언의 경기 수보다 클 수 있다.
+ */
+export async function listChampionRecords(
+  streamerId: string,
+  limit = 20,
+  { category, from, to }: ChampionScope = {},
+): Promise<ChampionRecord[]> {
+  const sql = db();
+  const cats = expandCategory(category);
+  return sql<ChampionRecord[]>`
+    WITH mine AS (
+      SELECT mp.match_id, mp.team_id, mp.team_position, mp.champion_id, mp.champion_name,
+             mp.outcome, mp.kills, mp.deaths, mp.assists, mp.cs, m.game_duration,
+             -- ★ 분자와 분모가 같은 판을 센다. 셋을 다 읽은 판만 평균에 넣는다(0020 ⑧).
+             (mp.kills IS NOT NULL AND mp.deaths IS NOT NULL AND mp.assists IS NOT NULL) AS kda_read
+        FROM core_public.match_participant mp
+        JOIN core_public.match m ON m.match_id = mp.match_id
+       WHERE mp.streamer_id = ${streamerId}::uuid
+         AND (${cats}::text[] IS NULL OR m.category = ANY(${cats}::text[]))
+         AND (${from ?? null}::date IS NULL
+              OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date >= ${from ?? null}::date)
+         AND (${to ?? null}::date IS NULL
+              OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date <= ${to ?? null}::date)
+    ),
+    totals AS (
+      SELECT champion_id,
+             min(champion_name) FILTER (WHERE champion_name IS NOT NULL) AS champion_name,
+             count(*)::int AS games,
+             count(*) FILTER (WHERE outcome = 'win')::int AS wins,
+             coalesce(sum(kills)   FILTER (WHERE kda_read), 0)::int AS kills,
+             coalesce(sum(deaths)  FILTER (WHERE kda_read), 0)::int AS deaths,
+             coalesce(sum(assists) FILTER (WHERE kda_read), 0)::int AS assists,
+             count(*) FILTER (WHERE kda_read)::int AS kda_games,
+             coalesce(sum(cs), 0)::bigint AS cs,
+             coalesce(sum(game_duration), 0)::bigint AS seconds_played
+        FROM mine
+       GROUP BY champion_id
+       ORDER BY count(*) DESC, champion_id
+       LIMIT ${limit}
+    ),
+    matchups AS (
+      SELECT me.champion_id AS mine_id, foe.champion_id AS foe_id,
+             min(foe.champion_name) FILTER (WHERE foe.champion_name IS NOT NULL) AS foe_name,
+             count(*)::int AS games,
+             count(*) FILTER (WHERE me.outcome = 'win')::int AS wins,
+             coalesce(sum(me.kills)   FILTER (WHERE me.kda_read), 0)::int AS kills,
+             coalesce(sum(me.deaths)  FILTER (WHERE me.kda_read), 0)::int AS deaths,
+             coalesce(sum(me.assists) FILTER (WHERE me.kda_read), 0)::int AS assists,
+             count(*) FILTER (WHERE me.kda_read)::int AS kda_games
+        FROM mine me
+        JOIN core_public.match_participant foe
+          ON foe.match_id = me.match_id
+         AND foe.team_id <> me.team_id
+         AND foe.team_position = me.team_position
+       WHERE me.team_position IS NOT NULL AND me.team_position <> ''
+       GROUP BY me.champion_id, foe.champion_id
+    )
+    SELECT t.champion_id, t.champion_name, t.games, t.wins, t.kills, t.deaths, t.assists,
+           t.kda_games, t.cs, t.seconds_played,
+           coalesce(json_agg(json_build_object(
+             'champion_id', mu.foe_id, 'champion_name', mu.foe_name,
+             'games', mu.games, 'wins', mu.wins,
+             'kills', mu.kills, 'deaths', mu.deaths, 'assists', mu.assists,
+             'kda_games', mu.kda_games
+           ) ORDER BY mu.games DESC, mu.foe_id) FILTER (WHERE mu.foe_id IS NOT NULL), '[]') AS matchups
+      FROM totals t
+      LEFT JOIN matchups mu ON mu.mine_id = t.champion_id
+     GROUP BY t.champion_id, t.champion_name, t.games, t.wins, t.kills, t.deaths,
+              t.assists, t.kda_games, t.cs, t.seconds_played
+     ORDER BY t.games DESC, t.champion_id
+  `;
 }
 
 export interface RecentGame {
@@ -108,15 +252,16 @@ export interface RecentGame {
   game_creation: Date;
   game_duration: number | null;
   queue_id: number;
-  /** 경기 분류 (solo/scrim/tournament …). 화면이 뱃지를 달 때 쓴다. */
+  /** 경기 분류 (solo/ck/tournament …). 화면이 뱃지를 달 때 쓴다. */
   category: string;
   champion_id: number;
   champion_name: string | null;
   team_position: string | null;
-  win: boolean;
-  kills: number;
-  deaths: number;
-  assists: number;
+  outcome: MatchOutcome;
+  /** 못 읽었으면 NULL (0020). 0 과 구분해서 쓸 것 — 화면은 '—' 로 그린다. */
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
   cs: number | null;
 }
 
@@ -130,6 +275,8 @@ export interface RecentGame {
  * 단판(공개 큐)은 자기 자신이 곧 시리즈라 `sets` 와 `matches` 가 같다.
  */
 export interface OpponentRow {
+  channel_id?: string | null;
+  profile_image_url?: string | null;
   streamer_id: string;
   slug: string;
   display_name: string;
@@ -211,6 +358,7 @@ export async function listChampions(
              WHERE mp.champion_id = cs.champion_id AND mp.champion_name IS NOT NULL LIMIT 1) AS champion_name,
            sum(cs.games)::int AS games, sum(cs.wins)::int AS wins,
            sum(cs.kills)::int AS kills, sum(cs.deaths)::int AS deaths, sum(cs.assists)::int AS assists,
+           sum(cs.kda_games)::int AS kda_games,
            sum(cs.cs)::bigint AS cs, sum(cs.seconds_played)::bigint AS seconds_played
       FROM core_public.champion_stat cs
      WHERE cs.streamer_id = ${streamerId}::uuid AND cs.season = 'ALL'
@@ -227,14 +375,14 @@ export async function listRecentGames(
   limit = 20,
   /**
    * 기본은 **공개 큐 묶음**이다(§11-7) — 화면도 "공개 큐만" 이라고 써 놨다.
-   * 'scrim' 을 주면 내전 목록이 되고, 'all' 은 말 그대로 전부다.
+   * 'ck' 를 주면 내전 목록이 되고, 'all' 은 말 그대로 전부다.
    */
   category: MatchCategoryFilter = "public_queue",
 ): Promise<RecentGame[]> {
   const sql = db();
   return sql<RecentGame[]>`
     SELECT mp.match_id, m.game_creation, m.game_duration, m.queue_id, m.category,
-           mp.champion_id, mp.champion_name, mp.team_position, mp.win,
+           mp.champion_id, mp.champion_name, mp.team_position, mp.outcome,
            mp.kills, mp.deaths, mp.assists, mp.cs
       FROM core_public.match_participant mp
       JOIN core_public.match m ON m.match_id = mp.match_id
@@ -265,18 +413,19 @@ export async function listRecentGames(
  */
 export async function listOpponents(
   streamerId: string,
-  opts: { limit?: number; year?: number } = {},
+  opts: { limit?: number; year?: number; category?: MatchCategoryFilter } = {},
 ): Promise<OpponentRow[]> {
-  const { limit = 300, year } = opts;
+  const { limit = 300, year, category } = opts;
   const sql = db();
   return sql<OpponentRow[]>`
     WITH e AS (
       SELECT CASE WHEN streamer_a_id = ${streamerId}::uuid THEN streamer_b_id ELSE streamer_a_id END AS other_id,
-             CASE WHEN streamer_a_id = ${streamerId}::uuid THEN a_win ELSE b_win END AS me_win,
+             CASE WHEN streamer_a_id = ${streamerId}::uuid THEN a_outcome ELSE b_outcome END = 'win' AS me_win,
              relation, is_lane_matchup, game_creation, series_key
         FROM core_public.streamer_encounter
        WHERE (streamer_a_id = ${streamerId}::uuid OR streamer_b_id = ${streamerId}::uuid)
-         AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM game_creation) = ${year ?? null}::int)
+         AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM game_creation AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
+         AND (${expandCategory(category)}::text[] IS NULL OR category = ANY(${expandCategory(category)}::text[]))
     ),
     -- 시리즈로 접는다. 다전제는 세트 과반을 이긴 쪽이 그 매치의 승자다.
     per_series AS (
@@ -314,7 +463,9 @@ export async function listOpponents(
              count(*) FILTER (WHERE all_lane AND my_sets * 2 = sets)::int                 AS lane_match_draws
         FROM per_series GROUP BY other_id
     )
-    SELECT s.streamer_id, s.slug, s.display_name,
+    SELECT s.streamer_id, s.slug, s.display_name, s.profile_image_url,
+           (SELECT channel_id FROM core_public.streamer_channel c WHERE c.streamer_id = s.streamer_id
+             AND c.platform = 'soop' ORDER BY is_primary DESC LIMIT 1) AS channel_id,
            b.vs_sets, b.vs_set_wins, b.ally_sets, b.ally_set_wins,
            b.lane_sets, b.lane_set_wins, b.last_met,
            m.vs_matches, m.vs_match_wins, m.vs_match_draws,
@@ -363,15 +514,15 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
       SELECT m.match_id,
              COALESCE(m.series_id, m.match_id) AS series_key,
              m.event_id,
-             mp.win
+             mp.outcome
         FROM core_public.match_participant mp
         JOIN core_public.match m ON m.match_id = mp.match_id
        WHERE mp.streamer_id = ${streamerId}::uuid AND m.source = 'manual'
     ),
     per_series AS (
       SELECT event_id, series_key,
-             count(*)::int                    AS sets,
-             count(*) FILTER (WHERE win)::int AS set_wins
+             count(*)::int                                 AS sets,
+             count(*) FILTER (WHERE outcome = 'win')::int  AS set_wins
         FROM mine GROUP BY event_id, series_key
     ),
     agg AS (
@@ -418,11 +569,12 @@ export interface OpponentGame {
   match_id: string;
   series_key: string;
   series_game_no: number | null;
+  best_of: number | null;
   relation: "opponent" | "ally";
   source: string;
   event_name: string | null;
   played_at: Date;
-  me_win: boolean;
+  me_outcome: MatchOutcome;
   is_lane_matchup: boolean;
 }
 
@@ -439,7 +591,7 @@ export async function listOpponentGames(
   streamerId: string,
   year?: number,
   /**
-   * 경기 분류 필터 (`solo` · `scrim` · `tournament` …). 'all' 이거나 없으면 전부.
+   * 경기 분류 필터 (`solo` · `ck` · `tournament` …). 'all' 이거나 없으면 전부.
    * 분류 규칙은 core 의 matchCategory() 하나이고, 여기서는 이미 계산돼 저장된
    * `category` 컬럼만 본다 — 질의마다 다시 판정하면 규칙이 두 벌이 된다.
    */
@@ -449,20 +601,18 @@ export async function listOpponentGames(
   return sql<OpponentGame[]>`
     SELECT CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.streamer_b_id
                 ELSE se.streamer_a_id END                       AS other_id,
-           se.match_id, se.series_key, se.series_game_no,
+           se.match_id, se.series_key, se.series_game_no, se.best_of,
            se.relation, se.source, se.category, se.is_lane_matchup,
            se.game_creation                                     AS played_at,
-           CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.a_win
-                ELSE se.b_win END                               AS me_win,
+           CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.a_outcome
+                ELSE se.b_outcome END                           AS me_outcome,
            ev.name                                              AS event_name
       FROM core_public.streamer_encounter se
       JOIN core_public.match m ON m.match_id = se.match_id
       LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
      WHERE (se.streamer_a_id = ${streamerId}::uuid OR se.streamer_b_id = ${streamerId}::uuid)
-       AND (${year ?? null}::int IS NULL
-            OR EXTRACT(YEAR FROM se.game_creation) = ${year ?? null}::int)
-       AND (${expandCategory(category)}::text[] IS NULL
-            OR se.category = ANY(${expandCategory(category)}::text[]))
+       AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM se.game_creation AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
+       AND (${expandCategory(category)}::text[] IS NULL OR se.category = ANY(${expandCategory(category)}::text[]))
      ORDER BY se.game_creation DESC, se.series_game_no DESC
   `;
 }
@@ -516,8 +666,8 @@ export async function summarizePlacements(
 
 export interface RecentEncounter {
   match_id: string;
-  a_slug: string; a_name: string; a_win: boolean;
-  b_slug: string; b_name: string; b_win: boolean;
+  a_slug: string; a_name: string; a_outcome: MatchOutcome;
+  b_slug: string; b_name: string; b_outcome: MatchOutcome;
   relation: "opponent" | "ally";
   is_lane_matchup: boolean;
   queue_id: number;
@@ -529,8 +679,8 @@ export async function listRecentEncounters(limit = 10): Promise<RecentEncounter[
   const sql = db();
   return sql<RecentEncounter[]>`
     SELECT e.match_id, e.relation, e.is_lane_matchup, e.queue_id, e.game_creation,
-           a.slug AS a_slug, a.display_name AS a_name, e.a_win,
-           b.slug AS b_slug, b.display_name AS b_name, e.b_win
+           a.slug AS a_slug, a.display_name AS a_name, e.a_outcome,
+           b.slug AS b_slug, b.display_name AS b_name, e.b_outcome
       FROM core_public.streamer_encounter e
       JOIN core_public.streamer a ON a.streamer_id = e.streamer_a_id
       JOIN core_public.streamer b ON b.streamer_id = e.streamer_b_id

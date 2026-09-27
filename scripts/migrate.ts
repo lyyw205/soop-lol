@@ -60,6 +60,14 @@ async function run(): Promise<void> {
   // 장부가 먼저 생긴 DB 도 있다. 지문 칸은 나중에 붙인다.
   await sql`ALTER TABLE schema_migration ADD COLUMN IF NOT EXISTS checksum text`;
 
+  // ★ 장부에도 RLS 를 켠다.
+  //   0002 가 "public 스키마의 모든 표에 RLS" 를 지키는데, 이 표는 **마이그레이션 파일이
+  //   아니라 이 러너가** 만들기 때문에 그 목록에서 빠져 있었다. Supabase 는 public 스키마를
+  //   PostgREST 로 자동 노출하므로, 안 켜면 anon 키만으로 스키마 이력이 읽힌다.
+  //   ⚠ PGlite 검증(verify:db)은 이 표를 안 만들어서 못 잡는다 — 실제 DB 에 붙여 보고 잡았다.
+  //   정책은 만들지 않는다(= 아무도 못 읽는다). 소유자로 붙는 러너·웹·워커는 RLS 를 우회한다.
+  await sql`ALTER TABLE schema_migration ENABLE ROW LEVEL SECURITY`;
+
   const all = [...loadMigrations(ROOT), ...loadModuleMigrations(ROOT)];
   const ledger = new Map(
     (await sql<{ version: string; checksum: string | null }[]>`

@@ -1,0 +1,12 @@
+{
+  "champions.jpg": {
+    "url": "https://static.inven.co.kr/column/2026/08/03/news/i1873730341.jpg",
+    "article": "https://www.inven.co.kr/webzine/news/?news=319141&site=lol",
+    "credit": "SOOP (press material, via Inven)",
+    "description": "2026 LoL 멸망전 with Gen.G 우승팀 교권보호국",
+    "use": "Local design proposal; original photograph, displayed with CSS overlays."
+  },
+  "existing_portraits": "../../assets/sources.json",
+  "existing_champion_splashes": "/images/arena/sources.json",
+  "note": "Card splash art is decorative, not evidence of a champion pick. Actual set picks use the verified local seed lineup."
+}

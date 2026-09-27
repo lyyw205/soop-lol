@@ -28,26 +28,74 @@ export interface RegisteredModule {
    */
   provides: string[];
   navOrder: number;
+  /** 어느 게임 사이트의 메뉴에 뜨나. 게임마다 머리말(nav)이 따로다. */
+  game: "lol" | "fconline";
   jobs: ModuleJob[];
   /** 화면이 있는 모듈인가. 실제 컴포넌트는 ui.generated.ts 에 있다 (아래 ★ 참조). */
   hasUi: boolean;
 }
 
-import * as leaderboard_server from "./leaderboard/server/index.ts";
+import * as tournaments_server from "./tournaments/server/index.ts";
 import * as versus_server from "./versus/server/index.ts";
 
 export const MODULES: RegisteredModule[] = [
   {
-    name: "leaderboard",
+    name: "fc_leaderboard",
     version: "0.1.0",
-    title: "리더보드",
-    description: "스트리머 티어 순위. rank_snapshot 을 mod_leaderboard 로 롤업한다.",
-    schema: "mod_leaderboard",
-    routes: [{"path":"/m/leaderboard","title":"리더보드"}],
+    title: "FC 리더보드",
+    description: "등록 스트리머의 수집 FC 경기를 승·골·경기 수로 줄 세운다.",
+    schema: "mod_fc_leaderboard",
+    routes: [{"path":"/fc/leaderboard","title":"리더보드"}],
     provides: [],
     navOrder: 20,
+    game: "fconline",
     jobs: [
-      { name: "recompute", everyMinutes: 30, run: () => leaderboard_server.recompute() },
+
+    ],
+    hasUi: true,
+  },
+  {
+    name: "fc_tournaments",
+    version: "0.1.0",
+    title: "FC 대회",
+    description: "core 의 FC 대회 경기를 읽어 대회 목록·스탯표·선수 기록·다전제를 보여준다.",
+    schema: "mod_fc_tournaments",
+    routes: [{"path":"/fc/tournaments","title":"대회"},{"path":"/fc/tournaments/[slug]"}],
+    provides: ["fc-tournaments"],
+    navOrder: 15,
+    game: "fconline",
+    jobs: [
+
+    ],
+    hasUi: true,
+  },
+  {
+    name: "fc_versus",
+    version: "0.1.0",
+    title: "FC 상대전적",
+    description: "core 의 FC 공개 경기를 읽어 두 스트리머의 맞대결·경기 지표·사용 선수를 보여준다.",
+    schema: "mod_fc_versus",
+    routes: [{"path":"/fc/versus","title":"상대전적"}],
+    provides: ["fc-versus"],
+    navOrder: 10,
+    game: "fconline",
+    jobs: [
+
+    ],
+    hasUi: true,
+  },
+  {
+    name: "tournaments",
+    version: "0.1.0",
+    title: "대회",
+    description: "core 의 공개 대회 사실(대회·팀·경기)을 읽어 대회 목록과 대진·순위·선수 기록을 보여준다.",
+    schema: "mod_tournaments",
+    routes: [{"path":"/tournaments","title":"대회"},{"path":"/tournaments/[slug]"}],
+    provides: ["tournaments"],
+    navOrder: 15,
+    game: "lol",
+    jobs: [
+
     ],
     hasUi: true,
   },
@@ -60,6 +108,7 @@ export const MODULES: RegisteredModule[] = [
     routes: [{"path":"/m/versus","title":"상대전적"}],
     provides: ["versus"],
     navOrder: 10,
+    game: "lol",
     jobs: [
       { name: "recompute", everyMinutes: 60, run: () => versus_server.recompute() },
     ],
@@ -74,8 +123,36 @@ export const moduleByName = (name: string): RegisteredModule | undefined =>
 export const moduleProviding = (capability: string): RegisteredModule | undefined =>
   MODULES.find((m) => m.provides.includes(capability));
 
-/** nav 에 걸 모듈 경로. 하드코딩하지 않는다 — 모듈을 지우면 메뉴에서도 사라진다. */
-export const moduleNavRoutes = (): { path: string; title: string }[] =>
-  [...MODULES]
+/**
+ * nav 에 걸 모듈 경로. 하드코딩하지 않는다 — 모듈을 지우면 메뉴에서도 사라진다.
+ * 동적 경로(/tournaments/[slug])는 누를 수 있는 메뉴가 아니라 뺀다.
+ * navOrder 를 같이 준다 — host 가 자기 메뉴와 섞어 한 줄로 정렬한다.
+ */
+export const moduleNavRoutes = (game: "lol" | "fconline" = "lol"): { path: string; title: string; navOrder: number }[] =>
+  MODULES.filter((m) => m.game === game)
     .sort((a, b) => a.navOrder - b.navOrder || a.name.localeCompare(b.name))
-    .flatMap((m) => m.routes.map((r) => ({ path: r.path, title: r.title ?? m.title })));
+    .flatMap((m) => m.routes
+      .filter((r) => !r.path.includes("["))
+      .map((r) => ({ path: r.path, title: r.title ?? m.title, navOrder: m.navOrder })));
+
+/**
+ * 주소 → 그 주소를 선언한 모듈과 경로 파라미터. 없으면 null.
+ * ★ host 는 모듈 이름을 모른 채 이것만 묻는다. 모듈이 module.json 에 적은 경로가 곧 주소다 —
+ *   /m/<name> 에 묶이지 않는다. [name] 한 칸이 파라미터 하나다.
+ */
+export const matchModuleRoute = (segments: string[]): { module: RegisteredModule; params: Record<string, string> } | null => {
+  for (const m of MODULES) {
+    for (const r of m.routes) {
+      const parts = r.path.split("/").filter(Boolean);
+      if (parts.length !== segments.length) continue;
+      const params: Record<string, string> = {};
+      const hit = parts.every((part, i) => {
+        const dynamic = /^\[(\w+)\]$/.exec(part);
+        if (dynamic) { params[dynamic[1]] = segments[i]; return true; }
+        return part === segments[i];
+      });
+      if (hit) return { module: m, params };
+    }
+  }
+  return null;
+};

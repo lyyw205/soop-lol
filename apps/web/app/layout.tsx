@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./arena.css";
+import "../components/personal-profile.css";
+import "./fc.css";
+import { SiteFooter } from "@/components/site-footer";
 
 export const metadata: Metadata = {
   title: {
@@ -15,16 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko">
       <body className="min-h-dvh">
         {children}
-        {/* Riot 정책상 필수 고지. 지우지 말 것 (docs/RESEARCH.md §6) */}
-        <footer className="border-t border-ink-800 px-6 py-8 text-xs leading-relaxed text-ink-400">
-          <p>
-            이 사이트는 Riot Games 와 무관하며, Riot Games 가 공식적으로 보증하지 않습니다.
-            Riot Games 및 관련 자산은 Riot Games, Inc. 의 상표 또는 등록상표입니다.
-          </p>
-          <p className="mt-1">
-            계정 정보가 잘못되었거나 노출을 원하지 않으시면 문의해 주세요. 즉시 내립니다.
-          </p>
-        </footer>
+        <SiteFooter />
       </body>
     </html>
   );

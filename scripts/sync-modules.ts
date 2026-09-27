@@ -32,6 +32,8 @@ interface Manifest {
   provides?: string[];
   /** nav 에 뜨는 순서. 작을수록 앞. 안 적으면 100. */
   navOrder?: number;
+  /** 어느 게임 사이트의 메뉴에 뜨나. 안 적으면 lol. */
+  game?: "lol" | "fconline";
   jobs?: { name: string; everyMinutes: number }[];
 }
 
@@ -81,6 +83,8 @@ export interface RegisteredModule {
    */
   provides: string[];
   navOrder: number;
+  /** 어느 게임 사이트의 메뉴에 뜨나. 게임마다 머리말(nav)이 따로다. */
+  game: "lol" | "fconline";
   jobs: ModuleJob[];
   /** 화면이 있는 모듈인가. 실제 컴포넌트는 ui.generated.ts 에 있다 (아래 ★ 참조). */
   hasUi: boolean;
@@ -110,6 +114,7 @@ ${manifests
     routes: ${JSON.stringify(m.routes ?? [])},
     provides: ${JSON.stringify(m.provides ?? [])},
     navOrder: ${m.navOrder ?? 100},
+    game: ${JSON.stringify(m.game ?? "lol")},
     jobs: [
 ${jobs}
     ],
@@ -126,11 +131,39 @@ export const moduleByName = (name: string): RegisteredModule | undefined =>
 export const moduleProviding = (capability: string): RegisteredModule | undefined =>
   MODULES.find((m) => m.provides.includes(capability));
 
-/** nav 에 걸 모듈 경로. 하드코딩하지 않는다 — 모듈을 지우면 메뉴에서도 사라진다. */
-export const moduleNavRoutes = (): { path: string; title: string }[] =>
-  [...MODULES]
+/**
+ * nav 에 걸 모듈 경로. 하드코딩하지 않는다 — 모듈을 지우면 메뉴에서도 사라진다.
+ * 동적 경로(/tournaments/[slug])는 누를 수 있는 메뉴가 아니라 뺀다.
+ * navOrder 를 같이 준다 — host 가 자기 메뉴와 섞어 한 줄로 정렬한다.
+ */
+export const moduleNavRoutes = (game: "lol" | "fconline" = "lol"): { path: string; title: string; navOrder: number }[] =>
+  MODULES.filter((m) => m.game === game)
     .sort((a, b) => a.navOrder - b.navOrder || a.name.localeCompare(b.name))
-    .flatMap((m) => m.routes.map((r) => ({ path: r.path, title: r.title ?? m.title })));
+    .flatMap((m) => m.routes
+      .filter((r) => !r.path.includes("["))
+      .map((r) => ({ path: r.path, title: r.title ?? m.title, navOrder: m.navOrder })));
+
+/**
+ * 주소 → 그 주소를 선언한 모듈과 경로 파라미터. 없으면 null.
+ * ★ host 는 모듈 이름을 모른 채 이것만 묻는다. 모듈이 module.json 에 적은 경로가 곧 주소다 —
+ *   /m/<name> 에 묶이지 않는다. [name] 한 칸이 파라미터 하나다.
+ */
+export const matchModuleRoute = (segments: string[]): { module: RegisteredModule; params: Record<string, string> } | null => {
+  for (const m of MODULES) {
+    for (const r of m.routes) {
+      const parts = r.path.split("/").filter(Boolean);
+      if (parts.length !== segments.length) continue;
+      const params: Record<string, string> = {};
+      const hit = parts.every((part, i) => {
+        const dynamic = /^\\[(\\w+)\\]$/.exec(part);
+        if (dynamic) { params[dynamic[1]] = segments[i]; return true; }
+        return part === segments[i];
+      });
+      if (hit) return { module: m, params };
+    }
+  }
+  return null;
+};
 `;
 
 writeFileSync(OUT, body);
@@ -147,9 +180,24 @@ const uiBody = `// ⚠️ 생성 파일이다. 직접 고치지 말 것 — \`np
 
 import type { ComponentType } from "react";
 
-export type ModuleView = ComponentType<{ searchParams: Record<string, string | string[] | undefined> }>;
+export interface ModuleViewProps {
+  /** module.json 경로의 [name] 칸. 경로에 파라미터가 없으면 비어 있다. */
+  params: Record<string, string>;
+  searchParams: Record<string, string | string[] | undefined>;
+  /**
+   * 다른 모듈 화면으로 가는 링크. **역할**로 묻는다 — roleHref("fc-tournaments", { slug }).
+   * 모듈은 서로의 이름도 등록부도 모른다(3조) — host 가 대신 풀어 주고, 그 역할의 모듈이 없으면 null.
+   */
+  roleHref: (role: string, params?: Record<string, string>, query?: Record<string, string>) => string | null;
+}
+export type ModuleView = ComponentType<ModuleViewProps>;
+/** 화면 모듈의 모양. generateMetadata 가 있으면 host 가 제목을 거기서 받는다. */
+export interface ModuleUiEntry {
+  default: ModuleView;
+  generateMetadata?: (props: ModuleViewProps) => Promise<{ title?: string }> | { title?: string };
+}
 
-export const MODULE_UI: Record<string, () => Promise<{ default: ModuleView }>> = {
+export const MODULE_UI: Record<string, () => Promise<ModuleUiEntry>> = {
 ${manifests.filter((m) => hasUi(m.name)).map((m) => `  ${JSON.stringify(m.name)}: () => import("./${m.name}/ui/page.tsx"),`).join("\n")}
 };
 

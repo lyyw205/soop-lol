@@ -5,6 +5,7 @@
  */
 
 import { RiotApiError, RiotClient } from "@soop-lol/core/lib/riot/client";
+import { NexonApiError, NexonClient } from "@soop-lol/core/lib/games/fconline/client";
 
 import type { WorkerConfig } from "./config.ts";
 import { log } from "./log.ts";
@@ -12,6 +13,8 @@ import { log } from "./log.ts";
 export interface WorkerContext {
   cfg: WorkerConfig;
   riot: RiotClient;
+  /** 공급자별 limiter를 공유하지 않는다. 키가 없으면 LoL 워커만 구성한다. */
+  nexon: NexonClient | null;
 }
 
 /**
@@ -21,7 +24,7 @@ export interface WorkerContext {
  */
 export function createContext(
   cfg: WorkerConfig,
-  overrides: { fetchImpl?: typeof fetch } = {},
+  overrides: { fetchImpl?: typeof fetch; nexonFetchImpl?: typeof fetch } = {},
 ): WorkerContext {
   const riot = new RiotClient({
     apiKey: cfg.riotApiKey,
@@ -34,7 +37,17 @@ export function createContext(
           else if (e.status >= 500) log.warn("riot", `${e.status}`, { method: e.methodId });
         },
   });
-  return { cfg, riot };
+  const nexon = cfg.nexonApiKey ? new NexonClient({
+    apiKey: cfg.nexonApiKey,
+    fetchImpl: overrides.nexonFetchImpl,
+    log: cfg.verbose
+      ? (e) => log.info("nexon", e.methodId, { status: e.status, ms: e.durationMs, try: e.attempt })
+      : (e) => {
+          if (e.status === 429) log.warn("nexon", "429", { method: e.methodId, retryAfterMs: e.retryAfterMs });
+          else if (e.status >= 500) log.warn("nexon", `${e.status}`, { method: e.methodId });
+        },
+  }) : null;
+  return { cfg, riot, nexon };
 }
 
 /**
@@ -44,5 +57,5 @@ export function createContext(
  * 이걸 계정별로 삼켜버리면 워커가 "0건 처리"를 조용히 반복하며 하루를 날린다.
  */
 export function isFatal(e: unknown): boolean {
-  return e instanceof RiotApiError && e.isAuthProblem;
+  return (e instanceof RiotApiError || e instanceof NexonApiError) && e.isAuthProblem;
 }

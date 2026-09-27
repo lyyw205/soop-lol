@@ -69,7 +69,9 @@ try {
   const loadedVods = new Map<string, Set<string>>();   // VOD 번호 → 대회 slug 들
   for (const r of await sql<{ url: string; slug: string | null }[]>`
     SELECT DISTINCT m.source_url AS url, e.slug
-      FROM match m LEFT JOIN event e ON e.id = m.event_id
+      FROM match m
+      LEFT JOIN match_series ms ON ms.id=m.series_id AND ms.game_code=m.game_code
+      LEFT JOIN event e ON e.id=COALESCE(ms.event_id,m.event_id)
      WHERE m.source = 'manual' AND m.source_url IS NOT NULL`) {
     const id = /(\d{6,})/u.exec(r.url ?? "")?.[1];
     if (!id) continue;
@@ -81,14 +83,21 @@ try {
   const seen = await sql<{ d: string; n: number; thin: number; events: string[] }[]>`
     SELECT (m.game_creation AT TIME ZONE 'Asia/Seoul')::date::text AS d,
            -- ★ 내용이 찬 판만 '덮였다' 로 센다. 승패만 있는 행은 채울 거리가 남아 있다.
+           -- ⚠ coalesce 가 필수다. 0020 이 KDA 를 nullable 로 풀어서, 못 읽은 행은
+           --    셋을 더한 값이 NULL 이 된다. 그러면 두 FILTER 가
+           --    (TRUE AND NULL) = NULL 로 **둘 다 빗나가** n 에도 thin 에도 안 세고,
+           --    이 스크립트의 존재 이유인 "채울 거리" 를 조용히 적게 보고한다.
            count(*) FILTER (WHERE mp.champion_id > 0
-                              OR mp.kills + mp.deaths + mp.assists > 0)::int AS n,
+                              OR coalesce(mp.kills, 0) + coalesce(mp.deaths, 0)
+                                 + coalesce(mp.assists, 0) > 0)::int AS n,
            count(*) FILTER (WHERE mp.champion_id = 0
-                             AND mp.kills + mp.deaths + mp.assists = 0)::int AS thin,
+                             AND coalesce(mp.kills, 0) + coalesce(mp.deaths, 0)
+                                 + coalesce(mp.assists, 0) = 0)::int AS thin,
            array_agg(DISTINCT e.name) AS events
       FROM match_participant mp
       JOIN match m ON m.match_id = mp.match_id
-      LEFT JOIN event e ON e.id = m.event_id
+      LEFT JOIN match_series ms ON ms.id=m.series_id AND ms.game_code=m.game_code
+      LEFT JOIN event e ON e.id=COALESCE(ms.event_id,m.event_id)
      WHERE mp.streamer_id = ${who.id} AND m.source = 'manual'
        AND (m.game_creation AT TIME ZONE 'Asia/Seoul')::date BETWEEN ${FROM}::date AND ${TO}::date
      GROUP BY 1`;

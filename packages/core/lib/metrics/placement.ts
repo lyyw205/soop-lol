@@ -11,7 +11,9 @@
 /** 정렬·집계용 숫자. 1=우승, 2=준우승, 4=4강, 8=8강 … 99=예선 탈락. */
 export function placementRank(label: string | null | undefined): number | null {
   if (!label) return null;
-  const t = String(label).replace(/\s+/g, "");
+  // ★ 범위 표기는 출처마다 대시가 다르다(`5-6위` · `5–6위` · `5~6위`). 하나로 맞춰 읽는다 —
+  //   en dash 를 못 읽어 화면이 문자열을 고쳐 부르던 적이 있다.
+  const t = String(label).replace(/\s+/g, "").replace(/[–—~]/g, "-");
   if (t === "우승") return 1;
   if (t === "준우승") return 2;
   // ★ '4강 탈락'·'8강 탈락' 은 **거기까지 갔다**는 뜻이다. 예선 탈락과 같이 세면 안 된다.

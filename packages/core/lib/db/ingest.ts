@@ -312,17 +312,17 @@ async function recordCandidatesFromMatch(
 async function insertParticipant(tx: Tx, p: ParticipantRow): Promise<void> {
   await tx`
     INSERT INTO match_participant (
-      match_id, puuid, streamer_id, participant_id, team_id,
+      match_id, puuid, streamer_id, participant_id, team_id, side_no,
       team_position, individual_position, lane, role,
-      champion_id, champion_name, champ_level, win,
+      champion_id, champion_name, champ_level, outcome,
       kills, deaths, assists, gold_earned, cs,
       damage_to_champions, damage_taken, vision_score,
       wards_placed, wards_killed, control_wards, turret_kills, first_blood_kill,
       summoner1_id, summoner2_id, items, perks, challenges
     ) VALUES (
-      ${p.match_id}, ${p.puuid}, ${p.streamer_id ?? null}, ${p.participant_id}, ${p.team_id},
+      ${p.match_id}, ${p.puuid}, ${p.streamer_id ?? null}, ${p.participant_id}, ${p.team_id}, ${p.side_no},
       ${p.team_position}, ${p.individual_position}, ${p.lane}, ${p.role},
-      ${p.champion_id}, ${p.champion_name}, ${p.champ_level}, ${p.win},
+      ${p.champion_id}, ${p.champion_name}, ${p.champ_level}, ${p.outcome},
       ${p.kills}, ${p.deaths}, ${p.assists}, ${p.gold_earned}, ${p.cs},
       ${p.damage_to_champions}, ${p.damage_taken}, ${p.vision_score},
       ${p.wards_placed}, ${p.wards_killed}, ${p.control_wards}, ${p.turret_kills}, ${p.first_blood_kill},
@@ -368,7 +368,8 @@ async function ownerMap(tx: Tx, puuids: string[]): Promise<Map<string, string>> 
   return new Map(rows.map((r) => [r.puuid, r.streamer_id]));
 }
 
-type EncounterMatchRow = Pick<MatchRow, "match_id" | "queue_id" | "source" | "game_creation" | "game_duration">;
+type EncounterMatchRow = Pick<MatchRow,
+  "match_id" | "game_code" | "queue_id" | "mode_key" | "source" | "game_creation" | "game_duration">;
 
 async function writeEncounters(
   tx: Tx,
@@ -380,7 +381,9 @@ async function writeEncounters(
   const rows = deriveEncounters(
     {
       match_id: match.match_id,
+      game_code: match.game_code,
       queue_id: match.queue_id,
+      mode_key: match.mode_key,
       source: match.source,
       game_creation: match.game_creation,
       game_duration: match.game_duration,
@@ -400,22 +403,27 @@ async function insertEncounter(tx: Tx, r: EncounterRow): Promise<void> {
     INSERT INTO streamer_encounter (
       match_id, streamer_a_id, streamer_b_id, a_puuid, b_puuid,
       relation, a_position, b_position, is_lane_matchup,
-      a_win, b_win, a_champion_id, b_champion_id,
+      a_outcome, b_outcome, a_champion_id, b_champion_id,
       a_kills, a_deaths, a_assists, a_cs, a_gold, a_damage,
       b_kills, b_deaths, b_assists, b_cs, b_gold, b_damage,
-      queue_id, source, game_creation, game_duration, category
+      game_code, queue_id, mode_key, source, game_creation, game_duration, category
     ) VALUES (
       ${r.match_id}, ${r.streamer_a_id}::uuid, ${r.streamer_b_id}::uuid, ${r.a_puuid}, ${r.b_puuid},
       ${r.relation}, ${r.a_position}, ${r.b_position}, ${r.is_lane_matchup},
-      ${r.a_win}, ${r.b_win}, ${r.a_champion_id}, ${r.b_champion_id},
+      ${r.a_outcome}, ${r.b_outcome}, ${r.a_champion_id}, ${r.b_champion_id},
       ${r.a_kills}, ${r.a_deaths}, ${r.a_assists}, ${r.a_cs}, ${r.a_gold}, ${r.a_damage},
       ${r.b_kills}, ${r.b_deaths}, ${r.b_assists}, ${r.b_cs}, ${r.b_gold}, ${r.b_damage},
-      ${r.queue_id}, ${r.source}, ${r.game_creation}, ${r.game_duration},
+      ${r.game_code}, ${r.queue_id}, ${r.mode_key}, ${r.source}, ${r.game_creation}, ${r.game_duration},
       -- ★ 분류는 SQL 함수 하나로만 낸다. TS 에도 같은 규칙이 있지만(화면이 이름을
       --   붙여야 해서) **쓰는 쪽은 한 곳**이라야 어긋날 여지가 없다.
-      lol_match_category(${r.source}, ${r.queue_id},
-        (SELECT ev.kind FROM match m LEFT JOIN event ev ON ev.id = m.event_id
-          WHERE m.match_id = ${r.match_id}))
+      CASE WHEN ${r.game_code} = 'lol' THEN
+        lol_match_category(${r.source}, ${r.queue_id},
+          (SELECT ev.kind
+             FROM match m
+             LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+             LEFT JOIN event ev ON ev.id = COALESCE(ms.event_id, m.event_id)
+            WHERE m.match_id = ${r.match_id}))
+      ELSE NULL END
     )
     ON CONFLICT (match_id, streamer_a_id, streamer_b_id) DO UPDATE SET
       relation        = EXCLUDED.relation,
@@ -480,6 +488,28 @@ export async function pruneOrphanEncounters(): Promise<number> {
   return rows.length;
 }
 
+/**
+ * 한 매치의 조우를 **호출자의 트랜잭션 안에서** 다시 만든다.
+ *
+ * ★ 왜 tx 를 받는 판이 따로 있나: 원본(match·match_participant)을 고치는 것과 조우를
+ *   다시 파생하는 것이 **다른 트랜잭션이면** 중간에 실패했을 때 승패가 어긋난 채 남는다.
+ *   검수 화면의 저장은 둘을 한 트랜잭션으로 묶어야 한다.
+ */
+export async function rederiveEncountersInTx(tx: Tx, matchId: string): Promise<number> {
+  const matches = await tx<EncounterMatchRow[]>`
+    SELECT match_id, game_code, queue_id, mode_key, source, game_creation, game_duration
+      FROM match WHERE match_id = ${matchId}
+  `;
+  if (matches.length === 0) return 0;
+  const participants = await tx<EncounterParticipant[]>`
+    SELECT puuid, streamer_id, team_id, side_no, team_position, individual_position,
+           outcome, champion_id,
+           kills, deaths, assists, cs, gold_earned, damage_to_champions
+      FROM match_participant WHERE match_id = ${matchId}
+  `;
+  return writeEncounters(tx, matches[0], participants);
+}
+
 /** 이미 적재된 매치에서 조우를 다시 만든다. Riot 호출이 전혀 없다. */
 export async function rederiveEncounters(matchIds: string[]): Promise<number> {
   if (matchIds.length === 0) return 0;
@@ -487,19 +517,7 @@ export async function rederiveEncounters(matchIds: string[]): Promise<number> {
   let total = 0;
 
   for (const matchId of matchIds) {
-    total += await sql.begin(async (tx) => {
-      const matches = await tx<Pick<MatchRow, "match_id" | "queue_id" | "source" | "game_creation" | "game_duration">[]>`
-        SELECT match_id, queue_id, source, game_creation, game_duration
-          FROM match WHERE match_id = ${matchId}
-      `;
-      if (matches.length === 0) return 0;
-      const participants = await tx<EncounterParticipant[]>`
-        SELECT puuid, streamer_id, team_id, team_position, individual_position, win, champion_id,
-               kills, deaths, assists, cs, gold_earned, damage_to_champions
-          FROM match_participant WHERE match_id = ${matchId}
-      `;
-      return writeEncounters(tx, matches[0], participants);
-    }) as number;
+    total += await sql.begin(async (tx) => rederiveEncountersInTx(tx, matchId)) as number;
   }
   return total;
 }
@@ -622,32 +640,75 @@ export async function filterUnmappedPuuids(puuids: string[]): Promise<string[]> 
  * Riot 의 스플릿 경계(2026-S2 같은)는 패치 일정에 따라 바뀌므로,
  * 경계 표를 근거 있게 확정하기 전에는 없는 구분을 만들어내지 않는다.
  */
-export async function recomputeChampionStats(): Promise<number> {
+/**
+ * 챔피언 통계를 다시 만든다.
+ *
+ * `streamerIds` 를 주면 **그 사람들만** 다시 만든다. 검수 화면에서 한 경기를 고칠 때마다
+ * 전 테이블을 재빌드하면(DELETE 후 전량 INSERT) 비용이 경기 수에 비례해 커지기 때문이다.
+ * ⚠ SQL 본문을 복사해 두 함수로 나누지 않는다 — 갈라지면 전체 재빌드와 범위 재계산이
+ *   다른 값을 내고, 그건 아무도 눈치채지 못한다.
+ */
+export async function recomputeChampionStats(streamerIds?: string[]): Promise<number> {
   const sql = db();
+  return sql.begin(async (tx) => recomputeChampionStatsInTx(tx, streamerIds)) as Promise<number>;
+}
+
+/**
+ * 위와 같은 일을 **호출자의 트랜잭션 안에서** 한다.
+ *
+ * 검수 화면의 저장은 원본 수정·조우 재파생·통계 재계산이 **다 되거나 다 안 되어야** 한다.
+ * 따로 커밋하면 중간 실패 때 화면이 서로 다른 말을 하는 상태로 남는다.
+ */
+export async function recomputeChampionStatsInTx(tx: Tx, streamerIds?: string[]): Promise<number> {
+  // 빈 배열은 "아무도"다. 전체 재빌드(undefined)와 구분해서 아무 일도 하지 않는다.
+  if (streamerIds && streamerIds.length === 0) return 0;
+  const scope = streamerIds ?? null;
   // ★ 지우기와 넣기를 **한 문장의 CTE 로 합치지 않는다**. 데이터 변경 CTE 들은 같은
   //   스냅샷을 보기 때문에 삭제가 삽입에 보이지 않고, PK 충돌 여부가 미묘해진다.
-  //   트랜잭션 안의 두 문장이면 순서가 명확하다.
-  return sql.begin(async (tx) => {
-    await tx`DELETE FROM champion_stat`;
+  //   두 문장이면 순서가 명확하다.
+  {
+    await tx`
+      DELETE FROM champion_stat
+       WHERE ${scope}::uuid[] IS NULL OR streamer_id = ANY(${scope}::uuid[])
+    `;
     const rows = await tx`
       INSERT INTO champion_stat
-        (streamer_id, champion_id, queue_id, season, games, wins, kills, deaths, assists, cs, seconds_played, category)
+        (streamer_id, champion_id, queue_id, season, games, wins, kills, deaths, assists, cs,
+         seconds_played, category, kda_games)
       SELECT sid.streamer_id, mp.champion_id, m.queue_id, s.season,
              count(*)::int                             AS games,
-             count(*) FILTER (WHERE mp.win)::int       AS wins,
-             coalesce(sum(mp.kills), 0)::int           AS kills,
-             coalesce(sum(mp.deaths), 0)::int          AS deaths,
-             coalesce(sum(mp.assists), 0)::int         AS assists,
+             count(*) FILTER (WHERE mp.outcome = 'win')::int AS wins,
+             -- ★★ 분자와 분모가 **같은 판을 센다.** 셋을 다 읽은 판만 더한다.
+             --   왜 sum() 에 FILTER 를 거나 — sum 은 NULL 을 건너뛰고 coalesce 가 0 을
+             --   씌우므로, kills=5 · deaths=NULL · assists=NULL 한 판이 **5/0/0** 이 된다.
+             --   "모른다" 가 "안 죽었다" 로 바뀌는 것이고, 그건 숫자로 거짓말하는 것이다
+             --   (CLAUDE.md 3). 분모만 고치면 더 나쁘다 — 분모 0 에 분자 5 가 남는다.
+             coalesce(sum(mp.kills)    FILTER (WHERE kda.all_read), 0)::int AS kills,
+             coalesce(sum(mp.deaths)   FILTER (WHERE kda.all_read), 0)::int AS deaths,
+             coalesce(sum(mp.assists)  FILTER (WHERE kda.all_read), 0)::int AS assists,
              coalesce(sum(mp.cs), 0)::bigint           AS cs,
              coalesce(sum(m.game_duration), 0)::bigint AS seconds_played,
-             lol_match_category(m.source, m.queue_id, ev.kind)  AS category
+             lol_match_category(m.source, m.queue_id, ev.kind)  AS category,
+             -- ★ 평균의 분모. games 로 나누면 못 읽은 판이 분모에만 남아 평균이 묽어진다
+             --   (0020 ⑧). 결과 화면은 셋을 같이 주거나 안 주므로 손실은 거의 없고,
+             --   부분 판독(툴팁 가림 등)은 **읽은 것으로 치지 않는다.**
+             count(*) FILTER (WHERE kda.all_read)::int     AS kda_games
         FROM match_participant mp
+        -- ★ 검수에서 뺀 경기와 다른 게임은 통계에도 없어야 한다. champion_stat 은 뷰가
+        --   아니라 core_public 의 visibility/game_code 필터가 여기까지 오지 않는다 (0020·0026).
         JOIN match m             ON m.match_id = mp.match_id
-        LEFT JOIN event ev       ON ev.id = m.event_id
+                                AND m.visibility = 'public'
+                                AND m.game_code = 'lol'
+        LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+        LEFT JOIN event ev       ON ev.id = COALESCE(ms.event_id, m.event_id)
         -- ★ 계정이 붙었으면 매핑으로, 아니면 참가자 행에 적힌 사람으로.
         --   계정 없는 참가자를 빼면 그 사람의 모스트 챔피언이 통째로 빈다(0017).
         LEFT JOIN streamer_account sa ON sa.puuid = mp.puuid AND sa.active_to IS NULL
         JOIN LATERAL (SELECT COALESCE(sa.streamer_id, mp.streamer_id) AS streamer_id) sid ON true
+        -- 「이 판의 KDA 를 다 읽었나」. 분자와 분모가 이 하나를 같이 본다.
+        CROSS JOIN LATERAL (
+          SELECT (mp.kills IS NOT NULL AND mp.deaths IS NOT NULL AND mp.assists IS NOT NULL) AS all_read
+        ) kda
         -- KST 고정 오프셋(+9h). tzdata 에 의존하지 않는다 — core 의 kstYear 와 같은 규칙.
         CROSS JOIN LATERAL (
           VALUES ('ALL'), (to_char(m.game_creation + interval '9 hours', 'YYYY'))
@@ -657,11 +718,26 @@ export async function recomputeChampionStats(): Promise<number> {
         --   saveTournamentGame 이 그런 참가자를 0 으로 넣는다(없는 값을 지어내지 않는다).
         --   거르지 않으면 모스트 챔피언 1위가 '알 수 없는 챔피언'이 되어 버린다.
        WHERE mp.champion_id > 0 AND sid.streamer_id IS NOT NULL
+         -- 범위 재계산일 때는 지운 사람만 다시 넣는다. 위 DELETE 와 같은 조건이어야 한다.
+         AND (${scope}::uuid[] IS NULL OR sid.streamer_id = ANY(${scope}::uuid[]))
+       -- ⚠ 위치 번호다: 1=streamer_id 2=champion_id 3=queue_id 4=season **12=category**.
+       --   ★ 이 다섯이 champion_stat 의 PK 와 **정확히 같아야** INSERT 가 자기와 충돌하지
+       --     않는다(0016 이 category 를 여기 넣고 PK 엔 안 넣어서 실제로 터졌다 — 0020 ⑦).
+       --   SELECT 목록에 컬럼을 끼워 넣으면 번호가 밀린다. 넣을 땐 **맨 뒤에** 넣을 것.
        GROUP BY 1, 2, 3, 4, 12
+      ON CONFLICT (streamer_id, champion_id, queue_id, season, category) DO UPDATE SET
+        games = EXCLUDED.games, wins = EXCLUDED.wins, kills = EXCLUDED.kills,
+        deaths = EXCLUDED.deaths, assists = EXCLUDED.assists, cs = EXCLUDED.cs,
+        seconds_played = EXCLUDED.seconds_played, kda_games = EXCLUDED.kda_games
+      -- ★ 병렬 재계산 보호. 겹치는 스트리머를 건드리는 두 트랜잭션이 동시에 돌면
+      --   (예: ck:merge 를 여러 조사자가 동시에 돌릴 때) 한쪽의 DELETE 가 다른 쪽의
+      --   방금 커밋된 INSERT 를 못 보고 지나가, 이 INSERT 가 PK 충돌로 죽는 사고가
+      --   실제로 났다(2026-09 동시 조사). 최종값은 어느 쪽이 이기든 같은 재계산
+      --   결과라 UPDATE 로 흡수해도 안전하다 — 죽는 대신 마지막 값으로 수렴한다.
       RETURNING streamer_id
     `;
     return rows.length;
-  }) as Promise<number>;
+  }
 }
 
 // ── job_run — 무엇이 언제 돌았나 ─────────────────────────────────────

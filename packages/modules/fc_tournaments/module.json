@@ -1,0 +1,14 @@
+{
+  "name": "fc_tournaments",
+  "version": "0.1.0",
+  "title": "FC 대회",
+  "description": "core 의 FC 대회 경기를 읽어 대회 목록·스탯표·선수 기록·다전제를 보여준다.",
+  "schema": "mod_fc_tournaments",
+  "game": "fconline",
+  "routes": [
+    { "path": "/fc/tournaments", "title": "대회" },
+    { "path": "/fc/tournaments/[slug]" }
+  ],
+  "provides": ["fc-tournaments"],
+  "navOrder": 15
+}

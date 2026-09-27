@@ -110,7 +110,10 @@ try {
     SELECT channel_id, streamer_id, title, observed_at, raw
       FROM event_lead
      WHERE source = 'vod_title'
-       AND kind = 'scrim'   -- ck:collect 가 시트로 '게임 화면'을 확인한 것만.
+       -- ck:collect 가 시트로 '게임 화면'(또는 채팅 !공지 종료)을 감지한 것만. 감지 근거가
+       -- raw 에 그대로 있으므로 그걸 읽는다 — 예전 kind='ck' 는 같은 뜻을 분류 칸에 겹쳐
+       -- 담아 "내전" 으로 읽혔다(0035). 근거가 없는 단서(조사 반영이 만든 것 등)는 빠진다.
+       AND (COALESCE((raw ->> 'games')::int, 0) > 0 OR COALESCE((raw ->> 'notices')::int, 0) > 0)
        -- ★ 사람이 기각한 것은 뺀다. 시트는 롤과 FC온라인을 못 가르므로(§4)
        --   확인 프레임을 보고 기각한 VOD 가 섞여 있다. 안 빼면 FC온라인 방송에서
        --   결과창을 찾겠다고 세그먼트를 수백 MB 씩 받는다.

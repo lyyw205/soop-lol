@@ -139,6 +139,13 @@ npm run dev
 
 > ⚠️ 이때 `DATABASE_POOL_MAX=1` 이 **필수**다. PGlite 소켓 서버는 동시 연결을 못 받아서
 > 커넥션이 2개가 되는 순간 `read ECONNRESET` 이 난다. 실제 Postgres 에서는 필요 없다.
+>
+> ⚠️ 같은 이유로 **개발 서버가 떠 있는 동안 다른 스크립트를 그 DB 에 붙이지 마라.**
+> 커넥션을 빼앗기면 화면이 500 을 뱉는다 — 화면 버그로 착각하기 쉽다.
+
+`out/ck/` 에 판독 프레임이 있으면 `dev:db` 가 그중 한 날짜를 골라
+**CK 판독 검수 화면(`/admin/ck`)의 시드**로 넣는다(실제 프레임 경로를 쓴다).
+그 화면의 이미지를 보려면 `.env.local` 에 `CK_OUT_ROOT` 를 절대 경로로 넣어야 한다.
 
 ---
 
@@ -168,6 +175,7 @@ ADMIN_PASSWORD=바꿀것          # ★ 비면 /admin 이 503 으로 잠긴다 (
 npm test              # 핵심 로직 단위 테스트 57개
 npm run verify:db     # 스키마를 실제 Postgres 에 적용하고 제약·질의를 전부 실행
 npm run verify:ingest # 수집 엔진 A~D 를 가짜 Riot 으로 끝까지 돌린다 (API 키 불필요)
+npm run verify:ck     # CK 검수 회귀: 폐기 가능한 PGlite만 사용
 npm run typecheck
 npm run build
 ```
@@ -243,3 +251,16 @@ npm run worker -- loop       # 운영 기본값. A > B > D > C 우선순위로 �
 - [Developer Portal Overview — Riot Developer Relations](https://support-developer.riotgames.com/hc/en-us/articles/22698431229203-Developer-Portal-Overview)
 - [Production Key Applications — Riot Developer Relations](https://support-developer.riotgames.com/hc/en-us/articles/22801383038867-Production-Key-Applications)
 - [Your Application — Riot API Libraries](https://riot-api-libraries.readthedocs.io/en/latest/applications.html)
+
+
+### CK 실제 PostgreSQL·브라우저 검증
+
+```bash
+npx playwright install chromium
+CK_PG_BIN=/usr/lib/postgresql/16/bin npm run verify:ck:concurrency
+CK_PG_BIN=/usr/lib/postgresql/16/bin npm run verify:ck:browser
+```
+
+`CK_PG_BIN`은 설치된 PostgreSQL의 `initdb`·`pg_ctl` 디렉터리로 바꾼다. `pg_trgm`, `pgcrypto` 확장도 설치돼 있어야 한다. 루트 계정 대신 일반 사용자로 실행한다. 두 스크립트는 직접 만든 임시 클러스터와 임의 포트만 사용하고 외부 `DATABASE_URL`을 시험 대상으로 받지 않는다. 종료 시 클러스터를 중지하고 삭제한다.
+
+브라우저 검사는 임시 DB를 연결한 실제 Next 개발 서버를 별도 `NEXT_DIST_DIR`로 띄운다. 데스크톱·모바일 선택/저장, 두 탭의 충돌, 서버 갱신 중 입력 보존, 후보 재수집 보호를 확인한다. Playwright는 이 저장소의 고정 버전 의존성을 사용한다. 다른 저장소나 `/tmp`의 재현 스크립트에 의존하지 않는다.

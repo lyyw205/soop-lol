@@ -14,18 +14,22 @@
 
 import {
   getPublicStreamer, listEncountersBetween, listMatchRosters, listPublicStreamerOptions,
-  type PublicEncounter,
+  type PublicEncounter, isMatchCategoryFilter, resolveRecordPeriod,
 } from "@soop-lol/core/lib/contract";
 
-import { VersusDetail, type RosterEntry, type VersusSet } from "./detail.tsx";
+import { VersusDetail, type VersusSet } from "./detail.tsx";
 import { VersusPicker } from "./picker.tsx";
 import { TopPairs } from "./top-pairs.tsx";
+import { topPairs } from "../server/index.ts";
+import { ProfileSidebar } from "./sidebar.tsx";
+import { RecordLayout } from "../../../ui/record-layout.tsx";
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 /** 저장된 a/b 를 요청한 x/y 관점으로 뒤집는다. 화면은 "내가 x" 로만 생각한다. */
 function asSeen(g: PublicEncounter, flip: boolean): VersusSet {
-  const [xw, yw] = flip ? [g.b_win, g.a_win] : [g.a_win, g.b_win];
+  // 계약은 outcome 만 준다. 화면 내부의 boolean 은 여기서 파생되는 표시값일 뿐이다.
+  const [xo, yo] = flip ? [g.b_outcome, g.a_outcome] : [g.a_outcome, g.b_outcome];
   const [xp, yp] = flip ? [g.b_position, g.a_position] : [g.a_position, g.b_position];
   const xs = flip ? [g.b_kills, g.b_deaths, g.b_assists] : [g.a_kills, g.a_deaths, g.a_assists];
   const ys = flip ? [g.a_kills, g.a_deaths, g.a_assists] : [g.b_kills, g.b_deaths, g.b_assists];
@@ -33,6 +37,8 @@ function asSeen(g: PublicEncounter, flip: boolean): VersusSet {
     match_id: g.match_id,
     series_key: g.series_key,
     series_game_no: g.series_game_no,
+    best_of: g.best_of,
+    set_order_known: g.set_order_known,
     source: g.source,
     category: g.category,
     queue_id: g.queue_id,
@@ -41,7 +47,7 @@ function asSeen(g: PublicEncounter, flip: boolean): VersusSet {
     is_lane_matchup: g.is_lane_matchup,
     // Date 가 아니라 ISO 문자열로 넘긴다 — 서버→클라이언트 경계에서 확실하다.
     played_at: new Date(g.game_creation).toISOString(),
-    xWin: xw, yWin: yw,
+    xWin: xo === "win", yWin: yo === "win",
     xPos: xp, yPos: yp,
     xK: xs[0], xD: xs[1], xA: xs[2],
     yK: ys[0], yD: ys[1], yA: ys[2],
@@ -51,8 +57,20 @@ function asSeen(g: PublicEncounter, flip: boolean): VersusSet {
 export default async function VersusModulePage(
   { searchParams }: { searchParams: Record<string, string | string[] | undefined> },
 ) {
-  const aSlug = one(searchParams.a)?.trim();
-  const bSlug = one(searchParams.b)?.trim();
+  const categoryInput = one(searchParams.category);
+  const category = categoryInput && isMatchCategoryFilter(categoryInput) ? categoryInput : "all";
+  const relation = one(searchParams.relation) === "ally" ? "a" : one(searchParams.relation) === "lane" ? "l" : "o";
+  const datePeriod = resolveRecordPeriod({from:one(searchParams.from),to:one(searchParams.to)});
+  const yearInput = one(searchParams.year);
+  const year = yearInput && /^\d{4}$/.test(yearInput) ? Number(yearInput) : undefined;
+  let aSlug = one(searchParams.a)?.trim();
+  let bSlug = one(searchParams.b)?.trim();
+  // 홈과 모듈 첫 화면에서는 기록이 가장 많은 실제 쌍을 먼저 보여준다.
+  if (!aSlug && !bSlug) {
+    const [featured] = await topPairs(1);
+    aSlug = featured?.a_slug;
+    bSlug = featured?.b_slug;
+  }
 
   const [x, y] = await Promise.all([
     aSlug ? getPublicStreamer(aSlug) : null,
@@ -64,14 +82,8 @@ export default async function VersusModulePage(
     const options = await listPublicStreamerOptions();
     const notFound = [aSlug && !x ? aSlug : null, bSlug && !y ? bSlug : null].filter(Boolean) as string[];
     return (
-      <>
-        <h1 className="text-2xl font-semibold text-ink-100">상대전적</h1>
-        <p className="mt-2 text-sm text-ink-400">
-          두 사람을 고르면 <strong className="text-ink-200">맞붙었을 때</strong>와{" "}
-          <strong className="text-ink-200">같은 팀이었을 때</strong>를 나눠서 보여줍니다.
-          같은 라인에서 1:1로 만난 판은 따로 셉니다.
-        </p>
-        <VersusPicker options={options} a={x?.slug} b={y?.slug} />
+      <RecordLayout sidebar={x ? <ProfileSidebar person={x} /> : <aside className="arena-rail"><section className="arena-panel"><h2>스트리머 정보</h2><p className="text-xs text-ink-400">스트리머를 선택하면 프로필과 수상 경력을 함께 볼 수 있습니다.</p></section><TopPairs /></aside>}>
+        <VersusPicker options={options} a={x?.slug} b={y?.slug} category={category} year={year} />
         {x && y && x.streamer_id === y.streamer_id && (
           <p className="mt-2 text-[11px] text-amber-300">같은 사람 둘을 고를 수는 없습니다.</p>
         )}
@@ -80,8 +92,7 @@ export default async function VersusModulePage(
             찾지 못했습니다: {notFound.join(", ")} — 목록에서 골라 주세요.
           </p>
         )}
-        <TopPairs />
-      </>
+      </RecordLayout>
     );
   }
 
@@ -90,27 +101,14 @@ export default async function VersusModulePage(
   // 계약이 쌍 정규화(a < b)를 흡수하므로, 요청한 x 가 저장된 a 인지만 보면 된다.
   const flip = [x.streamer_id, y.streamer_id].sort()[0] !== x.streamer_id;
   const sets = raw.map((g) => asSeen(g, flip));
-  const rosters = (await listMatchRosters(sets.map((s) => s.match_id))) as RosterEntry[];
+  const rosters = await listMatchRosters(sets.map((s) => s.match_id));
 
-  if (sets.length === 0) {
-    return (
-      <>
-        <h1 className="text-[22px] font-semibold text-ink-200">
-          {x.display_name} <span className="font-normal text-ink-400">vs</span> {y.display_name}
-        </h1>
-        <p className="mt-6 rounded-xl border border-dashed border-ink-700 px-[18px] py-[34px] text-center text-[13px] text-ink-400">
-          아직 두 사람이 같은 경기에서 만난 기록이 없습니다.
-        </p>
-      </>
-    );
-  }
+  const options = await listPublicStreamerOptions();
+
 
   return (
-    <VersusDetail
-      x={{ slug: x.slug, display_name: x.display_name, streamer_id: x.streamer_id }}
-      y={{ slug: y.slug, display_name: y.display_name, streamer_id: y.streamer_id }}
-      sets={sets}
-      rosters={rosters}
-    />
+    <RecordLayout sidebar={<ProfileSidebar person={x} exclude={[x.slug, y.slug]} />}>
+      <VersusDetail key={`detail-${x.slug}-${y.slug}-${category}-${year ?? "all"}-${relation}-${datePeriod.from ?? ""}-${datePeriod.to ?? ""}`} x={x} y={y} sets={sets} rosters={rosters} options={options} initialCategory={category} initialYear={year} initialRelation={relation} initialDatePeriod={datePeriod} />
+    </RecordLayout>
   );
 }

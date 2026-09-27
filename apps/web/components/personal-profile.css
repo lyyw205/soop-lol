@@ -1,0 +1,93 @@
+/* Personal profile layout A. Match detail rows and the versus card keep their own layout. */
+.personal-profile-card {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 24px;
+  /* 아래 여백은 예전엔 푸터(통합 프로필 줄)가 대신했다. 그 줄을 없애면서 패딩으로 닫는다. */
+  padding: 28px;
+  text-align: left;
+}
+.personal-profile-card::before {
+  background: linear-gradient(90deg, #0c182cdf, #0d1d30bb 48%, #10182fdb), linear-gradient(0deg, #101925 8%, #121e32b0 76%);
+}
+/* ★ 배경은 모스트 1~3 중 하나의 스플래시다(서버가 --profile-art 로 넘긴다).
+     뒤에 기본 그림을 한 장 깔아 둔다 — 그 챔피언 파일이 없으면(새 챔피언, sync 전)
+     앞 레이어만 비고 뒤가 그대로 보여서 카드가 통째로 비지 않는다.
+   ⚠ 스플래시는 1215x717 이고 인물이 대체로 가운데-오른쪽에 있다. 40% 는 그 얼굴 높이다. */
+.personal-profile-card[data-art=champion] {
+  background-image: var(--profile-art), url('/images/arena/Thresh.jpg');
+  background-position: center 34%;
+}
+.personal-profile-portrait { grid-column: 1/4; grid-row: 1/3; display: grid; place-items: center; }
+.personal-profile-portrait .arena-avatar { width: 164px; height: 164px; border-radius: 28px; background: #263c4d; border: 1px solid #71899860; box-shadow: 0 12px 35px #0004; font-size: 48px; }
+.personal-profile-identity { grid-column: 4/-1; grid-row: 1; min-width: 0; }
+/* 이름 **위** = 게임 계정 닉네임. 여럿이면 세로 구분선으로 잇는다. */
+.personal-profile-accounts { display: flex; flex-wrap: wrap; align-items: baseline; font-size: 11px; font-weight: 600; color: #e8b18c; }
+.personal-profile-accounts > span { overflow-wrap: anywhere; }
+.personal-profile-accounts > span + span::before { content: '|'; margin: 0 8px; color: #7c8ea6; font-weight: 400; }
+.personal-profile-identity h2 { font-size: 30px; line-height: 1.3; font-weight: 750; letter-spacing: -1px; margin-top: 7px; overflow-wrap: anywhere; }
+.personal-profile-identity h2 small { font-size: 10px; font-weight: 500; margin-left: 10px; letter-spacing: 0; color: #c1d1e4; }
+/* 이름 **아래** = 방송 채널. `방송국명 | 주소`. */
+.personal-profile-channels { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; font-size: 11px; margin-top: 8px; }
+.personal-profile-channels > a, .personal-profile-channels > span { display: inline-flex; align-items: baseline; min-width: 0; }
+.personal-profile-channels b { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: #cfdae8; }
+/* 플랫폼 표식. SOOP 은 파랑, 유튜브는 빨강 — 색만으로도 어느 방송인지 읽힌다. */
+.personal-profile-platform { display: grid; place-items: center; flex: none; width: 17px; height: 17px; border-radius: 4px; background: #177cbd33; color: #90d5fa; font-style: normal; font-size: 11px; font-weight: 800; }
+.personal-profile-platform[data-platform=youtube] { color: #ff9c9c; background: #e8515126; font-size: 8px; }
+.personal-profile-channels b::after { content: '|'; margin: 0 7px; color: #7c8ea6; font-weight: 400; }
+.personal-profile-channels span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #94a6bb; }
+.personal-profile-channels a:hover span { color: #ffba8c; text-decoration: underline; }
+.personal-profile-card .personal-stat-grid { grid-column: 4/-1; grid-row: 2; gap: 12px; margin: 0; }
+.personal-profile-card .personal-stat-grid > div { padding-left: 22px; border: 0; border-left: 1px solid #71899f38; }
+.personal-profile-card .personal-stat-grid > div:first-child { padding-left: 0; border-left: 0; }
+.personal-profile-card .personal-stat-grid strong { font-size: 33px; line-height: 1.35; margin: 5px 0 4px; white-space: nowrap; }
+.personal-profile-card .personal-stat-grid small { font-size: 11px; color: #b2c3d5; }
+.personal-profile-card .personal-stat-grid span { font-size: 10px; color: #94a8bf; word-break: keep-all; }
+.personal-profile-card .personal-stat-grid i { font-size: 17px; color: #728aa5; }
+.profile-info-section { border-top: 1px solid #7a8ea333; padding-top: 17px; }
+.profile-info-section h3 { display: flex; align-items: baseline; gap: 8px; font-size: 11px; font-weight: 650; margin-bottom: 13px; color: #cdd9e6; }
+.profile-info-section h3 small { font-size: 9px; color: #8193a8; font-weight: 400; }
+.profile-most { grid-column: 1/9; grid-row: 3; }
+.profile-career { grid-column: 9/-1; grid-row: 3; }
+/* 5개가 한 줄에 선다. 줄어들 때는 감싸고, 이름은 아이콘 폭에 맞춰 자른다. */
+.profile-champions { display: flex; gap: 14px 18px; flex-wrap: wrap; }
+.profile-champions > a { min-width: 0; }
+.profile-champions > a { display: flex; align-items: center; gap: 8px; }
+.profile-champion-image { position: relative; display: block; width: 36px; height: 36px; border-radius: 5px; background: #293547; flex: none; }
+.profile-champion-image img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.profile-champion-image b { position: absolute; left: -3px; bottom: -3px; display: grid; place-items: center; width: 15px; height: 15px; border-radius: 3px; background: #28394a; color: #b7c9dc; border: 1px solid #52677b; font-size: 8px; }
+.profile-champions strong { display: block; font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-champions small { display: block; font-size: 10px; color: #91a6bc; }
+.profile-awards { display: grid; gap: 11px; }
+.profile-award { display: flex; align-items: center; gap: 9px; }
+.profile-award-rank { flex: none; font-size: 10px; padding: 3px 6px; border: 1px solid #b4a07138; background: #ceb27112; color: #dec599; border-radius: 4px; }
+.profile-award-rank[data-place=준우승] { color: #b0c7de; background: #9cbbdf0e; border-color: #92afcd36; }
+.profile-award strong { display: block; font-size: 11px; font-weight: 500; overflow-wrap: anywhere; }
+.profile-award small { display: block; font-size: 9px; color: #91a6bc; }
+.profile-info-empty { font-size: 11px; color: #91a6bc; }
+.profile-career-link { display: inline-block; margin-top: 12px; font-size: 10px; color: #c1cfdf; }
+.personal-profile-card a:hover { color: #ffba8c; }
+.personal-profile-empty { font-size: 11px; color: #94a8bf; padding-top: 12px; }
+@media (max-width: 900px) {
+  .personal-profile-portrait .arena-avatar { width: 140px; height: 140px; }
+  .personal-profile-card .personal-stat-grid strong { font-size: 28px; }
+  .profile-most { grid-column: 1/9; }
+  .profile-career { grid-column: 9/-1; }
+}
+@media (max-width: 650px) {
+  .personal-profile-card { padding: 20px 16px; gap: 20px 14px; }
+  .personal-profile-portrait { grid-column: 1/5; grid-row: 1; }
+  .personal-profile-portrait .arena-avatar { width: 86px; height: 86px; border-radius: 20px; font-size: 30px; }
+  .personal-profile-identity { grid-column: 5/-1; grid-row: 1; align-self: center; }
+  .personal-profile-accounts { font-size: 10px; }
+  .personal-profile-identity h2 { font-size: 23px; }
+  .personal-profile-channels { font-size: 10px; margin-top: 6px; }
+  .personal-profile-card .personal-stat-grid { grid-column: 1/-1; grid-row: 2; gap: 8px; padding-top: 17px; border-top: 1px solid #7a8ea333; }
+  .personal-profile-card .personal-stat-grid > div { padding-left: 12px; }
+  .personal-profile-card .personal-stat-grid strong { font-size: clamp(19px, 5.5vw, 26px); }
+  .personal-profile-card .personal-stat-grid i { font-size: 13px; }
+  .personal-profile-card .personal-stat-grid small { font-size: 10px; }
+  .personal-profile-card .personal-stat-grid span { font-size: 9px; }
+  .profile-most { grid-column: 1/-1; grid-row: 3; }
+  .profile-career { grid-column: 1/-1; grid-row: 4; }
+}

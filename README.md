@@ -14,6 +14,27 @@ npm run dev        # 터미널 2
 
 `apps/web/.env.local` 은 [docs/SETUP.md §4](docs/SETUP.md) 참고. → http://localhost:3000/admin
 
+## 다른 컴퓨터에서 실행
+
+Node.js 22.23 이상과 npm을 준비한 뒤, 작업 브랜치를 받아 실행한다.
+
+```bash
+git clone --branch ck-research-tools https://github.com/lyyw205/soop-lol.git
+cd soop-lol
+npm ci
+cp apps/web/.env.example apps/web/.env.local
+# .env.local의 DATABASE_URL과 관리자 인증 값을 설정한 뒤
+npm run dev
+```
+
+기존 데이터를 보려면 같은 DB의 접속 정보를 별도로 전달해 설정한다. 환경변수 파일은 Git에
+포함되지 않는다. 새 DB는 설정 후 `npm run db:migrate`로 스키마를 적용한다.
+샘플 데이터만 필요하면 별도 터미널에서 `npm run dev:db`를 실행하고
+`DATABASE_URL=postgres://postgres@127.0.0.1:5433/postgres`, `DATABASE_POOL_MAX=1`로 설정한다.
+
+판독 이미지가 필요하면 이 컴퓨터의 `out/`도 별도로 복사하고 `CK_OUT_ROOT`를 새 컴퓨터의
+절대 경로로 변경한다. 로컬 시드·계정 조사 기록과 ASR 모델도 Git에 포함되지 않는다.
+
 ## 문서
 
 | 문서 | 내용 |
@@ -28,7 +49,7 @@ npm run dev        # 터미널 2
 ## 구조
 
 ```
-apps/web/            Next.js 16 (App Router). 공개 화면 + 관리자 + /m/[module] 마운트
+apps/web/            Next.js 16 (App Router). 공개 화면 + 관리자 + 모듈 마운트(app/[...path])
 apps/worker/         수집 엔진 A~D + 모듈 잡 스케줄러
 packages/core/       Riot 클라이언트·지표 계산·DB 질의·수집 변환
   lib/contract/      ★ 모듈에 노출하는 전부 (core_public 뷰만 읽는다)

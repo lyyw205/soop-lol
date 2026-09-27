@@ -23,6 +23,7 @@ import { RiotApiError } from "@soop-lol/core/lib/riot/client";
 //   빌드가 invalid-use-server-value 로 죽는다.
 import type { ActionState } from "@/lib/action-state";
 import { hasRiotKey, riot } from "@/lib/riot";
+import { requireAdmin } from "@/lib/admin-auth";
 
 function text(form: FormData, key: string): string {
   return String(form.get(key) ?? "").trim();
@@ -35,6 +36,7 @@ function fail(message: string): ActionState {
 // ── 스트리머 ─────────────────────────────────────────────────────────
 
 export async function createStreamerAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
   const display_name = text(form, "display_name");
   // ★ 방송 채널 아이디다 (SOOP 방송국 아이디). 우리 키도, 라이엇 계정도 아니다.
   const channel_id = text(form, "channel_id");
@@ -73,6 +75,7 @@ export async function createStreamerAction(_prev: ActionState, form: FormData): 
 }
 
 export async function updateStreamerAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
   const id = text(form, "id");
   if (!id) return fail("대상이 없습니다.");
 
@@ -103,6 +106,7 @@ export async function updateStreamerAction(_prev: ActionState, form: FormData): 
  * ★ 근거가 없으면 core 의 linkAccount 가 거부한다. 여기서도 미리 막아 메시지를 낫게 준다.
  */
 export async function linkAccountAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
   const streamerId = text(form, "streamer_id");
   const riotId = text(form, "riot_id");
   const manualPuuid = text(form, "puuid");
@@ -186,6 +190,7 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
 }
 
 export async function setMainAccountAction(form: FormData): Promise<void> {
+  await requireAdmin();
   const streamerId = text(form, "streamer_id");
   const puuid = text(form, "puuid");
   if (!streamerId || !puuid) return;
@@ -194,6 +199,7 @@ export async function setMainAccountAction(form: FormData): Promise<void> {
 }
 
 export async function toggleAccountVisibilityAction(form: FormData): Promise<void> {
+  await requireAdmin();
   const streamerId = text(form, "streamer_id");
   const puuid = text(form, "puuid");
   const next = text(form, "next_visibility") === "hidden" ? "hidden" : "public";
@@ -203,6 +209,7 @@ export async function toggleAccountVisibilityAction(form: FormData): Promise<voi
 }
 
 export async function unlinkAccountAction(form: FormData): Promise<void> {
+  await requireAdmin();
   const streamerId = text(form, "streamer_id");
   const puuid = text(form, "puuid");
   if (!streamerId || !puuid) return;
@@ -213,6 +220,7 @@ export async function unlinkAccountAction(form: FormData): Promise<void> {
 // ── 커리어 (수기) ────────────────────────────────────────────────────
 
 export async function addCareerEventAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
   const streamerId = text(form, "streamer_id");
   const title = text(form, "title");
   if (!streamerId || !title) return fail("대회/활동 이름은 필수입니다.");
@@ -233,6 +241,7 @@ export async function addCareerEventAction(_prev: ActionState, form: FormData): 
 }
 
 export async function deleteCareerEventAction(form: FormData): Promise<void> {
+  await requireAdmin();
   const id = text(form, "id");
   const streamerId = text(form, "streamer_id");
   if (!id) return;
@@ -250,6 +259,7 @@ export async function deleteCareerEventAction(form: FormData): Promise<void> {
  *   실제 연결은 스트리머 상세의 계정 연결 폼(근거 필수)에서 한다.
  */
 export async function setCandidateStateAction(form: FormData): Promise<void> {
+  await requireAdmin();
   const id = text(form, "id");
   const state = text(form, "state");
   if (!id) return;

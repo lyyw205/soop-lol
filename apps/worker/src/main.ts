@@ -21,6 +21,7 @@ import { loadConfig } from "./config.ts";
 import { createContext, isFatal, type WorkerContext } from "./context.ts";
 import { runBackfillSlice } from "./engines/backfill.ts";
 import { runDeriveEngine } from "./engines/derive.ts";
+import { runFcoEngine } from "./engines/fco.ts";
 import { createLiveState, runLiveEngine } from "./engines/live.ts";
 import { runRankEngine } from "./engines/rank.ts";
 import { runJob } from "./job.ts";
@@ -88,6 +89,10 @@ async function main() {
       );
       break;
 
+    case "fco":
+      await runJob(ctx, "engine_e_fco", () => runFcoEngine(ctx));
+      break;
+
     case "modules":
       await runJob(ctx, "modules", () => runDueModuleJobs(ctx));
       break;
@@ -97,7 +102,7 @@ async function main() {
       break;
 
     default:
-      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | modules | loop`);
+      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | fco | modules | loop`);
       process.exitCode = 2;
   }
 }
@@ -118,6 +123,8 @@ async function loop(ctx: WorkerContext) {
   let nextLive = 0;
   let nextDerive = 0;
   let nextStats = Date.now() + cfg.championStatIntervalMs;
+  // Engine E 는 넥슨 버킷을 쓰므로 Riot 예산과 경쟁하지 않지만, 로그가 섞이지 않게 순서는 지킨다.
+  let nextFco = ctx.nexon ? nextKstHour(new Date(), cfg.fcoHourKst).getTime() : Infinity;
   let backfillPausedUntil = 0;
 
   log.info(SCOPE, "시작", {
@@ -138,6 +145,11 @@ async function loop(ctx: WorkerContext) {
       if (now >= nextLive) {
         await runJob(ctx, "engine_b_live", () => runLiveEngine(ctx, liveState));
         nextLive = Date.now() + cfg.liveIntervalMs;
+        continue;
+      }
+      if (now >= nextFco) {
+        await runJob(ctx, "engine_e_fco", () => runFcoEngine(ctx));
+        nextFco = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
         continue;
       }
       if (now >= nextDerive) {

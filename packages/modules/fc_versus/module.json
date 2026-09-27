@@ -1,0 +1,11 @@
+{
+  "name": "fc_versus",
+  "version": "0.1.0",
+  "title": "FC 상대전적",
+  "description": "core 의 FC 공개 경기를 읽어 두 스트리머의 맞대결·경기 지표·사용 선수를 보여준다.",
+  "schema": "mod_fc_versus",
+  "game": "fconline",
+  "routes": [{ "path": "/fc/versus", "title": "상대전적" }],
+  "provides": ["fc-versus"],
+  "navOrder": 10
+}

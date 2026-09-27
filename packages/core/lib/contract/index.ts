@@ -16,14 +16,17 @@
  */
 
 import { db } from "../db/client.ts";
+import type { MatchOutcome } from "../db/types.ts";
 import type { Position } from "../riot/types.ts";
+export type { MatchOutcome } from "../db/types.ts";
 
 // 지표 계산은 모듈도 같은 것을 써야 한다 — 두 군데서 계산하면 반드시 어긋난다.
 export { affinity, rawWinRate, games, isSmallSample, formatRecord, SMALL_SAMPLE_THRESHOLD } from "../metrics/affinity.ts";
 export type { HeadToHead } from "../metrics/affinity.ts";
 export { lpAbsolute, lpAbsoluteToRank, formatRank, tierGridLines } from "../metrics/lp.ts";
 export { kda, formatKda } from "../metrics/matchup.ts";
-export { kstDateString, kstYear } from "../time.ts";
+export { kstDateString, kstDotted, kstYear, kstPlayedAt } from "../time.ts";
+export { setLabel, isStandaloneSet } from "../metrics/set-label.ts";
 export { QUEUE, QUEUE_LABEL, POSITION_LABEL, SUMMONERS_RIFT_QUEUES } from "../riot/types.ts";
 export type { Position } from "../riot/types.ts";
 
@@ -35,6 +38,7 @@ export interface PublicStreamer {
   display_name: string;
   aliases: string[];
   profile_image_url: string | null;
+  channel_id?: string | null;
   is_pro: boolean;
   team_name: string | null;
   status: string;
@@ -48,19 +52,26 @@ export interface PublicEncounter {
   a_position: Position | null;
   b_position: Position | null;
   is_lane_matchup: boolean;
-  a_win: boolean;
-  b_win: boolean;
+  /** 승패의 유일한 표현 (0028). boolean 승패는 은퇴했다 — 무승부를 표현하지 못한다. */
+  a_outcome: MatchOutcome;
+  b_outcome: MatchOutcome;
   a_champion_id: number | null;
   b_champion_id: number | null;
   a_kills: number | null; a_deaths: number | null; a_assists: number | null;
   b_kills: number | null; b_deaths: number | null; b_assists: number | null;
   queue_id: number;
   source: string;
-  /** 경기 분류 (solo/scrim/tournament …). 규칙은 core 의 matchCategory 하나다. */
+  /** 경기 분류 (solo/ck/tournament …). 규칙은 core 의 matchCategory 하나다. */
   category: string;
   /** 같은 다전제를 묶는 키. 세트와 매치를 나눠 세려면 필요하다. */
   series_key: string;
   series_game_no: number | null;
+  /** 확인된 승선승제 포맷. 고정 세트제·모르면 null. */
+  best_of: number | null;
+  /** 세트 순서를 출처에서 확인했나. false 면 "N세트" 로 단정하지 않는다 — 표시는 setLabel 로. */
+  set_order_known: boolean;
+  /** 'date' 면 시각은 모른다 — 표시는 kstPlayedAt 으로. */
+  game_creation_precision: "datetime" | "date";
   /** 대회 이름. 공개 큐면 null. */
   event_name: string | null;
   game_creation: Date;
@@ -75,19 +86,34 @@ export interface PublicStreamerOption {
   channel_id: string | null;
 }
 
-/** 한 경기의 참가자 한 줄. **계정이 확인된 스트리머만** 나온다(§11-2). */
+/**
+ * 한 경기의 참가자 한 줄.
+ *
+ * ★ **사람을 못 붙인 자리도 온다**(0022). 그때 `streamer_id`·`slug`·`display_name` 이
+ *   전부 NULL 이고 `observed_name` 에 화면에서 읽은 인게임명이 들어 있다.
+ *   5대5 를 4명으로 그리면 누락인지 인원 차이인지 구분할 수 없어서 자리를 세운다.
+ *   ⚠ 그래서 화면은 **`slug` 가 없을 수 있다고 보고 짜야 한다** — 링크를 걸면 안 된다.
+ */
 export interface PublicRosterEntry {
   match_id: string;
-  streamer_id: string;
-  slug: string;
-  display_name: string;
+  participant_id: number;
+  streamer_id: string | null;
+  slug: string | null;
+  display_name: string | null;
+  /** 사람을 못 붙였을 때만 채워진다. 등록된 스트리머는 display_name 을 쓴다. */
+  observed_name: string | null;
   team_id: number;
   team_name: string | null;
   team_position: Position | null;
   champion_id: number;
   champion_name: string | null;
-  win: boolean;
-  kills: number; deaths: number; assists: number;
+  outcome: MatchOutcome;
+  /**
+   * ★ 못 읽었으면 NULL 이다 (0020). 방송 결과 화면이 그래프 탭이면 승패만 읽히고,
+   *   그때 0 으로 채우면 "딜 안 하고 안 죽은 사람"이 전적에 남는다.
+   *   화면은 NULL 을 '—' 로 그린다. 0 과 구분해서 쓸 것.
+   */
+  kills: number | null; deaths: number | null; assists: number | null;
 }
 
 /** 조우가 있는 두 사람. 상대전적 첫 화면이 "많이 붙은 쌍" 을 그릴 재료다. */
@@ -113,15 +139,19 @@ export interface PublicRankPoint {
 
 export async function listPublicStreamers(): Promise<PublicStreamer[]> {
   return db()<PublicStreamer[]>`
-    SELECT streamer_id, slug, display_name, aliases, profile_image_url, is_pro, team_name, status
-      FROM core_public.streamer ORDER BY display_name
+    SELECT streamer_id, slug, display_name, aliases, profile_image_url, is_pro, team_name, status,
+           (SELECT channel_id FROM core_public.streamer_channel c WHERE c.streamer_id = s.streamer_id
+             AND c.platform = 'soop' ORDER BY is_primary DESC LIMIT 1) AS channel_id
+      FROM core_public.streamer s ORDER BY display_name
   `;
 }
 
 export async function getPublicStreamer(slug: string): Promise<PublicStreamer | null> {
   const rows = await db()<PublicStreamer[]>`
-    SELECT streamer_id, slug, display_name, aliases, profile_image_url, is_pro, team_name, status
-      FROM core_public.streamer WHERE slug = ${slug} LIMIT 1
+    SELECT streamer_id, slug, display_name, aliases, profile_image_url, is_pro, team_name, status,
+           (SELECT channel_id FROM core_public.streamer_channel c WHERE c.streamer_id = s.streamer_id
+             AND c.platform = 'soop' ORDER BY is_primary DESC LIMIT 1) AS channel_id
+      FROM core_public.streamer s WHERE slug = ${slug} LIMIT 1
   `;
   return rows[0] ?? null;
 }
@@ -130,10 +160,11 @@ export async function getPublicStreamer(slug: string): Promise<PublicStreamer | 
 export async function listEncountersFor(streamerId: string, limit = 500): Promise<PublicEncounter[]> {
   return db()<PublicEncounter[]>`
     SELECT e.match_id, e.streamer_a_id, e.streamer_b_id, e.relation,
-           e.a_position, e.b_position, e.is_lane_matchup, e.a_win, e.b_win,
+           e.a_position, e.b_position, e.is_lane_matchup, e.a_outcome, e.b_outcome,
            e.a_champion_id, e.b_champion_id,
            e.a_kills, e.a_deaths, e.a_assists, e.b_kills, e.b_deaths, e.b_assists,
-           e.queue_id, e.source, e.category, e.series_key, e.series_game_no,
+           e.queue_id, e.source, e.category, e.series_key, e.series_game_no, e.best_of,
+           e.set_order_known, e.game_creation_precision,
            e.game_creation, e.game_duration,
            ev.name AS event_name
       FROM core_public.streamer_encounter e
@@ -149,10 +180,11 @@ export async function listEncountersBetween(x: string, y: string, limit = 500): 
   const [a, b] = [x, y].sort();
   return db()<PublicEncounter[]>`
     SELECT e.match_id, e.streamer_a_id, e.streamer_b_id, e.relation,
-           e.a_position, e.b_position, e.is_lane_matchup, e.a_win, e.b_win,
+           e.a_position, e.b_position, e.is_lane_matchup, e.a_outcome, e.b_outcome,
            e.a_champion_id, e.b_champion_id,
            e.a_kills, e.a_deaths, e.a_assists, e.b_kills, e.b_deaths, e.b_assists,
-           e.queue_id, e.source, e.category, e.series_key, e.series_game_no,
+           e.queue_id, e.source, e.category, e.series_key, e.series_game_no, e.best_of,
+           e.set_order_known, e.game_creation_precision,
            e.game_creation, e.game_duration,
            ev.name AS event_name
       FROM core_public.streamer_encounter e
@@ -200,22 +232,28 @@ export async function listPublicStreamerOptions(): Promise<PublicStreamerOption[
 
 /**
  * 경기별 로스터. "그 판에 누가 있었나" 를 보여줄 때 쓴다.
- * core_public 이 이미 **계정이 확인된 스트리머만** 내보내므로 모듈이 더 거를 게 없다.
+ *
+ * ★ 스트리머 조인이 **LEFT 다**(0022). 사람을 못 붙인 자리도 로스터에 세워야 하기
+ *   때문이다 — 예전엔 여기서 한 번 더 걸러서, 뷰가 내보내도 화면엔 안 나왔다.
+ *   누가 나오고 누가 빠지는지는 **뷰가 정한다**(숨긴 경기·계정·사람은 거기서 빠진다).
+ *   이 질의가 또 거르면 그 규칙이 두 군데로 갈라진다.
  */
 export async function listMatchRosters(matchIds: string[]): Promise<PublicRosterEntry[]> {
   if (matchIds.length === 0) return [];
   return db()<PublicRosterEntry[]>`
-    SELECT mp.match_id, mp.streamer_id, s.slug, s.display_name,
-           mp.team_id, mp.team_position, mp.champion_id, mp.champion_name, mp.win,
+    SELECT mp.match_id, mp.participant_id, mp.streamer_id, s.slug, s.display_name, mp.observed_name,
+           mp.team_id, mp.team_position, mp.champion_id, mp.champion_name, mp.outcome,
            mp.kills, mp.deaths, mp.assists,
            t.name AS team_name
       FROM core_public.match_participant mp
-      JOIN core_public.streamer s ON s.streamer_id = mp.streamer_id
+      LEFT JOIN core_public.streamer s ON s.streamer_id = mp.streamer_id
       JOIN core_public.match m    ON m.match_id = mp.match_id
       LEFT JOIN core_public.event_team t
              ON t.event_team_id = CASE WHEN mp.team_id = 100 THEN m.blue_team_id ELSE m.red_team_id END
      WHERE mp.match_id = ANY(${matchIds}::text[])
-     ORDER BY mp.match_id, mp.team_id, mp.team_position NULLS LAST, s.display_name
+     -- 이름이 없는 자리는 맨 뒤로. 등록된 사람 먼저 보이는 게 읽기 편하다.
+     ORDER BY mp.match_id, mp.team_id, mp.team_position NULLS LAST,
+              s.display_name NULLS LAST, mp.observed_name
   `;
 }
 
@@ -256,3 +294,33 @@ export function moduleDb(schema: string) {
   }
   return db();
 }
+
+// 공개 프로필의 수상·챔피언 기록. UI 모듈도 같은 읽기 모델을 사용한다.
+export { listStreamerEvents, summarizePlacements, listChampions } from "../db/public.ts";
+export { placementRank } from "../metrics/placement.ts";
+
+// FC 온라인 공개 조회. FC 는 아직 core_public 뷰가 없어 조회 안에서 공개 범위를 걸고,
+// 넥슨 원본(match_info)은 허용 목록 키만 내보낸다 — 숨긴 신원이 안 새는지는 verify:fco 가 본다.
+export {
+  listFcoPeople, getFcoPerson, listFcoVersus, listFcoTopPairs, getFeaturedFcoPair, listFcoLeaderboard,
+  listFcoEvents, getFcoEvent, listFcoEventGames, getFcoGame, FCO_PUBLIC_MATCH_INFO_KEYS,
+} from "../db/fconline.ts";
+export type { FcoGame, FcoParticipant, FcoPerson, FcoEvent, FcoTopPair, FcoRankRow } from "../db/fconline.ts";
+export { addFcoStats, EMPTY_FCO_STATS, fcoNumber, FCO_MODE_LABEL } from "../games/fconline/view.ts";
+export type { FcoStatLine } from "../games/fconline/view.ts";
+export { fcoSeriesScore, groupFcoSeries } from "../games/fconline/series.ts";
+export { fcoMetadata } from "../games/fconline/meta.ts";
+
+// 공개 대회 사실. 분류·집계·화면은 대회 모듈이 한다.
+export { listPublicTournamentEvents, getPublicTournamentFacts } from "../db/public-tournaments.ts";
+export type {
+  PublicTournamentEventRow, PublicTournamentTeamRow, PublicTournamentMemberRow, PublicTournamentMatchRow,
+  PublicTournamentLinkRow, PublicTournamentFactRow,
+} from "../db/public-tournaments.ts";
+export { championById, championIconPath, CHAMPION_DATA_VERSION } from "../riot/champions.ts";
+
+export { MATCH_CATEGORIES, CATEGORY_LABEL, isMatchCategoryFilter, expandCategory } from "../metrics/category.ts";
+export type { MatchCategoryFilter } from "../metrics/category.ts";
+
+export { RECORD_PERIODS, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod } from "../metrics/record-period.ts";
+export type { RecordPeriod } from "../metrics/record-period.ts";

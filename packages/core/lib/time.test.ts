@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { kstDateString, kstYear, nextKstHour, toEpochSeconds } from "./time.ts";
+import {
+  fromKstInputValue, kstDateString, kstYear, nextKstHour, toEpochSeconds, toKstInputValue,
+} from "./time.ts";
 
 test("kstDateString — UTC 자정 직전은 이미 KST 로 다음 날이다", () => {
   // 2026-08-09T15:30:00Z = 2026-08-10 00:30 KST
@@ -37,4 +39,28 @@ test("nextKstHour — 지났으면 다음 날", () => {
 
 test("toEpochSeconds — ms 가 아니라 초다", () => {
   assert.equal(toEpochSeconds(new Date("2026-08-09T00:00:00Z")), 1786233600);
+});
+
+test("datetime-local 왕복 — 손 안 대고 저장해도 값이 안 밀린다", () => {
+  // 2026-09-19T13:01:49Z = 2026-09-19 22:01:49 KST
+  const at = new Date("2026-09-19T13:01:49.000Z");
+  const shown = toKstInputValue(at);
+  assert.equal(shown, "2026-09-19T22:01:49", "화면은 KST 벽시계를 보여준다");
+  assert.equal(fromKstInputValue(shown)!.toISOString(), at.toISOString(), "그대로 돌아온다");
+});
+
+test("datetime-local — 초가 없어도 받는다 (step 없는 브라우저)", () => {
+  assert.equal(fromKstInputValue("2026-09-19T22:01")!.toISOString(), "2026-09-19T13:01:00.000Z");
+});
+
+test("datetime-local — 형식이 아니면 null (던지지 않는다)", () => {
+  assert.equal(fromKstInputValue("어제"), null);
+  assert.equal(fromKstInputValue(""), null);
+});
+
+test("★ UTC 문자열을 그대로 넣던 옛 방식은 9시간 밀렸다 — 회귀 방지", () => {
+  const at = new Date("2026-09-19T13:01:49.000Z");
+  const oldWay = at.toISOString().slice(0, 16);           // 옛 코드
+  assert.notEqual(toKstInputValue(at).slice(0, 16), oldWay);
+  assert.equal(fromKstInputValue(oldWay)!.toISOString(), "2026-09-19T04:01:00.000Z");
 });

@@ -1,0 +1,11 @@
+# 매일 0/6/12/18시(KST — 시스템 시간대). Persistent=true: 꺼져 있던 동안 놓친 회차는
+# 켜지자마자 한 번 돈다. 3일 창이라 하루쯤 꺼져 있어도 VOD 는 다음 회차에 잡힌다.
+[Unit]
+Description=soop-lol 자동 조사 타이머
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

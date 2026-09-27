@@ -1,0 +1,10 @@
+{
+  "name": "fc_leaderboard",
+  "version": "0.1.0",
+  "title": "FC 리더보드",
+  "description": "등록 스트리머의 수집 FC 경기를 승·골·경기 수로 줄 세운다.",
+  "schema": "mod_fc_leaderboard",
+  "game": "fconline",
+  "routes": [{ "path": "/fc/leaderboard", "title": "리더보드" }],
+  "navOrder": 20
+}

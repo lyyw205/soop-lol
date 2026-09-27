@@ -45,64 +45,20 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 
 import { db, closeDb } from "@soop-lol/core/lib/db/client";
 
+import { SOOPLOL_SLOTS, SOOPLOL_TEAMS, loadSooplolTeams, normTeam } from "./lib/sooplol.mjs";
+
 const APPLY = process.argv.includes("--apply");
-const SRC = "out/sooplol/teams.ndjson";
+const SRC = SOOPLOL_TEAMS;
+const SLOTS = SOOPLOL_SLOTS;
+const norm = normTeam;
 
-/**
- * sooplol 대회 아이디 → 우리 event slug.
- *
- * ★ 2019 S3 · 2020 S1 · 2020 S2 는 저쪽이 **천상계/지상계로 쪼개** 두 대회로
- *   갖고 있는데 우리는 한 회차로 본다. 그래서 두 아이디가 한 slug 로 온다.
- * ★ 34(2024 앙코르전)는 **우리 시드에 없다.** 여기 넣지 않는다 — 없는 대회의
- *   로스터를 채울 수는 없다. 회차 자체를 추가하는 건 별개의 일이다.
- */
-const EVENT = {
-  1: "meljang-2014-s1", 2: "meljang-2015-s1", 3: "meljang-2017-s1",
-  4: "meljang-2018-s1", 5: "meljang-2018-s2", 6: "meljang-2018-s3",
-  7: "meljang-2019-s1", 10: "meljang-2019-s2",
-  38: "meljang-2019-s3", 68: "meljang-2019-s3",   // 천상계 · 지상계
-  39: "meljang-2020-s1", 71: "meljang-2020-s1",   // 천상계 · 지상계
-  40: "meljang-2020-s2", 74: "meljang-2020-s2",   // 천상계 · 지상계
-  17: "meljang-2020-s3", 19: "meljang-2020-encore",
-  20: "meljang-2021-s1", 22: "meljang-2021-s2", 23: "meljang-2021-encore",
-  25: "meljang-2022-s1", 26: "meljang-2022-s2",
-  28: "meljang-2023-s1", 29: "meljang-2023-s2",
-  32: "meljang-2024-s1",
-  35: "meljang-2025-s1", 36: "meljang-2025-s2",
-  110: "meljang-2026-s1", 115: "meljang-2026-geng",
-};
-
-/** 저쪽 컬럼 순서 = 우리 포지션 순서. 이 대응은 대회 페이지의 표기 그대로다. */
-const SLOTS = [
-  ["topId", "topName", "TOP"],
-  ["jugId", "jugName", "JUNGLE"],
-  ["midId", "midName", "MIDDLE"],
-  ["adId", "adName", "BOTTOM"],
-  ["supId", "supName", "UTILITY"],
-];
-
-/** 팀명 비교는 공백·대소문자만 무시한다. 그 이상 뭉개면 다른 팀이 붙는다. */
-const norm = (s) => String(s ?? "").replace(/\s+/gu, "").toLowerCase();
-
-let raw;
-try {
-  raw = readFileSync(SRC, "utf8");
-} catch {
+/** slug → 팀명(정규화) → 저쪽 팀 레코드 */
+const bySlug = loadSooplolTeams();
+if (!bySlug) {
   console.error(`✖ ${SRC} 이 없다.`);
   console.error(`  이건 2026-08-19 에 1회만 받은 초기 시드 데이터다. 다시 받지 않는다`);
   console.error(`  (CLAUDE.md 원칙 9). 경위는 out/sooplol/README.md.`);
   process.exit(1);
-}
-
-/** slug → 팀명(정규화) → 저쪽 팀 레코드 */
-const bySlug = new Map();
-for (const line of raw.split("\n")) {
-  if (!line.trim()) continue;
-  const t = JSON.parse(line);
-  const slug = EVENT[t.tournamentId];
-  if (!slug) continue;
-  if (!bySlug.has(slug)) bySlug.set(slug, new Map());
-  bySlug.get(slug).set(norm(t.teamName), t);
 }
 
 const sql = db();

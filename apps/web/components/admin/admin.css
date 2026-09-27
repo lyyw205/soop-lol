@@ -1,0 +1,296 @@
+/* 운영 화면은 공개 전적 화면과 같은 ink/accent 토큰만 쓴다. 셸의 배치는 onair-map의
+   "사이드바 · 컨텍스트 바 · 스크롤 작업면" 구조를 따른다. */
+.admin-theme {
+  --admin-panel: color-mix(in srgb, var(--color-ink-900) 88%, transparent);
+  --admin-panel-raised: var(--color-ink-800);
+  --admin-line: var(--color-ink-700);
+  --admin-muted: var(--color-ink-400);
+}
+
+/* 공개 화면의 법적 고지는 유지한다. 운영 콘솔은 별도 작업 화면이므로 하단 고지를
+   렌더링하지 않아, 100vh 검수대 바깥에 페이지 스크롤이 생기지 않게 한다. */
+body:has(.admin-theme) > footer { display: none; }
+
+.admin-theme .admin-shell {
+  display: grid;
+  grid-template-rows: 58px auto minmax(0, 1fr);
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse 70% 40% at 82% -10%, color-mix(in srgb, var(--color-accent-600) 12%, transparent), transparent),
+    var(--color-ink-950);
+}
+.admin-theme .admin-sidebar { grid-row: 2; min-width: 0; border-bottom: 1px solid var(--admin-line); background: color-mix(in srgb, var(--color-ink-900) 92%, transparent); }
+.admin-theme .admin-brand { display: none; }
+.admin-theme .admin-navigation { display: flex; gap: 4px; overflow-x: auto; padding: 8px 12px; }
+.admin-theme .admin-nav-group-label { display: none; }
+.admin-theme .admin-nav-item { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; min-height: 38px; padding: 7px 10px; border-radius: 8px; color: var(--admin-muted); font-size: 12px; font-weight: 600; transition: background-color 150ms, color 150ms; }
+.admin-theme .admin-nav-item:hover { background: var(--admin-panel-raised); color: var(--color-ink-200); }
+.admin-theme .admin-nav-item[aria-current="page"] { background: color-mix(in srgb, var(--color-accent-600) 14%, var(--color-ink-800)); color: var(--color-accent-400); }
+.admin-theme .admin-topbar { grid-row: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 0 16px; border-bottom: 1px solid var(--admin-line); background: color-mix(in srgb, var(--color-ink-900) 84%, transparent); }
+.admin-theme .admin-topbar-eyebrow { margin-bottom: 1px; color: var(--color-ink-400); font-size: 10px; font-weight: 700; letter-spacing: .09em; }
+.admin-theme .admin-topbar h1 { color: var(--color-ink-200); font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
+.admin-theme .admin-site-link { flex: 0 0 auto; color: var(--admin-muted); font-size: 12px; }
+.admin-theme .admin-site-link:hover { color: var(--color-accent-400); }
+.admin-theme .admin-workspace { grid-row: 3; min-width: 0; min-height: 0; overflow: auto; }
+.admin-theme .admin-content { min-width: 0; max-width: 1480px; margin: 0 auto; padding: 16px; }
+
+/* CK 검수 작업대 — onair-map의 편 검수처럼 근거와 조작을 갈라, 넓은 화면에서
+   인스펙터가 스크롤 중에도 맥락을 잃지 않는다. */
+.admin-theme .ck-progress-scroll { min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--admin-line); border-radius: 8px; }
+.admin-theme .ck-progress-scroll:focus-visible { outline: 2px solid var(--color-accent-400); outline-offset: 2px; }
+.admin-theme .ck-review-progress { flex-shrink: 0; }
+.admin-theme .ck-progress-table { width: 100%; min-width: 624px; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.admin-theme .ck-progress-table--list { min-width: 980px; }
+.admin-theme .ck-progress-table--event { min-width: 920px; }
+.admin-theme .ck-progress-table th, .admin-theme .ck-progress-table td { padding: 12px 8px; vertical-align: middle; }
+.admin-theme .ck-progress-table thead th { color: var(--admin-muted); background: var(--color-ink-900); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.admin-theme .ck-progress-table tbody tr { border-top: 1px solid var(--admin-line); }
+.admin-theme .ck-progress-table tbody tr:hover { background: color-mix(in srgb, var(--color-ink-800) 30%, transparent); }
+.admin-theme .ck-progress-table .ck-progress-column { text-align: center; border-left: 1px solid color-mix(in srgb, var(--admin-line) 55%, transparent); }
+.admin-theme .ck-progress-table .ck-progress-column:first-child { border-left: 0; }
+.admin-theme .ck-progress-table--list .ck-progress-column { width: 104px; }
+.admin-theme .ck-progress-table .ck-progress-title { padding: 12px 16px; font-weight: 400; text-align: left; overflow-wrap: anywhere; }
+.admin-theme .ck-progress-table--event .ck-progress-title { width: 330px; text-align: center; }
+.admin-theme .ck-event-series-row th { padding: 9px 16px; color: var(--color-ink-300); background: color-mix(in srgb, var(--color-ink-800) 45%, transparent); text-align: left; }
+.admin-theme .ck-event-match-row { cursor: pointer; }
+.admin-theme .ck-event-match-row:hover { background: color-mix(in srgb, var(--color-accent-600) 7%, transparent); }
+.admin-theme .ck-event-match-link { display: block; color: inherit; }
+.admin-theme .ck-event-match-link:focus-visible { outline: 2px solid var(--color-accent-400); outline-offset: 2px; border-radius: 4px; }
+.admin-theme .ck-event-match-main { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; white-space: nowrap; }
+.admin-theme .ck-event-match-date { color: var(--color-ink-400); }
+.admin-theme .ck-event-match-winner { color: var(--color-win); font-size: 13px; font-weight: 700; }
+.admin-theme .ck-event-match-winner b { color: var(--color-win); }
+.admin-theme .ck-event-match-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 7px; }
+.admin-theme .ck-progress-table--event .ck-review-completion { display: flex; justify-content: center; }
+.admin-theme .ck-progress-table--event .ck-review-completion-button { min-width: 92px; text-align: center; white-space: nowrap; }
+.admin-theme .ck-progress-table--event .ck-review-completion-button.is-complete { border-color: color-mix(in srgb, var(--color-win) 35%, transparent); color: var(--color-win); background: color-mix(in srgb, var(--color-win) 10%, transparent); }
+.admin-theme .ck-progress-table--event .ck-review-completion-button.is-pending { border-color: color-mix(in srgb, var(--color-amber-300) 35%, transparent); color: var(--color-amber-300); background: color-mix(in srgb, var(--color-amber-300) 8%, transparent); }
+.admin-theme .ck-progress-table--event .ck-review-completion button { white-space: nowrap; }
+.admin-theme .ck-progress-value { display: inline-block; min-width: 72px; border-radius: 5px; padding: 5px 6px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--color-ink-400); background: color-mix(in srgb, var(--color-ink-600) 12%, transparent); }
+.admin-theme .ck-progress-value[data-state="full"] { color: var(--color-win); background: color-mix(in srgb, var(--color-win) 12%, transparent); }
+.admin-theme .ck-progress-value[data-state="partial"] { color: var(--color-amber-300); background: color-mix(in srgb, var(--color-amber-300) 10%, transparent); }
+.admin-theme .ck-progress-value[data-state="count"] { color: var(--color-ink-200); background: transparent; }
+.admin-theme a.ck-progress-value:hover { text-decoration: underline; text-underline-offset: 3px; }
+.admin-theme a.ck-progress-value:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.admin-theme .ck-review-workbench { display: grid; gap: 12px; min-width: 0; }
+.admin-theme .ck-review-page { display: grid; gap: 12px; min-width: 0; }
+.admin-theme .ck-review-page-head { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 12px; padding: 4px 2px 0; }
+.admin-theme .ck-review-stage { display: grid; gap: 12px; min-width: 0; align-items: start; }
+.admin-theme .ck-review-preview, .admin-theme .ck-review-panel, .admin-theme .ck-review-timeline { overflow: hidden; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-panel); box-shadow: 0 10px 30px rgb(0 0 0 / 12%); }
+.admin-theme .ck-review-preview > header { background: color-mix(in srgb, var(--color-ink-900) 88%, transparent); }
+.admin-theme .ck-review-frame { display: grid; place-items: center; min-width: 0; background: var(--color-ink-950); }
+.admin-theme .ck-review-frame-image { display: block; max-width: 100%; height: auto; object-fit: contain; }
+.admin-theme .ck-review-inspector { display: grid; min-width: 0; }
+.admin-theme .ck-review-inspector-shell { display: flex; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 12px; background: var(--admin-panel); box-shadow: 0 10px 30px rgb(0 0 0 / 12%); }
+.admin-theme .ck-review-inspector-tabs { display: grid; flex: 0 0 auto; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 5px; border-bottom: 1px solid var(--admin-line); background: var(--color-ink-950); }
+.admin-theme .ck-review-inspector-tabs button { min-height: 34px; border-radius: 7px; color: var(--admin-muted); font-size: 12px; font-weight: 700; }
+.admin-theme .ck-review-inspector-tabs button:hover { color: var(--color-ink-200); background: var(--admin-panel-raised); }
+.admin-theme .ck-review-inspector-tabs button[aria-selected="true"] { color: var(--color-accent-400); background: color-mix(in srgb, var(--color-accent-600) 14%, var(--color-ink-800)); }
+.admin-theme .ck-review-inspector-body { min-height: 0; padding: 10px; }
+.admin-theme .ck-review-tab-stack { display: grid; gap: 10px; }
+.admin-theme .ck-roster-team + .ck-roster-team { padding-top: 2px; border-top: 1px solid var(--admin-line); }
+.admin-theme .ck-roster-team > header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; color: var(--color-ink-300); font-size: 11px; }
+.admin-theme .ck-roster-team > header b { font-size: 12px; }
+.admin-theme .ck-roster-team > header span { color: var(--color-win); font-size: 10px; font-weight: 700; }
+.admin-theme .ck-roster-table { overflow: hidden; border: 1px solid var(--admin-line); border-radius: 8px; background: color-mix(in srgb, var(--color-ink-950) 64%, transparent); }
+.admin-theme .ck-roster-head, .admin-theme .ck-roster-summary { display: grid; grid-template-columns: 64px minmax(0, 1fr) 82px 62px; align-items: center; gap: 6px; }
+.admin-theme .ck-roster-head { min-height: 24px; padding: 0 8px; color: var(--color-ink-500); font-size: 9px; font-weight: 700; }
+.admin-theme .ck-roster-head span:last-child, .admin-theme .ck-roster-summary > button:last-child { text-align: right; }
+.admin-theme .ck-roster-row + .ck-roster-row { border-top: 1px solid color-mix(in srgb, var(--admin-line) 72%, transparent); }
+.admin-theme .ck-roster-row.is-open { background: color-mix(in srgb, var(--color-accent-600) 7%, transparent); }
+.admin-theme .ck-roster-row.is-removed { background: color-mix(in srgb, var(--color-lose) 8%, transparent); }
+.admin-theme .ck-roster-summary { min-height: 34px; padding: 0 8px; color: var(--color-ink-400); font-size: 11px; }
+.admin-theme .ck-roster-summary > button { min-width: 0; overflow: hidden; padding: 5px 0; color: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.admin-theme .ck-roster-summary > button:hover, .admin-theme .ck-roster-summary > button[aria-expanded="true"] { color: var(--color-accent-400); }
+.admin-theme .ck-roster-summary > button[data-unlinked] { color: var(--color-amber-300); background: color-mix(in srgb, var(--color-amber-300) 10%, transparent); border-radius: 4px; padding-inline: 4px; }
+.admin-theme .ck-roster-cell-editor { display: grid; gap: 6px; padding: 8px; border-top: 1px solid color-mix(in srgb, var(--color-accent-600) 30%, var(--admin-line)); background: color-mix(in srgb, var(--color-ink-900) 84%, transparent); }
+.admin-theme .ck-roster-position-choices { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.admin-theme .ck-roster-position-choices button { display: grid; justify-items: center; gap: 3px; min-height: 42px; border: 1px solid var(--admin-line); border-radius: 6px; padding: 4px; color: var(--color-ink-300); font-size: 10px; }
+.admin-theme .ck-roster-position-choices button:hover { border-color: var(--color-accent-600); color: var(--color-accent-400); background: color-mix(in srgb, var(--color-accent-600) 10%, transparent); }
+.admin-theme .ck-roster-position-choices kbd { min-width: 16px; border: 1px solid var(--color-ink-700); border-radius: 3px; padding: 1px 3px; color: var(--color-ink-500); font-family: inherit; font-size: 9px; }
+.admin-theme .ck-champion-suggestions { display: grid; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 6px; background: var(--color-ink-950); }
+.admin-theme .ck-champion-suggestions button { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 30px; padding: 3px 7px; color: var(--color-ink-300); font-size: 11px; text-align: left; }
+.admin-theme .ck-champion-suggestions button + button { border-top: 1px solid color-mix(in srgb, var(--admin-line) 65%, transparent); }
+.admin-theme .ck-champion-suggestions button:hover, .admin-theme .ck-champion-suggestions button[data-selected] { background: color-mix(in srgb, var(--color-accent-600) 12%, transparent); color: var(--color-accent-400); }
+.admin-theme .ck-champion-suggestions img { width: 22px; height: 22px; border-radius: 4px; }
+.admin-theme .ck-champion-suggestions small { color: var(--color-ink-500); font-size: 9px; }
+.admin-theme .ck-review-timeline { display: flex; min-height: 0; flex-direction: column; padding: 12px; }
+.admin-theme .ck-review-queue-head { display: flex; flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 7px; padding: 2px 2px 10px; }
+.admin-theme .ck-review-queue-head h3 { color: var(--color-ink-200); font-size: 13px; font-weight: 700; }
+.admin-theme .ck-review-queue-head p { margin-top: 2px; color: var(--admin-muted); font-size: 11px; }
+.admin-theme .ck-review-queue-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
+.admin-theme .ck-review-queue-filters button { min-height: 28px; padding: 4px; border-radius: 6px; color: var(--admin-muted); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.admin-theme .ck-review-queue-filters button:hover { color: var(--color-ink-200); background: var(--admin-panel-raised); }
+.admin-theme .ck-review-queue-filters button[aria-pressed="true"] { color: var(--color-accent-400); background: color-mix(in srgb, var(--color-accent-600) 14%, var(--color-ink-800)); }
+.admin-theme .ck-review-queue-list { display: grid; align-content: start; flex: 1 1 auto; min-height: 0; overflow: auto; border-top: 1px solid var(--admin-line); }
+.admin-theme .ck-review-queue-list > li + li { border-top: 1px solid color-mix(in srgb, var(--admin-line) 70%, transparent); }
+.admin-theme .ck-review-queue-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; min-height: 40px; gap: 8px; padding: 5px 10px; text-align: left; }
+.admin-theme .ck-review-queue-item:not(:disabled):hover, .admin-theme .ck-review-queue-item[aria-current="true"] { background: color-mix(in srgb, var(--color-accent-600) 8%, transparent); }
+.admin-theme .ck-review-queue-item:disabled { cursor: default; }
+.admin-theme .ck-review-queue-item--static { color: var(--admin-muted); cursor: default; }
+.admin-theme .ck-review-queue-item time { overflow: hidden; color: var(--color-ink-200); font-family: inherit; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.025em; text-overflow: ellipsis; white-space: nowrap; }
+.admin-theme .ck-review-queue-kind { justify-self: end; color: var(--admin-muted); font-size: 10px; font-weight: 700; text-align: right; }
+.admin-theme .ck-review-queue-item[data-kind="match"] .ck-review-queue-kind { color: var(--color-accent-400); }
+.admin-theme .ck-review-queue-item[data-kind="candidate"] .ck-review-queue-kind { color: #fbbf24; }
+.admin-theme .ck-review-queue-item[data-kind="failed"] .ck-review-queue-kind { color: #fbbf24; }
+.admin-theme .ck-review-queue-empty { padding: 22px 8px; color: var(--admin-muted); font-size: 12px; text-align: center; }
+.admin-theme .ck-review-match-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 8px; background: color-mix(in srgb, var(--color-ink-950) 54%, transparent); }
+.admin-theme .ck-review-match-summary > div { min-width: 0; padding: 8px 10px; }
+.admin-theme .ck-review-match-summary > .has-left-border { border-left: 1px solid color-mix(in srgb, var(--admin-line) 70%, transparent); }
+.admin-theme .ck-review-match-summary > div:nth-child(n + 3) { border-top: 1px solid color-mix(in srgb, var(--admin-line) 70%, transparent); }
+.admin-theme .ck-review-match-summary > .is-wide { grid-column: 1 / -1; }
+.admin-theme .ck-review-match-summary dt { color: var(--color-ink-500); font-size: 9px; font-weight: 700; }
+.admin-theme .ck-review-match-summary dd { margin-top: 2px; overflow-wrap: anywhere; color: var(--color-ink-200); font-size: 11px; line-height: 1.35; }
+.admin-theme .ck-review-match-cell-button { display: block; width: 100%; min-height: 25px; margin: -3px -5px; border-radius: 5px; padding: 3px 5px; color: var(--color-ink-200); text-align: left; overflow-wrap: anywhere; }
+.admin-theme .ck-review-match-cell-button:hover, .admin-theme .ck-review-match-cell-button:focus-visible { color: var(--color-accent-400); background: color-mix(in srgb, var(--color-accent-600) 10%, transparent); outline: none; }
+.admin-theme .ck-review-winner-toggle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.admin-theme .ck-review-winner-toggle button { min-height: 25px; border: 1px solid var(--admin-line); border-radius: 5px; color: var(--color-ink-400); font-size: 10px; font-weight: 700; }
+.admin-theme .ck-review-winner-toggle button:hover { border-color: var(--color-accent-600); color: var(--color-accent-400); }
+.admin-theme .ck-review-winner-toggle button[aria-pressed="true"] { border-color: color-mix(in srgb, var(--color-win) 45%, var(--admin-line)); color: var(--color-win); background: color-mix(in srgb, var(--color-win) 10%, transparent); }
+.admin-theme .ck-event-link-editor { display: grid; gap: 6px; }
+.admin-theme .ck-event-suggestions { display: grid; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 6px; background: var(--color-ink-950); }
+.admin-theme .ck-event-suggestions button { display: grid; gap: 1px; min-height: 34px; padding: 5px 7px; text-align: left; }
+.admin-theme .ck-event-suggestions button + button { border-top: 1px solid color-mix(in srgb, var(--admin-line) 65%, transparent); }
+.admin-theme .ck-event-suggestions button:hover, .admin-theme .ck-event-suggestions button[data-selected] { background: color-mix(in srgb, var(--color-accent-600) 12%, transparent); }
+.admin-theme .ck-review-frame-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 1px; }
+.admin-theme .ck-review-frame-strip > button { position: relative; flex: 0 0 72px; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 5px; background: var(--color-ink-950); }
+.admin-theme .ck-review-frame-strip > button:hover { border-color: var(--color-accent-600); }
+.admin-theme .ck-review-frame-strip > button[aria-current="true"] { border-color: var(--color-accent-400); box-shadow: 0 0 0 1px var(--color-accent-400); }
+.admin-theme .ck-review-frame-strip img { display: block; width: 70px; height: 42px; object-fit: cover; }
+.admin-theme .ck-review-frame-strip span { display: block; padding: 2px 3px; color: var(--color-ink-200); font-size: 9px; font-variant-numeric: tabular-nums; }
+.admin-theme .ck-review-minimap { position: relative; flex: 0 0 auto; height: 18px; margin-top: 10px; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 6px; background: var(--color-ink-950); }
+.admin-theme .ck-review-minimap > * { position: absolute; display: block; }
+.admin-theme .ck-review-minimap > [data-kind="sample"] { top: 4px; bottom: 4px; border-radius: 2px; background: color-mix(in srgb, var(--color-accent-600) 35%, transparent); }
+.admin-theme .ck-review-minimap > [data-kind="failed"] { top: 3px; bottom: 3px; border-radius: 2px; background: color-mix(in srgb, #fbbf24 62%, transparent); }
+.admin-theme .ck-review-minimap > [data-kind="match"], .admin-theme .ck-review-minimap > [data-kind="match-unplaced"], .admin-theme .ck-review-minimap > [data-kind="candidate"], .admin-theme .ck-review-minimap > [data-kind="frame"] { top: 3px; width: 3px; height: 10px; margin-left: -1px; border-radius: 99px; background: var(--color-accent-400); }
+.admin-theme .ck-review-minimap > button[data-kind="match"] { z-index: 4; }
+.admin-theme .ck-review-minimap > button[data-kind="match-unplaced"] { z-index: 5; border: 1px dashed var(--color-accent-400); background: var(--color-ink-950); }
+.admin-theme .ck-review-minimap > button[data-kind="candidate"] { z-index: 2; }
+.admin-theme .ck-review-minimap > [data-kind="frame"] { z-index: 1; width: 2px; }
+.admin-theme .ck-review-minimap > button[data-kind="match"], .admin-theme .ck-review-minimap > button[data-kind="match-unplaced"], .admin-theme .ck-review-minimap > button[data-kind="candidate"] { cursor: pointer; transition: transform 120ms, box-shadow 120ms; }
+.admin-theme .ck-review-minimap > button[data-kind="match"]:hover, .admin-theme .ck-review-minimap > button[data-kind="match-unplaced"]:hover, .admin-theme .ck-review-minimap > button[data-kind="candidate"]:hover { transform: scaleY(1.45); box-shadow: 0 0 0 2px var(--color-ink-950); }
+.admin-theme .ck-review-minimap > [data-kind="candidate"] { background: #fbbf24; }
+.admin-theme .ck-review-minimap > [data-kind="frame"] { background: var(--color-ink-400); }
+.admin-theme .ck-review-minimap > [data-selected] { top: 1px; height: 14px; width: 4px; background: var(--color-win); box-shadow: 0 0 0 1px var(--color-ink-950); }
+
+/* 검수는 드래그할 스크롤바보다 항목 선택이 주 동작이다. 스크롤은 남기되 레일은 숨긴다. */
+.admin-theme .ck-review-queue-list,
+.admin-theme .ck-review-inspector-body,
+.admin-theme .ck-review-frame,
+.admin-theme .ck-review-frame-strip { scrollbar-width: none; -ms-overflow-style: none; }
+.admin-theme .ck-review-queue-list::-webkit-scrollbar,
+.admin-theme .ck-review-inspector-body::-webkit-scrollbar,
+.admin-theme .ck-review-frame::-webkit-scrollbar,
+.admin-theme .ck-review-frame-strip::-webkit-scrollbar { display: none; }
+
+@media (min-width: 768px) {
+  .admin-theme .admin-shell { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: 58px minmax(0, 1fr); height: 100dvh; overflow: hidden; }
+  .admin-theme .admin-sidebar { grid-row: 1 / -1; border-right: 1px solid var(--admin-line); border-bottom: 0; }
+  .admin-theme .admin-brand { display: flex; align-items: center; gap: 9px; min-height: 58px; padding: 0 18px; border-bottom: 1px solid var(--admin-line); color: var(--color-ink-200); font-size: 13px; font-weight: 700; }
+  .admin-theme .admin-brand b { color: var(--color-accent-400); font-weight: 700; }
+  .admin-theme .admin-brand-mark { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid color-mix(in srgb, var(--color-accent-600) 45%, transparent); border-radius: 8px; color: var(--color-accent-400); background: color-mix(in srgb, var(--color-accent-600) 12%, transparent); }
+  .admin-theme .admin-navigation { display: grid; gap: 3px; overflow: visible; padding: 18px 10px; }
+  .admin-theme .admin-nav-group-label { display: block; padding: 0 9px 6px; color: var(--color-ink-400); font-size: 10px; font-weight: 700; letter-spacing: .1em; }
+  .admin-theme .admin-nav-item { width: 100%; min-height: 40px; padding-inline: 9px; }
+  .admin-theme .admin-topbar { grid-column: 2; grid-row: 1; padding-inline: 22px; }
+  .admin-theme .admin-workspace { grid-column: 2; grid-row: 2; }
+  .admin-theme .admin-content { max-width: none; padding: 22px; }
+}
+@media (min-width: 1080px) {
+  /* 화면 자체는 움직이지 않는다. onair-map의 편 검수처럼 작업대 안의 세 면만
+     각자 넘긴다 — 긴 로스터나 많은 프레임이 프리뷰의 위치를 밀어내지 않는다. */
+  .admin-theme .admin-workspace { overflow: hidden; }
+  .admin-theme .admin-content { height: 100%; overflow: auto; }
+  .admin-theme .admin-content:has(.ck-review-page) { display: flex; overflow: hidden; }
+  .admin-theme .ck-review-page { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .admin-theme .ck-review-page > .ck-review-workbench { flex: 1 1 auto; min-height: 0; }
+  /* 좌측 작업면도 세로를 끝까지 쓴다: 검수 큐 | 프리뷰, 그리고 우측 인스펙터.
+     큐를 프리뷰 아래에 두면 목록이 길 때 정작 근거 화면이 밀려난다. */
+  .admin-theme .ck-review-workbench { grid-template-columns: 200px minmax(0, 1fr) 380px; grid-template-rows: minmax(0, 1fr); }
+  .admin-theme .ck-review-stage { display: contents; min-height: 0; }
+  .admin-theme .ck-review-preview { display: flex; min-height: 0; flex-direction: column; }
+  .admin-theme .ck-review-preview { grid-column: 2; grid-row: 1; }
+  .admin-theme .ck-review-preview > header, .admin-theme .ck-review-preview > footer { flex: 0 0 auto; }
+  .admin-theme .ck-review-frame { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .admin-theme .ck-review-frame-image { max-height: 100%; }
+  .admin-theme .ck-review-inspector { grid-column: 3; grid-row: 1; min-height: 0; }
+  .admin-theme .ck-review-inspector-shell { height: 100%; }
+  .admin-theme .ck-review-inspector-body { flex: 1 1 auto; overflow: auto; }
+  .admin-theme .ck-review-timeline { grid-column: 1; grid-row: 1; height: 100%; overflow: hidden; }
+}
+@media (min-width: 1440px) {
+  .admin-theme .admin-content { padding: 24px 30px; }
+  .admin-theme .ck-review-workbench { grid-template-columns: 220px minmax(0, 1fr) 410px; }
+}
+
+/* 경기 확인 — 시리즈 목록을 펴고 접으며 세트 수치만 훑는다. 편집은 검수 화면에서. */
+.admin-theme .overview-groups { display: grid; gap: 10px; }
+.admin-theme .overview-group { border: 1px solid var(--admin-line); border-radius: 8px; overflow: hidden; }
+/* 대회 머리줄 — 경기 줄보다 확실히 크고 진해서, 목록을 내려도 대회 경계가 먼저 눈에 걸린다. */
+.admin-theme .overview-event { display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto 72px; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 8px 12px; text-align: left; color: var(--color-ink-200); background: color-mix(in srgb, var(--color-accent-600) 10%, var(--color-ink-800)); border-left: 3px solid var(--color-accent-400); }
+.admin-theme .overview-event:hover { background: color-mix(in srgb, var(--color-accent-600) 16%, var(--color-ink-800)); }
+.admin-theme .overview-event:focus-visible { outline: 2px solid var(--color-accent-400); outline-offset: -2px; }
+.admin-theme .overview-group[data-folded] .overview-event { border-left-color: var(--color-ink-600, var(--admin-line)); background: var(--color-ink-900); }
+.admin-theme .overview-event-kind { padding: 1px 6px; border: 1px solid var(--admin-line); border-radius: 4px; color: var(--color-ink-400); font-size: 10px; font-weight: 600; }
+.admin-theme .overview-event-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.admin-theme .overview-event-meta { color: var(--color-ink-400); font-size: 12px; white-space: nowrap; }
+.admin-theme .overview-event .overview-series-review { font-size: 12px; }
+.admin-theme .overview-series { border-top: 1px solid color-mix(in srgb, var(--admin-line) 60%, transparent); }
+.admin-theme .overview-series-head { display: grid; grid-template-columns: 14px 84px minmax(120px, 220px) minmax(0, 1fr) auto 72px; align-items: center; gap: 10px; width: 100%; padding: 6px 12px; font-size: 12px; text-align: left; color: var(--color-ink-300); }
+.admin-theme .overview-series-head:hover, .admin-theme .overview-series[data-open] .overview-series-head { background: color-mix(in srgb, var(--color-accent-600) 7%, transparent); }
+.admin-theme .overview-series-head:focus-visible { outline: 2px solid var(--color-accent-400); outline-offset: -2px; }
+.admin-theme .overview-series-date { color: var(--color-ink-400); white-space: nowrap; }
+.admin-theme .overview-series-round { color: var(--color-ink-200); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-theme .overview-series-score { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-theme .overview-series-meta { color: var(--color-ink-500); font-size: 11px; white-space: nowrap; }
+.admin-theme .overview-series-review { text-align: right; white-space: nowrap; }
+.admin-theme .overview-sets { display: grid; gap: 10px; min-width: 0; max-width: 940px; padding: 4px 12px 14px 38px; }
+.admin-theme .overview-set { min-width: 0; overflow-x: auto; border: 1px solid var(--admin-line); border-radius: 8px; background: var(--admin-panel); }
+.admin-theme .overview-set-head { display: flex; align-items: center; gap: 10px; padding: 6px 12px; color: var(--color-ink-400); font-size: 12px; white-space: nowrap; }
+.admin-theme .overview-set-head b { font-size: 13px; }
+.admin-theme .overview-set .ck-review-completion-button { line-height: 20px; white-space: nowrap; }
+.admin-theme .overview-set .ck-review-completion-button.is-complete { border-color: color-mix(in srgb, var(--color-win) 35%, transparent); color: var(--color-win); background: color-mix(in srgb, var(--color-win) 10%, transparent); }
+.admin-theme .overview-set .ck-review-completion-button.is-pending { border-color: color-mix(in srgb, var(--color-amber-300) 35%, transparent); color: var(--color-amber-300); background: color-mix(in srgb, var(--color-amber-300) 8%, transparent); }
+/* 한 세트 = 좌우 대칭 표 한 장. 가운데 라인 칸을 두고 같은 라인끼리 한 줄에 마주 본다.
+   KDA 를 라인 칸 바로 옆에 둬서 맞라인끼리의 수치가 가운데에서 비교되게 한다. */
+.admin-theme .overview-match { width: 100%; min-width: 680px; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.admin-theme .overview-match col.c-champ { width: 140px; }
+.admin-theme .overview-match col.c-kda { width: 92px; }
+.admin-theme .overview-match col.c-lane { width: 48px; }
+.admin-theme .overview-match th, .admin-theme .overview-match td { height: 32px; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-200); font-weight: 400; }
+.admin-theme .overview-match tbody tr + tr td { border-top: 1px solid color-mix(in srgb, var(--admin-line) 45%, transparent); }
+.admin-theme .overview-match thead th { height: 34px; font-weight: 600; }
+.admin-theme .overview-match .c-lane { padding: 0; color: var(--color-ink-400); font-size: 12px; text-align: center; text-overflow: clip; background: var(--color-ink-900); }
+.admin-theme .overview-match .c-kda { font-variant-numeric: tabular-nums; text-align: center; color: var(--color-ink-100, var(--color-ink-200)); }
+.admin-theme .overview-match .c-champ { color: var(--color-ink-300); }
+.admin-theme .overview-champ { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; vertical-align: middle; }
+.admin-theme .overview-champ > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.admin-theme .overview-champ img, .admin-theme .overview-champ-blank { flex: 0 0 22px; width: 22px; height: 22px; border-radius: 4px; background: var(--color-ink-800); }
+.admin-theme .overview-match tr > :nth-child(n+5) { text-align: right; }
+.admin-theme .overview-match tr > td:nth-child(6) .overview-champ { flex-direction: row-reverse; }
+.admin-theme .overview-match tr > .c-kda:nth-child(n+5) { text-align: center; }
+.admin-theme .overview-team-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.admin-theme .overview-team-name { overflow: hidden; text-overflow: ellipsis; }
+.admin-theme .overview-team-head .c-kda { font-variant-numeric: tabular-nums; }
+/* 승패는 색으로만. 팀 이름 줄은 분명하게, 선수 줄은 글자를 방해하지 않을 만큼만 깐다. */
+.admin-theme .overview-match .is-win { background: color-mix(in srgb, var(--color-win) 5%, transparent); }
+.admin-theme .overview-match .is-lose { background: color-mix(in srgb, var(--color-lose) 5%, transparent); }
+.admin-theme .overview-match thead .is-win { background: color-mix(in srgb, var(--color-win) 18%, transparent); color: var(--color-win); }
+.admin-theme .overview-match thead .is-lose { background: color-mix(in srgb, var(--color-lose) 15%, transparent); color: var(--color-lose); }
+.admin-theme .overview-match thead .is-win .c-kda, .admin-theme .overview-match thead .is-lose .c-kda { color: var(--color-ink-200); }
+/* 판단에 걸리는 선수. 미연결(주황)은 이름 자체를, 교체(보라)는 이름 둘레를 칠해 둘이 겹쳐도 둘 다 보인다. */
+.admin-theme .overview-name { display: inline-block; max-width: 100%; padding: 1px 6px; margin: 0 -6px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; border-radius: 4px; }
+.admin-theme .overview-name.is-unlinked { color: #fb923c; background: color-mix(in srgb, #fb923c 14%, transparent); font-weight: 600; }
+.admin-theme .overview-name.is-sub { box-shadow: inset 0 0 0 1.5px #a78bfa; }
+.admin-theme .overview-name.is-sub:not(.is-unlinked) { color: #c4b5fd; background: color-mix(in srgb, #a78bfa 14%, transparent); font-weight: 600; }
+.admin-theme .overview-flag { padding: 0 6px; border-radius: 4px; font-size: 11px; line-height: 18px; font-weight: 600; }
+.admin-theme .overview-flag.is-unlinked { color: #fb923c; background: color-mix(in srgb, #fb923c 14%, transparent); }
+.admin-theme .overview-flag.is-sub { color: #c4b5fd; background: color-mix(in srgb, #a78bfa 16%, transparent); box-shadow: inset 0 0 0 1px #a78bfa; }
+
+@media (max-width: 720px) {
+  .admin-theme .overview-series-head { grid-template-columns: 14px minmax(0, 1fr) auto; }
+  .admin-theme .overview-series-date, .admin-theme .overview-series-meta, .admin-theme .overview-event-meta { display: none; }
+  .admin-theme .overview-event { grid-template-columns: 16px auto minmax(0, 1fr) auto; }
+  .admin-theme .overview-series-score { grid-column: 2 / -1; grid-row: 2; }
+  .admin-theme .overview-sets { padding-left: 10px; }
+}

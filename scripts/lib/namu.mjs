@@ -61,7 +61,9 @@ export async function fetchSeries(title) {
   for (const [i, l] of lines.entries()) {
     // 회차마다 표기가 다르다: '2022년 4월 6일' · '날짜: 2020-3-12' · '2020.03.13'
     const m = /(20\d\d)\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/.exec(l)
-      ?? /(20\d\d)[-.](\d{1,2})[-.](\d{1,2})(?!\d)/.exec(l);
+      // '(2024. 09. 06.)' 처럼 점 뒤에 공백이 있는 표기도 있다(2024 시즌1). 이걸 못 읽으면
+      // 문서 맨 위의 편집 시각(2026-07-14 …)이 그 앞 경기들의 날짜로 번졌다.
+      ?? /(20\d\d)\s*[-.]\s*(\d{1,2})\s*[-.]\s*(\d{1,2})(?!\d)/.exec(l);
     if (m) cur = `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
     dateAt[i] = cur;
   }
@@ -131,6 +133,25 @@ export async function fetchSeries(title) {
       sb = WL[lines[i + 3]];
     } else continue;
     if (!isTeam(a) || !isTeam(b) || a === b) continue;
+    // 배너의 숫자 스코어 뒤에 세트별 ○× 가 붙어 있으면(팀A 칸들 · 팀B 칸들, 안 한 세트는 '-')
+    // 둘을 맞춰 본다. 숫자는 사람이 따로 적는 요약이라 틀린 적이 있다 —
+    // 2024 시즌1 A조 패자전 배너가 '2 : 0' 인데 같은 배너의 ○× 와 문서 제목은 1:2 였다.
+    // 세트마다 한쪽만 ○ 인 온전한 ○× 가 있으면 그쪽을 쓰고, 어긋났다고 남긴다.
+    if (numeric) {
+      const run = [];
+      for (let k = i + 4; k < lines.length && (isOx(lines[k]) || lines[k] === "-"); k++) run.push(lines[k]);
+      const half = run.length / 2;
+      if (half >= 1 && Number.isInteger(half)) {
+        const win = (x) => x === "O" || x === "○";
+        const [ra, rb] = [run.slice(0, half), run.slice(half)];
+        const whole = ra.every((x, n) => (x === "-" && rb[n] === "-") || (x !== "-" && rb[n] !== "-" && win(x) !== win(rb[n])));
+        const [oa, ob] = [ra.filter(win).length, rb.filter(win).length];
+        if (whole && (oa !== sa || ob !== sb)) {
+          console.warn(`  ⚠ 나무위키 '${a} ${sa}:${sb} ${b}' — 같은 배너의 세트별 ○× 는 ${oa}:${ob}. ○× 를 쓴다`);
+          [sa, sb] = [oa, ob];
+        }
+      }
+    }
     if (sa === sb) continue;                       // 무승부는 없다
     if (Math.max(sa, sb) > 3 || Math.max(sa, sb) < 1) continue;
 

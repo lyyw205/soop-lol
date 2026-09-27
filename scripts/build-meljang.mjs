@@ -40,6 +40,7 @@ import {
 import { POSITION, ROMAN, SEASONS } from "./meljang-seasons.mjs";
 import { fetchFaList } from "./lib/soop-fa.mjs";
 import { soopFetch } from "./lib/soop-http.mjs";
+import { SOOPLOL_SLOTS, loadSooplolTeams, normTeam as normSooplolTeam } from "./lib/sooplol.mjs";
 
 const FA_PAGE = "https://bjmatchfa.sooplive.com/fa/27";
 const SOOP_SEARCH = "https://sch.sooplive.co.kr/api.php";
@@ -325,8 +326,9 @@ function roundTokens(round) {
   if (g) t.push(`${g[1]}조`);
   const kind = /(승자전|패자전|최종전|\d+경기|결승|4강|준결승)/.exec(round);
   if (kind) t.push(kind[1]);
-  const ubl = /(UB|LB)\s*(\d)R/i.exec(round);
-  if (ubl) t.push(ubl[1].toUpperCase() === "UB" ? "승자조" : "패자조", `${ubl[2]}라운드`);
+  // 대진표는 "승자조 1라운드" 로 적는다(나무위키 표기). 옛 영문 표기(UB 1R)도 같은 토큰으로 읽는다.
+  const ubl = /(UB|LB|승자조|패자조)\s*(\d)\s*(?:R|라운드)/i.exec(round);
+  if (ubl) t.push(/^(UB|승자조)$/i.test(ubl[1]) ? "승자조" : "패자조", `${ubl[2]}라운드`);
   return t;
 }
 
@@ -351,6 +353,13 @@ const { winner: derived, err: gslErr } = season.format === "gsl"
   : { winner: new Map(), err: [] };
 
 const errors = [...gslErr];
+/**
+ * 라운드명. 더블 엘리미네이션은 라운드만으로는 같은 날 승자조·패자조가 뒤섞여 순서가 안 보여서
+ * **공식 경기 번호**를 붙인다 — VOD 제목이 "UB 1R 1경기" 로 번호를 준다. 결승은 제목에도 번호가 없다.
+ * ★ 다른 형식에는 붙이지 않는다. 대진을 나무위키에서 유도한 회차는 번호가 우리가 매긴 순번이다(위 207행).
+ */
+const boutLabel = (r) => season.format === "de" && !/결승/.test(r.round) ? `${r.round} · ${r.no}경기` : r.round;
+
 const resolved = [];
 
 for (const [no, round, a, b, date] of season.bouts) {
@@ -465,15 +474,49 @@ async function search(q) {
  *   알 수 없으므로 **포기한다**. 여기서 하나를 고르면 남의 전적이 된다(§11-2).
  */
 async function soopChannelId(nick) {
-  const exact = (await search(nick)).filter((x) => x.user_nick === nick);
-  if (exact.length === 1) return { id: exact[0].user_id, via: "exact", nick: exact[0].user_nick };
-
   const key = stripDeco(nick);
+  // ★ '대표 채널' 여부 — 이름에 key 가 들어가는 후보 중 즐겨찾기가 가장 많은가.
+  //   닉네임이 유일하게 맞아도 **팬 2명짜리 동명 계정**일 수 있다. 실제로 'BJ맛종욱' 을
+  //   장식만 떼어 '맛종욱'(sibizigi, 팬 2) 에 붙였는데 진짜는 '한남맛종욱'(whddnr2813,
+  //   팬 16만) 이었다. FA 등록(본인 신고)이 있을 땐 그게 신원을 보증했지만, FA 없이
+  //   방송국만으로 등록하려면 이 판정이 대신 필요하다.
+  const pool = key ? await search(key) : [];
+  const fan = (x) => Number(x.favorite_cnt ?? 0);
+  const top = pool.filter((x) => stripDeco(x.user_nick).includes(key)).sort((a, b) => fan(b) - fan(a))[0];
+  const dominant = (id) => !top || top.user_id === id;
+
+  const exact = (await search(nick)).filter((x) => x.user_nick === nick);
+  if (exact.length === 1) return { id: exact[0].user_id, via: "exact", nick: exact[0].user_nick, dominant: dominant(exact[0].user_id), fans: fan(exact[0]) };
+
   if (!key) return null;
-  const near = (await search(key)).filter((x) => stripDeco(x.user_nick) === key);
-  if (near.length === 1) return { id: near[0].user_id, via: "deco", nick: near[0].user_nick };
+  const near = pool.filter((x) => stripDeco(x.user_nick) === key);
+  if (near.length === 1) return { id: near[0].user_id, via: "deco", nick: near[0].user_nick, dominant: dominant(near[0].user_id), fans: fan(near[0]) };
   return null;
 }
+
+/**
+ * ★ 닉네임 검색보다 먼저 본다 — sooplol 대회 로스터에 **같은 회차·같은 팀**의 자리로
+ *   방송국 아이디가 적혀 있으면 그게 근거다. 검색만 믿었더니 '일루오뀨' 가 즐겨찾기 0명짜리
+ *   동명 계정(tksk0402)에 붙었는데, 로스터엔 그 자리가 ogm0905(오뀨!) 로 적혀 있었다.
+ *   포지션은 나무위키와 어긋날 수 있어서 팀 안 다섯 자리에서 이름으로 찾는다.
+ */
+const sooplolTeams = loadSooplolTeams()?.get(key) ?? new Map();
+function sooplolChannelId(team, nick) {
+  const rec = sooplolTeams.get(normSooplolTeam(team));
+  if (!rec) return null;
+  const k = stripDeco(nick);
+  const hits = SOOPLOL_SLOTS
+    .map(([idKey, nameKey]) => ({ id: rec[idKey], name: rec[nameKey] }))
+    .filter((x) => x.id && x.name && (() => {
+      const n = stripDeco(x.name);
+      return n.length >= 2 && k.length >= 2 && (n === k || n.includes(k) || k.includes(n));
+    })());
+  return hits.length === 1 ? { id: hits[0].id, via: "sooplol", nick: hits[0].name } : null;
+}
+
+/** 이름만으로 등록할 때 '실제로 방송하는 채널'로 볼 최소 즐겨찾기 수. 동명 후보가 다 0~1명이면
+ *  그중 최다라는 건 아무것도 보증하지 않는다. */
+const MIN_FANS = 100;
 
 // FA 호출은 lib/soop-fa 가 단일 출처다 — 여기만 perPageNo 500 으로 남아
 // 501번째 등록자부터 잘려 나가고 있었다(적대 리뷰에서 발견).
@@ -559,7 +602,7 @@ for (const [team, members] of Object.entries(season.teams)) {
       continue;
     }
 
-    const found = await soopChannelId(nick);
+    const found = sooplolChannelId(team, nick) ?? await soopChannelId(nick);
     if (!found) { dropped.push(`${team} ${nick} — SOOP 검색에서 단일 해석 실패`); continue; }
     const channelId = found.id;
     if (found.via === "deco") {
@@ -569,20 +612,36 @@ for (const [team, members] of Object.entries(season.teams)) {
     const existing = known.get(channelId);
     if (existing) { if (place(team, existing, i)) reused++; continue; }
 
-    const slug = ROMAN[nick];
-    if (!slug) { dropped.push(`${team} ${nick} (${channelId}) — ROMAN 에 slug 가 없다`); continue; }
+    // ★ slug 는 사람이 읽을 이름표일 뿐, 계정 근거와는 무관하다. ROMAN 표에 없으면
+    //   SOOP 방송국 아이디를 그대로 slug 로 쓴다 — 이미 여러 회차가 이렇게 등록돼 있다.
+    const slug = ROMAN[nick] ?? channelId;
+    // ★ 라이엇 계정은 없어도 등록엔 지장이 없다(§11-2·CLAUDE.md) — 없으면 그냥
+    //   accounts 를 비운다. FA(2026 with Gen.G 신청자 명단) 미등록을 이유로
+    //   사람 자체를 통째로 빼면, SOOP 검색으로 유일하게 좁혀진 방송국 아이디라는
+    //   멀쩡한 근거가 있는데도 경기·조우·모스트 챔피언에서 그 사람이 사라진다.
     const f = fa.get(channelId);
-    if (!f) { dropped.push(`${team} ${nick} (${channelId}) — FA 등록에 없어 라이엇 ID 근거가 없다`); continue; }
+    // FA(본인 신고) 없이 방송국만으로 등록할 땐 신원 근거가 닉네임 매칭뿐이다 —
+    // 장식까지 정확히 같고, 동명 후보 중 대표 채널일 때만 받는다. 아니면 사람이 본다.
+    if (!f && found.via !== "sooplol" && (found.via !== "exact" || !found.dominant || found.fans < MIN_FANS)) {
+      const why = found.via !== "exact" ? "장식만 맞춘 매칭"
+        : !found.dominant ? "동명 후보 중 대표 채널 아님"
+        : `즐겨찾기 ${found.fans}명 — 실제 방송 채널인지 불명`;
+      dropped.push(`${team} ${nick} (${channelId}) — FA 근거 없음 + ${why} (수동 확인 필요)`);
+      continue;
+    }
 
     if (!place(team, slug, i)) continue;
-    const riotIds = (f.totalGameNickList?.length ? f.totalGameNickList : [f.gameNick]).filter(Boolean);
+    const riotIds = f ? (f.totalGameNickList?.length ? f.totalGameNickList : [f.gameNick]).filter(Boolean) : [];
     newStreamers.push({
       slug,
       display_name: nick,
       platform: "soop",
       channel_id: channelId,
       channel_url: `https://ch.sooplive.co.kr/${channelId}`,
-      note: `${season.name} '${team}' ${POSITION[i]}`,
+      note: `${season.name} '${team}' ${POSITION[i]}`
+        + (f ? "" : found.via === "sooplol"
+          ? ` — sooplol 대회 로스터(2026-08-19 1회 수집, out/sooplol/README.md)의 같은 팀 자리 '${found.nick}' 가 이 방송국 아이디다. FA/27 등록엔 없어 라이엇 ID 근거가 없다. 방송국 아이디만으로 등록.`
+          : ` — SOOP 검색으로 방송국을 찾았으나 FA/27 등록엔 없어 라이엇 ID 근거가 없다. 방송국 아이디만으로 등록.`),
       accounts: riotIds.map((riot_id, k) => ({
         riot_id,
         label: k === 0 ? "본계" : "부계",
@@ -604,7 +663,7 @@ for (const [team, members] of Object.entries(season.teams)) {
       })),
     });
     known.set(channelId, slug);
-    console.log(`  ➕ ${slug.padEnd(15)} ${nick.padEnd(13)} ${channelId.padEnd(14)} ${riotIds.join(", ")}`);
+    console.log(`  ➕ ${slug.padEnd(15)} ${nick.padEnd(13)} ${channelId.padEnd(14)} ${riotIds.join(", ") || "(계정 근거 없음)"}`);
   }
 }
 
@@ -628,7 +687,7 @@ for (const r of resolved) {
       id: `g${String(r.no).padStart(2, "0")}s${k + 1}`,
       series: `g${String(r.no).padStart(2, "0")}`,
       set_no: k + 1,
-      round: `${r.round} ${k + 1}세트`,
+      round: `${boutLabel(r)} ${k + 1}세트`,
       played_at: `${r.date}T${String(19 + k).padStart(2, "0")}:00:00+09:00`,
       blue: r.a,
       red: r.b,

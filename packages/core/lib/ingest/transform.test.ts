@@ -71,8 +71,11 @@ test("durationSeconds — 값이 없으면 null", () => {
 test("toMatchRow — 기본 매핑", () => {
   const row = toMatchRow(match());
   assert.equal(row.match_id, "KR_7000000001");
+  assert.equal(row.game_code, "lol");
   assert.equal(row.platform_id, "KR");
+  assert.equal(row.riot_game_id, 7000000001);
   assert.equal(row.queue_id, 420);
+  assert.equal(row.mode_key, "420");
   assert.equal(row.winning_team, 100);
   assert.equal(row.source, "public_queue");
   assert.equal(row.game_creation.getTime(), 1_770_000_000_000);
@@ -152,11 +155,13 @@ const B = "22222222-2222-2222-2222-222222222222";
 const C = "33333333-3333-3333-3333-333333333333";
 
 function ep(over: Partial<EncounterParticipant> & { puuid: string }): EncounterParticipant {
+  const teamId = over.team_id ?? 100;
   return {
-    team_id: 100,
+    team_id: teamId,
+    side_no: over.side_no ?? (teamId === 100 ? 1 : 2),
     team_position: "MIDDLE",
     individual_position: "MIDDLE",
-    win: true,
+    outcome: "win",
     champion_id: 157,
     kills: 5, deaths: 2, assists: 7,
     cs: 200, gold_earned: 12000, damage_to_champions: 25000,
@@ -166,7 +171,9 @@ function ep(over: Partial<EncounterParticipant> & { puuid: string }): EncounterP
 
 const soloq: Parameters<typeof deriveEncounters>[0] = {
   match_id: "KR_7000000001",
+  game_code: "lol",
   queue_id: 420,
+  mode_key: "420",
   source: "public_queue",
   game_creation: new Date(1_770_000_000_000),
   game_duration: 1800,
@@ -180,14 +187,14 @@ test("deriveEncounters — 스트리머가 하나뿐이면 조우가 아니다",
 test("deriveEncounters — 반대 팀 같은 포지션이면 맞라인", () => {
   const rows = deriveEncounters(
     soloq,
-    [ep({ puuid: "pa", team_id: 100, win: true }), ep({ puuid: "pb", team_id: 200, win: false })],
+    [ep({ puuid: "pa", team_id: 100, outcome: "win" }), ep({ puuid: "pb", team_id: 200, outcome: "loss" })],
     new Map([["pa", A], ["pb", B]]),
   );
   assert.equal(rows.length, 1);
   assert.equal(rows[0].relation, "opponent");
   assert.equal(rows[0].is_lane_matchup, true);
-  assert.equal(rows[0].a_win, true);
-  assert.equal(rows[0].b_win, false);
+  assert.equal(rows[0].a_outcome, "win");
+  assert.equal(rows[0].b_outcome, "loss");
 });
 
 test("deriveEncounters — 같은 팀이면 ally 이고 맞라인은 아니다", () => {

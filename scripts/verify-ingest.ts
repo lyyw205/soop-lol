@@ -206,8 +206,8 @@ try {
   const parts = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM match_participant WHERE match_id = 'KR_1003'`;
   check("참가자 10인이 전부 저장된다 (조우 파생의 원본)", parts[0].n === 10, `${parts[0].n}명`);
 
-  const enc1 = await sql<{ relation: string; is_lane_matchup: boolean; a_win: boolean }[]>`
-    SELECT relation, is_lane_matchup, a_win FROM streamer_encounter WHERE match_id = 'KR_1003'
+  const enc1 = await sql<{ relation: string; is_lane_matchup: boolean; a_outcome: string }[]>`
+    SELECT relation, is_lane_matchup, a_outcome FROM streamer_encounter WHERE match_id = 'KR_1003'
   `;
   check("조우 1쌍이 파생된다", enc1.length === 1, `${enc1.length}쌍`);
   check("반대 팀 같은 포지션 → 맞라인",
@@ -342,13 +342,13 @@ try {
   // 픽스처는 fake-riot 의 빌더 하나만 쓴다. 손으로 만든 MatchDto 사본을 두면
   // 타입이 바뀌어도 컴파일러가 그 사본은 못 잡는다 — 실제로 그랬다(`as never` 캐스팅).
   // 나머지 8명(모르는 사람)은 빌더가 fillerPrefix/fillerNamePrefix 로 채운다.
-  const scrimDto = buildMatchDto({
+  const ckDto = buildMatchDto({
     matchId: "KR_3130001",
     gameCreation: NOW - 2 * HOUR,
     queueId: 3130,
     tournamentCode: "KR050c3-aad2ff79",
     gameType: "CUSTOM_GAME",
-    fillerPrefix: "scrim",
+    fillerPrefix: "ck",
     fillerNamePrefix: "모르는사람",
     roster: [
       { puuid: PUUID_A, teamId: 100, position: "MIDDLE", win: true, championId: 157 },
@@ -356,38 +356,38 @@ try {
     ],
   });
 
-  const scrimSaved = await ingest.saveMatch(scrimDto);
-  const scrimRow = await sql<{ source: string; tournament_code: string | null; queue_id: number }[]>`
+  const ckSaved = await ingest.saveMatch(ckDto);
+  const ckRow = await sql<{ source: string; tournament_code: string | null; queue_id: number }[]>`
     SELECT source, tournament_code, queue_id FROM match WHERE match_id = 'KR_3130001'
   `;
   check("★ 내전은 source='tournament_code' 로 들어간다 (§11-7 — 공개 큐와 안 섞인다)",
-    scrimRow[0]?.source === "tournament_code", JSON.stringify(scrimRow[0]));
+    ckRow[0]?.source === "tournament_code", JSON.stringify(ckRow[0]));
   check("토너먼트 코드가 저장된다 (같은 코드 = 같은 내전 세션)",
-    scrimRow[0]?.tournament_code === "KR050c3-aad2ff79", scrimRow[0]?.tournament_code ?? "null");
+    ckRow[0]?.tournament_code === "KR050c3-aad2ff79", ckRow[0]?.tournament_code ?? "null");
 
-  const scrimEnc = await sql<{ source: string; is_lane_matchup: boolean }[]>`
+  const ckEnc = await sql<{ source: string; is_lane_matchup: boolean }[]>`
     SELECT source, is_lane_matchup FROM streamer_encounter WHERE match_id = 'KR_3130001'
   `;
   check("내전 조우도 source 로 갈린다",
-    scrimEnc.length === 1 && scrimEnc[0].source === "tournament_code", JSON.stringify(scrimEnc));
+    ckEnc.length === 1 && ckEnc[0].source === "tournament_code", JSON.stringify(ckEnc));
   check("내전은 드래프트라 맞라인 판정이 선다 (queue 3130 이 협곡 목록에 있다)",
-    scrimEnc[0]?.is_lane_matchup === true, JSON.stringify(scrimEnc[0]));
+    ckEnc[0]?.is_lane_matchup === true, JSON.stringify(ckEnc[0]));
 
-  const scrimCands = await sql<{ puuid: string; game_name: string | null; seen_with: string[] }[]>`
-    SELECT puuid, game_name, seen_with FROM account_candidate WHERE puuid LIKE 'scrim%'
+  const ckCands = await sql<{ puuid: string; game_name: string | null; seen_with: string[] }[]>`
+    SELECT puuid, game_name, seen_with FROM account_candidate WHERE puuid LIKE 'ck%'
   `;
   check("★ 내전의 모르는 참가자 8명이 승인 큐로 간다 (자동 등록은 안 한다)",
-    scrimCands.length === 8 && scrimSaved.candidates === 8,
-    `${scrimCands.length}건 / saveMatch=${scrimSaved.candidates}`);
+    ckCands.length === 8 && ckSaved.candidates === 8,
+    `${ckCands.length}건 / saveMatch=${ckSaved.candidates}`);
   check("사람이 알아볼 이름이 함께 남는다 (표시용 — 조인엔 안 쓴다)",
-    scrimCands.every((c) => c.game_name?.startsWith("모르는사람")),
-    JSON.stringify(scrimCands.slice(0, 2).map((c) => c.game_name)));
+    ckCands.every((c) => c.game_name?.startsWith("모르는사람")),
+    JSON.stringify(ckCands.slice(0, 2).map((c) => c.game_name)));
   check("누구와 같이 있었는지가 근거로 남는다",
-    scrimCands.every((c) => c.seen_with.length === 2),
-    JSON.stringify(scrimCands[0]?.seen_with.length));
+    ckCands.every((c) => c.seen_with.length === 2),
+    JSON.stringify(ckCands[0]?.seen_with.length));
 
   const stillPending = await sql<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM streamer_account WHERE puuid LIKE 'scrim%'
+    SELECT count(*)::int AS n FROM streamer_account WHERE puuid LIKE 'ck%'
   `;
   check("★ 후보는 계정으로 자동 등록되지 않는다 (§11-2 — 근거 없는 매핑 금지)",
     stillPending[0].n === 0, `${stillPending[0].n}건`);

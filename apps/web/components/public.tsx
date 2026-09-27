@@ -1,7 +1,12 @@
 import Link from "next/link";
+import { SiteNav } from "./site-nav";
+import { versusIndexHref } from "@/lib/module-links";
 
 import { moduleNavRoutes } from "@soop-lol/modules/registry";
 import type { ReactNode } from "react";
+// 표시 전용이라 packages/ui 에 산다. 여기서 다시 내보내 기존 import 경로를 지킨다.
+import { EmptyLine } from "../../../packages/ui/empty-line";
+export { EmptyLine };
 
 import {
   affinity,
@@ -17,26 +22,40 @@ import { POSITION_LABEL, QUEUE_LABEL, type Position } from "@soop-lol/core/lib/r
 // ── 크롬 ─────────────────────────────────────────────────────────────
 
 export function SiteHeader() {
+  const versusPath = versusIndexHref();
+  const moduleRoutes = moduleNavRoutes();
+  const versusRoute = moduleRoutes.find((route) => route.path === versusPath);
+  // core 메뉴와 모듈 메뉴를 navOrder 한 줄로 섞는다. 모듈 순서는 module.json 의 navOrder
+  // (상대전적 10 · 대회 15) — 스트리머는 대회 뒤에 오도록 18 이다.
+  const routes = [
+    { path: "/", title: versusRoute ? "전적 검색" : "홈", activePaths: versusPath ? [versusPath] : [], navOrder: 0 },
+    { path: "/streamers", title: "스트리머", navOrder: 18 },
+    ...moduleRoutes.filter((route) => route.path !== versusPath),
+  ].sort((a, b) => a.navOrder - b.navOrder);
   return (
-    <header className="border-b border-ink-800">
-      <nav className="mx-auto flex max-w-5xl items-center gap-6 px-6 py-4 text-sm">
-        <Link href="/" className="font-semibold text-ink-200">
-          SOOP <span className="text-accent-500">LOL</span>
-        </Link>
-        <Link href="/streamers" className="text-ink-400 hover:text-ink-200">스트리머</Link>
-        {/* ★ 모듈 메뉴는 **등록부에서 나온다.** 이름을 여기 적으면 모듈을 지울 때마다
-            core 를 고쳐야 하고, 그게 곧 역방향 의존이다(계약 4조).
-            모듈 디렉터리를 지우고 modules:sync 를 돌리면 메뉴에서도 저절로 빠진다. */}
-        {moduleNavRoutes().map((r) => (
-          <Link key={r.path} href={r.path} className="text-ink-400 hover:text-ink-200">{r.title}</Link>
-        ))}
-      </nav>
+    <header className="arena-header">
+      <div className="arena-header-inner">
+        <Link href="/" className="arena-brand" aria-label="SOOP LOL 홈"><span className="arena-brandmark">S</span>SOOP<span>LOL</span></Link>
+        <GameSwitcher game="lol" />
+        <SiteNav routes={routes} />
+        <span className="arena-header-note">LEAGUE OF LEGENDS · 스트리머 기록실</span>
+      </div>
     </header>
   );
 }
 
+export function GameSwitcher({ game }: { game: "lol" | "fconline" }) {
+  return <details className="game-switcher">
+    <summary aria-label="게임 선택">{game === "lol" ? "LOL" : "FC 온라인"}<span aria-hidden="true">⌄</span></summary>
+    <div className="game-switcher-menu">
+      <Link href="/" aria-current={game === "lol" ? "page" : undefined}>LOL</Link>
+      <Link href="/fc" aria-current={game === "fconline" ? "page" : undefined}>FC 온라인</Link>
+    </div>
+  </details>;
+}
+
 export function PageShell({ children }: { children: ReactNode }) {
-  return <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>;
+  return <main className="arena-shell">{children}</main>;
 }
 
 // ── 티어 ─────────────────────────────────────────────────────────────
@@ -110,16 +129,6 @@ export function RecordBar({ record, label }: { record: HeadToHead; label?: strin
   );
 }
 
-export function Kda({ k, d, a }: { k: number; d: number; a: number }) {
-  const ratio = d === 0 ? k + a : (k + a) / d;
-  return (
-    <span className="tabular text-xs text-ink-400">
-      {k}/{d}/{a}
-      <span className="ml-1.5 text-ink-200">{ratio.toFixed(2)}</span>
-    </span>
-  );
-}
-
 export function QueueTag({ queueId }: { queueId: number }) {
   return (
     <span className="rounded border border-ink-700 bg-ink-800 px-1.5 py-0.5 text-[11px] text-ink-400">
@@ -134,19 +143,6 @@ export function PositionTag({ position }: { position: string | null }) {
   return <span className="text-[11px] text-ink-400">{label}</span>;
 }
 
-export function WinPill({ win }: { win: boolean }) {
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
-      win ? "bg-win/15 text-win" : "bg-lose/15 text-lose"}`}>
-      {win ? "승" : "패"}
-    </span>
-  );
-}
-
-export function EmptyLine({ children }: { children: ReactNode }) {
-  return <p className="rounded-lg border border-dashed border-ink-700 px-4 py-6 text-center text-sm text-ink-400">{children}</p>;
-}
-
 export function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
   return (
     <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -154,14 +150,4 @@ export function SectionTitle({ children, hint }: { children: ReactNode; hint?: R
       {hint && <span className="text-[11px] text-ink-400">{hint}</span>}
     </div>
   );
-}
-
-export function relativeDate(d: Date | string): string {
-  const t = typeof d === "string" ? new Date(d) : d;
-  const days = Math.floor((Date.now() - t.getTime()) / 86400000);
-  if (days <= 0) return "오늘";
-  if (days === 1) return "어제";
-  if (days < 30) return `${days}일 전`;
-  if (days < 365) return `${Math.floor(days / 30)}달 전`;
-  return `${Math.floor(days / 365)}년 전`;
 }

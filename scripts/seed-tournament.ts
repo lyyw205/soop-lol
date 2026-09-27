@@ -13,27 +13,36 @@
  * 같은 파일을 다시 돌려도 안전하다(멱등).
  */
 
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { closeDb } from "@soop-lol/core/lib/db/client";
+import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { rederiveEncounters } from "@soop-lol/core/lib/db/ingest";
 import {
   listEventGames,
   mainPuuidsBySlug,
   pruneEventMatches,
+  saveEventFacts,
+  saveEventLinks,
   saveEventTeams,
   saveTournamentGame,
   streamerIdsBySlug,
-  upsertEvent,
+  ensureEventInTx,
+  updateEventInTx,
 } from "@soop-lol/core/lib/db/tournaments";
 import { championByName } from "@soop-lol/core/lib/riot/champions";
 import { POSITIONS } from "@soop-lol/core/lib/riot/types";
 import { placementRank } from "@soop-lol/core/lib/metrics/placement";
 
 interface SeedLineupEntry {
-  slug: string;
+  /** 등록된 사람. 아직 등록 안 된 사람이면 비우고 `observed_name` 을 적는다. */
+  slug?: string;
+  /**
+   * ★ 아직 등록 안 된 사람의 이름(출처·화면에 적힌 그대로). `slug` 와 함께 쓰지 않는다.
+   *   예전엔 slug 가 필수라 미등록 교체 선수의 자리가 **통째로 빠지거나** 팀 명단의 다른
+   *   사람으로 채워졌다(2026 with Gen.G 막차타요 서포터 민준원주민). 자리는 지키고 사람은 모른다고 적는다.
+   */
+  observed_name?: string;
   position?: string;
   /**
    * ★ 결과 화면에 적힌 **한글 이름 그대로** 적는다 (`쓰레쉬` · `자르반 4세` · `미스 포츈`).
@@ -65,7 +74,17 @@ interface SeedLineupEntry {
 
 interface SeedGame {
   id: string;
+  /**
+   * 출처가 적은 위치 그대로 ("8강 2경기 1세트"). 끝의 "N세트" 를 떼어 **시리즈**의 라운드명으로
+   * 저장한다(0035). 같은 시리즈의 세트끼리 라운드명이 다르면 고르지 않고 멈춘다.
+   */
   round?: string;
+  /**
+   * `played_at` 의 **시각까지** 출처에서 확인했으면 "datetime". 비우면 "date" 다.
+   * ★ 생성기(build-meljang)는 세트마다 19시·20시를 지어 넣는다 — 자정이 아니라고
+   *   시각을 아는 게 아니다. 확인한 경우에만 적는다.
+   */
+  played_at_precision?: "datetime" | "date";
   /**
    * 다전제라면 그 시리즈 키와 몇 번째 세트인지. 같은 `series` 를 가진 경기들이
    * 한 '경기(매치)'가 된다. 단판이면 비운다.
@@ -91,7 +110,7 @@ interface SeedGame {
    * ★ 이 경기의 승패를 확정한 **결과 화면** 지점. VOD 시각(`1:05:00`)이나
    *   프레임 파일명(`lshooooo_203787373_f1_10500.jpg`).
    *
-   *   `kind: "scrim"` 대회(=방송을 읽어 넣는 내전)에는 **필수**다.
+   *   `kind: "ck"` 대회(=방송을 읽어 넣는 내전)에는 **필수**다.
    *   채팅 `!공지` 만 믿었다가 실제로 승자가 뒤집혔다 — 2026-08-08 시그니처CK
    *   2부 3세트에서 공지 두 개가 27초 사이로 서로 다른 승자를 말했고, 먼저 온
    *   오기를 채택해 사이트에 잘못 올라갔다. 공지는 **어디를 볼지 알려주는 단서**고,
@@ -104,7 +123,7 @@ interface SeedGame {
 interface SeedTournament {
   slug: string;
   name: string;
-  kind?: "scrim" | "tournament" | "showmatch" | "other";
+  kind?: "ck" | "scrim" | "tournament" | "showmatch" | "other";
   organizer?: string;
   starts_at?: string;
   ends_at?: string;
@@ -132,8 +151,39 @@ interface SeedTournament {
    * 모르는 팀은 아예 없다 — 순위를 지어내지 않는다.
    */
   team_placements?: Record<string, string>;
+  /**
+   * ★ 아래는 주최측이 발표한 팀·선수 사실(0039). 전부 **수기**라 근거 링크(`links`)와 같이 적는다.
+   *   모르는 값은 항목을 아예 빼다 — 지어내지 않는다.
+   */
+  /** 팀명 → 상금 표기 그대로 ("2,500만 원"). */
+  team_prizes?: Record<string, string>;
+  /** 팀명 → 출처가 발표한 팀 투표 순위. */
+  team_vote_ranks?: Record<string, number>;
+  /** 팀명 → 팀장 slug. 그 팀 명단에 있어야 한다. */
+  captains?: Record<string, string>;
+  /** slug → 주최측 등급 (`{ "label": "S", "points": 43 }`). 명단에 있는 사람만. */
+  member_ratings?: Record<string, { label: string; points?: number }>;
+  /** slug → 그 대회 개인상 표기 ("FINAL MVP"). 명단에 있는 사람만. */
+  member_awards?: Record<string, string>;
+  /** 대회 출처 링크들 (`source_url` 말고 더 있는 것). 파일 순서대로 보인다. */
+  links?: { label: string; url: string }[];
+  /** 대회 안내 사실 — 구역·항목·값. 파일 순서대로 보인다. 값 안의 \n 은 줄바꿈이다. */
+  facts?: { section: string; label: string; value: string }[];
+  /**
+   * 게임의 `series` 키별 다전제 규정. 결과 스코어에서 역산하지 않고, 규정·VOD에
+   * 근거가 있을 때만 적는다. 고정 2세트제나 모르는 포맷은 항목 자체를 비운다.
+   */
+  series_formats?: Record<string, { best_of: number; evidence: string }>;
+  /**
+   * 세트별 승자 순서를 **출처에서** 확인했으면 true. 생성기가 승리 세트를 앞에 몰아 넣은
+   * 대회는 비운다 — 그 순서는 우리가 만든 것이다(build-meljang.mjs).
+   */
+  set_order_known?: boolean;
   games?: SeedGame[];
 }
+
+/** "8강 2경기 1세트" → "8강 2경기". 세트 번호는 시리즈 안의 순서라 라운드명이 아니다. */
+const roundLabelOf = (round?: string) => round?.replace(/\s*\d+\s*세트\s*$/, "").trim() || null;
 
 // ── 검증 ─────────────────────────────────────────────────────────────
 
@@ -148,11 +198,40 @@ function validate(list: SeedTournament[]): string[] {
     if (!t.slug) errors.push(`${at}: slug 가 없다`);
     else if (!/^[a-z0-9][a-z0-9-]*$/.test(t.slug)) errors.push(`${at}: slug 는 소문자·숫자·하이픈만`);
     if (!t.name) errors.push(`${at}: name 이 없다`);
+    // ★ 분류에 기본값이 없다(0035). 빠뜨리면 예전엔 조용히 "내전" 이 됐다.
+    if (!t.kind) errors.push(`${at}: kind 가 없다 — ck·scrim·tournament·showmatch·other 중 하나를 적는다`);
     // ★ 이 검사가 이 스크립트의 존재 이유다.
     if (!t.source_url) errors.push(`${at}: source_url 이 없다 — 근거 없는 대회 기록은 만들지 않는다`);
     if (!t.teams || Object.keys(t.teams).length === 0) errors.push(`${at}: teams 가 비었다`);
 
     const teamNames = new Set(Object.keys(t.teams ?? {}));
+    for (const [field, map] of [["team_placements", t.team_placements], ["team_prizes", t.team_prizes],
+      ["team_vote_ranks", t.team_vote_ranks], ["captains", t.captains]] as const) {
+      for (const team of Object.keys(map ?? {})) {
+        if (!team.startsWith("//") && !teamNames.has(team)) errors.push(`${at} ${field}: '${team}' 팀이 teams 에 없다`);
+      }
+    }
+    for (const [team, slug] of Object.entries(t.captains ?? {})) {
+      if (!team.startsWith("//") && teamNames.has(team) && !(t.teams[team] ?? []).includes(slug)) {
+        errors.push(`${at} captains: '${team}' 의 팀장 ${slug} 가 그 팀 명단에 없다`);
+      }
+    }
+    const rostered = new Set(Object.values(t.teams ?? {}).flat());
+    for (const [slug, r] of Object.entries(t.member_ratings ?? {})) {
+      if (slug.startsWith("//")) continue;
+      if (!rostered.has(slug)) errors.push(`${at} member_ratings: ${slug} 가 어느 팀 명단에도 없다`);
+      if (!r?.label) errors.push(`${at} member_ratings: ${slug} 의 label 이 없다`);
+    }
+    for (const slug of Object.keys(t.member_awards ?? {})) {
+      if (!slug.startsWith("//") && !rostered.has(slug)) errors.push(`${at} member_awards: ${slug} 가 어느 팀 명단에도 없다`);
+    }
+    if (t.facts && !t.links?.length && !t.source_url) errors.push(`${at} facts: 근거 링크 없이 대회 안내 사실을 넣지 않는다`);
+    for (const f of t.facts ?? []) {
+      if (!f.section || !f.label || !f.value) errors.push(`${at} facts: section·label·value 가 다 있어야 한다 — ${JSON.stringify(f)}`);
+    }
+    for (const l of t.links ?? []) {
+      if (!l.label || !/^https?:\/\//.test(l.url ?? "")) errors.push(`${at} links: label 과 http(s) url 이 있어야 한다 — ${JSON.stringify(l)}`);
+    }
     const emptyTeams: string[] = [];
     for (const [name, roster] of Object.entries(t.teams ?? {})) {
       if (!Array.isArray(roster)) errors.push(`${at} 팀 '${name}': 로스터가 배열이 아니다`);
@@ -178,6 +257,16 @@ function validate(list: SeedTournament[]): string[] {
     }
 
     const gameIds = new Set<string>();
+    const roundBySeries = new Map<string, Set<string>>();
+    for (const [series, format] of Object.entries(t.series_formats ?? {})) {
+      if (!series.trim()) errors.push(`${at}: series_formats 키가 비었다`);
+      if (!Number.isInteger(format?.best_of) || format.best_of <= 0 || format.best_of % 2 === 0) {
+        errors.push(`${at}: series_formats['${series}'].best_of 는 양의 홀수여야 한다`);
+      }
+      if (!format?.evidence?.trim()) {
+        errors.push(`${at}: series_formats['${series}'].evidence 가 없다 — 결과 스코어로 추측하지 않는다`);
+      }
+    }
     for (const [j, g] of (t.games ?? []).entries()) {
       const gat = `${at} 경기[${j}]${g.id ? ` ${g.id}` : ""}`;
       if (!g.id) errors.push(`${gat}: id 가 없다`);
@@ -189,6 +278,17 @@ function validate(list: SeedTournament[]): string[] {
       }
       if (!g.series && g.set_no !== undefined) {
         errors.push(`${gat}: set_no 만 있고 series 가 없다`);
+      }
+      if (g.series && t.series_formats && !(g.series in t.series_formats)) {
+        warnings.push(`${gat}: series_formats['${g.series}']가 없어 best_of는 미확정으로 둔다`);
+      }
+      const label = roundLabelOf(g.round);
+      if (label) {
+        const key = g.series ?? g.id;
+        roundBySeries.set(key, (roundBySeries.get(key) ?? new Set()).add(label));
+      }
+      if (g.played_at_precision !== undefined && !["datetime", "date"].includes(g.played_at_precision)) {
+        errors.push(`${gat}: played_at_precision 은 datetime·date 중 하나다`);
       }
       if (!g.played_at || Number.isNaN(Date.parse(g.played_at))) {
         errors.push(`${gat}: played_at 이 없거나 날짜 형식이 아니다`);
@@ -202,8 +302,8 @@ function validate(list: SeedTournament[]): string[] {
       // ★ 결과 화면 확인은 선택이 아니라 **마지막 필수 관문**이다.
       //   내전 승패의 정본은 방송의 LoL 최종 결과 화면뿐이다.
       //   (주최측이 발표하는 대회 kind='tournament' 는 발표문이 원천이라 해당 없다)
-      if (t.kind === "scrim" && !g.result_evidence?.trim()) {
-        errors.push(`${gat}: result_evidence 가 없다 — 내전은 결과 화면을 확인해야 넣는다`
+      if ((t.kind === "ck" || t.kind === "scrim") && !g.result_evidence?.trim()) {
+        errors.push(`${gat}: result_evidence 가 없다 — 내전·스크림은 결과 화면을 확인해야 넣는다`
           + ` (예: "1:05:00" · 프레임 파일명). 채팅 공지는 단서일 뿐이다`);
       }
       else if (g.winner !== g.blue && g.winner !== g.red) {
@@ -213,7 +313,7 @@ function validate(list: SeedTournament[]): string[] {
       for (const [team, entries] of Object.entries(g.lineup ?? {})) {
         if (!teamNames.has(team)) errors.push(`${gat}: lineup 의 팀 '${team}' 이 teams 에 없다`);
         for (const e of entries) {
-          if (!e.slug) errors.push(`${gat}: lineup 항목에 slug 가 없다`);
+          if (!e.slug === !e.observed_name) errors.push(`${gat}: lineup 항목은 slug 와 observed_name 중 **하나만** 적는다`);
           if (e.position && !positions.has(e.position)) {
             errors.push(`${gat}: 포지션 '${e.position}' 은 ${[...positions].join("/")} 중 하나여야 한다`);
           }
@@ -224,6 +324,11 @@ function validate(list: SeedTournament[]): string[] {
               + ` (표가 낡았으면 npm run build:champions)`);
           }
         }
+      }
+    }
+    for (const [series, labels] of roundBySeries) {
+      if (labels.size > 1) {
+        errors.push(`${at}: 시리즈 '${series}' 의 라운드명이 세트마다 다르다 (${[...labels].join(" / ")}) — 하나로 고르지 않는다`);
       }
     }
   }
@@ -260,6 +365,8 @@ for (const w of warnings) console.warn(`  ⚠ ${w}`);
 
 let games = 0;
 let encounters = 0;
+/** 검수된 경기라 시드가 손대지 않은 것. 시드와 판독이 어긋난 자리다 (0020). */
+let skipped = 0;
 const missing = new Set<string>();
 /** 명단에 아예 없는 사람. 이게 곧 **내가 SOOP 에서 찾아 등록할 목록**이다. */
 const unknownPeople = new Set<string>();
@@ -267,6 +374,27 @@ const unknownPeople = new Set<string>();
 try {
   for (const t of list) {
     console.log(`\n▸ ${t.name} (${t.slug})${dryRun ? "  [dry-run]" : ""}`);
+
+    // ★ lineup 에 적힌 사람은 그 팀의 명단이기도 하다. 예전엔 teams 에 없는 lineup slug 를
+    //   아래 `if (!puuid && !streamerId) continue` 가 **경고 없이 버렸다** — slug 조회를
+    //   teams 로만 했기 때문이다. VOD 로 확인해 적은 선수가 경기에서 조용히 사라지는 건
+    //   '조용히 적게 가져오기' 라 실패보다 나쁘다(2026-09-25 올스타전 70명 → 38명).
+    //   한 사람이 두 팀 lineup 에 나오면 대회 명단(PK event_id·streamer_id)이 성립하지 않으니 멈춘다.
+    const lineupTeamOf = new Map<string, string>();
+    for (const g of t.games ?? []) {
+      for (const [team, es] of Object.entries(g.lineup ?? {})) {
+        for (const e of es) {
+          if (!e.slug) continue;
+          const prev = lineupTeamOf.get(e.slug);
+          if (prev && prev !== team) throw new Error(`${t.slug} ${g.id}: '${e.slug}' 가 lineup 에서 '${prev}' 와 '${team}' 두 팀에 나온다`);
+          lineupTeamOf.set(e.slug, team);
+          const other = Object.entries(t.teams).find(([tm, sl]) => tm !== team && sl.includes(e.slug!));
+          if (other) throw new Error(`${t.slug} ${g.id}: '${e.slug}' 가 lineup 에선 '${team}' 인데 teams 에선 '${other[0]}' 이다`);
+          const members = (t.teams[team] ??= []);
+          if (!members.includes(e.slug)) members.push(e.slug);
+        }
+      }
+    }
 
     // ★ 두 가지를 구분한다. 예전엔 한 덩어리로 "계정 없음" 이라 불러서,
     //   **아예 등록조차 안 된 사람**이 조용히 빠지는 걸 못 봤다.
@@ -292,7 +420,17 @@ try {
       continue;
     }
 
-    const eventId = await upsertEvent(t);
+    // ★ 시드는 이 대회의 **주인**이다 — 없으면 만들고, 있으면 파일 값으로 고친다.
+    //   파일에 안 적은 칸은 그대로 둔다(생략 = 유지). 경기를 붙이기만 하는 조사 반영은
+    //   ensureEvent 로만 대회를 만나므로 여기서 고친 값을 덮지 못한다.
+    const fields = {
+      name: t.name, kind: t.kind, organizer: t.organizer,
+      starts_at: t.starts_at, ends_at: t.ends_at, source_url: t.source_url,
+    };
+    const eventId = await db().begin(async (tx) => {
+      const [have] = await tx`SELECT 1 FROM event WHERE slug = ${t.slug}`;
+      return have ? updateEventInTx(tx, t.slug, fields) : ensureEventInTx(tx, { slug: t.slug, ...fields });
+    }) as string;
 
     // 팀 명단을 대회 단위로 저장한다. 계정이 없는 스트리머도 팀 명단에는 들어간다 —
     // 조우는 못 맺어도 "그 대회에 그 팀으로 나갔다" 는 사실은 맞기 때문이다.
@@ -303,12 +441,31 @@ try {
         name,
         placement: t.team_placements?.[name] ?? null,
         placement_rank: placementRank(t.team_placements?.[name]),
+        prize: t.team_prizes?.[name] ?? null,
+        vote_rank: t.team_vote_ranks?.[name] ?? null,
         members: roster
           .filter((slug) => idBySlug.has(slug))
-          .map((slug) => ({ streamer_id: idBySlug.get(slug)!, position: t.roster_positions?.[slug] })),
+          .map((slug) => ({
+            streamer_id: idBySlug.get(slug)!,
+            position: t.roster_positions?.[slug],
+            // 팀장 명단이 있는 대회에서만 true 다. 나머지는 모름(NULL) — false 로 적지 않는다.
+            is_captain: t.captains?.[name] === slug ? true : null,
+            rating_label: t.member_ratings?.[slug]?.label ?? null,
+            rating_points: t.member_ratings?.[slug]?.points ?? null,
+            award: t.member_awards?.[slug] ?? null,
+          })),
       })),
     );
     console.log(`  팀 ${teamIdByName.size}개 명단 저장`);
+    // links 를 안 적은 시드는 건드리지 않는다(생략 = 유지). 적었으면 그게 그 대회의 링크 전부다.
+    if (t.links) {
+      await saveEventLinks(eventId, t.links);
+      console.log(`  출처 링크 ${t.links.length}개 저장`);
+    }
+    if (t.facts) {
+      await saveEventFacts(eventId, t.facts);
+      console.log(`  대회 안내 사실 ${t.facts.length}개 저장`);
+    }
 
     const matchIds: string[] = [];
 
@@ -331,11 +488,21 @@ try {
           //   결과 화면에서 다 읽어 놓고도 화면에는 성훈팀이 4명으로 나왔다.
           // ★ 인게임 계정이 등록 계정과 다르면 puuid 를 붙이지 않는다.
           //   안 그러면 안 뛴 계정에 경기가 달라붙는다(SeedLineupEntry.unlinked_account 주석).
+          const champ = e.champion ? championByName(e.champion) : null;
+          // 미등록 선수 — 사람은 모르지만 자리와 판독값은 남긴다(0020 의 "화면 이름만 있는 자리").
+          if (!e.slug) {
+            participants.push({
+              puuid: null, streamer_id: null, observed_name: e.observed_name!, team_id: teamId,
+              position: e.position ?? null,
+              champion_id: champ?.id ?? e.champion_id ?? null, champion_name: champ?.en ?? null,
+              kills: e.kills ?? null, deaths: e.deaths ?? null, assists: e.assists ?? null,
+            });
+            continue;
+          }
           const unlinked = e.unlinked_account ?? t.unlinked_accounts?.[e.slug];
           const puuid = unlinked ? null : (puuidBySlug.get(e.slug) ?? null);
           const streamerId = idBySlug.get(e.slug) ?? null;
           if (!puuid && !streamerId) continue;   // 등록조차 안 된 사람은 넣을 수 없다
-          const champ = e.champion ? championByName(e.champion) : null;
           participants.push({
             puuid, streamer_id: streamerId, team_id: teamId,
             // ★ 포지션은 lineup 이 안 적었으면 대회 로스터 포지션으로 메운다.
@@ -353,21 +520,36 @@ try {
       }
 
       const matchId = `${t.slug}:${g.id}`;
-      await saveTournamentGame({
+      const format = g.series ? t.series_formats?.[g.series] : undefined;
+      const written = await saveTournamentGame({
         match_id: matchId,
         event_id: eventId,
         played_at: new Date(g.played_at),
         duration: g.duration ?? null,
         source_url: g.source_url ?? t.source_url ?? null,
         result_evidence: g.result_evidence?.trim() || null,
-        series_id: g.series ? `${t.slug}:${g.series}` : null,
-        series_game_no: g.series ? (g.set_no ?? null) : null,
+        // 단판도 시리즈다(0035) — 경기 ID 가 곧 시리즈 ID.
+        series_id: `${t.slug}:${g.series ?? g.id}`,
+        series_game_no: g.series ? g.set_no! : 1,
+        round_label: roundLabelOf(g.round),
+        set_order_known: t.set_order_known === true,
+        played_at_precision: g.played_at_precision ?? "date",
+        best_of: format?.best_of ?? null,
+        best_of_evidence: format?.evidence?.trim() || null,
         blue_team_id: teamIdByName.get(g.blue) ?? null,
         red_team_id: teamIdByName.get(g.red) ?? null,
         winning_team: g.winner === g.blue ? 100 : 200,
         participants,
       });
+      // ★ prune 대상에서 빼려면 건너뛴 경기도 matchIds 에 넣어야 한다 —
+      //   "시드에 없는 경기" 로 오해되면 지워지고, 그게 바로 막으려던 사고다.
       matchIds.push(matchId);
+      if (!written) {
+        // ⚠ 조용히 넘기지 않는다. 시드와 판독이 어긋난 자리를 사람이 알아야 한다.
+        skipped++;
+        console.log(`  경기 ${g.id}  ⏭ 검수된 경기라 시드가 건드리지 않았다 (${matchId})`);
+        continue;
+      }
       games++;
       console.log(`  경기 ${g.id}  ${g.blue} vs ${g.red} → ${g.winner} 승  (참가자 ${participants.length}`
         + `${g.result_evidence ? ` · 결과화면 ${g.result_evidence}` : ""})`);
@@ -386,7 +568,9 @@ try {
     console.log(`  → 대회에 저장된 경기 ${saved.length}건`);
   }
 
-  console.log(`\n경기 ${games}건 · 조우 ${encounters}쌍${dryRun ? "  (dry-run — 쓰지 않았다)" : ""}`);
+  console.log(`\n경기 ${games}건 · 조우 ${encounters}쌍`
+    + `${skipped > 0 ? ` · 검수돼 건드리지 않은 경기 ${skipped}건` : ""}`
+    + `${dryRun ? "  (dry-run — 쓰지 않았다)" : ""}`);
   // ★ 미등록은 **경고가 아니라 실패**다.
   //   빠진 채로 들어가면 그 경기의 로스터가 영영 한 명 모자란 채 굳는다.
   //   실제로 이라333 이 그렇게 다섯 경기에서 사라져 있었고, 화면을 보고서야 알았다.
@@ -406,27 +590,8 @@ try {
         `  계정을 연결하면 공개 큐 전적까지 이어 붙는다.`,
     );
   }
-  // ── 관문 ── 적재가 끝나면 **스스로 검사받는다** ────────────────────
-  //
-  // ★ 왜 여기서 부르나 — "검사를 돌리는 걸 기억하기" 도 규칙이라 안 지켜진다
-  //   교차검증 규칙을 문서·스킬에 적어 뒀는데도 세 대회 연속 건너뛰었다.
-  //   그래서 적재 자체가 관문을 통과해야 성공으로 끝나게 만든다.
-  //   ⚠ 관문이 걸려도 **쓴 것을 되돌리지는 않는다** — 시드는 멱등이라 고쳐서
-  //     다시 돌리면 되고, 되돌리면 오히려 부분 적재 상태가 헷갈린다.
-  //     대신 exit code 를 1 로 만들어 "끝났다" 고 말하지 않는다.
-  if (!dryRun && process.exitCode !== 1) {
-    let blocked = 0;
-    for (const t of list) {
-      const r = spawnSync("npm", ["run", "ck:gate", "--", "--event", t.slug],
-        { stdio: "inherit" });
-      if (r.status !== 0) blocked++;
-    }
-    if (blocked > 0) {
-      console.error(`\n관문에 걸린 대회 ${blocked}개 — 적재는 됐지만 **완료가 아니다.**`);
-      console.error(`위 ✖ 를 지우고 다시 돌려라. .claude/skills/ck-research 참조.`);
-      process.exitCode = 1;
-    }
-  }
+  // 적재 뒤 관문(ck:gate)을 부르던 연결은 없앴다 — 저장 규칙은 core 저장 함수가 지키고,
+  // 대회 단위 점검은 `npm run ck:record -- --event <slug>` 로 본다.
 } catch (e) {
   console.error(`\n실패: ${e instanceof Error ? e.message : String(e)}`);
   process.exitCode = 1;

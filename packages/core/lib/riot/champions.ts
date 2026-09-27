@@ -55,3 +55,8 @@ export function championIdByName(name: string): number | null {
 export function championById(id: number): Champion | null {
   return byId.get(id) ?? null;
 }
+
+/** 웹 앱이 함께 배포하는 아이콘 경로. 화면 렌더 시 외부 CDN에 의존하지 않는다. */
+export function championIconPath(champion: Champion): string {
+  return `/images/champions/${champion.en}.png`;
+}

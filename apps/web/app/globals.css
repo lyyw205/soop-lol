@@ -11,6 +11,7 @@
    divide-neutral-800 · max-w-3xl 이 하나도 CSS 에 없어서 사실상 스타일 없이 떠 있었다.
    모듈을 새로 만들 때마다 되풀이될 일이라 디렉터리 단위로 못박는다. */
 @source "../../../packages/modules";
+@source "../../../packages/ui";
 
 @theme {
   --color-ink-950: #0a0b0f;

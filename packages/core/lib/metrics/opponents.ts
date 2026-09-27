@@ -7,7 +7,7 @@
  *   그 계산은 `affinity.ts` 한 곳에만 두기로 했다 — SQL 은 승·패를 세는 데까지만 하고
  *   지수와 정렬은 TS 에서 한다. 한 스트리머의 상대는 많아야 수백 명이라 부담이 없다.
  *
- *   그래서 정렬 셋 다 여기서 한다. 하나만 TS 로 빼면 "이 정렬은 어디 있더라" 가 된다.
+ *   그래서 모든 정렬을 여기서 한다. 하나만 TS 로 빼면 "이 정렬은 어디 있더라" 가 된다.
  */
 
 import { affinity, games, type HeadToHead } from "./affinity.ts";
@@ -15,7 +15,8 @@ import { affinity, games, type HeadToHead } from "./affinity.ts";
 export const OPPONENT_SORTS = [
   { key: "games", label: "판수순", hint: "많이 만난 순" },
   { key: "recent", label: "최신순", hint: "마지막으로 만난 순" },
-  { key: "winrate", label: "승률순", hint: "맞붙었을 때 기준 · 표본이 작으면 5할로 당깁니다" },
+  { key: "winrate", label: "승률 높은순", hint: "맞붙었을 때 기준 · 표본이 작으면 5할로 당깁니다" },
+  { key: "winrate_asc", label: "승률 낮은순", hint: "맞붙었을 때 기준 · 표본이 작으면 5할로 당깁니다" },
 ] as const;
 
 export type OpponentSort = (typeof OPPONENT_SORTS)[number]["key"];
@@ -31,6 +32,8 @@ export interface SortableOpponent {
   vs_matches: number;
   vs_match_wins: number;
   vs_match_draws: number;
+  /** 일부 게임 API가 승패를 반환하지 않는 경우. 미상은 패배로 간주하지 않는다. */
+  vs_match_unknown?: number;
   ally_matches: number;
   last_met: Date | string;
 }
@@ -40,7 +43,7 @@ export function versusRecord(r: SortableOpponent): HeadToHead {
   return {
     wins: r.vs_match_wins,
     draws: r.vs_match_draws,
-    losses: r.vs_matches - r.vs_match_wins - r.vs_match_draws,
+    losses: r.vs_matches - r.vs_match_wins - r.vs_match_draws - (r.vs_match_unknown ?? 0),
   };
 }
 
@@ -58,13 +61,13 @@ export function sortOpponents<T extends SortableOpponent>(rows: T[], sort: Oppon
   const out = [...rows];
   if (sort === "recent") {
     out.sort((a, b) => time(b.last_met) - time(a.last_met) || played(b) - played(a));
-  } else if (sort === "winrate") {
+  } else if (sort === "winrate" || sort === "winrate_asc") {
     out.sort((a, b) => {
       if ((a.vs_matches === 0) !== (b.vs_matches === 0)) return a.vs_matches === 0 ? 1 : -1;
       const ra = versusRecord(a);
       const rb = versusRecord(b);
       return (
-        affinity(rb) - affinity(ra) ||
+        (sort === "winrate_asc" ? affinity(ra) - affinity(rb) : affinity(rb) - affinity(ra)) ||
         games(rb) - games(ra) ||
         time(b.last_met) - time(a.last_met)
       );

@@ -6,14 +6,20 @@
  *   **무슨 판이었나**를 말하지 않는다. 실제 분포를 보면 바로 드러난다:
  *
  *     manual  q=0  event.kind='tournament'  776건   ← 멸망전 같은 공식 대회
- *     manual  q=0  event.kind='scrim'         5건   ← 내전(CK)
+ *     manual  q=0  event.kind='ck'            5건   ← 내전(CK)
  *
  *   둘 다 `source='manual'` 이라 source 로는 절대 못 가른다. 세 값을 같이 봐야 한다.
  *
- * ★ 토너먼트 코드인데 대회가 안 붙어 있으면 내전으로 본다
+ * ★ CK 와 스크림은 다른 판이다 (0031)
+ *   `ck` 는 승패에 보상이 걸린 스트리머 간 매치 — 이 사이트가 다루는 "내전"이 이것이다.
+ *   `scrim` 은 tournament/showmatch 를 준비하며 참가팀끼리 전략을 시험하는 연습게임.
+ *   0031 이전에는 'scrim' 하나가 CK 의 뜻으로 쓰였고, 그때의 행은 전부 'ck' 로 이관했다.
+ *
+ * ★ 토너먼트 코드인데 대회가 안 붙어 있으면 내전(CK)으로 본다
  *   토너먼트 코드는 애초에 **내전을 API 로 잡으려고** 쓰는 물건이다
  *   (CLAUDE.md 제약 1 — 커스텀 게임은 그 경로로만 사후 조회된다).
  *   그래서 "코드로 만들어졌는데 우리가 아직 이름을 못 붙인 판" 은 내전이 맞다.
+ *   연습 스크림도 코드로 만들 수 있지만, 그건 event 를 붙여 사람이 말해 줘야 안다.
  *
  * ★ 이 규칙은 SQL 에도 같은 모양으로 있다 (`lol_match_category`, 마이그레이션 0016).
  *   질의에서 걸러야 빠르고, 화면에서 이름을 붙이려면 TS 가 필요해서 양쪽에 둔다.
@@ -22,14 +28,17 @@
  */
 
 export const MATCH_CATEGORIES = [
-  { key: "all", label: "전체" },
+  // ★ "전체" 가 아니라 "모든 경기" 다. 상대전적 카드처럼 **다른 필터와 나란히 서는 자리**에서
+  //   홀로 '전체' 만 보면 기간인지 분류인지 알 수 없다.
+  { key: "all", label: "모든 경기" },
   { key: "public_queue", label: "공개 큐" },
   { key: "solo", label: "솔로랭크" },
   { key: "flex", label: "자유랭크" },
   { key: "aram", label: "칼바람" },
   { key: "normal", label: "일반" },
   { key: "clash", label: "클래시" },
-  { key: "scrim", label: "내전 (CK)" },
+  { key: "ck", label: "내전 (CK)" },
+  { key: "scrim", label: "스크림" },
   { key: "tournament", label: "대회" },
   { key: "other", label: "기타" },
 ] as const;
@@ -89,12 +98,13 @@ export interface MatchCategoryInput {
 
 export function matchCategory({ source, queue_id, event_kind }: MatchCategoryInput): MatchCategory {
   // 대회가 붙어 있으면 그게 가장 확실한 근거다 — 사람이 판단해 넣은 값이다.
+  if (event_kind === "ck") return "ck";
   if (event_kind === "scrim") return "scrim";
   if (event_kind === "tournament" || event_kind === "showmatch") return "tournament";
 
   if (source === "public_queue") return (queue_id != null && QUEUE[queue_id]) || "other";
-  // 코드로 만든 커스텀인데 대회가 안 붙었다 → 아직 이름을 못 붙인 내전
-  if (source === "tournament_code") return "scrim";
+  // 코드로 만든 커스텀인데 대회가 안 붙었다 → 아직 이름을 못 붙인 내전(CK)
+  if (source === "tournament_code") return "ck";
   // 수기인데 대회조차 없다. 무슨 판이었는지 근거가 없으므로 지어내지 않는다.
   return "other";
 }

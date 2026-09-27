@@ -1,0 +1,8 @@
+# 자동 조사 한 번 — ck-auto.timer 가 부른다. 설치는 scripts/ck-auto.sh 머리말.
+[Unit]
+Description=soop-lol 와치리스트 VOD 자동 조사 (ck-research)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/soop-lol
+ExecStart=%h/repos/soop-lol/scripts/ck-auto.sh

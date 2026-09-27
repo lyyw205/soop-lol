@@ -45,6 +45,19 @@ test("★ 맞붙은 적 없는 상대는 승률순에서 맨 뒤로 간다", () 
     r("잘이김", { vs: 10, w: 8 }),
   ];
   assert.deepEqual(names(sortOpponents(rows, "winrate")), ["잘이김", "반타작", "같은팀만"]);
+  assert.deepEqual(names(sortOpponents(rows, "winrate_asc")), ["반타작", "잘이김", "같은팀만"]);
+});
+
+test("승률 낮은순은 낮은 지수부터, 동률이면 많은 경기·최근 경기 순", () => {
+  const rows = [
+    r("높음", { vs: 10, w: 8 }),
+    r("낮음", { vs: 10, w: 2 }),
+    r("적은표본", { vs: 2, w: 1 }),
+    r("많은표본", { vs: 10, w: 5 }),
+    r("최근표본", { vs: 10, w: 5, at: "2026-09-22" }),
+  ];
+  assert.deepEqual(names(sortOpponents(rows, "winrate_asc")), ["낮음", "최근표본", "많은표본", "적은표본", "높음"]);
+  assert.equal(rows[0].name, "높음");
 });
 
 test("무승부는 승률 분모에서 빠진다", () => {
@@ -52,6 +65,11 @@ test("무승부는 승률 분모에서 빠진다", () => {
   assert.deepEqual(versusRecord(r("x", { vs: 2, w: 1, d: 1 })), { wins: 1, draws: 1, losses: 0 });
   const rows = [r("무승부낀쪽", { vs: 2, w: 1, d: 1 }), r("반타작", { vs: 2, w: 1 })];
   assert.deepEqual(names(sortOpponents(rows, "winrate")), ["무승부낀쪽", "반타작"]);
+});
+
+test("FC 결과 미상 경기는 패배로 바꾸지 않는다", () => {
+  assert.deepEqual(versusRecord({ ...r("fc", { vs: 3, w: 1, d: 1 }), vs_match_unknown: 1 }),
+    { wins: 1, draws: 1, losses: 0 });
 });
 
 test("원본 배열을 건드리지 않는다", () => {
@@ -62,6 +80,7 @@ test("원본 배열을 건드리지 않는다", () => {
 
 test("주소창에 아무거나 넣어도 기본값으로 간다", () => {
   assert.equal(isOpponentSort("winrate"), true);
+  assert.equal(isOpponentSort("winrate_asc"), true);
   assert.equal(isOpponentSort("아무말"), false);
   assert.equal(isOpponentSort(undefined), false);
   assert.equal(DEFAULT_OPPONENT_SORT, "games");

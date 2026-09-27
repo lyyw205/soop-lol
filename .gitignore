@@ -11,6 +11,9 @@ next-env.d.ts
 .DS_Store
 *.log
 
+# Project-local ASR environments, model weights, caches and temporary files.
+.local/asr/
+
 # ★ 시드 명단은 커밋하지 않는다 — 저장소가 공개다.
 #   부계정 목록이 git 히스토리에 들어가면 삭제 요청이 와도 되돌릴 수 없다.
 #   근거는 DB(streamer_account.evidence)에 남긴다. 거긴 지울 수 있다. seed/README.md 참고.
@@ -29,3 +32,6 @@ out/
 
 # 손으로 판독한 경기 라인업. 부계정 인게임명이 들어가므로 시드와 같이 숨긴다.
 seed/lineups/
+
+# 개인 계정 연결 조사 기록은 다른 시드 명단과 같이 로컬에만 보관한다.
+seed/fco-account-sweep.json
