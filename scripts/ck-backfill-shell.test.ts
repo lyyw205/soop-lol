@@ -1,4 +1,4 @@
-/** DB/Claude 경계만 fake로 두고 실제 셸·flock·프로세스 그룹의 수명을 검증한다. */
+/** DB/Claude 경계만 fake로 두고 실제 셸의 반복·멈춤·flock·프로세스 그룹 수명을 검증한다. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,copyFileSync,readFileSync,existsSync,rmSync} from 'node:fs';
@@ -8,33 +8,56 @@ import {spawn, type ChildProcess} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 function done(child:ChildProcess) {return new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});}
 async function until(check:()=>boolean) {for(let i=0;i<100;i++){if(check())return;await delay(50);}throw new Error('fixture timeout');}
-function fixture(mode:string) {
+function fixture(mode:string, env:Record<string,string>={}) {
  const dir=mkdtempSync(join(tmpdir(),'ck-backfill-shell-'));
  mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
  copyFileSync(join(import.meta.dirname,'ck-backfill.sh'),join(dir,'scripts/ck-backfill.sh'));
- const node=`#!${process.execPath}\n`+String.raw`
+ // node: -e 는 진짜 node 로, ck-backfill.ts 명령은 흉내 낸다. next 는 NEXT_N 번까지 VOD 를 주고 3 으로 끝낸다.
+ writeFileSync(join(dir,'bin/node'),`#!${process.execPath}\n`+String.raw`
  const fs=require('fs'), cp=require('child_process'), args=process.argv.slice(2);
  if(args[0]==='-e') {const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
  const command=args[2];fs.appendFileSync(process.env.ORDER,command+'\n');
- if(command==='plan')fs.writeFileSync(args[args.indexOf('--write')+1],JSON.stringify({queue:[{title_no:1}],target:{slug:'test'}}));
- `;
- writeFileSync(join(dir,'bin/node'),node,{mode:0o755});
+ const opt=k=>args[args.indexOf(k)+1];
+ if(command==='plan')fs.writeFileSync(opt('--write'),'{}');
+ if(command==='next'){const n=fs.readFileSync(process.env.ORDER,'utf8').split('\n').filter(x=>x==='next').length;
+  if(n>Number(process.env.NEXT_N??2))process.exit(3);fs.writeFileSync(opt('--current'),JSON.stringify({vod:{title_no:n}}));}
+ if(command==='after')process.exit(Number(process.env.AFTER_CODE??0));
+ `,{mode:0o755});
  writeFileSync(join(dir,'bin/claude'),'#!/bin/bash\n'+String.raw`
  echo claude >> "$ORDER"
  if flock -n out/ck/auto/.lock true; then echo unlocked >> "$ORDER"; exit 91; fi
- if [[ "$MODE" == wait ]]; then
-   trap 'echo stopped >> "$ORDER"; exit 0' TERM
-   while true; do sleep 0.1; done
- fi
- exit 9
+ case "$MODE" in
+   wait) trap 'echo stopped >> "$ORDER"; exit 0' TERM; while true; do sleep 0.1; done;;
+   fail) exit 9;;
+   stop) bash scripts/ck-backfill.sh --stop >/dev/null;;
+ esac
+ exit 0
  `,{mode:0o755});
- const env={...process.env,HOME:join(dir,'home'),PATH:join(dir,'bin')+':'+process.env.PATH,ORDER:join(dir,'order'),MODE:mode};
- const start=()=>spawn('bash',[join(dir,'scripts/ck-backfill.sh'),'--streamer','test'],{env,stdio:'ignore'});
- return {dir,start,order:()=>existsSync(env.ORDER)?readFileSync(env.ORDER,'utf8'):''};
+ const full={...process.env,HOME:join(dir,'home'),PATH:join(dir,'bin')+':'+process.env.PATH,ORDER:join(dir,'order'),MODE:mode,...env};
+ const start=(...args:string[])=>spawn('bash',[join(dir,'scripts/ck-backfill.sh'),...(args.length?args:['--streamer','test'])],{env:full,stdio:'ignore',cwd:dir});
+ const order=()=>existsSync(full.ORDER)?readFileSync(full.ORDER,'utf8'):'';
+ return {dir,start,order,cleanup:()=>rmSync(dir,{recursive:true,force:true})};
 }
-test('Claude 실패 후에도 checkpoint를 실행하고 실패 종료 코드를 보존한다',async()=>{
- const f=fixture('fail');try {assert.equal(await done(f.start()),9);assert.equal(f.order(),'plan\nclaude\ncheckpoint\n');}
- finally{rmSync(f.dir,{recursive:true,force:true});}
+test('남은 VOD가 없을 때까지 VOD마다 세션 하나로 반복한다',async()=>{
+ const f=fixture('ok');try {assert.equal(await done(f.start()),0);
+  assert.equal(f.order(),'plan\nnext\nclaude\nafter\nnext\nclaude\nafter\nnext\nstatus\n');}finally{f.cleanup();}
+});
+test('Claude가 실패하면 진척을 기록하고 멈춘다',async()=>{
+ const f=fixture('fail');try {assert.equal(await done(f.start()),9);assert.equal(f.order(),'plan\nnext\nclaude\nafter\nstatus\n');}
+ finally{f.cleanup();}
+});
+test('진척이 없으면 4로 멈춘다',async()=>{
+ const f=fixture('ok',{AFTER_CODE:'4'});try {assert.equal(await done(f.start()),4);assert.equal(f.order(),'plan\nnext\nclaude\nafter\nstatus\n');}
+ finally{f.cleanup();}
+});
+test('--stop은 지금 VOD를 마친 뒤 멈추고 요청을 소비한다',async()=>{
+ const f=fixture('stop');try {assert.equal(await done(f.start()),0);
+  assert.equal(f.order(),'plan\nnext\nclaude\nafter\nstatus\n');
+  assert.equal(existsSync(join(f.dir,'out/ck/backfill/STOP')),false);}finally{f.cleanup();}
+});
+test('지난 실행이 남긴 멈춤 요청은 새 실행을 멈추지 않는다',async()=>{
+ const f=fixture('ok',{NEXT_N:'1'});try {mkdirSync(join(f.dir,'out/ck/backfill'),{recursive:true});writeFileSync(join(f.dir,'out/ck/backfill/STOP'),'');
+  assert.equal(await done(f.start()),0);assert.ok(f.order().includes('claude'));}finally{f.cleanup();}
 });
 test('조사 내내 flock을 보유하고 다른 실행은 75, 중단하면 자식도 종료한다',async()=>{
  const f=fixture('wait');const first=f.start();const firstDone=done(first);
@@ -43,8 +66,6 @@ test('조사 내내 flock을 보유하고 다른 실행은 75, 중단하면 자�
   assert.equal(await done(f.start()),75);
   first.kill('SIGTERM');assert.equal(await firstDone,130);
   assert.ok(f.order().includes('stopped'));
-  const next=f.start();const nextDone=done(next);
-  await until(()=>f.order().split('claude').length===3);
-  next.kill('SIGTERM');assert.equal(await nextDone,130);
- }finally{first.kill('SIGTERM');await firstDone;rmSync(f.dir,{recursive:true,force:true});}
+  assert.ok(!f.order().includes('unlocked'));
+ }finally{first.kill('SIGTERM');await firstDone;f.cleanup();}
 });

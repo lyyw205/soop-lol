@@ -2,40 +2,59 @@
 
 Node.js·npm 의존성과 기존 Claude CLI 로그인, ffmpeg 등 ck-research 환경을 준비한다.
 Linux/WSL의 `flock`, `setsid`를 사용한다. 자동·수동 조사 컴퓨터는 한 대로 운영한다.
-새 DB에는 `npm run db:migrate`로 `0044_ck_backfill_progress`까지 적용한다.
+새 DB에는 `npm run db:migrate`로 `0046_ck_backfill_request`까지 적용한다.
 
 ```bash
 npm run ck:backfill -- status --streamer 이상호
-scripts/ck-backfill.sh --streamer 이상호 --limit 5 --max-video-hours 20
+scripts/ck-backfill.sh --streamer 이상호 --from 2026-08-20 --to 2026-09-25   # 기간 지정(저장됨)
+scripts/ck-backfill.sh --streamer 이상호                                    # 마지막 기간 이어서
+scripts/ck-backfill.sh --stop                                               # 지금 VOD 마친 뒤 멈춤
 ```
 
-사용자 요청 시에만 실행한다. 기본 5개·영상 합계 20시간이며 첫 영상이 상한보다 길면 단독 선택한다.
-watch 대상은 최초 실행 시 자동 큐의 최근 3개 KST 날짜 밖부터, 나머지는 최초 실행 시각부터 최근순으로 내려간다.
-이후 요청은 고정된 상한·진행 지점·미완료 VOD에서 이어간다.
+## 동작
 
-로그와 큐는 `out/ck/backfill/run-*/`에 남는다. 타이머가 실행 중이면 종료 코드 75로 시작하지 않는다.
-수동 실행 중에는 타이머가 같은 잠금을 얻지 못해 건너뛴다. Ctrl-C/TERM은 자식 조사 그룹도 종료한다.
-Claude 실패 후에도 DB를 대조하고, 셸 자체가 중단되면 다음 요청에서 복구한다.
+1. **목록** — 기간의 VOD 를 SOOP 에서 전부 받는다(60개씩 페이지). SOOP 목록 API 는 `startDate`·`endDate`
+   를 **둘 다** 줄 때만 날짜로 거르고, 한쪽만 주면 채널 전체를 준다(2026-09-28 실측). 날짜는 VOD 등록(=종료)
+   시각의 KST 날짜다. 잘린 목록이나 기간 밖 VOD 가 섞인 응답은 오류로 멈춘다.
+2. **거르기** — VOD 마다 조사 도장을 읽어 완료·확인된 접근 불가는 뺀다. 판정은 자동 조사(`ck:queue`)와 같은
+   `vodWork` 다: `done`·실패 구간 없음·연 화면 있음·요청 범위가 영상 끝까지(끝 경계만 5초 허용).
+3. **하나씩 조사** — VOD 하나에 `claude -p` 세션 하나. 시작 직전에 DB 도장을 다시 읽는다. 세션이 끝나면
+   남은 일(못 본 초·실패 초·미해결 후보)이 줄었는지 확인한다. `running` 이 남으면 같은 VOD 를 새 세션으로 잇는다.
+4. **끝** — 남은 VOD 가 없거나, 멈춤 요청(`--stop`)·진척 없음(4)·Claude 실패·중단(130)에서 끝난다.
 
-접근 불가 사유는 `raw.backfill_access`에 저장한다. 이 기록은 VOD를 읽었다는 뜻이 아니다.
-확인된 접근 불가만 커서가 지나갈 수 있고 일시 오류는 재개 대상으로 남는다.
-삭제·비공개로 처리한 VOD를 사용자가 명시적으로 재확인할 때:
+진척 기록은 `event_lead.raw` 하나다. `ck_backfill_request` 는 채널별 **마지막 요청 기간**만 담는다 —
+기간을 생략했을 때의 기본값이다. 목록에서 사라졌는데 DB 에 미완료로 남은 VOD 는 `missing` 으로 보고한다.
+
+로그·큐·현재 VOD 는 `out/ck/backfill/run-*/`, 마지막 계획은 `out/ck/backfill/last-<채널>.json` 에 남는다.
+
+## 자동 조사와의 관계
+
+같은 `out/ck/auto/.lock` 을 잡는다. 백필이 도는 동안 자동 타이머는 건너뛰고, 자동이 도는 중이면 백필은 75 로
+시작하지 않는다. 어느 쪽을 돌릴지는 사람이 정한다. 잠금은 둘을 동시에 띄운 사고로 SOOP 호출 속도가 두 배가
+되는 것만 막는다(속도 제한이 프로세스마다 따로 있다).
+
+백필이 `running` 으로 멈춘 VOD 는 와치리스트 채널이면 자동 조사가 기간과 무관하게 이어받는다(의도한 정책).
+두 쪽이 같은 도장을 보므로 먼저 끝낸 쪽이 찍고, 다른 쪽은 건너뛴다.
+
+## 접근 불가
+
+사유·확인 시각은 `raw.access` 에 저장한다(자동·수동 공용). 이 기록은 VOD 를 읽었다는 뜻이 아니다.
+확인된 `unavailable` 만 건너뛰고 `temporary` 는 다시 조사 대상이다. 재확인할 때:
 
 ```bash
 mkdir -p out/ck/auto
 flock -n out/ck/auto/.lock env CK_BACKFILL_LOCKED=1 \
-  npm run ck:backfill -- access --streamer 이상호 --vod 123456 --status retry --reason '사용자가 재확인 요청'
-# 이어서 위의 ck-backfill.sh를 실행한다.
+  npm run ck:backfill -- access --vod 123456 --status retry --reason '사용자가 재확인 요청'
+# 이어서 ck-backfill.sh 를 실행한다.
 ```
 
-`plan`, `checkpoint`, `access`는 잠금 아래에서만 사용하는 내부 변경 명령이다.
-환경변수 표시는 운영 계약이며 보안 인증 수단이 아니다. 커서를 SQL로 임의 이동하지 않는다.
+`plan`·`access` 는 잠금 아래에서만 쓰는 변경 명령이고, `next`·`after` 는 셸이 부르는 내부 명령이다.
+환경변수 표시는 운영 계약이며 보안 인증 수단이 아니다.
 
-백필 표시만 있는 lead_only도 자동 큐에서 제외된다. 자동이 맡은 미완료 running을 만나면
-그 앞까지 처리하고 중단한다. 자동 완료 뒤 다음 사용자 요청에서 이어간다.
-전체 목록 소진은 확인 시점의 조회 가능 범위에 대한 결과다. 뒤늦게 공개된 과거 VOD의 전체 재대조는
-일반 이어서 실행에 포함되지 않는다. 실행 컴퓨터를 바꾸면 이전 타이머·조사를 중지하고
-같은 DB 설정과 out/ 근거 파일을 별도로 옮긴다.
+## 검증
 
-검증 명령: `npm run verify:ck:backfill`은 임시 DB와 HTTP fixture로 진행 저장·CLI 재개를 확인한다.
-`npm test`에는 날짜 경계·분량 제한과 실제 셸의 잠금·중단 회귀 테스트가 포함된다.
+- `npm run verify:ck:backfill` — 임시 DB 와 **실제 SOOP 규칙대로 동작하는** HTTP fixture 로 옛 기록 정리,
+  기간·페이지 조회, 공통 판정(끝 1초), 목록 밖 대조, 진척 판정, 재개, 접근 상태를 확인한다.
+- `npm test` — 판정 함수·목록 조회 단위 테스트와 실제 셸의 반복·멈춤·잠금·중단 회귀 테스트.
+
+설계 경위: [CK-BACKFILL-PLAN.md](CK-BACKFILL-PLAN.md)(0044, 대체됨) → 이 문서(0046).

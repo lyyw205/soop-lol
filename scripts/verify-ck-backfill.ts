@@ -1,17 +1,22 @@
-/** 폐기 가능한 DB에서 진행·lead 정본·재개를 검증한다. 실제 DATABASE_URL을 사용하지 않는다. */
+/**
+ * 폐기 가능한 DB 에서 수동 백필을 끝까지 돌려 본다. 실제 DATABASE_URL 을 쓰지 않는다.
+ *
+ * 가짜인 것은 SOOP HTTP 하나뿐이고, **실제 SOOP 처럼** 동작한다:
+ *   startDate·endDate 를 둘 다 줄 때만 거르고, 한쪽만 주면 채널 전체를 준다(2026-09-28 실측).
+ *   예전 fixture 는 endDate 하나로 걸러 줘서, 실제로는 첫날 이후 멈추는 백필이 검증을 통과했다.
+ */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { mkdtempSync,writeFileSync,readFileSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { applyAll } from './lib/migrations.ts';
+import { loadMigrations } from './lib/migrations.ts';
 import { freePort } from './lib/disposable-postgres.ts';
-import { autoQueueReason } from '../packages/core/lib/metrics/ck-backfill.ts';
+import { vodWork } from '../packages/core/lib/metrics/ck-vod-status.ts';
 
 const database=await PGlite.create({extensions:{pg_trgm,pgcrypto}});
 const port=await freePort();
@@ -22,84 +27,94 @@ process.env.DATABASE_POOL_MAX='1';
 const {db,closeDb}=await import('../packages/core/lib/db/client.ts');
 const ck=await import('../packages/core/lib/db/ck.ts');
 const b=await import('../packages/core/lib/db/ck-backfill.ts');
+const dir=mkdtempSync(join(tmpdir(),'ck-backfill-verify-'));
+const apply=async(pred:(file:string)=>boolean)=>{
+ for (const m of loadMigrations(join(import.meta.dirname,'..')).filter(m=>pred(m.file))) await database.exec(`BEGIN;\n${m.sql}\nCOMMIT;`);
+};
 try {
- await applyAll(sql=>database.exec(sql),join(import.meta.dirname,'..'));
- const [s]=await db()<{id:string}[]>`INSERT INTO streamer(slug,display_name,watch) VALUES('backfill-test','백필검증',true) RETURNING id`;
- await db()`INSERT INTO streamer_channel(streamer_id,platform,channel_id) VALUES(${s.id},'soop','backfill-channel')`;
- const target=await b.resolveBackfillTarget('백필검증');
- const p=await b.ensureBackfillProgress(target,new Date('2026-09-28T01:00:00Z'));
- assert.equal(p.upper_before.toISOString(),'2026-09-25T15:00:00.000Z');
- assert.equal((await b.ensureBackfillProgress({...target,watch:false},new Date('2026-10-01'))).upper_before.toISOString(),p.upper_before.toISOString());
- const vod=(id:number)=>({title_no:id,ended_at:'2026-09-25T03:00:00Z',title:`VOD ${id}`,channel_id:target.channel_id,duration_sec:100,url:`https://vod.sooplive.com/player/${id}`});
- const old=await ck.upsertEventLead({source:'vod_title',source_key:'vod:3',title:'원래 제목',observed_at:new Date(),raw:{keep:'preserved'},state:'ignored',note:'원래 메모'});
- await b.markBackfillVod(p,target,vod(3));await b.markBackfillVod(p,target,vod(2));await b.markBackfillVod(p,target,vod(1));
- assert.equal((await b.reconcileBackfill(target.channel_id))?.cursor_at,null,'큐만 만든 뒤 cursor는 그대로');
- const rows=await db()`SELECT id,raw,state,note FROM event_lead WHERE source='vod_title' AND source_key='vod:3'`;
- assert.equal(rows[0].id,old);assert.equal(rows[0].raw.keep,'preserved');assert.equal(rows[0].note,'원래 메모');assert.equal(rows[0].state,'ignored');
- assert.equal(autoQueueReason(rows[0].raw),null,'표시만 있는 lead_only도 자동 제외');
- const same=await ck.upsertEventLead({source:'vod_title',source_key:'vod:3',title:'조사 제목',observed_at:new Date(),raw:{vod_total_sec:100}});
- assert.equal(same,old);
- assert.equal((await b.backfillLeads(['vod:3'])).get('vod:3')?.raw.backfill.progress_id,p.id,'ck:merge와 같은 upsert 후 표시 보존');
- const scan={status:'done' as const,failed:[],requested:[[0,100] as [number,number]],sampled:[[0,100] as [number,number]],opened:[0,100]};
- await ck.markLeadScan(old,scan);
- // 이후 VOD가 먼저 완료돼도 중간 구멍을 넘어가지 않는다.
- const leads=await db()<{id:string;source_key:string}[]>`SELECT id,source_key FROM event_lead WHERE source='vod_title'`;
- const id2=leads.find(x=>x.source_key==='vod:2')!.id, id1=leads.find(x=>x.source_key==='vod:1')!.id;
- await ck.markLeadScan(id1,scan);
- assert.equal(Number((await b.reconcileBackfill(target.channel_id))?.cursor_vod),3);
- await ck.markLeadScan(id2,{...scan,requested:[[0,50]],sampled:[[0,50]]});
- assert.equal(Number((await b.reconcileBackfill(target.channel_id))?.cursor_vod),3,'부분 범위 done은 차단');
- await ck.markLeadScan(id2,scan);
- assert.equal(Number((await b.reconcileBackfill(target.channel_id))?.cursor_vod),1,'저장 후 cursor 갱신 전 중단 복구');
- assert.equal(Number((await b.reconcileBackfill(target.channel_id))?.cursor_vod),1,'재확인 멱등');
- const auto=await ck.upsertEventLead({source:'vod_title',source_key:'vod:99',channel_id:target.channel_id,title:'auto',observed_at:new Date(),raw:{scan:{status:'running'}}});
- await ck.markLeadScan(old,{...scan,status:'running'});
- assert.deepEqual((await b.listAutoRunningLeads([target.channel_id])).map(r=>r.source_key),['vod:99']);
- await assert.rejects(b.markBackfillVod(p,target,vod(99)),/이관/);
- assert.ok(auto);
- await b.markBackfillVod(p,target,{...vod(100),ended_at:'2026-09-24T03:00:00Z'});
- await b.recordBackfillAccess(p,100,'temporary','timeout');
- assert.equal(Number((await b.reconcileBackfill(target.channel_id))?.cursor_vod),1);
- await b.recordBackfillAccess(p,100,'unavailable','삭제 안내 확인');
- assert.equal(Number((await b.reconcileBackfill(target.channel_id))?.cursor_vod),100);
- await b.recordBackfillAccess(p,100,'retry','명시적 재확인');
- assert.equal((await b.markedBackfillVods(p)).find(v=>v.title_no===100)?.raw.backfill_access.status,'retry');
- // 실제 CLI plan/checkpoint를 실행한다. HTTP만 fixture로 대체한다.
- const dir=mkdtempSync(join(tmpdir(),'ck-backfill-cli-'));
- try {
-  await db()`INSERT INTO streamer(slug,display_name,watch) VALUES('backfill-cli','백필CLI',false)`;
-  await db()`INSERT INTO streamer_channel(streamer_id,platform,channel_id)
-    SELECT id,'soop','backfill-cli-channel' FROM streamer WHERE slug='backfill-cli'`;
-  const target2=await b.resolveBackfillTarget('backfill-cli');
-  await b.ensureBackfillProgress(target2,new Date('2026-09-26T00:00:00Z'));
-  const fixture=join(dir,'http.mjs'), queue=join(dir,'queue.json');
-  writeFileSync(fixture, `globalThis.fetch=async input=>{
-    const u=new URL(input); if(u.hostname!=='api-channel.sooplive.com')throw Error('unexpected HTTP '+u);
-    const to=u.searchParams.get('endDate');
-    const rows=to>='2026-09-25'?[202,201].map(titleNo=>({titleNo,titleName:'fixture',regDate:'2026-09-25 12:00:00',ucc:{totalFileDuration:3600000},count:{}})):[];
-    return Response.json({contents:rows,meta:{totalItems:rows.length,totalPages:rows.length?1:0}});
-  };`);
-  const cli=async(...args:string[])=>{
-    await closeDb();
-    return promisify(execFile)(process.execPath,['--import',fixture,join(import.meta.dirname,'ck-backfill.ts'),...args],
-      {env:{...process.env,CK_BACKFILL_LOCKED:'1',SOOP_PACE:'0.0001'},timeout:30000});
-  };
-  await cli('plan','--streamer','backfill-cli','--limit','1','--write',queue);
-  assert.deepEqual(JSON.parse(readFileSync(queue,'utf8')).queue.map((v:any)=>v.title_no),[202]);
-  assert.equal((await b.getBackfillProgress(target2.channel_id))?.cursor_at,null);
-  await cli('plan','--streamer','backfill-cli','--limit','1','--write',queue);
-  assert.deepEqual(JSON.parse(readFileSync(queue,'utf8')).queue.map((v:any)=>v.title_no),[202],'queue-only crash resumes same VOD');
-  const [lead202]=await db()<{id:string}[]>`SELECT id FROM event_lead WHERE source='vod_title' AND source_key='vod:202'`;
-  await ck.markLeadScan(lead202.id,{...scan,requested:[[0,3600]],sampled:[[0,3600]]});
-  await cli('plan','--streamer','backfill-cli','--limit','1','--write',queue);
-  assert.deepEqual(JSON.parse(readFileSync(queue,'utf8')).queue.map((v:any)=>v.title_no),[201],'saved DB result recovers cursor without checkpoint');
-  await cli('access','--streamer','backfill-cli','--vod','201','--status','unavailable','--reason','삭제 안내 fixture');
-  await cli('checkpoint','--streamer','backfill-cli');
-  await cli('plan','--streamer','backfill-cli','--write',queue);
-  assert.equal(JSON.parse(readFileSync(queue,'utf8')).queue.length,0);
-  assert.equal((await b.getBackfillProgress(target2.channel_id))?.exhausted,true);
- } finally {rmSync(dir,{recursive:true,force:true});}
- const [rls]=await db()`SELECT relrowsecurity FROM pg_class WHERE relname='ck_backfill_progress'`;
- assert.equal(rls.relrowsecurity,true);
- console.log('백필 DB 검증 통과: 고정 상한·정규화 lead·raw 보존·연속 진행·중단 복구·자동 제외·접근 상태');
-} finally {await closeDb();await server.stop();await database.close();}
+ // ── 1. 0046 이 옛 백필 기록을 정리한다: 표시는 버리고, 접근 상태는 사유째 raw.access 로 옮긴다 ──
+ await apply(f=>f<'0046');
+ const [s]=await db()<{id:string}[]>`INSERT INTO streamer(slug,display_name,watch) VALUES('backfill-cli','백필CLI',true) RETURNING id`;
+ await db()`INSERT INTO streamer_channel(streamer_id,platform,channel_id) VALUES(${s.id},'soop','bf-channel')`;
+ await db()`INSERT INTO ck_backfill_progress(streamer_id,channel_id,upper_before) VALUES(${s.id},'bf-channel','2026-09-26T00:00:00+09:00')`;
+ await ck.upsertEventLead({source:'vod_title',source_key:'vod:900',channel_id:'bf-channel',title:'옛 백필',observed_at:new Date(),
+  raw:{keep:1,backfill:{progress_id:'x'},backfill_access:{status:'unavailable',reason:'삭제 안내 확인',checked_at:'2026-09-27T00:00:00Z'}}});
+ await apply(f=>f>='0046');
+ const [legacy]=await db()`SELECT raw FROM event_lead WHERE source_key='vod:900'`;
+ assert.deepEqual(legacy.raw,{keep:1,access:{status:'unavailable',reason:'삭제 안내 확인',checked_at:'2026-09-27T00:00:00Z'}});
+ assert.equal((await db()`SELECT to_regclass('ck_backfill_progress') AS t`)[0].t,null);
+ assert.equal((await db()`SELECT relrowsecurity FROM pg_class WHERE relname='ck_backfill_request'`)[0].relrowsecurity,true);
+
+ // ── 2. 가짜 SOOP: 양쪽 날짜가 있어야 거르고, 60개씩 페이지를 나눈다 ──
+ const row=(titleNo:number,regDate:string,sec=3600)=>({titleNo,titleName:`VOD ${titleNo}`,regDate,ucc:{totalFileDuration:sec*1000},count:{}});
+ const rows=[row(305,'2026-09-21 12:00:00'),row(303,'2026-09-20 19:00:00'),row(304,'2026-09-20 05:17:05'),row(302,'2026-09-19 12:00:00'),
+  row(301,'2026-09-18 12:00:00'),row(300,'2026-09-17 12:00:00'),
+  ...Array.from({length:130},(_,i)=>row(1000+i,'2026-09-05 12:00:00',600))];
+ const fixture=join(dir,'http.mjs');
+ writeFileSync(fixture,`const rows=${JSON.stringify(rows)};
+ globalThis.fetch=async input=>{
+  const u=new URL(input); if(u.hostname!=='api-channel.sooplive.com')throw Error('unexpected HTTP '+u);
+  const from=u.searchParams.get('startDate'), to=u.searchParams.get('endDate'), page=Number(u.searchParams.get('page'));
+  const hit=from&&to ? rows.filter(r=>r.regDate.slice(0,10)>=from&&r.regDate.slice(0,10)<=to) : rows;
+  const pages=Math.ceil(hit.length/60);
+  return Response.json({contents:hit.slice((page-1)*60,page*60),meta:{totalItems:hit.length,totalPages:pages}});
+ };`);
+ // PGlite 소켓 서버는 연결을 하나만 받는다. 자식 CLI 를 부르기 전에 이쪽 연결을 놓는다.
+ const cli=async(...args:string[])=>{await closeDb();return new Promise<{code:number;out:string}>(resolve=>{
+  execFile(process.execPath,['--import',fixture,join(import.meta.dirname,'ck-backfill.ts'),...args],
+   {cwd:dir,env:{...process.env,CK_BACKFILL_LOCKED:'1',SOOP_PACE:'0.0001'},timeout:30000},
+   (e,stdout,stderr)=>resolve({code:e ? Number((e as any).code ?? 1) : 0,out:stdout+stderr}));
+ });};
+ const queue=join(dir,'queue.json'), current=join(dir,'current.json');
+ const plan=()=>JSON.parse(readFileSync(queue,'utf8'));
+ const leadId=async(n:number)=>(await db()<{id:string}[]>`SELECT id FROM event_lead WHERE source_key=${`vod:${n}`}`)[0].id;
+ const full=(end:number)=>({status:'done' as const,failed:[],requested:[[0,end] as [number,number]],sampled:[[0,end] as [number,number]],opened:[0]});
+
+ // 자동 조사가 이미 끝낸 VOD(끝 1초 모자람)와, 목록에서 사라진 미완료 VOD 를 미리 둔다.
+ await ck.upsertEventLead({source:'vod_title',source_key:'vod:302',channel_id:'bf-channel',title:'자동이 끝냄',observed_at:new Date('2026-09-19T02:00:00Z')});
+ await ck.markLeadScan(await leadId(302),full(3599));
+ await ck.upsertEventLead({source:'vod_title',source_key:'vod:299',channel_id:'bf-channel',title:'삭제된 듯',observed_at:new Date('2026-09-19T01:00:00Z')});
+ await ck.markLeadScan(await leadId(299),{status:'running',requested:[[0,100]]});
+ await ck.upsertEventLead({source:'vod_title',source_key:'vod:301',channel_id:'bf-channel',title:'원래 제목',observed_at:new Date('2026-09-18T02:00:00Z'),raw:{keep:'x'},state:'ignored',note:'메모'});
+
+ // ── 3. 기간 요청: 기간 밖(300·305)은 빼고, 완료(302)는 건너뛰고, 밤샘 방송(304)은 종료일로 들어간다 ──
+ assert.match((await cli('plan','--streamer','백필CLI','--from','2026-09-18','--write',queue)).out,/함께/);
+ assert.equal((await cli('plan','--streamer','백필CLI','--write',queue)).code,1,'처음엔 기간이 필요하다');
+ assert.equal((await cli('plan','--streamer','백필CLI','--from','2026-09-18','--to','2026-09-20','--write',queue)).code,0);
+ assert.deepEqual(plan().queue,[303,304,301]);
+ assert.deepEqual(plan().missing.map((m:any)=>m.vod),[299],'목록에서 사라진 미완료 VOD 를 알린다');
+ const [kept]=await db()`SELECT raw,state,note FROM event_lead WHERE source_key='vod:301'`;
+ assert.deepEqual([kept.raw,kept.state,kept.note],[{keep:'x'},'ignored','메모'],'기존 lead 는 건드리지 않는다');
+ assert.equal(vodWork((await b.vodRaws([302])).get(302),3600).reason,null,'자동·백필이 같은 판정');
+
+ // ── 4. 하나씩: running 이어도 범위가 늘면 진척, 그대로면 멈춘다 ──
+ assert.match((await cli('next','--queue',queue,'--current',current)).out,/다음 VOD 303/);
+ await ck.markLeadScan(await leadId(303),{status:'running',requested:[[0,1000]],opened:[0]});
+ assert.equal((await cli('after','--current',current)).code,0);
+ assert.match((await cli('next','--queue',queue,'--current',current)).out,/다음 VOD 303 \[running\]/,'running 은 같은 VOD 를 잇는다');
+ await ck.markLeadScan(await leadId(303),{status:'running',requested:[[0,1000]],note:'메모만'} as never);
+ const stuck=await cli('after','--current',current);
+ assert.equal(stuck.code,4);assert.match(stuck.out,/진척 없음/);
+ await ck.markLeadScan(await leadId(303),full(3600));
+ assert.match((await cli('next','--queue',queue,'--current',current)).out,/다음 VOD 304/,'시작 직전에 DB 를 다시 읽는다');
+ assert.equal((await cli('access','--vod','304','--status','unavailable','--reason','비공개 안내 확인')).code,0);
+ assert.equal((await cli('after','--current',current)).code,0,'접근 불가 확인도 진척');
+ assert.match((await cli('next','--queue',queue,'--current',current)).out,/다음 VOD 301/);
+
+ // ── 5. 멈춘 뒤 이어서: 기간을 안 줘도 마지막 요청을 쓰고, 끝낸 것은 다시 안 본다 ──
+ await ck.markLeadScan(await leadId(301),{status:'running',requested:[[0,500]],opened:[0]});
+ assert.equal((await cli('plan','--streamer','백필CLI','--write',queue)).code,0);
+ assert.deepEqual([plan().from,plan().to,plan().queue],['2026-09-18','2026-09-20',[301]]);
+ assert.deepEqual((await b.listRunningLeads(['bf-channel'])).map(r=>r.source_key).sort(),['vod:299','vod:301'],'멈춘 VOD 는 자동 조사도 이어받는다');
+ const st=JSON.parse((await cli('status','--streamer','백필CLI')).out);
+ assert.deepEqual(st.last_plan.pending.map((p:any)=>p.vod),[301]);
+ assert.equal((await cli('access','--vod','304','--status','retry','--reason','사용자 재확인')).code,0);
+ assert.equal((await cli('plan','--streamer','백필CLI','--write',queue)).code,0);
+ assert.deepEqual(plan().queue,[304,301],'retry 는 다시 조사 대상');
+
+ // ── 6. 페이지가 여러 장이어도 끝까지 받는다(130개 = 3페이지) ──
+ assert.equal((await cli('plan','--streamer','백필CLI','--from','2026-09-01','--to','2026-09-06','--write',queue)).code,0);
+ assert.equal(plan().vods.length,130);
+ assert.equal((await b.getBackfillRequest('bf-channel'))?.from_date,'2026-09-01');
+ console.log('백필 DB 검증 통과: 옛 기록 정리·실제 SOOP 날짜 규칙·페이지·공통 판정·목록 밖 대조·진척 판정·재개·접근 상태');
+} finally {rmSync(dir,{recursive:true,force:true});await closeDb();await server.stop();await database.close();}

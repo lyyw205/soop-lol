@@ -1,18 +1,17 @@
-/** 수동 백필: 목록 위치만 별도 저장하고 조사 상태는 기존 event_lead를 읽는다. */
+/**
+ * 수동 백필의 DB 경계. 진척은 event_lead.raw(조사 도장)가 정본이고,
+ * 여기서 따로 저장하는 건 "마지막 요청 기간" 하나다 — 다음 요청의 기본값일 뿐이다.
+ */
 import { db } from './client.ts';
-import { upsertEventLeadInTx } from './ck.ts';
-import { backfillUpper, newestFirst, processed, vodDate, type ScanRaw } from '../metrics/ck-backfill.ts';
+import { vodDate, type ScanRaw } from '../metrics/ck-vod-status.ts';
 
 export interface BackfillTarget { id: string; display_name: string; slug: string; channel_id: string; watch: boolean }
-export interface BackfillProgress {
-  id: string; streamer_id: string; channel_id: string; upper_before: Date;
-  cursor_at: Date | null; cursor_vod: number | null; exhausted: boolean;
-}
+export interface BackfillRequest { channel_id: string; streamer_id: string; from_date: string; to_date: string; requested_at: Date }
 export interface BackfillVod {
   title_no: number; ended_at: string; title: string; channel_id: string;
   duration_sec: number | null; url: string;
 }
-export interface BackfillLead { source_key: string; raw: ScanRaw; title: string }
+
 export async function resolveBackfillTarget(name: string): Promise<BackfillTarget> {
   const rows = await db()<BackfillTarget[]>`
     SELECT s.id, s.display_name, s.slug, s.watch, c.channel_id FROM streamer s
@@ -21,82 +20,73 @@ export async function resolveBackfillTarget(name: string): Promise<BackfillTarge
   if (rows.length !== 1) throw new Error(rows.length ? `대상이 모호하다: ${rows.map(r=>r.slug+':'+r.channel_id).join(', ')}` : `SOOP 채널을 찾지 못했다: ${name}`);
   return rows[0];
 }
-export async function getBackfillProgress(channel: string): Promise<BackfillProgress | null> {
-  const [row] = await db()<BackfillProgress[]>`SELECT * FROM ck_backfill_progress WHERE channel_id=${channel}`;
+
+export async function getBackfillRequest(channel: string): Promise<BackfillRequest | null> {
+  const [row] = await db()<BackfillRequest[]>`
+    SELECT channel_id, streamer_id, to_char(from_date,'YYYY-MM-DD') AS from_date,
+           to_char(to_date,'YYYY-MM-DD') AS to_date, requested_at
+      FROM ck_backfill_request WHERE channel_id=${channel}`;
   return row ?? null;
 }
-export async function ensureBackfillProgress(target: BackfillTarget, now = new Date()): Promise<BackfillProgress> {
-  await db()`INSERT INTO ck_backfill_progress (streamer_id, channel_id, upper_before)
-    VALUES (${target.id}, ${target.channel_id}, ${backfillUpper(target.watch, now)}) ON CONFLICT (channel_id) DO NOTHING`;
-  const p = (await getBackfillProgress(target.channel_id))!;
-  if (p.streamer_id !== target.id) throw new Error('채널 소유자가 바뀌었다. 기존 진행을 자동 이관하지 않는다.');
-  return p;
+export async function saveBackfillRequest(target: BackfillTarget, from: string, to: string): Promise<void> {
+  await db()`INSERT INTO ck_backfill_request (channel_id, streamer_id, from_date, to_date)
+    VALUES (${target.channel_id}, ${target.id}, ${from}, ${to})
+    ON CONFLICT (channel_id) DO UPDATE SET streamer_id=EXCLUDED.streamer_id,
+      from_date=EXCLUDED.from_date, to_date=EXCLUDED.to_date, requested_at=now()`;
 }
-export async function backfillLeads(keys: string[]): Promise<Map<string, BackfillLead>> {
-  const rows = keys.length ? await db()<BackfillLead[]>`
-    SELECT source_key, raw, title FROM event_lead WHERE source='vod_title' AND source_key=ANY(${keys})` : [];
-  return new Map(rows.map(r=>[r.source_key,r]));
+
+/** VOD 번호 → 현재 조사 도장. 없으면 Map 에 없다. */
+export async function vodRaws(titleNos: number[]): Promise<Map<number, ScanRaw>> {
+  const keys = titleNos.map(n=>`vod:${n}`);
+  const rows = keys.length ? await db()<{ source_key: string; raw: ScanRaw }[]>`
+    SELECT source_key, raw FROM event_lead WHERE source='vod_title' AND source_key=ANY(${keys})` : [];
+  return new Map(rows.map(r=>[Number(r.source_key.slice(4)), r.raw]));
 }
-export async function markedBackfillVods(p: BackfillProgress): Promise<(BackfillVod & { raw: ScanRaw })[]> {
-  const rows = await db()<BackfillLead[]>`SELECT source_key, raw, title FROM event_lead
-    WHERE source='vod_title' AND raw->'backfill'->>'progress_id'=${p.id}`;
-  return rows.map(r=>({ ...r.raw.backfill.vod as BackfillVod, raw:r.raw })).sort(newestFirst);
+
+/**
+ * 목록에서 본 VOD 의 lead 를 **없을 때만** 만든다.
+ * ★ 기존 행은 건드리지 않는다. upsertEventLead 는 state·note 를 기본값으로 덮는다.
+ * observed_at 은 ck:merge 와 같은 뜻(방송 시작)으로 맞춘다 — 종료 − 길이.
+ */
+export async function ensureVodLeads(target: BackfillTarget, vods: BackfillVod[]): Promise<void> {
+  for (const v of vods) {
+    const ended = vodDate(v.ended_at);
+    const started = new Date(ended.getTime() - (v.duration_sec ?? 0) * 1000);
+    await db()`INSERT INTO event_lead (source, source_key, url, channel_id, streamer_id, title, observed_at, raw, state)
+      VALUES ('vod_title', ${`vod:${v.title_no}`}, ${v.url}, ${target.channel_id}, ${target.id}, ${v.title}, ${started}, '{}'::jsonb, 'new')
+      ON CONFLICT (source, source_key) DO NOTHING`;
+  }
 }
-export async function markBackfillVod(p: BackfillProgress, target: BackfillTarget, vod: BackfillVod): Promise<void> {
-  if (vod.channel_id !== p.channel_id || !Number.isSafeInteger(vod.title_no) || vod.title_no <= 0) throw new Error('잘못된 백필 VOD');
-  await db().begin(async tx=>{
-    // 계획/체크포인트 명령끼리도 같은 행으로 직렬화한다.
-    await tx`SELECT id FROM ck_backfill_progress WHERE id=${p.id} FOR UPDATE`;
-    const [existing] = await tx<{id:string;raw:ScanRaw}[]>`SELECT id, raw FROM event_lead
-      WHERE source='vod_title' AND source_key=${`vod:${vod.title_no}`} FOR UPDATE`;
-    if (existing?.raw.backfill && existing.raw.backfill.progress_id !== p.id) throw new Error('다른 백필에 속한 VOD');
-    if (existing?.raw.scan?.status === 'running' && !existing.raw.backfill && target.watch) throw new Error('자동 실행의 running VOD는 이관하지 않는다');
-    const id = existing?.id ?? await upsertEventLeadInTx(tx, {
-      source:'vod_title', source_key:`vod:${vod.title_no}`, url:vod.url, channel_id:target.channel_id,
-      streamer_id:target.id, title:vod.title, observed_at:vodDate(vod.ended_at),
-    });
-    await tx`UPDATE event_lead SET raw=raw || ${tx.json({backfill:{progress_id:p.id,vod}} as never)}
-      WHERE id=${id}`;
-  });
+
+/**
+ * 이 채널에서 방송 시작이 기간 안(앞뒤 하루 여유)인 lead. 목록에서 사라진 미완료 VOD 를 찾는 데 쓴다.
+ * 목록만 다시 받으면 삭제·비공개된 VOD 는 조용히 빠진다.
+ */
+export async function channelLeadsBetween(channel: string, from: string, to: string) {
+  return db()<{ source_key: string; title: string; observed_at: Date; raw: ScanRaw }[]>`
+    SELECT source_key, title, observed_at, raw FROM event_lead
+     WHERE source='vod_title' AND channel_id=${channel} AND source_key LIKE 'vod:%'
+       AND observed_at >= ${new Date(`${from}T00:00:00+09:00`)}::timestamptz - interval '1 day'
+       AND observed_at <  ${new Date(`${to}T00:00:00+09:00`)}::timestamptz + interval '1 day'`;
 }
-/** DB에 저장된 최근순 연속 처리 구간만 전진. 이미 커서보다 앞인 행을 재적용하지 않는다. */
-export async function reconcileBackfill(channel: string): Promise<BackfillProgress | null> {
-  return await db().begin(async tx=>{
-    const [p] = await tx<BackfillProgress[]>`SELECT * FROM ck_backfill_progress WHERE channel_id=${channel} FOR UPDATE`;
-    if (!p) return null;
-    const rows = await tx<BackfillLead[]>`SELECT source_key, raw, title FROM event_lead
-      WHERE source='vod_title' AND raw->'backfill'->>'progress_id'=${p.id} FOR UPDATE`;
-    const sorted = rows.map(r=>({ ...r.raw.backfill.vod as BackfillVod, raw:r.raw })).sort(newestFirst);
-    let last: BackfillVod | null = null;
-    for (const v of sorted) {
-      if (p.cursor_at && newestFirst(v,{ended_at:p.cursor_at.toISOString(),title_no:Number(p.cursor_vod)}) <= 0) continue;
-      if (!processed(v.raw, v.duration_sec)) break;
-      last=v;
-    }
-    if (last) {
-      await tx`UPDATE ck_backfill_progress SET cursor_at=${vodDate(last.ended_at)}, cursor_vod=${last.title_no},
-        checked_at=now(), updated_at=now() WHERE id=${p.id}`;
-      p.cursor_at=vodDate(last.ended_at); p.cursor_vod=last.title_no;
-    }
-    return p;
-  }) as BackfillProgress | null;
-}
-export async function setBackfillExhausted(id: string): Promise<void> {
-  await db()`UPDATE ck_backfill_progress SET exhausted=true, checked_at=now(), updated_at=now() WHERE id=${id}`;
-}
-export async function recordBackfillAccess(p: BackfillProgress, vod: number, status: 'temporary'|'unavailable'|'retry', reason: string): Promise<void> {
+
+/**
+ * 접근 상태. 자동·수동 공용이다. 사유·확인 시각을 남기고, retry 로 다시 조사 대상에 넣는다.
+ * lead 가 없으면 만들지 않는다 — 목록에서 본 VOD 만 기록한다.
+ */
+export async function recordVodAccess(vod: number, status: 'temporary'|'unavailable'|'retry', reason: string): Promise<void> {
   if (!reason.trim()) throw new Error('접근 상태에는 확인 근거·사유가 필요하다');
-  const rows = await db()`UPDATE event_lead SET raw=raw || ${db().json({backfill_access:{status,reason,checked_at:new Date().toISOString()}})}
-    WHERE source='vod_title' AND source_key=${`vod:${vod}`} AND raw->'backfill'->>'progress_id'=${p.id} RETURNING id`;
-  if (!rows.length) throw new Error('이 백필에 속한 VOD가 아니다');
-  // 재확인을 명시적으로 요청하면 해당 VOD를 pending 목록에서 다시 선택한다.
-  if (status === 'retry') await db()`UPDATE ck_backfill_progress SET exhausted=false WHERE id=${p.id}`;
+  const rows = await db()`UPDATE event_lead
+    SET raw = raw || ${db().json({ access: { status, reason, checked_at: new Date().toISOString() } })}
+    WHERE source='vod_title' AND source_key=${`vod:${vod}`} RETURNING id`;
+  if (!rows.length) throw new Error(`vod:${vod} lead가 없다. 목록에서 본 VOD만 기록한다`);
 }
-/** 자동 큐의 기간 밖 running 경로도 동일한 수동 표시를 존중한다. */
-export async function listAutoRunningLeads(channels: string[]) {
+
+/** 와치리스트 채널의 running — 기간과 무관하게 자동 조사가 이어받는다(수동 백필이 멈춘 것 포함). */
+export async function listRunningLeads(channels: string[]) {
   if (!channels.length) return [];
   return db()<{source_key:string;channel_id:string;title:string;observed_at:Date}[]>`
     SELECT source_key, channel_id, title, observed_at FROM event_lead
     WHERE source='vod_title' AND source_key LIKE 'vod:%' AND raw->'scan'->>'status'='running'
-      AND NOT (raw ? 'backfill') AND channel_id=ANY(${channels})`;
+      AND channel_id=ANY(${channels})`;
 }

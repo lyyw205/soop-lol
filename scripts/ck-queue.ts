@@ -11,14 +11,15 @@
  *   VOD 카테고리는 방송 전체에 붙는 한 값이다. "토크"로 켜고 중간에 내전을 하는 방송이
  *   있으니, 롤 카테고리만 받으면 그런 판이 조용히 빠진다. 무엇을 했는지는 프레임이 말한다.
  *
- * ★ 무엇을 "조사함" 으로 치나 — `scan.status = done` 이고 **못 본 구간이 없을 때만**
- *   - 단서만 있는 lead(ck:collect 가 쌓은 것, status 없음) → 큐에 넣는다
+ * ★ 무엇을 "조사함" 으로 치나 — `vodWork`(core/metrics/ck-vod-status) 하나로 판정한다. 수동 백필과 같은 함수다.
+ *   - 단서만 있는 lead(ck:collect 가 쌓은 것, status 없음) → `lead_only`, 넣는다
  *   - `running` → 중간에 끊긴 실행이다. 넣는다. 안 넣으면 영영 반쯤 본 채로 남는다
- *   - `done` + `failed` 남음 → 넣는다. 스킬 정의상 그 VOD 의 결론은 완결이 아니다
+ *   - `done` + `failed` 남음 → `failed_left`, 넣는다. 스킬 정의상 그 VOD 의 결론은 완결이 아니다
+ *   - `done` 인데 요청 범위가 영상 끝까지 안 닿음 → `partial`, 넣는다(끝 경계만 몇 초 오차 허용)
+ *   - 근거 있는 접근 불가(raw.access) → 넣지 않는다
  *   미해결 후보는 기준이 아니다 — 그건 VOD 를 다시 훑을 일이 아니라 `ck:record --todo` 몫이다.
  *
- * ★ raw.backfill 표시는 최근/lead_only/기간 밖 running 모두에서 제외한다. 수동 요청으로만 재개한다.
- * ★ `running` 은 기간 밖이어도 넣는다 — 와치리스트 채널의 자동 작업만
+ * ★ `running` 은 기간 밖이어도 넣는다 — 와치리스트 채널이면 수동 백필이 멈춘 VOD 도 이어받는다
  *   조사가 긴 VOD 는 한 회차에 못 끝나 `running` 으로 남는다. 최근 N일로만 거르면 N일이 지나는 순간
  *   반쯤 본 채로 영영 빠진다. 그래서 기간과 무관하게 합친다.
  *   `failed_left`(done + 못 본 구간)는 기간 안에서만 넣는다. 영상 길이 밖 지점·영구 누락 세그먼트처럼
@@ -27,13 +28,13 @@
  * ★ 조회가 잘리면 시끄럽게 말하고 종료 코드 2 를 낸다. 조용히 적게 가져오면 누락이 티가 안 난다.
  */
 
-import { listAutoRunningLeads } from "@soop-lol/core/lib/db/ck-backfill";
+import { listRunningLeads } from "@soop-lol/core/lib/db/ck-backfill";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { kstDate, makeOpt } from "./lib/cli.mjs";
-import { CK_RECENT_DAYS, recentFrom, autoQueueReason, isBackfill } from "@soop-lol/core/lib/metrics/ck-backfill";
+import { CK_RECENT_DAYS, recentFrom, vodWork, type VodReason } from "@soop-lol/core/lib/metrics/ck-vod-status";
 import { listBroadcasts } from "./lib/soop-vod.mjs";
 
 const argv = process.argv.slice(2);
@@ -47,7 +48,7 @@ const TO = kstDate(0);
 interface Item {
   title_no: number; channel_id: string; streamer: string; slug: string;
   title: string; ended_at: string; hours: number; category: string | null;
-  reason: "new" | "lead_only" | "running" | "failed_left";
+  reason: VodReason;
 }
 
 const sql = db();
@@ -62,7 +63,8 @@ try {
   const noChannel = watch.filter((w) => !w.channel_id);
   if (noChannel.length) console.log(`⚠ 채널이 없어 못 훑는 ${noChannel.length}명: ${noChannel.map((w) => w.display_name).join(", ")}`);
 
-  const found: Omit<Item, "reason">[] = [];
+  // duration_sec 는 판정용 원본 길이다. hours 는 표시용으로 반올림돼 끝 경계 판정에 못 쓴다.
+  const found: (Omit<Item, "reason"> & { duration_sec: number | null })[] = [];
   for (const w of watch.filter((x) => x.channel_id)) {
     const list = await listBroadcasts(w.channel_id!, { from: FROM, to: TO });
     if ((list as typeof list & { truncated?: boolean }).truncated) truncated.push(w.display_name);
@@ -70,6 +72,7 @@ try {
       found.push({
         title_no: v.title_no, channel_id: v.channel_id, streamer: w.display_name, slug: w.slug,
         title: v.title, ended_at: v.ended_at, hours: Math.round(v.hours * 10) / 10, category: v.category,
+        duration_sec: v.hours > 0 ? Math.round(v.hours * 3600) : null,
       });
     }
   }
@@ -80,19 +83,17 @@ try {
   const byKey = new Map(leads.map((l) => [l.source_key, l]));
 
   const queue: Item[] = [];
-  let skipped = 0, manualSkipped = 0;
-  for (const v of found) {
-    const l = byKey.get(`vod:${v.title_no}`);
-    // lead_only를 포함해 상태 분류 전에 raw.backfill을 제외한다.
-    if (l && isBackfill(l.raw)) { manualSkipped++; continue; }
-    const reason = autoQueueReason(l?.raw);
+  let skipped = 0;
+  for (const { duration_sec, ...v } of found) {
+    // 완료 판정은 수동 백필과 같은 함수다 — 한쪽이 끝낸 VOD 를 다른 쪽이 다시 보지 않는다.
+    const { reason } = vodWork(byKey.get(`vod:${v.title_no}`)?.raw, duration_sec);
     if (reason) queue.push({ ...v, reason });
     else skipped++;
   }
-  // 기간 밖의 running — 와치리스트 채널 것만. 수동 조사 중인 남의 VOD 를 자동 실행이 가로채지 않게 한다.
+  // 기간 밖의 running — 와치리스트 채널 것만. 수동 백필이 멈춘 VOD 도 이어받는다(의도한 정책).
   const inQueue = new Set(queue.map((q) => `vod:${q.title_no}`));
   const channels = watch.filter((w) => w.channel_id).map((w) => w.channel_id!);
-  const stale = await listAutoRunningLeads(channels);
+  const stale = await listRunningLeads(channels);
   for (const l of stale) {
     if (inQueue.has(l.source_key)) continue;
     const w = watch.find((x) => x.channel_id === l.channel_id)!;
@@ -104,7 +105,7 @@ try {
   // 오래된 것부터 — 기간 창에서 먼저 빠져나가는 쪽이다.
   queue.sort((a, b) => a.ended_at.localeCompare(b.ended_at));
 
-  console.log(`와치리스트 ${watch.length}명 · ${FROM} ~ ${TO} · VOD ${found.length}개 · 조사 끝 ${skipped} · 수동 백필 제외 ${manualSkipped} · 큐 ${queue.length}`);
+  console.log(`와치리스트 ${watch.length}명 · ${FROM} ~ ${TO} · VOD ${found.length}개 · 조사 끝 ${skipped} · 큐 ${queue.length}`);
   for (const q of queue) {
     console.log(`  ${q.ended_at}  vod:${q.title_no}  ${q.hours}h  ${q.streamer}  [${q.reason}]  ${q.title}`);
   }

@@ -1,89 +1,146 @@
-/** 셸 래퍼가 잠금을 보유한 상태에서 plan/checkpoint/access를 호출한다. status는 읽기 전용. */
+/**
+ * 수동 백필 CLI. scripts/ck-backfill.sh 가 잠금을 잡고 plan → (next → 조사 → after) 반복으로 부른다.
+ *
+ * ★ 진척은 VOD 조사 도장(event_lead.raw)만 믿는다. 커서가 없다 — 같은 기간을 다시 요청하면
+ *   목록을 다시 받아 완료 도장이 없는 VOD 만 남는다. 그래서 멈춘 곳부터 이어지고 빈틈도 저절로 메워진다.
+ */
 import { parseArgs } from 'node:util';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { closeDb } from '@soop-lol/core/lib/db/client';
-import { resolveBackfillTarget, getBackfillProgress, ensureBackfillProgress, markedBackfillVods,
-  backfillLeads, markBackfillVod, reconcileBackfill, setBackfillExhausted, recordBackfillAccess,
-  type BackfillVod } from '@soop-lol/core/lib/db/ck-backfill';
-import { fitsBudget, processed, fullScanDone } from '@soop-lol/core/lib/metrics/ck-backfill';
-import { historicalVods } from './lib/ck-backfill.ts';
-import { listBroadcasts, vodDetail } from './lib/soop-vod.mjs';
+import { kstDateString } from '@soop-lol/core/lib/time';
+import { resolveBackfillTarget, getBackfillRequest, saveBackfillRequest, vodRaws, ensureVodLeads,
+  channelLeadsBetween, recordVodAccess, type BackfillTarget, type BackfillVod } from '@soop-lol/core/lib/db/ck-backfill';
+import { vodWork, madeProgress, vodDate, type VodWork } from '@soop-lol/core/lib/metrics/ck-vod-status';
+import { listRange } from './lib/ck-backfill.ts';
+import { listBroadcasts } from './lib/soop-vod.mjs';
+
+const HELP = `ck:backfill status --streamer <이름>
+실행: scripts/ck-backfill.sh --streamer <이름> [--from YYYY-MM-DD --to YYYY-MM-DD]
+멈춤: scripts/ck-backfill.sh --stop   (지금 VOD 를 마친 뒤 멈춘다)
+접근 상태: ck:backfill access --vod <번호> --status temporary|unavailable|retry --reason <근거>`;
 
 const {values,positionals} = parseArgs({allowPositionals:true,options:{
-  streamer:{type:'string'},limit:{type:'string',default:'5'},'max-video-hours':{type:'string',default:'20'},
-  write:{type:'string'},vod:{type:'string'},status:{type:'string'},reason:{type:'string'},help:{type:'boolean'},
+  streamer:{type:'string'},from:{type:'string'},to:{type:'string'},write:{type:'string'},queue:{type:'string'},
+  current:{type:'string'},vod:{type:'string'},status:{type:'string'},reason:{type:'string'},help:{type:'boolean'},
 }});
-const command=positionals[0] ?? 'status';
-async function run() {
-  if(values.help) { console.log('ck:backfill status --streamer <이름>\n실행: scripts/ck-backfill.sh --streamer <이름> [--limit 5] [--max-video-hours 20]\n접근 불가: ck:backfill access --streamer <이름> --vod <번호> --status temporary|unavailable|retry --reason <근거>'); return; }
-  if(!['status','plan','checkpoint','access'].includes(command) || !values.streamer) throw new Error('명령과 --streamer가 필요하다 (--help)');
-  if(command!=='status' && process.env.CK_BACKFILL_LOCKED!=='1') throw new Error('변경 명령은 scripts/ck-backfill.sh의 잠금 안에서 실행해야 한다');
-  const target=await resolveBackfillTarget(values.streamer);
-  if(command==='status') {
-    const p=await getBackfillProgress(target.channel_id);
-    const items=p ? await markedBackfillVods(p) : [];
-    console.log(JSON.stringify({target,progress:p,pending:items.filter(v=>!processed(v.raw,v.duration_sec)),unavailable:items.filter(v=>v.raw.backfill_access?.status==='unavailable')},null,2)); return;
-  }
-  if(command==='checkpoint') {
-    const progress=await reconcileBackfill(target.channel_id);
-    const items=progress ? await markedBackfillVods(progress):[];
-    console.log(JSON.stringify({progress,pending:items.filter(v=>!processed(v.raw,v.duration_sec)).map(v=>({vod:v.title_no,scan:v.raw.scan,access:v.raw.backfill_access})),unavailable:items.filter(v=>v.raw.backfill_access?.status==='unavailable').map(v=>({vod:v.title_no,access:v.raw.backfill_access}))},null,2)); return;
-  }
-  if(command==='access') {
-    const p=await getBackfillProgress(target.channel_id);
-    const vod=Number(values.vod), status=values.status;
-    if(!p || !Number.isSafeInteger(vod) || vod<=0 || !['temporary','unavailable','retry'].includes(status??'')) throw new Error('진행·VOD 번호·접근 상태를 확인할 것');
-    await recordBackfillAccess(p,vod,status as 'temporary'|'unavailable'|'retry',values.reason??'');return;
-  }
-  const limit=Number(values.limit), maxSeconds=Number(values['max-video-hours'])*3600;
-  if(!Number.isInteger(limit)||limit<1||!Number.isFinite(maxSeconds)||maxSeconds<=0||!values.write) throw new Error('양의 limit/max-video-hours와 --write 필요');
-  await ensureBackfillProgress(target);
-  const p=(await reconcileBackfill(target.channel_id))!;
-  const pending=(await markedBackfillVods(p)).filter(v=>!processed(v.raw,v.duration_sec));
-  const queue:BackfillVod[]=[];
-  let total=0, blocked:string|null=null, reused=0, exhausted=false;
-  const add=(v:BackfillVod)=>{
-    if(!fitsBudget(queue.length,total,v.duration_sec,limit,maxSeconds)) return false;
-    queue.push(v);total+=v.duration_sec??maxSeconds;return true;
-  };
-  // 이전에 큐를 만든 뒤 죽은 항목이 있으면 목록 조회보다 먼저 재개한다.
-  if(pending.length) {
-    for(const {raw:_raw,...v} of pending) if(!add(v)) break;
-  } else if(!p.exhausted) {
-    const cursor=p.cursor_at ? {ended_at:p.cursor_at.toISOString(),title_no:Number(p.cursor_vod)}:null;
-    try {
-      let stopped=false;
-      for await (const v of historicalVods(target.channel_id,p.upper_before,cursor,listBroadcasts)) {
-        const lead=(await backfillLeads([`vod:${v.title_no}`])).get(`vod:${v.title_no}`);
-        if(target.watch && lead?.raw.scan?.status==='running' && !Object.hasOwn(lead.raw,'backfill')) {
-          blocked=`자동 실행의 running VOD ${v.title_no}에서 중단. 다음 요청에 완료 여부를 확인한다.`;stopped=true;break;
-        }
-        if(fullScanDone(lead?.raw??{},v.duration_sec)) {
-          await markBackfillVod(p,target,v);reused++;continue;
-        }
-        if(v.duration_sec==null) {
-          // 실패를 삭제로 단정하지 않는다. 길이 미상은 단독 선택한다.
-          try { const detail=await vodDetail(String(v.title_no));
-            const ms=(detail?.files??[]).reduce((sum:number,f:{duration?:number})=>sum+(f.duration??0),0);
-            if(ms>0) v.duration_sec=Math.round(ms/1000);
-          } catch { /* 로그에 길이 미상으로 남긴다 */ }
-        }
-        if(!fitsBudget(queue.length,total,v.duration_sec,limit,maxSeconds)) {stopped=true;break;}
-        await markBackfillVod(p,target,v);
-        add(v);
-        if(queue.length>=limit || total>=maxSeconds || v.duration_sec==null) {stopped=true;break;}
-      }
-      exhausted=!stopped;
-    } catch(e) {blocked=String(e);}
-  }
-  // 목록을 끝까지 보았더라도 미조사 queue가 있으면 다음 요청에서 소진을 다시 확인한다.
-  await reconcileBackfill(target.channel_id);
-  if(exhausted && !queue.length) await setBackfillExhausted(p.id);
-  const result={target,progress:await getBackfillProgress(target.channel_id),generated_at:new Date().toISOString(),
-    limit,max_video_hours:maxSeconds/3600,selected_video_hours:total/3600,reused,blocked,queue};
-  mkdirSync(dirname(values.write),{recursive:true});writeFileSync(values.write,JSON.stringify(result,null,2)+'\n');
-  console.log(JSON.stringify(result,null,2));
-  if(blocked && !queue.length) process.exitCode=2;
+const command = positionals[0] ?? 'status';
+
+interface PlannedVod extends BackfillVod { reason: VodWork['reason']; unavailable: boolean }
+interface Plan {
+  target: BackfillTarget; from: string; to: string; generated_at: string;
+  vods: PlannedVod[]; queue: number[];
+  missing: { vod: number; title: string; reason: VodWork['reason'] }[];
 }
-try {await run();} catch(e) {console.error(e instanceof Error?e.message:e);process.exitCode=1;} finally {await closeDb();}
+interface Current { vod: PlannedVod; before: VodWork }
+
+const lastPlanPath = (channel: string) => join('out/ck/backfill', `last-${channel}.json`);
+const shiftDay = (day: string, d: number) => kstDateString(new Date(new Date(`${day}T00:00:00+09:00`).getTime() + d*86400000));
+const readJson = <T,>(p: string): T => JSON.parse(readFileSync(p,'utf8')) as T;
+function writeJson(p: string, v: unknown) { mkdirSync(dirname(p),{recursive:true}); writeFileSync(p, JSON.stringify(v,null,2)+'\n'); }
+function locked() {
+  if (process.env.CK_BACKFILL_LOCKED !== '1') throw new Error('변경 명령은 scripts/ck-backfill.sh(또는 같은 flock) 안에서 실행해야 한다');
+}
+
+async function evaluate(vods: BackfillVod[]): Promise<PlannedVod[]> {
+  const raws = await vodRaws(vods.map(v=>v.title_no));
+  return vods.map(v => { const w = vodWork(raws.get(v.title_no), v.duration_sec); return { ...v, reason: w.reason, unavailable: w.unavailable }; });
+}
+function summary(vods: PlannedVod[]) {
+  const count = (f: (v: PlannedVod)=>boolean) => vods.filter(f).length;
+  return { total: vods.length, complete: count(v=>v.reason===null && !v.unavailable), unavailable: count(v=>v.unavailable),
+    remaining: count(v=>v.reason!==null), running: count(v=>v.reason==='running') };
+}
+
+async function plan() {
+  locked();
+  if (!values.streamer || !values.write) throw new Error('--streamer 와 --write 가 필요하다');
+  const target = await resolveBackfillTarget(values.streamer);
+  let from = values.from, to = values.to;
+  if (!!from !== !!to) throw new Error('--from 과 --to 는 함께 준다. 둘 다 없으면 마지막 요청 기간을 쓴다');
+  if (from && to) {
+    if (to > kstDateString(new Date())) throw new Error(`--to 가 오늘(KST) 이후다: ${to}`);
+    await saveBackfillRequest(target, from, to);
+  } else {
+    const last = await getBackfillRequest(target.channel_id);
+    if (!last) throw new Error('이 채널은 요청한 기간이 없다. --from, --to 로 처음 요청할 것');
+    ({ from_date: from, to_date: to } = last);
+  }
+  // 앞뒤 하루를 넓혀 받는다. 조사 대상은 요청 기간만이고, 넓힌 목록은 "목록에서 사라진 VOD" 대조에만 쓴다.
+  const wide = await listRange(target.channel_id, shiftDay(from!, -1), shiftDay(to!, 1), listBroadcasts);
+  const inRange = wide.filter(v => { const d = kstDateString(vodDate(v.ended_at)); return d >= from! && d <= to!; });
+  await ensureVodLeads(target, inRange);
+  const vods = await evaluate(inRange);
+  const listed = new Set(wide.map(v=>`vod:${v.title_no}`));
+  const missing = (await channelLeadsBetween(target.channel_id, from!, to!))
+    .filter(l => !listed.has(l.source_key))
+    .map(l => ({ vod: Number(l.source_key.slice(4)), title: l.title, reason: vodWork(l.raw, null).reason }))
+    .filter(l => l.reason !== null);
+  const result: Plan = { target, from: from!, to: to!, generated_at: new Date().toISOString(),
+    vods, queue: vods.filter(v=>v.reason!==null).map(v=>v.title_no), missing };
+  writeJson(values.write, result);
+  writeJson(lastPlanPath(target.channel_id), result);
+  console.log(JSON.stringify({ streamer: target.display_name, from, to, ...summary(vods), missing }, null, 2));
+}
+
+/** 큐에서 아직 완료가 아닌 첫 VOD. 시작 직전에 DB 도장을 다시 읽는다 — 그사이 다른 조사가 끝냈을 수 있다. */
+async function next() {
+  if (!values.queue || !values.current) throw new Error('--queue 와 --current 가 필요하다');
+  const p = readJson<Plan>(values.queue);
+  const byNo = new Map(p.vods.map(v=>[v.title_no, v]));
+  const raws = await vodRaws(p.queue);
+  for (const no of p.queue) {
+    const vod = byNo.get(no)!;
+    const before = vodWork(raws.get(no), vod.duration_sec);
+    if (before.reason === null) continue;
+    writeJson(values.current, { vod: { ...vod, reason: before.reason, unavailable: before.unavailable }, before } satisfies Current);
+    console.log(`다음 VOD ${no} [${before.reason}] ${vod.title} (${((vod.duration_sec??0)/3600).toFixed(1)}h)`);
+    return;
+  }
+  console.log('요청 기간에 남은 VOD 가 없다.');
+  process.exitCode = 3;
+}
+
+/** 방금 세션이 실제로 남은 일을 줄였나. 줄지 않았으면 4 로 끝내 셸이 멈추게 한다. */
+async function after() {
+  if (!values.current) throw new Error('--current 가 필요하다');
+  const c = readJson<Current>(values.current);
+  const raw = (await vodRaws([c.vod.title_no])).get(c.vod.title_no);
+  const w = vodWork(raw, c.vod.duration_sec);
+  const progress = madeProgress(c.before, w);
+  const state = w.unavailable ? '접근 불가' : w.reason === null ? '완료' : `미완료 [${w.reason}]`;
+  console.log(`VOD ${c.vod.title_no}: ${state} · 못 본 ${w.uncovered ?? '?'}초 · 실패 ${w.failed}초 · 미해결 후보 ${w.unresolved}`
+    + (progress ? '' : ' · ⚠ 진척 없음 — 여기서 멈춘다'));
+  if (!progress) process.exitCode = 4;
+}
+
+async function status() {
+  if (!values.streamer) throw new Error('--streamer 가 필요하다');
+  const target = await resolveBackfillTarget(values.streamer);
+  const request = await getBackfillRequest(target.channel_id);
+  const path = lastPlanPath(target.channel_id);
+  if (!request || !existsSync(path)) { console.log(JSON.stringify({ target, request, last_plan: null }, null, 2)); return; }
+  const p = readJson<Plan>(path);
+  const vods = await evaluate(p.vods);
+  console.log(JSON.stringify({ target, request, last_plan: { from: p.from, to: p.to, generated_at: p.generated_at, ...summary(vods),
+    pending: vods.filter(v=>v.reason!==null).map(v=>({ vod: v.title_no, reason: v.reason, ended_at: v.ended_at, title: v.title })),
+    missing: p.missing } }, null, 2));
+}
+
+async function access() {
+  locked();
+  const vod = Number(values.vod), s = values.status;
+  if (!Number.isSafeInteger(vod) || vod <= 0 || !['temporary','unavailable','retry'].includes(s ?? '')) throw new Error('VOD 번호·접근 상태를 확인할 것');
+  await recordVodAccess(vod, s as 'temporary'|'unavailable'|'retry', values.reason ?? '');
+}
+
+try {
+  if (values.help) console.log(HELP);
+  else if (command === 'plan') await plan();
+  else if (command === 'next') await next();
+  else if (command === 'after') await after();
+  else if (command === 'status') await status();
+  else if (command === 'access') await access();
+  else throw new Error(`알 수 없는 명령: ${command}\n${HELP}`);
+} catch (e) { console.error(e instanceof Error ? e.message : e); process.exitCode = 1; }
+finally { await closeDb(); }
