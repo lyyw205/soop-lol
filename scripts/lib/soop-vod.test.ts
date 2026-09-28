@@ -60,3 +60,14 @@ test("hlsSegments 는 화질 목록이 있으면 1080p 변형 재생목록을 �
     restore();
   }
 });
+
+test('목록 HTTP 200 오류 본문은 백필 소진이 아니라 truncated다', async () => {
+  const { listBroadcasts } = await import('./soop-vod.mjs');
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json({ error: 'temporary' })) as typeof fetch;
+  try {
+    const rows = await listBroadcasts('fixture', { maxPages: 1 });
+    assert.equal(rows.length, 0);
+    assert.equal((rows as typeof rows & { truncated?: boolean }).truncated, true);
+  } finally { globalThis.fetch = original; }
+});

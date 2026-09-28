@@ -17,7 +17,8 @@
  *   - `done` + `failed` 남음 → 넣는다. 스킬 정의상 그 VOD 의 결론은 완결이 아니다
  *   미해결 후보는 기준이 아니다 — 그건 VOD 를 다시 훑을 일이 아니라 `ck:record --todo` 몫이다.
  *
- * ★ `running` 은 기간 밖이어도 넣는다 — 와치리스트 채널 것만
+ * ★ raw.backfill 표시는 최근/lead_only/기간 밖 running 모두에서 제외한다. 수동 요청으로만 재개한다.
+ * ★ `running` 은 기간 밖이어도 넣는다 — 와치리스트 채널의 자동 작업만
  *   조사가 긴 VOD 는 한 회차에 못 끝나 `running` 으로 남는다. 최근 N일로만 거르면 N일이 지나는 순간
  *   반쯤 본 채로 영영 빠진다. 그래서 기간과 무관하게 합친다.
  *   `failed_left`(done + 못 본 구간)는 기간 안에서만 넣는다. 영상 길이 밖 지점·영구 누락 세그먼트처럼
@@ -26,19 +27,21 @@
  * ★ 조회가 잘리면 시끄럽게 말하고 종료 코드 2 를 낸다. 조용히 적게 가져오면 누락이 티가 안 난다.
  */
 
+import { listAutoRunningLeads } from "@soop-lol/core/lib/db/ck-backfill";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { kstDate, makeOpt } from "./lib/cli.mjs";
+import { CK_RECENT_DAYS, recentFrom, autoQueueReason, isBackfill } from "@soop-lol/core/lib/metrics/ck-backfill";
 import { listBroadcasts } from "./lib/soop-vod.mjs";
 
 const argv = process.argv.slice(2);
 const opt = makeOpt(argv);
-const DAYS = Number(opt("--days", "3"));
+const DAYS = Number(opt("--days", String(CK_RECENT_DAYS)));
 const WRITE = opt("--write", "");
 // 오늘 포함 DAYS 일. regDate(=방송 종료) 기준이라, 자정을 넘긴 방송도 종료일로 잡힌다.
-const FROM = kstDate(DAYS - 1);
+const FROM = recentFrom(new Date(), DAYS);
 const TO = kstDate(0);
 
 interface Item {
@@ -72,32 +75,24 @@ try {
   }
 
   const keys = found.map((v) => `vod:${v.title_no}`);
-  const leads = keys.length === 0 ? [] : await sql<{ source_key: string; status: string | null; failed: number }[]>`
-    SELECT source_key, raw->'scan'->>'status' AS status,
-           CASE WHEN jsonb_typeof(raw->'scan'->'failed') = 'array'
-                THEN jsonb_array_length(raw->'scan'->'failed') ELSE 0 END::int AS failed
-      FROM event_lead WHERE source_key = ANY(${keys})`;
+  const leads = keys.length === 0 ? [] : await sql<{ source_key: string; raw: Record<string, any> }[]>`
+    SELECT source_key, raw FROM event_lead WHERE source = 'vod_title' AND source_key = ANY(${keys})`;
   const byKey = new Map(leads.map((l) => [l.source_key, l]));
 
   const queue: Item[] = [];
-  let skipped = 0;
+  let skipped = 0, manualSkipped = 0;
   for (const v of found) {
     const l = byKey.get(`vod:${v.title_no}`);
-    let reason: Item["reason"] | null;
-    if (!l) reason = "new";
-    else if (l.status === "done") reason = l.failed > 0 ? "failed_left" : null;
-    else if (l.status === "running") reason = "running";
-    else reason = "lead_only";
+    // lead_only를 포함해 상태 분류 전에 raw.backfill을 제외한다.
+    if (l && isBackfill(l.raw)) { manualSkipped++; continue; }
+    const reason = autoQueueReason(l?.raw);
     if (reason) queue.push({ ...v, reason });
     else skipped++;
   }
   // 기간 밖의 running — 와치리스트 채널 것만. 수동 조사 중인 남의 VOD 를 자동 실행이 가로채지 않게 한다.
   const inQueue = new Set(queue.map((q) => `vod:${q.title_no}`));
   const channels = watch.filter((w) => w.channel_id).map((w) => w.channel_id!);
-  const stale = channels.length === 0 ? [] : await sql<{ source_key: string; channel_id: string; title: string; observed_at: Date }[]>`
-    SELECT source_key, channel_id, title, observed_at FROM event_lead
-     WHERE source_key LIKE 'vod:%' AND raw->'scan'->>'status' = 'running'
-       AND channel_id = ANY(${channels})`;
+  const stale = await listAutoRunningLeads(channels);
   for (const l of stale) {
     if (inQueue.has(l.source_key)) continue;
     const w = watch.find((x) => x.channel_id === l.channel_id)!;
@@ -109,7 +104,7 @@ try {
   // 오래된 것부터 — 기간 창에서 먼저 빠져나가는 쪽이다.
   queue.sort((a, b) => a.ended_at.localeCompare(b.ended_at));
 
-  console.log(`와치리스트 ${watch.length}명 · ${FROM} ~ ${TO} · VOD ${found.length}개 · 조사 끝 ${skipped} · 큐 ${queue.length}`);
+  console.log(`와치리스트 ${watch.length}명 · ${FROM} ~ ${TO} · VOD ${found.length}개 · 조사 끝 ${skipped} · 수동 백필 제외 ${manualSkipped} · 큐 ${queue.length}`);
   for (const q of queue) {
     console.log(`  ${q.ended_at}  vod:${q.title_no}  ${q.hours}h  ${q.streamer}  [${q.reason}]  ${q.title}`);
   }

@@ -158,7 +158,15 @@ export async function listBroadcasts(channelId, { from = "", to = "", keyword = 
     // ★ 실패를 빈 배열로 삼키지 않는다. 조용히 적게 가져오는 건 실패보다 나쁘다.
     if (!r.ok) { out.truncated = true; return out; }
     const j = await r.json();
-    const rows = j?.contents ?? [];
+    // HTTP 200 오류 본문을 정상 빈 목록(백필 완료)으로 오인하지 않는다.
+    if (!Array.isArray(j?.contents) || !Number.isInteger(j?.meta?.totalItems)
+      || j.meta.totalItems < 0 || !Number.isInteger(j?.meta?.totalPages) || j.meta.totalPages < 0) {
+      out.truncated = true; return out;
+    }
+    const rows = j.contents;
+    if (page === 1 && rows.length === 0 && j.meta.totalItems > 0) {
+      out.truncated = true; return out;
+    }
     out.total = j?.meta?.totalItems ?? out.total;
     if (rows.length === 0) break;
     for (const v of rows) {
