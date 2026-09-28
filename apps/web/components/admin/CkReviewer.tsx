@@ -122,6 +122,20 @@ interface Props {
   events: ReviewEvent[];
   /** 확인된 값이 있을 때만 절대 경기 시각을 VOD 상대 초로 바꾼다. */
   vodStartedAt?: string | null;
+  /**
+   * 다시점 대회 화면에서만 준다 — 이 VOD(시점)가 직접 읽은 값 중 경기 값과 다른 칸, 경기별.
+   * 경기 값은 한 벌이라 어느 시점에서 고쳐도 같은 경기가 고쳐진다. docs/CK-MULTI-POV-PLAN.md §6
+   */
+  povDiffs?: Record<string, { compared: number; rows: PovDiffRowView[] }>;
+}
+
+export interface PovDiffRowView {
+  participant_id: number | null;
+  who: string;
+  field: string;
+  stored: unknown;
+  observed: unknown;
+  status: "mismatch_open" | "mismatch_reviewed" | "pending" | "empty";
 }
 
 // ── 작은 조각 ────────────────────────────────────────────────────────
@@ -173,7 +187,7 @@ const POSITIONS = ["", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
 
 type Projected = ProjectedMatch<ReviewMatch, ReviewFrame>;
 
-export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialPending = false }: Props) {
+export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialPending = false, povDiffs }: Props) {
   const projection = useMemo(
     () => projectReviewQueue(frames, matches, { vodStartedAt }),
     [frames, matches, vodStartedAt],
@@ -327,6 +341,9 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
             </div>
 
             <div className="ck-review-inspector-body">
+              {selectedMatch && povDiffs && (
+                <PovDiffBox diff={povDiffs[selectedMatch.match_id]} match={selectedMatch} streamers={streamers} />
+              )}
               {!selectedMatch ? (
                 <div className="ck-review-panel p-4 text-xs leading-relaxed text-ink-400">
                   아직 경기로 반영된 항목이 없습니다.
@@ -347,6 +364,62 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
       </div>
 
       <ReviewQueue initialPending={initialPending} projection={projection} selectedMatchId={selectedMatch?.match_id ?? null} onPickMatch={pickMatch} />
+    </div>
+  );
+}
+
+// ── 이 시점이 읽은 값과 다른 칸 (다시점 대회 화면) ───────────────────────
+
+const POV_FIELD: Record<string, string> = {
+  winning_team: "승리 팀", duration: "경기 길이", series_game_no: "세트",
+  team: "팀", position: "포지션", champion_id: "챔피언", kills: "킬", deaths: "데스", assists: "어시스트",
+};
+const POV_STATUS: Record<PovDiffRowView["status"], { label: string; cls: string }> = {
+  mismatch_open: { label: "미해결", cls: "text-amber-300" },
+  mismatch_reviewed: { label: "검수 완료", cls: "text-ink-400" },
+  pending: { label: "대응 보류", cls: "text-ink-400" },
+  empty: { label: "경기 칸 빈", cls: "text-ink-400" },
+};
+
+function PovDiffBox({ diff, match, streamers }: {
+  diff: { compared: number; rows: PovDiffRowView[] } | undefined;
+  match: ReviewMatch;
+  streamers: ReviewStreamer[];
+}) {
+  if (!diff) {
+    return <div className="ck-review-panel mb-3 p-3 text-[11px] text-ink-400">이 시점은 이 경기 값을 제출하지 않았습니다(사진·연결만).</div>;
+  }
+  const nameOf = (row: PovDiffRowView) => {
+    if (row.who === "경기") return "경기";
+    const p = match.participants.find((x) => x.participant_id === row.participant_id);
+    const person = p?.account_streamer_id ?? p?.streamer_id;
+    return (person && streamers.find((s) => s.id === person)?.display_name) ?? p?.observed_name ?? row.who.replace(/^n:/, "");
+  };
+  const show = (field: string, v: unknown) => v == null ? "비어 있음"
+    : field === "winning_team" || field === "team" ? (v === 100 ? "1팀" : v === 200 ? "2팀" : String(v))
+    : field === "champion_id" ? (championById(Number(v))?.name ?? `#${v}`)
+    : field === "duration" ? durationLabel(Number(v)) : String(v);
+  const open = diff.rows.filter((r) => r.status === "mismatch_open").length;
+  return (
+    <div className="ck-review-panel mb-3 p-3 text-[11px]">
+      <p className={open ? "text-amber-300" : "text-ink-400"}>
+        이 시점이 읽은 {diff.compared}칸 중 {diff.rows.length ? `다른 칸 ${diff.rows.length}` : "모두 경기 값과 일치"}
+        {open ? ` · 미해결 ${open}` : ""}
+      </p>
+      {diff.rows.length > 0 && (
+        <table className="mt-2 w-full">
+          <thead className="text-left text-ink-400"><tr><th className="pr-2 font-normal">자리</th><th className="pr-2 font-normal">칸</th>
+            <th className="pr-2 font-normal">경기 값</th><th className="pr-2 font-normal">이 시점</th><th className="font-normal">상태</th></tr></thead>
+          <tbody>{diff.rows.map((r) => (
+            <tr key={`${r.who}:${r.field}`} className="border-t border-ink-800">
+              <td className="pr-2 text-ink-200">{nameOf(r)}</td><td className="pr-2 text-ink-400">{POV_FIELD[r.field] ?? r.field}</td>
+              <td className="pr-2 tabular-nums text-ink-200">{show(r.field, r.stored)}</td>
+              <td className="pr-2 tabular-nums text-ink-200">{show(r.field, r.observed)}</td>
+              <td className={POV_STATUS[r.status].cls}>{POV_STATUS[r.status].label}</td>
+            </tr>))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

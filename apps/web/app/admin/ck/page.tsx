@@ -16,8 +16,12 @@ export default async function CkLeadsPage({ searchParams }: {
   const query = await searchParams;
   const kind = KINDS.includes(query.kind as LeadEventKind) ? query.kind as LeadEventKind : "";
   const pending = query.review === "pending";
-  const byEvent = kind === "tournament" || kind === "showmatch";
-  const events = byEvent ? await listReviewEvents(kind, pending) : [];
+  // ★ CK 도 대회 단위로 묶는다. VOD 단위로 두면 한 CK 를 9명이 방송했을 때 같은 경기가 9줄로 반복된다
+  //   (2026-09-27). 경기 하나에 붙은 시점들은 경기 화면에서 나란히 본다(docs/CK-MULTI-POV-PLAN.md §6).
+  //   전체 분류·스크림·기타도 같은 이유로 대회 단위다(수동 경기는 전부 대회에 속한다 — 2026-09-28 확인).
+  //   VOD 단위 목록은 채널로 거를 때만 쓴다(한 스트리머의 방송을 훑어볼 때).
+  const byEvent = !query.channel;
+  const events = byEvent ? await listReviewEvents(kind || null, pending) : [];
   const leads = byEvent ? [] : await listEventLeads({
     event_kind: kind || undefined, channel_id: query.channel, with_matches: true, unreviewed: pending,
   });
@@ -56,7 +60,8 @@ export default async function CkLeadsPage({ searchParams }: {
           const link = `/admin/ck/event/${e.slug}`;
           return <tr key={e.id}>
             <th scope="row" className="ck-progress-title"><Link href={pending ? `${link}?review=pending` : link} className="text-sm text-ink-200 hover:text-accent-400">{e.name}</Link>
-              <p className="mt-1 text-xs text-ink-500">{e.starts_at ? kstDate(e.starts_at) : e.first_played ? kstDate(e.first_played) : "날짜 미상"}</p></th>
+              <p className="mt-1 flex gap-2 text-xs text-ink-500">{!kind && <span>{EVENT_KIND_LABEL[e.kind] ?? e.kind}</span>}
+                <span>{e.starts_at ? kstDate(e.starts_at) : e.first_played ? kstDate(e.first_played) : "날짜 미상"}</span></p></th>
             <ReviewProgressCells matches={e.match_count} completed={e.completed_count} positions={e.position_count} linked={e.linked_count} champions={e.champion_count} kda={e.kda_count} href={link} />
           </tr>;
         }) : leads.map(l => {

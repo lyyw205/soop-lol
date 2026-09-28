@@ -88,6 +88,8 @@
     "verify:ck": "node scripts/verify-ck-review.ts",
     "verify:ck:concurrency": "node scripts/verify-ck-concurrency.ts",
     "verify:ck:browser": "node scripts/verify-ck-browser.ts",
+    "//verify:ck:pov": "★ 다시점 경기 통합을 실제 ck:merge 명령으로 끝까지 돌린다 — 시점 추가·빈 칸 채우기·불일치·검수 보호·거부 사례. 가짜는 VOD 사진 파일뿐.",
+    "verify:ck:pov": "node scripts/verify-ck-pov.ts",
     "ck:backfill": "node --env-file-if-exists=apps/web/.env.local scripts/ck-backfill.ts",
     "verify:ck:backfill": "node scripts/verify-ck-backfill.ts"
   },

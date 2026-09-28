@@ -52,6 +52,8 @@ import {
   upsertMatchFromScanInTx,
 } from "@soop-lol/core/lib/db/ck";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
+import { submitMatchPovInTx } from "@soop-lol/core/lib/db/ck-pov";
+import { resolveChampion } from "@soop-lol/core/lib/db/participant";
 import { ensureEventInTx } from "@soop-lol/core/lib/db/tournaments";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -123,7 +125,7 @@ if (findVod) {
       console.log(`    이 사람: ${m.owner_team_id === 100 ? "1팀" : m.owner_team_id === 200 ? "2팀" : "?"} · 챔피언 ${m.owner_champion ?? "기록 없음"}`
         + ` · ${m.winning_team === m.owner_team_id ? "승" : m.winning_team ? "패" : "승자 미정"}`);
       // ★ "공백 없음" 은 DB 조회 항목 기준이다. 화면끼리의 모순이나 VOD 경계 오류까지 확인한 게 아니다.
-      console.log(`    ${gaps.length ? `조회 항목상 공백: ${gaps.join(" · ")}` : "조회 항목상 공백 없음 — 연결 확인 후 이 판은 더 파지 않아도 된다"}`);
+      console.log(`    ${gaps.length ? `조회 항목상 공백: ${gaps.join(" · ")}` : "조회 항목상 공백 없음 — 그래도 이 VOD 에서 처음부터 읽고, 직접 읽은 칸만 이 match_id 로 제출한다"}`);
     }
   }
   await closeDb();
@@ -217,11 +219,76 @@ function broadcastOf(sourceKey) {
     return b?.end ?? b?.start ?? null;
   } catch { return null; }
 }
+// 전체 길이는 실제 probe 시간축에서 가져온다. API 길이와 다를 수 있다.
+function measuredVodLength(sourceKey) {
+  const vod = /^vod:(\d+)$/.exec(sourceKey ?? "")?.[1];
+  if (!vod) return {};
+  try {
+    const probe = JSON.parse(readFileSync(join(ROOT, "out", "ck", vod, "probe.json"), "utf8"));
+    return probe.vod_id === Number(vod) && Number.isFinite(probe.total_sec) && probe.total_sec > 0
+      && probe.parts?.length && probe.parts.every(p => p.length_measured)
+      ? { vod_total_sec: probe.total_sec } : {};
+  } catch { return {}; }
+}
 const fail = (i, msg) => problems.push(`결과 #${i + 1}: ${msg}`);
 /** 자식의 supersedes 역참조로 기본 큐에서 숨길 부모를 계산한다. 원본 부모는 고치지 않는다. */
 const supersededIds = (candidates) => new Set(
   candidates.map((candidate) => candidate.supersedes).filter((id) => typeof id === "string" && id),
 );
+
+/**
+ * **새 경기**를 만들 때만 요구하는 것. 기존 경기에 시점을 더할 때는 요구하지 않는다 —
+ * 그 화면에서 읽은 칸만 낸다(§4.2). 경기를 만든 시점이 혼자일 때 값을 고치는 재제출도 이 조건을 채워야 한다.
+ */
+function creationProblems(r) {
+  const out = [];
+  if (![100, 200].includes(r.winning_team)) {
+    // ★ 승자를 모르면 경기가 아니라 **후보**로 남긴다 (§6). 없는 값을 만들지 않는다.
+    out.push("match 는 winning_team 이 100 또는 200 이어야 한다 — "
+      + "승자가 미해결이면 경기로 넣지 말고 scan 의 candidates 에 unresolved 로 남길 것");
+  }
+  // ★ **무엇을 보고 승패를 정했는지 없이는 받지 않는다** (마이그레이션 0015).
+  //   ⚠ 내용이 충분한지는 **보지 않는다** — 정형 문구를 요구하면 그 문구를 채우게 된다(§5).
+  if (!r.result_evidence || String(r.result_evidence).trim() === "") {
+    out.push("match 는 result_evidence 가 필요하다 — 무엇을 보고 승패를 정했는지 그대로 적을 것 "
+      + "(결과 화면을 못 찾았으면 그 사실과 대신 무엇을 봤는지를 적는다)");
+  }
+  if (!r.played_at) out.push("match 는 played_at 이 필요하다");
+  // ★ 기본값이 없다(0035). VOD 시작 시각을 확인하지 않고 오프셋으로 어림했으면 "date" 다.
+  if (!["datetime", "date"].includes(r.played_at_precision)) {
+    out.push("match 는 played_at_precision 이 필요하다 — \"datetime\"(시각까지 확인) 또는 \"date\"(날짜만 확실)");
+  }
+  if (r.set_order_known !== undefined && typeof r.set_order_known !== "boolean") {
+    out.push("set_order_known 은 true/false 다 — 세트 순서를 VOD 에서 확인했으면 true");
+  }
+  if (r.best_of !== undefined && r.best_of !== null) {
+    if (!r.series_id) out.push("best_of를 적으려면 series_id가 필요하다");
+    if (!Number.isInteger(r.best_of) || r.best_of <= 0 || r.best_of % 2 === 0) {
+      out.push("best_of는 양의 홀수여야 한다 — 고정 2세트제나 모르는 포맷은 비울 것");
+    }
+    if (!r.best_of_evidence || !String(r.best_of_evidence).trim()) {
+      out.push("best_of에는 대회 규정이나 VOD 시각 근거(best_of_evidence)가 필요하다");
+    }
+  } else if (r.best_of_evidence !== undefined && r.best_of_evidence !== null) {
+    out.push("best_of_evidence만 적을 수 없다");
+  }
+  if (!Array.isArray(r.participants) || r.participants.length === 0) out.push("match 는 participants 가 필요하다");
+  for (const [j, p] of (r.participants ?? []).entries()) {
+    if (!Number.isInteger(p.participant_id)) out.push(`participants[${j}] 에 participant_id 가 없다`);
+    if (![100, 200].includes(p.team_id)) out.push(`participants[${j}] 의 team_id 가 100·200 이 아니다`);
+  }
+  return out;
+}
+
+/** 이 파일의 경기 중 DB 에 이미 있는 것. 있으면 시점 추가, 없으면 새 경기다. */
+const existingMatchIds = new Set();
+{
+  const ids = results.filter((r) => r.resultType === "match" && r.match_id).map((r) => r.match_id);
+  if (ids.length) for (const row of await db()`SELECT match_id FROM match WHERE match_id = ANY(${ids})`) existingMatchIds.add(row.match_id);
+}
+/** 경기 제출이 어느 VOD 의 시점인가 — 명시(pov.source_key) → 파일에 scan 이 하나면 그것. */
+const scanKeys = results.filter((r) => r.resultType === "scan" && r.lead?.source_key).map((r) => r.lead.source_key);
+const povKeyOf = (r) => r.pov?.source_key ?? (scanKeys.length === 1 ? scanKeys[0] : null);
 
 for (const [i, r] of results.entries()) {
   if (!["scan", "match", "identify"].includes(r.resultType)) {
@@ -261,54 +328,53 @@ for (const [i, r] of results.entries()) {
         || !c.supersedes.trim() || c.supersedes === c.id)) {
         fail(i, `candidates[${j}] 의 supersedes 는 자기 자신이 아닌 부모 후보 id 문자열이어야 한다`);
       }
+      // ★ "같은 판이다" 만 적고 끝내지 않는다. 그 경기에 이 VOD 의 시점을 같이 내야 한다 — 메모만 남고
+      //   사진·비교가 빠지는 일(임아니 VOD 41장)을 막는다. docs/CK-MULTI-POV-PLAN.md §4.8
+      if (c.conclusion === "linked" && c.match_id && !results.some((m) =>
+        m.resultType === "match" && m.match_id === c.match_id && povKeyOf(m) === r.lead?.source_key)) {
+        fail(i, `candidates[${j}] 이 ${c.match_id} 에 linked 인데 같은 파일에 이 VOD(${r.lead?.source_key}) 시점의 `
+          + "match 제출이 없다 — 이 화면에서 직접 읽은 값과 근거 사진으로 그 경기를 match 로 낼 것");
+      }
     }
   }
   if (r.resultType === "match") {
-    if (!r.match_id) fail(i, "match 는 match_id 가 필요하다");
-    if (![100, 200].includes(r.winning_team)) {
-      // ★ 승자를 모르면 경기가 아니라 **후보**로 남긴다 (§6). 없는 값을 만들지 않는다.
-      fail(i, "match 는 winning_team 이 100 또는 200 이어야 한다 — "
-        + "승자가 미해결이면 경기로 넣지 말고 scan 의 candidates 에 unresolved 로 남길 것");
-    }
-    // ★ **무엇을 보고 승패를 정했는지 없이는 받지 않는다** (마이그레이션 0015).
-    //   시드 경로는 seed-tournament 가 파일 단위로 이걸 강제하는데, VOD 판독 경로에는
-    //   그 관문이 없었다. 채팅 공지만 믿었다가 승자가 뒤집힌 채 올라간 사고가 실제로 있었다.
-    //   ⚠ 내용이 충분한지는 **보지 않는다** — 정형 문구를 요구하면 그 문구를 채우게 된다(§5).
-    //      "결과창 못 찾음, 공지만 있음" 도 정당한 근거 기록이다.
-    if (!r.result_evidence || String(r.result_evidence).trim() === "") {
-      fail(i, "match 는 result_evidence 가 필요하다 — 무엇을 보고 승패를 정했는지 그대로 적을 것 "
-        + "(결과 화면을 못 찾았으면 그 사실과 대신 무엇을 봤는지를 적는다)");
-    }
-    if (!r.played_at) fail(i, "match 는 played_at 이 필요하다");
-    // ★ 기본값이 없다(0035). VOD 에서 찾았다고 시각이 정확한 게 아니다 — VOD 시작 시각을
-    //   확인하지 않고 오프셋으로 어림했으면 "date" 다. 조사자가 말하게 한다.
-    if (!["datetime", "date"].includes(r.played_at_precision)) {
-      fail(i, "match 는 played_at_precision 이 필요하다 — \"datetime\"(시각까지 확인) 또는 \"date\"(날짜만 확실)");
-    }
-    if (r.set_order_known !== undefined && typeof r.set_order_known !== "boolean") {
-      fail(i, "set_order_known 은 true/false 다 — 세트 순서를 VOD 에서 확인했으면 true");
-    }
-    if (r.best_of !== undefined && r.best_of !== null) {
-      if (!r.series_id) fail(i, "best_of를 적으려면 series_id가 필요하다");
-      if (!Number.isInteger(r.best_of) || r.best_of <= 0 || r.best_of % 2 === 0) {
-        fail(i, "best_of는 양의 홀수여야 한다 — 고정 2세트제나 모르는 포맷은 비울 것");
+    if (!r.match_id) { fail(i, "match 는 match_id 가 필요하다"); continue; }
+    if (r.pov !== undefined) {
+      if (typeof r.pov !== "object" || r.pov === null) fail(i, "pov 는 객체여야 한다");
+      else {
+        if (r.pov.source !== undefined && !["own", "rebroadcast"].includes(r.pov.source)) {
+          fail(i, "pov.source 는 own(본인 화면) 또는 rebroadcast(남의 방송을 띄운 화면)다");
+        }
+        if (r.pov.time_reliable !== undefined && typeof r.pov.time_reliable !== "boolean") {
+          fail(i, "pov.time_reliable 은 true/false 다 — VOD 가 끊겨 시각을 믿을 수 없으면 false");
+        }
+        if (r.pov.source_key !== undefined && !/^vod:\d+$/.test(r.pov.source_key)) {
+          fail(i, "pov.source_key 는 vod:<번호> 다");
+        }
       }
-      if (!r.best_of_evidence || !String(r.best_of_evidence).trim()) {
-        fail(i, "best_of에는 대회 규정이나 VOD 시각 근거(best_of_evidence)가 필요하다");
-      }
-    } else if (r.best_of_evidence !== undefined && r.best_of_evidence !== null) {
-      fail(i, "best_of_evidence만 적을 수 없다");
     }
-    if (!Array.isArray(r.participants) || r.participants.length === 0) {
-      fail(i, "match 는 participants 가 필요하다");
-    }
+    if (r.participants !== undefined && !Array.isArray(r.participants)) fail(i, "participants 는 배열이다");
     for (const [j, p] of (r.participants ?? []).entries()) {
-      if (!Number.isInteger(p.participant_id)) fail(i, `participants[${j}] 에 participant_id 가 없다`);
-      if (![100, 200].includes(p.team_id)) fail(i, `participants[${j}] 의 team_id 가 100·200 이 아니다`);
+      // null 은 "잘못 읽은 팀 관측 철회" 다. 새 경기 생성은 creationProblems 가 100·200 을 따로 요구한다.
+      if (p.team_id !== undefined && p.team_id !== null && ![100, 200].includes(p.team_id)) {
+        fail(i, `participants[${j}] 의 team_id 가 100·200 이 아니다 — 철회하려면 null`);
+      }
       if (!p.streamer_slug && !p.puuid && !p.observed_name) {
         fail(i, `participants[${j}] 에 사람·계정·화면이름이 하나도 없다 — `
           + "이름도 못 읽었으면 그 자리는 후보 기록에 남길 것");
       }
+    }
+    if (r.winning_team !== undefined && r.winning_team !== null && ![100, 200].includes(r.winning_team)) {
+      fail(i, "winning_team 은 100 또는 200 이다 — 모르면 적지 않고, 잘못 읽은 관측을 철회하려면 null");
+    }
+    if (existingMatchIds.has(r.match_id)) {
+      // ★ 이미 있는 경기에는 **시점을 더한다**(docs/CK-MULTI-POV-PLAN.md §3). 이 화면에서 직접 읽은
+      //   칸만 낸다 — 못 읽은 값을 기존 기록에서 옮겨 적으면 확인 안 한 값이 "일치" 로 보인다.
+      if (!r.pov?.link_basis || !String(r.pov.link_basis).trim()) {
+        fail(i, `${r.match_id} 는 이미 있는 경기다 — 시점을 더하려면 pov.link_basis(같은 경기라고 본 근거)가 필요하다`);
+      }
+    } else {
+      for (const msg of creationProblems(r)) fail(i, msg);
     }
   }
   if (r.resultType === "identify") {
@@ -341,7 +407,7 @@ if (dryRun) {
     const extra = r.resultType === "scan"
       ? `프레임 ${r.frames?.length ?? 0} · 후보 ${r.candidates?.length ?? 0}`
       : r.resultType === "match"
-        ? `${r.match_id} · 참가자 ${r.participants.length}`
+        ? `${r.match_id} · ${existingMatchIds.has(r.match_id) ? "시점 추가" : "새 경기"} · 참가자 ${r.participants?.length ?? 0}`
         : `${r.match_id} · ${r.participants?.length ?? 0}명`;
     console.log(`  #${i + 1} ${r.resultType}  ${extra}`);
   }
@@ -349,9 +415,63 @@ if (dryRun) {
   process.exit(0);
 }
 
+/**
+ * 제출을 "이 화면에서 직접 읽은 칸" 으로 바꾼다. **키가 있는 칸만** 싣는다 — 없는 칸은 안 읽음,
+ * null 은 철회, 0 은 읽은 값(§4.2·4.7). 사람은 slug 를 사람 id 로, 챔피언은 이름을 id 로 바꾼다.
+ */
+async function povSubmissionOf(tx, r) {
+  const sub = { match: {}, participants: [] };
+  if ("winning_team" in r) sub.match.winning_team = r.winning_team;
+  if ("duration" in r) sub.match.duration = r.duration;
+  if ("series_game_no" in r) sub.match.series_game_no = r.series_game_no;
+  for (const p of r.participants ?? []) {
+    const ident = {
+      streamer_id: p.streamer_slug ? await streamerIdBySlugInTx(tx, p.streamer_slug) : null,
+      puuid: p.puuid ?? null,
+      observed_name: p.observed_name ?? null,
+    };
+    if (p.streamer_slug && !ident.streamer_id && !p.observed_name && !p.puuid) {
+      console.log(`      ⚠ 등록 안 된 slug ${p.streamer_slug} — 이름도 없어 이 자리는 비교하지 않는다`);
+    }
+    const e = { ident };
+    if ("team_id" in p) e.team = p.team_id;
+    if ("team_position" in p) e.position = p.team_position;
+    if ("champion_name" in p || "champion_id" in p) {
+      if (p.champion_name == null && p.champion_id == null) e.champion_id = null;
+      else {
+        const c = resolveChampion(p.champion_id ?? null, p.champion_name ?? null);
+        if (c.champion_id) e.champion_id = c.champion_id;
+        else console.log(`      ⚠ 챔피언을 표에서 못 찾았다: ${p.champion_name ?? p.champion_id} — 이 칸은 비교하지 않는다`);
+      }
+    }
+    for (const f of ["kills", "deaths", "assists"]) if (f in p) e[f] = p[f];
+    sub.participants.push(e);
+  }
+  return sub;
+}
+
+/**
+ * 사진의 절대시각 — **실제 경기와 방송 시각을 직접 대응할 수 있을 때만** 낸다(§4.5).
+ * 본인 화면 · VOD 시작 시각을 앎 · 분할 파일 길이를 모두 잰 연속 시간축 · 조사자가 끊김을 보고하지 않음.
+ * 하나라도 아니면 undefined — 시각 모순 검사를 하지 않고 조사자 근거로 판단한다.
+ */
+async function frameTimesOf(tx, r, povKey, povLead, frameIds) {
+  if ((r.pov?.source ?? "own") !== "own" || r.pov?.time_reliable === false || !frameIds.length) return undefined;
+  const probeStart = (() => {
+    const vod = /^vod:(\d+)$/.exec(povKey ?? "")?.[1];
+    const p = vod ? join(ROOT, "out", "ck", vod, "probe.json") : null;
+    try { return p && existsSync(p) ? JSON.parse(readFileSync(p, "utf8")).broadcast?.start ?? null : null; } catch { return null; }
+  })();
+  const started = povLead.raw?.vod_started_at ?? probeStart;
+  if (!started || !povLead.raw?.vod_total_sec) return undefined;
+  const rows = await tx`SELECT at_sec FROM match_evidence_frame WHERE id = ANY(${frameIds}::uuid[]) AND at_sec IS NOT NULL`;
+  const base = new Date(started).getTime();
+  return rows.map((f) => new Date(base + Number(f.at_sec) * 1000));
+}
+
 // ── 반영 ────────────────────────────────────────────────────────────
 
-let leads = 0, framesIn = 0, cands = 0, matches = 0, skipped = 0, identified = 0;
+let leads = 0, framesIn = 0, cands = 0, matches = 0, skipped = 0, identified = 0, povAdded = 0;
 /** 이번에 건드린 단서. 끝에 되읽어 반영 결과와 남은 일을 보여준다. */
 const touchedLeads = new Set();
 
@@ -376,7 +496,8 @@ try {
           observed_at: new Date(broadcastOf(r.lead.source_key) ?? r.lead.observed_at),
           // 경기 절대시각을 VOD 상대 초로 바꾸는 기준은 추측하지 않는다. 조사 결과가
           // 명시적으로 확인해 준 경우에만 raw에 보존해 검수 타임라인 fallback으로 쓴다.
-          raw: r.lead.vod_started_at ? { vod_started_at: r.lead.vod_started_at } : undefined,
+          raw: { ...measuredVodLength(r.lead.source_key),
+            ...(r.lead.vod_started_at ? { vod_started_at: r.lead.vod_started_at } : {}) },
           // ★ state 는 단서 분류이지 공개 승인이 아니다. 조사했으면 confirmed 로 둔다.
           state: r.lead.state ?? "confirmed",
         });
@@ -456,6 +577,69 @@ try {
 
       if (r.resultType === "match") {
         /**
+         * 근거 프레임을 **경로로** 받아 id 로 바꾼다. 조사자는 id 를 모르고 경로는 안다.
+         * 못 찾은 경로는 조용히 넘기지 않는다 — 근거가 빠진 채 성공으로 보이면 안 된다.
+         */
+        const frameIds = [...(r.evidence_frame_ids ?? [])];
+        if (r.evidence_frames?.length) {
+          const found = await evidenceFrameIdsByPathInTx(tx, r.evidence_frames);
+          for (const path of r.evidence_frames) {
+            const id = found.get(path);
+            if (id) frameIds.push(id);
+            // ★ 경고만 찍고 넘기면 "근거 없는 VOD 판독 경기" 가 성공처럼 들어간다 — 실제로 6세트가
+            //   그렇게 들어가 어느 VOD 에서 봤는지 연결이 끊겼다(2026-09-25). 파일 전체를 되돌린다.
+            else throw new Error(`${r.match_id}: 근거 프레임을 못 찾았다 — 같은 파일의 scan 으로 먼저 기록해야 한다: ${path}`);
+          }
+        }
+
+        // ★ 이 제출이 어느 VOD 의 시점인가. 명시 → 파일에 scan 이 하나면 그것 → 출처 URL 이 같은 VOD 단서 하나.
+        let povKey = povKeyOf(r);
+        if (!povKey && r.source_url) {
+          const hits = await tx`SELECT source_key FROM event_lead WHERE source = 'vod_title' AND url = ${r.source_url}`;
+          if (hits.length === 1) povKey = hits[0].source_key;
+        }
+        const [povLead] = povKey ? await tx`
+          SELECT id, raw FROM event_lead WHERE source = 'vod_title' AND source_key = ${povKey}` : [];
+        const [current] = await tx`SELECT reviewed_at FROM match WHERE match_id = ${r.match_id}`;
+        const exists = current != null;
+        const povs = exists ? await tx`SELECT lead_id::text AS lead_id, role FROM match_pov WHERE match_id = ${r.match_id}` : [];
+        // ★ 경기를 만든 시점만 붙어 있을 때만 그 시점이 값을 고칠 수 있다(§4.4). 다른 시점이 한 번이라도
+        //   붙었으면 그 뒤로는 덮어쓰지 않고 빈 칸 채우기·비교만 한다.
+        //   ★ "붙은 시점이 하나" 만으로는 안 된다 — **그 시점이 경기를 만든(created) 시점**이어야 한다.
+        //     예전 경기(시점 기록 없음)에 처음 붙은 추가 시점이 필수 정보를 다 채워 다시 내면, 혼자라는 이유로
+        //     원본 전체를 덮어쓸 수 있었다(외부 검토 2026-09-28).
+        const soleCreator = exists && povLead && povs.length > 0
+          && povs.every((p) => p.lead_id === povLead.id) && povs.some((p) => p.role === "created");
+        const complete = creationProblems(r).length === 0;
+        const povSource = r.pov?.source ?? "own";
+        const submission = await povSubmissionOf(tx, r);
+
+        // 검수된 경기는 값이 잠긴다 — 만든 시점이라도 덮어쓰지 않고, 시점·사진만 더한다(§4.6).
+        if (exists && !(soleCreator && complete && current.reviewed_at == null)) {
+          if (!povLead) {
+            throw new Error(`${r.match_id}: 이미 있는 경기인데 어느 VOD 의 시점인지 모른다 — pov.source_key 를 적거나 같은 파일에 그 VOD 의 scan 을 넣을 것`);
+          }
+          const res = await submitMatchPovInTx(tx, {
+            match_id: r.match_id,
+            lead_id: povLead.id,
+            source: povSource,
+            link_basis: r.pov?.link_basis ?? null,
+            submission,
+            frame_ids: frameIds,
+            frame_times: await frameTimesOf(tx, r, povKey, povLead, frameIds),
+          });
+          povAdded++;
+          const s = res.summary;
+          console.log(`시점  ${r.match_id}  ← ${povKey} (${povSource})  사진 ${res.attached}`
+            + ` · 비교 ${s.compared}(일치 ${s.agree}${s.mismatch_open ? ` · ⚠ 불일치 ${s.mismatch_open}` : ""})`
+            + `${res.filled.length ? ` · 빈 칸 채움 ${res.filled.length}` : ""}`
+            + `${s.pending ? ` · 대응 보류 ${s.pending}` : ""}`
+            + `${res.locked ? " · 검수된 경기라 값은 잠김" : ""}`
+            + `${res.reopened ? " · ⚠ 새 불일치로 검수 완료를 풀었다(미검수 목록에 다시 뜬다)" : ""}`);
+          if (res.unmatched.length) console.log(`      ⚠ 경기에서 찾지 못한 사람: ${res.unmatched.join(", ")} — 비교·채우기 안 함`);
+          continue;
+        }
+        /**
          * 대회에 **붙이기만** 한다. 분류는 그 대회의 kind 가 정한다
          * (`lol_match_category(source, queue_id, event.kind)`).
          *
@@ -503,22 +687,6 @@ try {
           });
         }
 
-        /**
-         * 근거 프레임을 **경로로** 받아 id 로 바꾼다. 조사자는 id 를 모르고 경로는 안다.
-         * 못 찾은 경로는 조용히 넘기지 않는다 — 근거가 빠진 채 성공으로 보이면 안 된다.
-         */
-        const frameIds = [...(r.evidence_frame_ids ?? [])];
-        if (r.evidence_frames?.length) {
-          const found = await evidenceFrameIdsByPathInTx(tx, r.evidence_frames);
-          for (const path of r.evidence_frames) {
-            const id = found.get(path);
-            if (id) frameIds.push(id);
-            // ★ 경고만 찍고 넘기면 "근거 없는 VOD 판독 경기" 가 성공처럼 들어간다 — 실제로 6세트가
-            //   그렇게 들어가 어느 VOD 에서 봤는지 연결이 끊겼다(2026-09-25). 파일 전체를 되돌린다.
-            else throw new Error(`${r.match_id}: 근거 프레임을 못 찾았다 — 같은 파일의 scan 으로 먼저 기록해야 한다: ${path}`);
-          }
-        }
-
         const wrote = await upsertMatchFromScanInTx(tx, {
           match_id: r.match_id,
           event_id: eventId,
@@ -544,6 +712,14 @@ try {
         if (wrote) {
           matches++;
           console.log(`경기  ${r.match_id}  ${r.winning_team === 100 ? "1팀" : "2팀"} 승 · 참가자 ${participants.length}`);
+          if (povLead) {
+            await submitMatchPovInTx(tx, {
+              match_id: r.match_id, lead_id: povLead.id, source: povSource, role: "created",
+              link_basis: r.pov?.link_basis ?? null, submission, frame_ids: frameIds,
+            });
+          } else if ((r.origin ?? "vod_scan") === "vod_scan") {
+            console.log(`      ⚠ 어느 VOD 시점인지 몰라 시점 기록 없이 만들었다 — pov.source_key 를 적으면 남는다`);
+          }
         } else {
           // ★ 성공으로 세지 않는다 (§3-D). 검수 보호로 막힌 것도 결과다.
           skipped++;
@@ -603,6 +779,7 @@ try {
   committed = true;
 
   console.log(`\n단서 ${leads} · 프레임 ${framesIn} · 후보 ${cands} · 경기 ${matches}`
+    + `${povAdded > 0 ? ` · 기존 경기에 시점 추가 ${povAdded}` : ""}`
     + `${skipped > 0 ? ` · 검수돼 건드리지 않음 ${skipped}` : ""}`
     + `${identified > 0 ? ` · 식별 ${identified}` : ""}`);
 

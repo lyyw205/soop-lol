@@ -37,7 +37,8 @@ export interface ReviewEventRow extends ReviewProgress {
  *   들어간 시드 경기 3개 때문에 그 대회가 2026 대회들보다 위로 올라갔다. 대회의 날짜는 대회 행에 있다.
  *   시작일이 없는 대회만 첫 경기 날짜로 대신한다.
  */
-export async function listReviewEvents(kind: LeadEventKind, unreviewed = false): Promise<ReviewEventRow[]> {
+/** `kind` 가 null 이면 모든 분류의 대회를 한 목록으로 낸다(검수 목록의 "전체 분류"). */
+export async function listReviewEvents(kind: LeadEventKind | null, unreviewed = false): Promise<ReviewEventRow[]> {
   const sql = db();
   return sql<ReviewEventRow[]>`
     WITH em AS (
@@ -64,7 +65,7 @@ export async function listReviewEvents(kind: LeadEventKind, unreviewed = false):
            max(em.game_creation) AS last_played
       FROM event e
       LEFT JOIN em ON em.event_id = e.id
-     WHERE e.kind = ${kind} AND e.game_code = 'lol'
+     WHERE (${kind}::text IS NULL OR e.kind = ${kind}) AND e.game_code = 'lol'
      GROUP BY e.id
     HAVING (${unreviewed} = false OR count(em.match_id) FILTER (WHERE em.review_completed_at IS NULL) > 0)
      ORDER BY COALESCE(e.starts_at, min(em.game_creation)) DESC NULLS LAST, e.name

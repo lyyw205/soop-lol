@@ -916,7 +916,7 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
  * ★ puuid 매핑이 `streamer_id` 보다 **먼저** 온다 — `transform.ts` 의 식별 순서와 같아야
  *   하고, `champion_stat` 재계산 SQL 의 COALESCE 순서와도 같아야 한다.
  */
-async function affectedStreamers(tx: Tx, matchId: string): Promise<string[]> {
+export async function affectedStreamers(tx: Tx, matchId: string): Promise<string[]> {
   const rows = await tx<{ streamer_id: string }[]>`
     SELECT DISTINCT COALESCE(sa.streamer_id, mp.streamer_id) AS streamer_id
       FROM match_participant mp

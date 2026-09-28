@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getMatchReviewWorkspace } from "@soop-lol/core/lib/db/ck";
+import { getMatchPovViews } from "@soop-lol/core/lib/db/ck-pov";
 import { CkReviewer } from "@/components/admin/CkReviewer";
 import { rosterFocus } from "@/lib/ck-review-progress";
 import { reviewMatchData } from "@/lib/ck-review-data";
@@ -8,6 +9,13 @@ import { reviewMatchData } from "@/lib/ck-review-data";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "경기 검수" };
 
+/**
+ * 경기 하나의 검수로 들어오는 입구.
+ * - 여러 VOD 시점이 붙은 CK 경기 → 그 대회 검수 화면으로 보낸다. 거기서 시점 칩을 고르면 큐·프레임·
+ *   인스펙터가 그 VOD 기준으로 바뀐다(docs/CK-MULTI-POV-PLAN.md §6). 처음엔 경기를 만든 시점으로 연다.
+ * - VOD 에서 나왔지만 시점 기록이 없는 예전 경기 → 그 VOD 화면.
+ * - VOD 가 없는 경기(시드 등) → 여기서 값만 고친다.
+ */
 export default async function MatchReviewPage({ params, searchParams }: {
   params: Promise<{ matchId: string }>; searchParams: Promise<{ focus?: string }>;
 }) {
@@ -17,12 +25,18 @@ export default async function MatchReviewPage({ params, searchParams }: {
   const { focus } = await searchParams;
   const ws = await getMatchReviewWorkspace(matchId);
   if (!ws) notFound();
-  if (ws.leadId) {
+  const event = ws.events.find(e => e.id === ws.detail.match.event_id);
+  const povs = await getMatchPovViews(matchId);
+  if (povs.length > 0 && event?.slug && event.kind === "ck") {
+    const pov = povs.find(p => p.role === "created") ?? povs[0];
+    redirect(`/admin/ck/event/${event.slug}?${new URLSearchParams({ pov: pov.lead_id, match: matchId })}`);
+  }
+  const leadId = povs[0]?.lead_id ?? ws.leadId;
+  if (leadId) {
     const q = new URLSearchParams({ match: matchId });
     if (rosterFocus(focus)) q.set("focus", focus!);
-    redirect(`/admin/ck/${ws.leadId}?${q}`);
+    redirect(`/admin/ck/${leadId}?${q}`);
   }
-  const event = ws.events.find(e => e.id === ws.detail.match.event_id);
   return <div className="ck-review-page">
     <header className="ck-review-page-head"><div>
       <Link href={event?.slug ? `/admin/ck/event/${event.slug}` : "/admin/ck"} className="text-xs text-ink-400">← 경기 목록</Link>
