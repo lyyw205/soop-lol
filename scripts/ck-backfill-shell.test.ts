@@ -25,6 +25,7 @@ function fixture(mode:string, env:Record<string,string>={}) {
  `,{mode:0o755});
  writeFileSync(join(dir,'bin/claude'),'#!/bin/bash\n'+String.raw`
  echo claude >> "$ORDER"
+ while (( $# )); do [[ "$1" == --model ]] && echo "model:$2" >> "$ORDER"; shift; done
  if flock -n out/ck/auto/.lock true; then echo unlocked >> "$ORDER"; exit 91; fi
  case "$MODE" in
    wait) trap 'echo stopped >> "$ORDER"; exit 0' TERM; while true; do sleep 0.1; done;;
@@ -58,6 +59,12 @@ test('--stop은 지금 VOD를 마친 뒤 멈추고 요청을 소비한다',async
 test('지난 실행이 남긴 멈춤 요청은 새 실행을 멈추지 않는다',async()=>{
  const f=fixture('ok',{NEXT_N:'1'});try {mkdirSync(join(f.dir,'out/ck/backfill'),{recursive:true});writeFileSync(join(f.dir,'out/ck/backfill/STOP'),'');
   assert.equal(await done(f.start()),0);assert.ok(f.order().includes('claude'));}finally{f.cleanup();}
+});
+test('--model 은 조사 세션에만 건다. 안 주면 안 건다',async()=>{
+ const f=fixture('ok');try {assert.equal(await done(f.start('--streamer','test','--model','haiku')),0);
+  assert.equal((f.order().match(/model:haiku/g)??[]).length,2,'VOD 두 개 세션 다 받는다');}finally{f.cleanup();}
+ const g=fixture('ok');try {assert.equal(await done(g.start()),0);
+  assert.ok(!g.order().includes('model:'),'기본은 옵션을 안 붙인다');}finally{g.cleanup();}
 });
 test('조사 내내 flock을 보유하고 다른 실행은 75, 중단하면 자식도 종료한다',async()=>{
  const f=fixture('wait');const first=f.start();const firstDone=done(first);

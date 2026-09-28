@@ -29,8 +29,11 @@ description: 사용자가 지정한 SOOP 스트리머의 과거 VOD를 기간 �
    ```bash
    scripts/ck-backfill.sh --streamer <이름> --from YYYY-MM-DD --to YYYY-MM-DD   # 새 기간
    scripts/ck-backfill.sh --streamer <이름>                                    # 마지막 기간 이어서
+   scripts/ck-backfill.sh --streamer <이름> --model haiku ...                # 조사 세션만 다른 모델로
    ```
    종료 코드 75 면 다른 조사(자동 포함)가 잠금을 잡고 있다. 알리고 시작하지 않는다. 대기 작업을 만들지 않는다.
+   사용자가 특정 모델을 지정하면(예: "Haiku로") `--model`을 붙인다. 전역 기본 모델은 그대로 두고 이 백필의
+   조사 세션에만 적용된다 — 판독 정확도가 낮아질 수 있음을 미리 알린다.
    백그라운드 종료를 기다릴 때 `pgrep -f "<패턴>"` 루프를 쓰지 않는다(자기 명령줄에 걸린다). 실행 도구의 종료 알림을 쓴다.
 5. 끝나면 `status` 를 다시 읽고 보고한다: 완료·접근 불가·남은 VOD·목록에서 사라진 VOD(`missing`)와 종료 사유.
    셸 종료 코드나 모델의 완료 선언만으로 완료 수를 말하지 않는다.

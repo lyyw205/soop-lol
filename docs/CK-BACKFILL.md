@@ -8,6 +8,7 @@ Linux/WSL의 `flock`, `setsid`를 사용한다. 자동·수동 조사 컴퓨터�
 npm run ck:backfill -- status --streamer 이상호
 scripts/ck-backfill.sh --streamer 이상호 --from 2026-08-20 --to 2026-09-25   # 기간 지정(저장됨)
 scripts/ck-backfill.sh --streamer 이상호                                    # 마지막 기간 이어서
+scripts/ck-backfill.sh --streamer 이상호 --model haiku                      # 조사 세션(claude -p)만 다른 모델로
 scripts/ck-backfill.sh --stop                                               # 지금 VOD 마친 뒤 멈춤
 ```
 

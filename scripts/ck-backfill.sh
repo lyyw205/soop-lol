@@ -3,9 +3,12 @@
 #
 #   scripts/ck-backfill.sh --streamer 이상호 --from 2026-08-20 --to 2026-09-25   # 기간 지정(저장된다)
 #   scripts/ck-backfill.sh --streamer 이상호                                    # 마지막 요청 기간을 이어서
+#   scripts/ck-backfill.sh --streamer 김민교 --model haiku --from ...           # 조사 세션만 다른 모델로
 #   scripts/ck-backfill.sh --stop                                               # 지금 VOD 를 마친 뒤 멈춤
 #   Ctrl-C / TERM                                                               # 즉시 멈춤(조사 중 VOD 는 마지막 저장 지점부터)
 #
+# ★ --model 은 claude -p 조사 세션에만 건다. 전역 기본 모델(/model, ~/.claude/settings.json)은
+#   안 건드린다 — 다른 백필·자동 조사가 이 실행이 끝난 뒤에도 계속 원래 기본값을 쓰게 한다.
 # ★ VOD 하나에 Claude 세션 하나. 세션이 끝날 때마다 DB 도장을 다시 읽어 실제 진척을 확인한다.
 #   진척이 없거나 Claude 가 실패하면 멈춘다 — 사용량 한도·로그인 만료에 목록을 헛돌지 않는다.
 # ★ 자동 조사와 같은 flock 을 잡는다. 둘을 동시에 띄운 사고로 SOOP 호출 속도가 두 배가 되는 걸 막는다.
@@ -16,17 +19,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$HOME/.local/node/bin:$PATH"
 cd "$ROOT"
 STOP_FILE="$ROOT/out/ck/backfill/STOP"
-STREAMER=""; FROM=""; TO=""
+STREAMER=""; FROM=""; TO=""; MODEL=""
 while (( $# )); do
   case "$1" in
-    --streamer|--from|--to)
+    --streamer|--from|--to|--model)
       if (( $# < 2 )); then echo "$1 값 필요" >&2; exit 1; fi
-      case "$1" in --streamer) STREAMER="$2";; --from) FROM="$2";; --to) TO="$2";; esac
+      case "$1" in --streamer) STREAMER="$2";; --from) FROM="$2";; --to) TO="$2";; --model) MODEL="$2";; esac
       shift 2;;
     --stop)
       mkdir -p "$(dirname "$STOP_FILE")"; touch "$STOP_FILE"
       echo '멈춤 요청을 남겼다. 지금 조사 중인 VOD 를 마친 뒤 멈춘다.'; exit 0;;
-    --help) sed -n 2,13p "$0"; exit 0;;
+    --help) sed -n 2,16p "$0"; exit 0;;
     *) echo "알 수 없는 인자: $1" >&2; exit 1;;
   esac
 done
@@ -92,7 +95,9 @@ SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 이전 기록(ck:rec
 못 본 구간이 영상 길이 밖이거나 세그먼트가 영구 누락이라 다시 봐도 못 푸는 것이면 scan.resolved_failed 로 닫고 이유를 note 에 남긴다.
 안 닫으면 다음 실행이 같은 VOD 에서 진척 없음으로 멈춘다.
 종료 뒤 셸이 DB 도장으로 진척을 확인한다. 완료·연결·접근 불가·남은 범위를 요약한다."
-  run_child claude -p "$PROMPT" --permission-mode bypassPermissions; CLAUDE_CODE=$?
+  CLAUDE_ARGS=(-p "$PROMPT" --permission-mode bypassPermissions)
+  [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
+  run_child claude "${CLAUDE_ARGS[@]}"; CLAUDE_CODE=$?
   cli after --current "$CURRENT"; AFTER_CODE=$?
   if (( CLAUDE_CODE != 0 )); then RESULT="Claude 실행 실패(종료 코드 $CLAUDE_CODE)"; CODE=$CLAUDE_CODE; break; fi
   if (( AFTER_CODE == 4 )); then RESULT='진척 없음'; CODE=4; break; fi
