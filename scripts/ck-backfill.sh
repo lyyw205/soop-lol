@@ -40,6 +40,7 @@ export CK_BACKFILL_LOCKED=1
 rm -f "$STOP_FILE"
 DIR="$(mktemp -d "$ROOT/out/ck/backfill/run-$(date +%Y%m%d-%H%M%S)-XXXXXX")"
 QUEUE="$DIR/queue.json"; CURRENT="$DIR/current.json"; LOG="$DIR/run.log"
+: >"$LOG"  # cli() 의 첫 호출이 아직 없는 파일을 <로 열다 리다이렉션 오류를 내는 것을 막는다.
 echo "로그: $LOG"
 CHILD=""
 stop() {
