@@ -61,7 +61,11 @@ export function vodWork(raw: ScanRaw | undefined, apiSeconds: number | null): Vo
   const scan = raw?.scan;
   const known = Number(raw?.vod_total_sec ?? apiSeconds);
   const total = Number.isFinite(known) && known > 0 ? Math.round(known) : null;
-  const requested = mergeRanges(scan?.requested ?? []);
+  // requested(이번 실행이 훑기로 한 범위)가 정본이지만, ck-research 는 그 칸을 채우라는
+  // 지시가 없으면 비운다 — 안 비운 done 스캔도 실측에서 안 채운 사례가 있었다(2026-09-28).
+  // sampled(대표 화면을 배치한 범위)로 물러난다 — done 상태에서 이게 [0,total] 을 덮으면
+  // 스킬의 표준 샘플링 방법(5~15분 간격)을 실제로 실행했다는 뜻이라 완료 신호로 쓸 수 있다.
+  const requested = mergeRanges(scan?.requested?.length ? scan.requested : (scan?.sampled ?? []));
   const failed = coveredSeconds(scan?.failed ?? []);
   const unresolved = Array.isArray(raw?.candidates)
     ? raw!.candidates.filter((c: any) => c?.conclusion === 'unresolved').length : 0;

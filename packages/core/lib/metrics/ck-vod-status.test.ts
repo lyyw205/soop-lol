@@ -21,6 +21,16 @@ test('중간의 빈 구간은 오차로 덮지 않는다',()=>{
  assert.equal(vodWork(raw,100).reason,'partial');
  assert.equal(vodWork(raw,100).uncovered,2);
 });
+test('requested 를 안 채운 done 스캔은 sampled 로 완료를 판단한다 — 206075411 실측 회귀',()=>{
+ // ck-research 가 실제로 낸 형태: status=done, sampled 는 전 범위, requested 는 아예 없음.
+ const raw={scan:{status:'done',failed:[],opened:[0,1000],sampled:[[0,24106]]},vod_total_sec:24106};
+ assert.equal(vodWork(raw,24106).reason,null);
+ assert.equal(vodWork(raw,24106).uncovered,0);
+});
+test('requested 가 있으면 sampled 가 더 넓어도 requested 를 따른다',()=>{
+ const raw={scan:{status:'done',failed:[],opened:[0],requested:[[0,40]],sampled:[[0,100]]}};
+ assert.equal(vodWork(raw,100).reason,'partial');
+});
 test('조사 기록이 길이를 알면 목록 길이보다 우선한다',()=>{
  assert.equal(vodWork({scan:done,vod_total_sec:100},200).reason,null);
  assert.equal(vodWork({scan:done},200).reason,'partial');
