@@ -115,13 +115,24 @@ if (findVod) {
         m.open_questions.length > 0 && `남은 질문 ${m.open_questions.length}: ${m.open_questions.join(" / ")}`,
       ].filter(Boolean);
       let span;
+      /**
+       * ★ 예측 위치 — 결과창은 경기 끝 **뒤** 에 뜬다. 추석 CK 시점 29개 실측(2026-09-28): 예측한 끝과 실제
+       *   결과창 차이 27개가 +5~+60초, 최대 +183초(경기를 만든 시점의 시작 오차). 그래서 끝−30초 ~ 끝+240초부터 좁힌다.
+       *   예측은 **어디부터 볼지** 일 뿐이다 — 화면으로 확인하고, 못 찾으면 넓힌다(스킬 "예측 위치로 바로 가기").
+       */
+      let jump = null;
       if (m.game_creation_precision !== "datetime") span = "VOD 초 모름 — 시각이 날짜 단위 어림이다";
       else {
         const a = Math.round((m.game_creation.getTime() - startMs) / 1000);
         span = m.game_duration ? `VOD 약 ${hms(Math.max(0, a))} ~ ${hms(a + m.game_duration)}` : `VOD 약 ${hms(Math.max(0, a))} 시작 · 끝 모름`;
+        if (m.game_duration && a >= 0) {
+          const end = a + m.game_duration;
+          jump = `예측 위치 — 결과창: --between ${Math.max(0, end - 30)}:${end + 240} --divide 5 · 밴픽·시작: --at ${Math.max(0, a - 300)},${a + 300}`;
+        }
       }
       console.log(`  ${m.match_id}${m.series_game_no ? ` (${m.series_game_no}세트${m.set_order_known ? "" : "·추정"})` : ""}${m.event_name ? ` · ${m.event_name}` : ""}`);
       console.log(`    ${span}`);
+      if (jump) console.log(`    ${jump}`);
       console.log(`    이 사람: ${m.owner_team_id === 100 ? "1팀" : m.owner_team_id === 200 ? "2팀" : "?"} · 챔피언 ${m.owner_champion ?? "기록 없음"}`
         + ` · ${m.winning_team === m.owner_team_id ? "승" : m.winning_team ? "패" : "승자 미정"}`);
       // ★ "공백 없음" 은 DB 조회 항목 기준이다. 화면끼리의 모순이나 VOD 경계 오류까지 확인한 게 아니다.

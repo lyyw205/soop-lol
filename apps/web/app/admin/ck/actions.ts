@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import {
   applyMatchReview,
+  createMatchFromEvidence,
   reviewUnidentifiedParticipants,
   setMatchReviewCompleted,
   getMatchDetail,
@@ -73,7 +74,7 @@ export async function saveMatchMetaAction(_prev: CkActionState, form: FormData):
   try {
     const base = baseValues(form, META_FORM_FIELDS);
     const normalize = (values: CkFormValues): Record<string, unknown> => ({
-      winning_team: Number(values.winning_team), event_id: values.event_id || null,
+      winning_team: values.winning_team ? Number(values.winning_team) : null, event_id: values.event_id || null,
       series_id: values.series_id === "-" ? null : values.series_id || null,
       series_game_no: numberValue(values.series_game_no), game_duration: numberValue(values.game_duration),
       best_of: numberValue(values.best_of),
@@ -86,7 +87,7 @@ export async function saveMatchMetaAction(_prev: CkActionState, form: FormData):
     // 메타의 빈 텍스트/숫자 입력은 유지, '-'는 비우기. 대회 셀렉트의 빈 값은 연결 해제다.
     for (const k of META_FORM_FIELDS) if (k !== "event_id" && submitted[k] === "") submitted[k] = base[k];
     const next = normalize(submitted);
-    if (![100,200].includes(Number(next.winning_team))) return fail("승자는 1팀 또는 2팀이어야 합니다.");
+    if (next.winning_team !== null && ![100,200].includes(Number(next.winning_team))) return fail("승자는 1팀 또는 2팀이어야 합니다.");
     if (!next.game_creation) return fail("경기 시각 형식이 올바르지 않습니다.");
     const patch = diffValues(next, normalize(base));
     const saved = await applyMatchReview(matchId, { match: patch });
@@ -224,6 +225,30 @@ export async function setReviewCompletedAction(_prev: ActionState, form: FormDat
 }
 
 // ── 프레임 연결 바꾸기 ───────────────────────────────────────────────
+
+export async function createMatchFromFrameAction(
+  _prev: ActionState & { matchId?: string; existingMatchId?: string }, form: FormData,
+): Promise<ActionState & { matchId?: string; existingMatchId?: string }> {
+  await requireAdmin();
+  try {
+    const day = text(form, "played_on");
+    const playedAt = new Date(`${day}T00:00:00+09:00`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(playedAt.getTime()) ||
+      new Date(playedAt.getTime() + 9 * 3600000).toISOString().slice(0, 10) !== day) return fail("경기 날짜를 확인해 주세요.");
+    const winner = text(form, "winning_team");
+    if (winner && winner !== "100" && winner !== "200") return fail("승리 팀이 올바르지 않습니다.");
+    const result = await createMatchFromEvidence({
+      frame_id: text(form, "frame_id"), played_at: playedAt,
+      series_id: text(form, "series_id") || null, series_game_no: numberValue(text(form, "series_game_no")),
+      event_id: text(form, "event_id") || null, winning_team: winner ? Number(winner) as 100 | 200 : null,
+    });
+    if (result.existing) return { ok: false, message: "이미 등록된 세트입니다. 아래 버튼으로 이 프레임을 연결하세요.", existingMatchId: result.match_id };
+    revalidateReview();
+    return { ok: true, message: "경기를 만들고 프레임을 연결했습니다. 경기 정보와 로스터를 입력하세요.", matchId: result.match_id };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+}
 
 export async function relinkFrameAction(form: FormData): Promise<void> {
   await requireAdmin();

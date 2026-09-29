@@ -10,6 +10,7 @@ import { kstPlayedAt } from "@soop-lol/core/lib/time";
 
 import { ReviewProgress, ReviewProgressHeaders } from "@/components/admin/ReviewProgress";
 import { CkReviewer } from "@/components/admin/CkReviewer";
+import { PovChips } from "@/components/admin/PovChips";
 import { EventMatchRow } from "@/components/admin/EventMatchRow";
 import { reviewMatchData } from "@/lib/ck-review-data";
 import { Card, EmptyState, Tag } from "@/components/ui";
@@ -28,6 +29,9 @@ const TAB_OF: Record<string, string> = { tournament: "tournament", showmatch: "s
 
 
 
+/** KST 시:분 (24시간). 서버 로캘에 따라 AM/오전이 바뀌지 않게 직접 만든다. */
+const kstClock = (d: Date) => new Date(new Date(d).getTime() + 9 * 3600_000).toISOString().slice(11, 16);
+
 const winnerOf = (set: ReviewSetRow) =>
   set.winning_team === 100 ? set.blue_team : set.winning_team === 200 ? set.red_team : null;
 
@@ -42,7 +46,7 @@ function score(series: ReviewSeriesRow) {
   return [...wins.entries()];
 }
 
-export default async function CkEventReviewPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ review?: string; focus?: string; pov?: string; match?: string }> }) {
+export default async function CkEventReviewPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ review?: string; focus?: string; pov?: string; match?: string; tab?: string }> }) {
   const query = await searchParams;
   const { slug } = await params;
   const detail = await getReviewEvent(slug);
@@ -60,38 +64,20 @@ export default async function CkEventReviewPage({ params, searchParams }: { para
       const ws = await getLeadWorkspace(pov.lead_id);
       if (!ws) notFound();
       const matches = ws.matches.filter(m => eventMatchIds.has(m.match.match_id)).map(reviewMatchData);
-      const frames = ws.frames.filter(f => f.match_id != null && eventMatchIds.has(f.match_id)).map(f => ({
+      const frames = ws.frames.filter(f => f.match_id == null || eventMatchIds.has(f.match_id)).map(f => ({
         id: f.id, match_id: f.match_id, frame_path: f.frame_path, at_sec: f.at_sec, kind: f.kind,
       }));
       const povDiffs = await povDiffsForLead(pov.lead_id, matches.map(m => m.match_id));
-      const sameName = (name: string | null) => povs.filter(p => p.streamer_name === name).length > 1;
-      const chipHref = (leadId: string) => {
-        const q = new URLSearchParams({ pov: leadId });
-        if (query.review) q.set("review", query.review);
-        return `/admin/ck/event/${slug}?${q}`;
-      };
       const initialMatchId = matches.some(m => m.match_id === query.match) ? query.match : undefined;
       return (
         <div className="ck-review-page">
           <header className="ck-review-page-head"><div className="min-w-0">
             <Link href={back} className="text-xs text-ink-400 hover:text-ink-200">← 경기 검수</Link>
             <h1 className="mt-1 truncate text-lg font-semibold text-ink-200">{event.name}</h1>
-            <nav className="mt-2 flex flex-wrap gap-1.5" aria-label="시점 선택">
-              {povs.map((p) => {
-                const current = p.lead_id === pov.lead_id;
-                return (
-                  <Link key={p.lead_id} href={chipHref(p.lead_id)} aria-current={current ? "page" : undefined}
-                    title={`${p.title} · 이 대회 경기 ${p.match_count}개`}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${current
-                      ? "border-accent-600/60 bg-accent-600/15 text-accent-400"
-                      : "border-ink-700 text-ink-300 hover:text-ink-100"}`}>
-                    {p.streamer_name ?? p.source_key}
-                    {sameName(p.streamer_name) && <span className="text-[10px] text-ink-500">{new Date(p.observed_at).toLocaleTimeString("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" })}</span>}
-                    {p.mismatch_open > 0 && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-label={`미해결 불일치 ${p.mismatch_open}`} />}
-                  </Link>
-                );
-              })}
-            </nav>
+            <PovChips slug={slug} currentLeadId={pov.lead_id} povs={povs.map(p => ({
+              lead_id: p.lead_id, source_key: p.source_key, title: p.title, streamer_name: p.streamer_name,
+              time_label: kstClock(p.observed_at), match_count: p.match_count, mismatch_open: p.mismatch_open,
+            }))} />
             <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
               <span>{pov.title}</span>
               {pov.url && <a href={pov.url} target="_blank" rel="noreferrer" className="hover:text-ink-200">VOD 열기 ↗</a>}
@@ -103,7 +89,8 @@ export default async function CkEventReviewPage({ params, searchParams }: { para
             leadId={pov.lead_id}
             vodUrl={pov.url}
             initialMatchId={initialMatchId}
-            initialPending={query.review === "pending"}
+            initialTab={query.tab === "roster" ? "roster" : undefined}
+            syncUrl
             frames={frames}
             matches={matches}
             streamers={ws.streamers}

@@ -27,6 +27,17 @@ export interface Resolved<F, M> {
   match: M | null;
 }
 
+/** 좌우 탐색은 선택한 큐 항목 안에서만 한다. 미연결 항목은 해당 사진 하나다. */
+export function framesForSelection<F extends SelectableFrame>(
+  frames: readonly F[], selection: Resolved<F, SelectableMatch>,
+  groups?: readonly { match: SelectableMatch; frames: F[] }[],
+): F[] {
+  if (selection.match && groups) return groups.find(group => group.match.match_id === selection.match!.match_id)?.frames ?? [];
+  if (selection.match) return frames.filter(frame => frame.match_id === selection.match!.match_id)
+    .sort((a, b) => (a.at_sec ?? Number.MAX_SAFE_INTEGER) - (b.at_sec ?? Number.MAX_SAFE_INTEGER));
+  return selection.frame ? [selection.frame] : [];
+}
+
 /** 경기의 대표 비교 프레임 — 결과창을 먼저, 없으면 첫 프레임. */
 export function representativeFrame<F extends SelectableFrame>(frames: readonly F[], matchId: string): F | null {
   return frames.find((f) => f.match_id === matchId && f.kind === "result")
@@ -50,7 +61,8 @@ export function resolveSelection<F extends SelectableFrame, M extends Selectable
     ?? (picked.frameId || picked.matchId ? null : matches[0])
     ?? null;
   // 경기만 정해졌으면 그 경기의 대표 프레임을 같이 띄운다 — 비교할 화면이 비면 검수가 끊긴다.
-  return { frame: frame ?? (match ? representativeFrame(frames, match.match_id) : null), match };
+  return { frame: frame ?? (match ? representativeFrame(frames, match.match_id)
+    : !picked.frameId && !picked.matchId ? frames[0] ?? null : null), match };
 }
 
 /**

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { projectReviewQueue, UNPLACED } from "./ck-review-queue.ts";
+import { projectReviewQueue, reviewQueueEntries, UNPLACED } from "./ck-review-queue.ts";
 
 const frame = (id: string, at_sec: number, match_id: string | null = null) => ({ id, at_sec, match_id });
 const match = (match_id: string) => ({ match_id });
 
-test("경기마다 연결된 비교 프레임만 시각 순으로 모은다 — 미배정 프레임은 큐에 없다", () => {
+test("경기 범위에는 그 경기에 연결된 프레임만 모은다", () => {
   const projection = projectReviewQueue(
     [frame("m1-late", 23119, "M1"), frame("m1-early", 23023, "M1"), frame("orphan", 23160), frame("m2", 23400, "M2")],
     [match("M1"), match("M2")],
@@ -14,6 +14,31 @@ test("경기마다 연결된 비교 프레임만 시각 순으로 모은다 — 
   assert.deepEqual(projection.map((item) => item.match.match_id), ["M1", "M2"]);
   assert.deepEqual(projection[0].frames.map((f) => f.id), ["m1-early", "m1-late"]);
   assert.deepEqual(projection[1].frames.map((f) => f.id), ["m2"]);
+});
+
+test("미연결 프레임은 경기 사이에 표시하고, 시각 미상과 경기 없는 VOD 도 유지한다", () => {
+  const frames = [frame("late", 300), frame("m", 200, "M"), frame("early", 100),
+    { id: "unknown", match_id: null, at_sec: null }];
+  const entries = reviewQueueEntries(projectReviewQueue(frames, [match("M")]), frames);
+  assert.deepEqual(entries.map(e => [e.kind, e.id]), [
+    ["frame", "early"], ["match", "M"], ["frame", "late"], ["frame", "unknown"],
+  ]);
+  assert.equal(reviewQueueEntries([], [frame("only", 10)]).length, 1);
+});
+
+test("구간 안의 작은 미연결 프레임도 볼 수 있고, 경계 중복과 프레임 누락이 없다", () => {
+  const frames = [frame("outside", 50), frame("start", 100, "M1"), frame("small", 150),
+    frame("end", 200, "M1"), frame("boundary", 200), frame("next", 200, "M2"),
+    frame("next-end", 300, "M2"), { id: "unknown", at_sec: null, match_id: null }];
+  const projection = projectReviewQueue(frames, [match("M1"), match("M2")]);
+  assert.deepEqual(projection[0].frames.map(f => f.id), ["start", "small", "end"]);
+  assert.deepEqual(projection[1].frames.map(f => f.id), ["next", "boundary", "next-end"]);
+  const entries = reviewQueueEntries(projection, frames);
+  assert.deepEqual(entries.filter(e => e.kind === "frame").map(e => e.id), ["outside", "unknown"]);
+  const reachable = entries.flatMap(e => e.kind === "frame" ? [e.id] : e.item.frames.map(f => f.id));
+  assert.equal(reachable.length, frames.length);
+  assert.deepEqual([...new Set(reachable)].sort(), frames.map(f => f.id).sort());
+  assert.equal(frames.find(f => f.id === "small")!.match_id, null, "화면에 묶어도 DB 연결을 추정하지 않는다");
 });
 
 test("경기 폭은 연결 프레임, 확인된 VOD 시작 시각 순으로 고른다", () => {

@@ -654,6 +654,51 @@ export async function relinkEvidenceFrame(frameId: string, matchId: string | nul
 
 // ── match / match_participant ───────────────────────────────────────
 
+/** 미연결 근거에서 관리자가 누락 경기를 복구한다. 빈 로스터는 기존 검수로 채운다. */
+export async function createMatchFromEvidence(input: {
+  frame_id: string; played_at: Date; series_id: string | null; series_game_no: number | null;
+  event_id: string | null; winning_team: 100 | 200 | null;
+}): Promise<{ match_id: string; existing: boolean }> {
+  if (!Number.isFinite(input.played_at.getTime())) throw new Error("경기 날짜를 확인해 주세요.");
+  if (input.winning_team !== null && ![100, 200].includes(input.winning_team)) throw new Error("승리 팀이 올바르지 않습니다.");
+  if (input.series_id ? !Number.isInteger(input.series_game_no) || input.series_game_no! < 1 : input.series_game_no !== null) {
+    throw new Error("시리즈와 1 이상의 세트 번호를 함께 지정해 주세요.");
+  }
+  return db().begin(async tx => {
+    const [frame] = await tx<{ lead_id: string; match_id: string | null }[]>`
+      SELECT lead_id, match_id FROM match_evidence_frame WHERE id = ${input.frame_id}::uuid FOR UPDATE`;
+    if (!frame) throw new Error("프레임을 찾지 못했습니다. 새로고침해 주세요.");
+    const matchId = `admin:frame:${input.frame_id}`;
+    // 응답 유실 후 재시도도 같은 경기로 돌아간다. 다른 연결은 덮지 않는다.
+    if (frame.match_id) {
+      if (frame.match_id === matchId) return { match_id: matchId, existing: false };
+      throw new Error("이미 다른 경기에 연결된 프레임입니다. 새로고침해 주세요.");
+    }
+    if (input.series_id) {
+      const [series] = await tx<{ game_code: string }[]>`
+        SELECT game_code FROM match_series WHERE id = ${input.series_id} FOR UPDATE`;
+      if (!series || series.game_code !== "lol") throw new Error("LoL 시리즈를 선택해 주세요.");
+      const [existing] = await tx<{ match_id: string }[]>`
+        SELECT match_id FROM match WHERE series_id = ${input.series_id} AND series_game_no = ${input.series_game_no}`;
+      if (existing) return { match_id: existing.match_id, existing: true };
+    }
+    // 빈 경기에는 파생할 참가자 통계가 없다. 추가 후 갱신은 applyMatchReview가 맡는다.
+    await tx`
+      INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, game_creation,
+        game_creation_precision, winning_team, source, origin, event_id, series_id, series_game_no, reviewed_at)
+      VALUES (${matchId}, 'lol', 0, '0', 'CUSTOM', ${input.played_at}, 'date', ${input.winning_team},
+        'manual', 'admin', ${input.series_id ? null : input.event_id}::uuid,
+        ${input.series_id}, ${input.series_game_no}, now())`;
+    await tx`UPDATE match_evidence_frame SET match_id = ${matchId}, reviewed_at = now()
+      WHERE id = ${input.frame_id}::uuid`;
+    await recordReviewChanges(tx, [
+      { match_id: matchId, lead_id: frame.lead_id, entity: "match", entity_key: matchId, field: "created", before: null, after: { origin: "admin", series_id: input.series_id, series_game_no: input.series_game_no } },
+      { match_id: matchId, lead_id: frame.lead_id, entity: "frame", entity_key: input.frame_id, field: "match_id", before: null, after: matchId },
+    ]);
+    return { match_id: matchId, existing: false };
+  }) as Promise<{ match_id: string; existing: boolean }>;
+}
+
 export type MatchOrigin = "wiki_seed" | "vod_scan" | "admin";
 export type MatchVisibility = "public" | "hidden";
 

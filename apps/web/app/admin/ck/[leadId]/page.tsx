@@ -60,9 +60,8 @@ export default async function CkReviewPage({ params, searchParams }: { params: P
         vodUrl={lead.url}
         initialMatchId={initial?.match_id}
         initialFocus={query.focus}
-        initialPending={query.review === "pending"}
-        // 비교 프레임은 경기에 연결된 것뿐이다. 미배정 프레임은 조사의 몫이다.
-        frames={frames.filter((f) => f.match_id != null).map((f) => ({
+        // 미연결 프레임도 앞뒤 탐색과 수동 연결에 사용한다.
+        frames={frames.map((f) => ({
           id: f.id,
           match_id: f.match_id,
           frame_path: f.frame_path,

@@ -20,16 +20,17 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   relinkFrameAction,
+  createMatchFromFrameAction,
   saveMatchMetaAction,
   saveRosterAction,
   setMatchVisibilityAction,
 } from "@/app/admin/ck/actions";
-import { IDLE } from "@/lib/action-state";
+import { IDLE, type ActionState } from "@/lib/action-state";
 import { CHAMPIONS, championById } from "@soop-lol/core/lib/riot/champions";
 import { setLabel } from "@soop-lol/core/lib/metrics/set-label";
 
-import { resolveSelection, timelineSpan, type Picked } from "./ck-selection";
-import { projectReviewQueue, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
+import { framesForSelection, resolveSelection, timelineSpan, type Picked } from "./ck-selection";
+import { projectReviewQueue, reviewQueueEntries, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
 
 import { ActionMessage, SubmitButton } from "./Field";
 import { useCkForm } from "./use-ck-form";
@@ -115,7 +116,13 @@ interface Props {
   vodUrl?: string | null;
   initialMatchId?: string;
   initialFocus?: string;
-  initialPending?: boolean;
+  /** 처음 열 인스펙터 탭. `initialFocus` 가 로스터 칸이면 그쪽이 이긴다. */
+  initialTab?: "game" | "roster";
+  /**
+   * 고른 경기·탭을 주소(`match`·`tab`)에 적는다. 대회 화면의 시점 칩이 이걸 읽어 다른 스트리머로 바꿔도
+   * 같은 경기·같은 탭을 연다 — 다시점은 경기 id 가 한 벌이라 그대로 통한다.
+   */
+  syncUrl?: boolean;
   frames: ReviewFrame[];
   matches: ReviewMatch[];
   streamers: ReviewStreamer[];
@@ -187,7 +194,7 @@ const POSITIONS = ["", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
 
 type Projected = ProjectedMatch<ReviewMatch, ReviewFrame>;
 
-export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialPending = false, povDiffs }: Props) {
+export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialTab, syncUrl = false, povDiffs }: Props) {
   const projection = useMemo(
     () => projectReviewQueue(frames, matches, { vodStartedAt }),
     [frames, matches, vodStartedAt],
@@ -197,14 +204,25 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   const [picked, setPicked] = useState<Picked>({ matchId: initialMatchId });
   const rosterField = rosterFocus(initialFocus)?.focus;
   const [zoom, setZoom] = useState(false);
-  const [inspectorTab, setInspectorTab] = useState<"game" | "roster">(rosterFocus(initialFocus) ? "roster" : "game");
+  const [matchesOnly, setMatchesOnly] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<"game" | "roster">(rosterFocus(initialFocus) ? "roster" : initialTab ?? "game");
 
   // ★ 탭(경기/로스터)은 여기서 강제로 바꾸지 않는다 — 로스터를 고치다가 다른 경기로 넘어가면
   //   조건부 렌더라 마운트가 날아가며 아직 저장 안 한 로스터 편집도 같이 사라졌다.
-  const sel = resolveSelection(frames, matches, picked);
-  const selected = sel.frame;
+  const sel = resolveSelection(matchesOnly ? frames.filter(frame => frame.match_id != null) : frames, matches, picked);
+  const selected = sel.frame ?? (!matchesOnly && sel.match
+    ? projection.find(item => item.match.match_id === sel.match!.match_id)?.frames[0] ?? null : null);
   const selectedId = selected?.id ?? null;
   const selectedMatch = sel.match;
+
+  const syncedMatchId = selectedMatch?.match_id ?? null;
+  useEffect(() => {
+    if (!syncUrl) return;
+    const url = new URL(window.location.href);
+    if (syncedMatchId) url.searchParams.set("match", syncedMatchId); else url.searchParams.delete("match");
+    if (inspectorTab === "roster") url.searchParams.set("tab", "roster"); else url.searchParams.delete("tab");
+    if (url.href !== window.location.href) window.history.replaceState(null, "", url);
+  }, [syncUrl, syncedMatchId, inspectorTab]);
 
   const pickMatch = (id: string) => {
     setPicked({ matchId: id });
@@ -212,13 +230,18 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
       document.getElementById(`ck-review-queue-match:${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
   };
-  /** 비교 프레임은 고른 경기의 프레임 안에서만 넘긴다. */
+  /** 썸네일·좌우 키는 선택한 큐 항목 안에서만 움직인다. 큐 자체는 모든 항목을 유지한다. */
   const focusFrames = useMemo(
-    () => (selectedMatch ? projection.find((item) => item.match.match_id === selectedMatch.match_id)?.frames : null)
-      ?? (selected ? [selected] : []),
-    [projection, selected, selectedMatch],
+    () => framesForSelection(frames, { frame: selected, match: selectedMatch }, projection)
+      .filter(frame => !matchesOnly || frame.match_id != null),
+    [frames, selected, selectedMatch, projection, matchesOnly],
   );
-  const pickFocusFrame = (id: string) => setPicked({ matchId: selectedMatch?.match_id ?? null, frameId: id });
+  const pickFocusFrame = (id: string) => setPicked({ matchId: selectedMatch?.match_id, frameId: id });
+  const pickQueueFrame = (id: string) => setPicked({ frameId: id });
+  const changeQueueFilter = (value: boolean) => {
+    setMatchesOnly(value);
+    if (value && !selectedMatch) setPicked({ matchId: projection[0]?.match.match_id });
+  };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -227,9 +250,9 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
       const index = focusFrames.findIndex((frame) => frame.id === selectedId);
       if (index < 0) return;
       const next = event.key === "ArrowRight" ? Math.min(index + 1, focusFrames.length - 1) : Math.max(index - 1, 0);
-      if (next === index) return;
       event.preventDefault();
-      setPicked({ matchId: selectedMatch?.match_id ?? null, frameId: focusFrames[next].id });
+      if (next === index) return;
+      setPicked({ matchId: selectedMatch?.match_id, frameId: focusFrames[next].id });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -306,14 +329,14 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
               <span className="font-mono text-[11px]">{selected.frame_path}</span>
               <span className="ml-auto flex items-center gap-2">
                 이 프레임의 경기
-                {/* ★ 잘못 붙은 비교 프레임을 바로잡는 자리. 미배정으로 돌리면 이 화면에서 빠진다. */}
+                {/* 미연결 프레임을 연결하거나, 잘못 연결한 프레임을 미배정으로 되돌린다. */}
                 <form action={relinkFrameAction} className="flex items-center gap-1">
                   <input type="hidden" name="lead_id" value={leadId} />
                   <input type="hidden" name="frame_id" value={selected.id} />
                   <select
                     name="match_id"
                     defaultValue={selected.match_id ?? ""}
-                    key={selected.id}
+                    key={`${selected.id}:${selected.match_id ?? ""}`}
                     className="rounded border border-ink-700 bg-ink-950 px-1.5 py-1 text-xs text-ink-200"
                   >
                     <option value="">— 미배정 —</option>
@@ -341,12 +364,17 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
             </div>
 
             <div className="ck-review-inspector-body">
+              {selected && !selected.match_id && <CreateMatchFromFrame key={selected.id} frame={selected}
+                matches={matches} events={events} onCreated={(matchId) => {
+                  setPicked({ matchId, frameId: selected.id });
+                  setInspectorTab("roster");
+                }} />}
               {selectedMatch && povDiffs && (
                 <PovDiffBox diff={povDiffs[selectedMatch.match_id]} match={selectedMatch} streamers={streamers} />
               )}
               {!selectedMatch ? (
                 <div className="ck-review-panel p-4 text-xs leading-relaxed text-ink-400">
-                  아직 경기로 반영된 항목이 없습니다.
+                  {selected ? "미연결 프레임입니다. 프레임 아래에서 기존 경기에 연결하거나 새 경기를 만드세요." : "아직 경기로 반영된 항목이 없습니다."}
                 </div>
               ) : inspectorTab === "game" ? (
                 <div className="ck-review-tab-stack">
@@ -363,7 +391,8 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
         </aside>
       </div>
 
-      <ReviewQueue initialPending={initialPending} projection={projection} selectedMatchId={selectedMatch?.match_id ?? null} onPickMatch={pickMatch} />
+      <ReviewQueue matchesOnly={matchesOnly} onFilterChange={changeQueueFilter} projection={projection} frames={frames} selectedFrameId={selectedId}
+        onPickFrame={pickQueueFrame} selectedMatchId={selectedMatch?.match_id ?? null} onPickMatch={pickMatch} />
     </div>
   );
 }
@@ -380,6 +409,53 @@ const POV_STATUS: Record<PovDiffRowView["status"], { label: string; cls: string 
   pending: { label: "대응 보류", cls: "text-ink-400" },
   empty: { label: "경기 칸 빈", cls: "text-ink-400" },
 };
+
+function CreateMatchFromFrame({ frame, matches, events, onCreated }: {
+  frame: ReviewFrame; matches: ReviewMatch[]; events: ReviewEvent[]; onCreated: (id: string) => void;
+}) {
+  const [seriesId, setSeriesId] = useState("");
+  const [state, action] = useActionState<ActionState & { matchId?: string; existingMatchId?: string }, FormData>(async (
+    prev: ActionState & { matchId?: string; existingMatchId?: string }, form: FormData,
+  ) => {
+    const result = await createMatchFromFrameAction(prev, form);
+    if (result.matchId) onCreated(result.matchId);
+    return result;
+  }, IDLE);
+  const series = [...new Map(matches.filter(m => m.series_id).map(m => [m.series_id!, m])).values()];
+  const reference = matches.find(m => m.series_id === seriesId);
+  return <details className="ck-review-panel mb-3 p-3 text-xs">
+    <summary className="cursor-pointer text-accent-400">이 프레임으로 새 경기 만들기</summary>
+    <form action={action} className="mt-3 grid gap-3">
+      <input type="hidden" name="frame_id" value={frame.id} />
+      <label>시리즈<select name="series_id" value={seriesId} onChange={e => setSeriesId(e.target.value)} className={inputClass}>
+        <option value="">시리즈 없이 생성</option>
+        {series.map(m => <option key={m.series_id} value={m.series_id!}>
+          {events.find(e => e.id === m.event_id)?.name ?? "대회 미지정"} · {m.series_id}
+        </option>)}
+      </select></label>
+      {seriesId ? <label>세트 번호<input name="series_game_no" type="number" min="1" step="1" required className={inputClass} placeholder="예: 3" /></label>
+        : <label>대회<select name="event_id" className={inputClass}><option value="">연결 없음</option>
+          {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+        </select></label>}
+      <label>경기 날짜 (한국 시간)<input key={seriesId} name="played_on" type="date" required
+        defaultValue={reference?.game_creation.slice(0, 10) ?? ""} className={inputClass} /></label>
+      <label>승리 팀<select name="winning_team" className={inputClass}>
+        <option value="">미상</option><option value="100">1팀 (블루)</option><option value="200">2팀 (레드)</option>
+      </select></label>
+      <p className="text-ink-400">확인한 날짜와 세트를 지정하세요. 생성 후 빈 로스터를 입력할 수 있으며, 검수 완료로 처리되지는 않습니다.</p>
+      <SubmitButton>경기 생성·프레임 연결</SubmitButton>
+      <ActionMessage state={state} />
+    </form>
+    {state.existingMatchId && <form action={async form => {
+      await relinkFrameAction(form);
+      onCreated(state.existingMatchId!);
+    }} className="mt-2">
+      <input type="hidden" name="frame_id" value={frame.id} />
+      <input type="hidden" name="match_id" value={state.existingMatchId} />
+      <SubmitButton>기존 세트에 연결</SubmitButton>
+    </form>}
+  </details>;
+}
 
 function PovDiffBox({ diff, match, streamers }: {
   diff: { compared: number; rows: PovDiffRowView[] } | undefined;
@@ -426,14 +502,18 @@ function PovDiffBox({ diff, match, streamers }: {
 
 // ── 경기 큐 + 위치 미니맵 ─────────────────────────────────────────────
 
-function ReviewQueue({ projection, selectedMatchId, onPickMatch, initialPending }: {
-  initialPending: boolean;
+function ReviewQueue({ projection, frames, selectedFrameId, onPickFrame, selectedMatchId, onPickMatch, matchesOnly, onFilterChange }: {
+  frames: ReviewFrame[];
+  selectedFrameId: string | null;
+  onPickFrame: (id: string) => void;
+  matchesOnly: boolean;
+  onFilterChange: (value: boolean) => void;
   projection: Projected[];
   selectedMatchId: string | null;
   onPickMatch: (id: string) => void;
 }) {
-  const [pendingOnly, setPendingOnly] = useState(initialPending);
-  const visible = pendingOnly ? projection.filter(item => !item.match.review_completed_at) : projection;
+  const entries = reviewQueueEntries(projection, frames);
+  const visible = matchesOnly ? entries.filter(entry => entry.kind === "match") : entries;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -441,25 +521,39 @@ function ReviewQueue({ projection, selectedMatchId, onPickMatch, initialPending 
       if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
       if (!visible.length) return;
       event.preventDefault();
-      const current = visible.findIndex((item) => item.match.match_id === selectedMatchId);
+      const current = visible.findIndex(entry => entry.kind === "frame"
+        ? entry.id === selectedFrameId : entry.id === selectedMatchId);
       const next = event.key === "ArrowDown"
         ? Math.min(current < 0 ? 0 : current + 1, visible.length - 1)
         : Math.max(current < 0 ? visible.length - 1 : current - 1, 0);
-      onPickMatch(visible[next].match.match_id);
+      const entry = visible[next];
+      if (entry.kind === "frame") onPickFrame(entry.id); else onPickMatch(entry.id);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onPickMatch, visible, selectedMatchId]);
+  }, [onPickMatch, onPickFrame, visible, selectedMatchId, selectedFrameId]);
   return (
     <section className="ck-review-timeline" aria-label="검수 큐">
       <header className="ck-review-queue-head">
         <div><h3>검수 큐</h3></div>
-        <div className="flex gap-2 text-xs">{[false, true].map(value => <button key={String(value)} type="button" aria-pressed={pendingOnly === value}
-          className={pendingOnly === value ? "text-accent-400" : "text-ink-400"} onClick={() => setPendingOnly(value)}>{value ? "미검수" : "전체"}</button>)}</div>
+        <div className="flex gap-2 text-xs">{[false, true].map(value => <button key={String(value)} type="button" aria-pressed={matchesOnly === value}
+          className={matchesOnly === value ? "text-accent-400" : "text-ink-400"} onClick={() => onFilterChange(value)}>{value ? "경기" : "전체"}</button>)}</div>
       </header>
 
       <ul className="ck-review-queue-list">
-        {visible.map(({ match, at, end }) => (
+        {visible.map(entry => {
+          if (entry.kind === "frame") return (
+            <li key={`frame:${entry.id}`}>
+              <button type="button" className="ck-review-queue-item" data-kind="frame"
+                aria-current={selectedFrameId === entry.id ? "true" : undefined}
+                onClick={() => onPickFrame(entry.id)} title={entry.frame.frame_path}>
+                <time>{entry.at === UNPLACED ? "시각 미상" : hms(entry.at)}</time>
+                <span className="ck-review-queue-kind">미연결 프레임 · {KIND_LABEL[entry.frame.kind]}</span>
+              </button>
+            </li>
+          );
+          const { match, at, end } = entry.item;
+          return (
           <li key={match.match_id} id={`ck-review-queue-match:${match.match_id}`}>
             <button type="button" className="ck-review-queue-item" data-kind="match"
               aria-current={selectedMatchId === match.match_id ? "true" : undefined}
@@ -473,8 +567,9 @@ function ReviewQueue({ projection, selectedMatchId, onPickMatch, initialPending 
               </span>
             </button>
           </li>
-        ))}
-        {visible.length === 0 && <li className="ck-review-queue-empty">해당하는 경기가 없습니다.</li>}
+        );
+        })}
+        {visible.length === 0 && <li className="ck-review-queue-empty">해당하는 경기나 프레임이 없습니다.</li>}
       </ul>
     </section>
   );
@@ -503,7 +598,7 @@ function FrameStrip({ frames, selectedId, onPick }: { frames: ReviewFrame[]; sel
       title={`${hms(frame.at_sec)} · ${KIND_LABEL[frame.kind]}`}
       onClick={() => onPick(frame.id)}>
       {/* eslint-disable-next-line @next/next/no-img-element -- 로컬 검수 프레임 */}
-      <img src={frameUrl(frame.frame_path)} alt={`${hms(frame.at_sec)} 프레임`} />
+      <img loading="lazy" src={frameUrl(frame.frame_path)} alt={`${hms(frame.at_sec)} 프레임`} />
       <span>{hms(frame.at_sec)}</span>
     </button>)}
   </div>;
@@ -869,8 +964,11 @@ function rosterRows(match: ReviewMatch, bySlug: Map<string, string>): RosterDraf
   const spareIds = Array.from({ length: 10 }, (_, index) => index + 1).filter((id) => !taken.has(id));
   let spare = 0;
   return [100, 200].flatMap((team) => {
+    // 탑·정글·미드·원딜·서폿 고정 순서로 보여준다. participant_id 는 입력 순서일 뿐 포지션과 무관하다.
+    // 미확정 포지션은 뒤로 밀고, 같은 순서끼리는 participant_id 로 안정적으로 묶는다.
+    const positionRank = (position: string) => { const i = POSITIONS.indexOf(position); return i > 0 ? i : POSITIONS.length; };
     const existing = match.participants.filter((participant) => participant.team_id === team)
-      .sort((a, b) => a.participant_id - b.participant_id)
+      .sort((a, b) => positionRank(a.team_position ?? "") - positionRank(b.team_position ?? "") || a.participant_id - b.participant_id)
       .map((participant) => {
         const base = participantFormValues(participant, participant.streamer_id ? bySlug.get(participant.streamer_id) ?? "" : "");
         // ★ DB엔 영문 정본(champion_name = resolveChampion 이 저장한 en 값)이 들어 있다.

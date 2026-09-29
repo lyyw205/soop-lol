@@ -1,10 +1,60 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { representativeFrame, resolveSelection, timelineSpan } from "./ck-selection.ts";
+import { framesForSelection, representativeFrame, resolveSelection, timelineSpan } from "./ck-selection.ts";
+import { projectReviewQueue } from "./ck-review-queue.ts";
 
 const frame = (id: string, over: Partial<{ match_id: string | null; at_sec: number | null; kind: "result" | "roster" | "other" }> = {}) => ({
   id, match_id: null, at_sec: null, kind: "other" as const, ...over,
+});
+
+test("경기가 없는 VOD 도 미연결 프레임을 처음부터 볼 수 있다", () => {
+  const sel = resolveSelection([frame("orphan")], []);
+  assert.equal(sel.frame?.id, "orphan");
+  assert.equal(sel.match, null);
+});
+
+test("구간 안의 미연결 사진을 넘겨도 선택한 큐와 좌우 탐색 범위가 유지된다", () => {
+  const frames = [frame("start", { match_id: "M1", at_sec: 100 }), frame("small", { at_sec: 150 }),
+    frame("end", { match_id: "M1", at_sec: 200 }), frame("outside", { at_sec: 250 })];
+  const matches = [{ match_id: "M1" }];
+  const projection = projectReviewQueue(frames, matches);
+  const selected = resolveSelection(frames, matches, { matchId: "M1", frameId: "small" });
+  assert.equal(selected.frame?.id, "small");
+  assert.equal(selected.match?.match_id, "M1");
+  assert.deepEqual(framesForSelection(frames, selected, projection).map(f => f.id), ["start", "small", "end"]);
+  const outside = resolveSelection(frames, matches, { frameId: "outside" });
+  assert.deepEqual(framesForSelection(frames, outside, projection).map(f => f.id), ["outside"]);
+});
+
+test("좌우 탐색 범위는 선택 경기의 프레임뿐이고 미연결 항목에서는 그 사진 하나뿐이다", () => {
+  const frames = [frame("before", { at_sec: 1 }), frame("last", { match_id: "M1", at_sec: 30 }),
+    frame("first", { match_id: "M1", at_sec: 10 }), frame("other", { match_id: "M2", at_sec: 40 }),
+    frame("after", { at_sec: 50 })];
+  const matches = [{ match_id: "M1" }, { match_id: "M2" }];
+  for (const id of ["first", "last"]) {
+    const scope = framesForSelection(frames, resolveSelection(frames, matches, { frameId: id }));
+    assert.deepEqual(scope.map(f => f.id), ["first", "last"]);
+    assert.equal(resolveSelection(frames, matches, { frameId: scope[0].id }).match?.match_id, "M1");
+    assert.equal(resolveSelection(frames, matches, { frameId: scope.at(-1)!.id }).match?.match_id, "M1");
+  }
+  assert.deepEqual(framesForSelection(frames, resolveSelection(frames, matches, { frameId: "before" }))
+    .map(f => f.id), ["before"]);
+  assert.deepEqual(framesForSelection(frames, resolveSelection(frames, [{ match_id: "empty" }])), []);
+});
+
+test("경기 사이 미연결 프레임에서는 다른 경기의 편집기를 표시하지 않는다", () => {
+  const frames = [frame("a", { match_id: "M1" }), frame("gap"), frame("b", { match_id: "M2" })];
+  const matches = [{ match_id: "M1" }, { match_id: "M2" }];
+  assert.equal(resolveSelection(frames, matches, { frameId: "a" }).match?.match_id, "M1");
+  assert.equal(resolveSelection(frames, matches, { frameId: "gap" }).match, null);
+  assert.equal(resolveSelection(frames, matches, { frameId: "b" }).match?.match_id, "M2");
+  frames[1].match_id = "M2";
+  assert.equal(resolveSelection(frames, matches, { frameId: "gap" }).match?.match_id, "M2");
+  frames[1].match_id = null;
+  const detached = resolveSelection(frames, matches, { frameId: "gap" });
+  assert.equal(detached.frame?.id, "gap");
+  assert.equal(detached.match, null);
 });
 
 test("★★ 근거 프레임이 없는 경기도 **고를 수 있다** — 보이기만 하고 못 고치면 검수가 아니다", () => {

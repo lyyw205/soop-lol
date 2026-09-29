@@ -48,7 +48,7 @@ fi
 
 PROMPT="/ck-research 무인 자동 실행이다. 사람이 없으니 묻지 말고 끝까지 간다.
 대상은 $QUEUE 의 queue 배열 VOD ${N}개다(와치리스트 채널 최근 3일 중 조사가 끝나지 않은 것 + 기간 밖의 running). 오래된 것부터 하나씩 한다.
-- VOD 마다 먼저 ck:record --lead vod:<번호> 와 ck:merge --find-match --vod <번호> 를 본다. 이미 기록된 경기도 처음부터 읽고, 그 match_id 로 이 화면에서 직접 읽은 칸만 match 제출한다(pov.link_basis 필수). 같다·다르다는 저장 도구가 판정한다.
+- VOD 마다 먼저 ck:record --lead vod:<번호> 와 ck:merge --find-match --vod <번호> 를 본다. 이미 기록된 경기도 처음부터 읽되 결과창은 도구가 준 예측 위치부터 찾고(못 찾으면 넓힌다), 그 match_id 로 이 화면에서 직접 읽은 칸만 match 제출한다(pov.link_basis 필수). 같다·다르다는 저장 도구가 판정한다.
 - 카테고리와 상관없이 VOD 전 범위를 훑는다. 롤 화면을 보면 스킬의 '경기 추적' 세 단계를 반드시 끝까지 한다. FC 온라인이 보이면 fco:context clue 만 넘긴다.
 - VOD 하나를 끝낼 때마다 ck:merge 로 scan 을 반영한다. 필수 추적을 다 했으면 done(롤이 없었어도 done), 못 끝냈으면 running 으로 남긴다 — 다음 회차가 이어서 한다.
 - reason 이 failed_left 인데 못 본 지점이 영상 길이 밖이라 원래 없는 구간이면, 그 구간을 scan.resolved_failed 로 닫는다. 안 닫으면 매 회차 다시 큐에 들어온다.

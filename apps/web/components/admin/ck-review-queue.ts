@@ -1,8 +1,8 @@
 /**
- * CK 검수 큐의 투영 규칙 — **경기와 그 경기의 비교 프레임만** 다룬다.
+ * CK 검수 큐의 경기 투영과 미연결 프레임 항목.
  *
- * ★ 사람 검수는 "공개될 값이 맞나" 를 프레임과 대조하는 일이다. 조사 후보·미배정 프레임·
- *   탐색 범위는 LLM 조사의 몫이라 여기 없다(CLI `ck:record` 로 본다).
+ * ★ 사람 검수는 "공개될 값이 맞나" 를 프레임과 대조하는 일이다. 조사 후보·
+ *   탐색 범위는 CLI `ck:record` 로 본다. 미연결 사진은 직접 확인하고 연결할 수 있게 큐에 남긴다.
  */
 
 export interface QueueFrameLike {
@@ -24,7 +24,7 @@ export interface QueueRange { at: number; end: number }
 export interface ProjectedMatch<M, F> extends QueueRange {
   match: M;
   rangeSource: "evidence" | "game_time" | "unknown";
-  /** 이 경기에 연결된 비교 프레임(시각 순). */
+  /** 연결된 근거와 이 구간 안의 미연결 프레임(시각 순). 표시용이며 DB 연결은 바꾸지 않는다. */
   frames: F[];
 }
 
@@ -35,6 +35,21 @@ export interface ReviewQueueOptions {
 
 /** 시각을 모르는 경기의 자리. 큐에서는 "시각 미상", 미니맵에서는 축 밖의 점. */
 export const UNPLACED = Number.MAX_SAFE_INTEGER;
+
+/** 경기 항목 사이에 미연결 프레임을 시각 순으로 놓는다. */
+export function reviewQueueEntries<M extends QueueMatchLike, F extends QueueFrameLike>(
+  projection: ProjectedMatch<M, F>[], frames: readonly F[],
+) {
+  const entries: Array<
+    { kind: "match"; id: string; at: number; item: ProjectedMatch<M, F> }
+    | { kind: "frame"; id: string; at: number; frame: F }
+  > = projection.map(item => ({ kind: "match", id: item.match.match_id, at: item.at, item }));
+  const grouped = new Set(projection.flatMap(item => item.frames.map(frame => frame.id)));
+  for (const frame of frames) if (frame.match_id == null && !grouped.has(frame.id)) {
+    entries.push({ kind: "frame", id: frame.id, at: frame.at_sec ?? UNPLACED, frame });
+  }
+  return entries.sort((a, b) => a.at - b.at);
+}
 
 const epochMillis = (value: string | Date | null | undefined): number | null => {
   if (!value) return null;
@@ -51,7 +66,7 @@ const epochMillis = (value: string | Date | null | undefined): number | null => 
 export function projectReviewQueue<F extends QueueFrameLike, M extends QueueMatchLike>(
   frames: readonly F[], matches: readonly M[], options: ReviewQueueOptions = {},
 ): ProjectedMatch<M, F>[] {
-  const byTime = (a: F, b: F) => (a.at_sec ?? 0) - (b.at_sec ?? 0);
+  const byTime = (a: F, b: F) => (a.at_sec ?? UNPLACED) - (b.at_sec ?? UNPLACED);
   const projected: ProjectedMatch<M, F>[] = matches.map((match) => {
     const own = frames.filter((frame) => frame.match_id === match.match_id).sort(byTime);
     const times = own.map((frame) => frame.at_sec).filter((time): time is number => time != null);
@@ -73,5 +88,13 @@ export function projectReviewQueue<F extends QueueFrameLike, M extends QueueMatc
     // 앞 경기의 비교 프레임으로 계속 볼 수 있지만 막대는 다음 경기 시작에서 끝난다.
     if (next.at !== UNPLACED && current.end > next.at) current.end = next.at;
   }
+  // 구간 안의 미연결 사진은 그 구간에서 보되, 경계 시각은 뒤 구간에만 배정한다.
+  // DB match_id 는 그대로 둔다. 구간 밖/시각 미상 사진은 reviewQueueEntries 에서 독립 항목으로 남는다.
+  for (const frame of frames) {
+    if (frame.match_id != null || frame.at_sec == null) continue;
+    const owner = projected.findLast(item => item.at !== UNPLACED && frame.at_sec! >= item.at && frame.at_sec! <= item.end);
+    if (owner) owner.frames.push(frame);
+  }
+  for (const item of projected) item.frames.sort(byTime);
   return projected;
 }

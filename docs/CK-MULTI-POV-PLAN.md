@@ -173,6 +173,8 @@ DB의 사진 테이블(`match_evidence_frame`)은 이미 `lead_id`(어느 VOD)�
 
 이번에는 가벼운 모드와 확인 수 집계를 구현하지 않는다. 나중에 구현할 때 따를 원칙만 정한다.
 
+**구체화한 계획: [CK-POV-LIGHT-PLAN.md](CK-POV-LIGHT-PLAN.md)** (힌트 목록·통과 조건·확인 못 함(B) 처리).
+
 ### 5.1 "독립 확인 3개"를 세는 원칙
 
 `match_pov` 행 세 개가 곧 확인 세 개는 아니다.
