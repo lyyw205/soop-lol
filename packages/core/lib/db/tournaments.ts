@@ -49,7 +49,9 @@ export async function saveEventTeams(
     prize?: string | null;
     vote_rank?: number | null;
     members: {
-      streamer_id: string;
+      streamer_id?: string;
+      /** 등록 스트리머가 아닌 과거 참가자의 출처 표기 이름. 둘 중 하나만 쓴다. */
+      display_name?: string;
       position?: string | null;
       is_captain?: boolean | null;
       rating_label?: string | null;
@@ -74,16 +76,34 @@ export async function saveEventTeams(
       byName.set(t.name, row.id);
       await tx`DELETE FROM event_team_member WHERE event_team_id = ${row.id}::uuid`;
       for (const m of t.members) {
-        await tx`
-          INSERT INTO event_team_member
-            (event_id, event_team_id, streamer_id, position, is_captain, rating_label, rating_points, award)
-          VALUES (${eventId}::uuid, ${row.id}::uuid, ${m.streamer_id}::uuid, ${m.position ?? null},
-                  ${m.is_captain ?? null}, ${m.rating_label ?? null}, ${m.rating_points ?? null}, ${m.award ?? null})
-          ON CONFLICT (event_id, streamer_id) DO UPDATE SET
-            event_team_id = EXCLUDED.event_team_id, position = EXCLUDED.position,
-            is_captain = EXCLUDED.is_captain, rating_label = EXCLUDED.rating_label,
-            rating_points = EXCLUDED.rating_points, award = EXCLUDED.award
-        `;
+        if (m.streamer_id && m.display_name?.trim()) {
+          throw new Error(`event_team '${t.name}' 참가자는 streamer_id와 display_name을 동시에 가질 수 없습니다.`);
+        }
+        if (m.streamer_id) {
+          await tx`
+            INSERT INTO event_team_member
+              (event_id, event_team_id, streamer_id, position, is_captain, rating_label, rating_points, award)
+            VALUES (${eventId}::uuid, ${row.id}::uuid, ${m.streamer_id}::uuid, ${m.position ?? null},
+                    ${m.is_captain ?? null}, ${m.rating_label ?? null}, ${m.rating_points ?? null}, ${m.award ?? null})
+            ON CONFLICT (event_id, streamer_id) WHERE streamer_id IS NOT NULL DO UPDATE SET
+              event_team_id = EXCLUDED.event_team_id, position = EXCLUDED.position,
+              is_captain = EXCLUDED.is_captain, rating_label = EXCLUDED.rating_label,
+              rating_points = EXCLUDED.rating_points, award = EXCLUDED.award
+          `;
+        } else if (m.display_name?.trim()) {
+          await tx`
+            INSERT INTO event_team_member
+              (event_id, event_team_id, display_name, position, is_captain, rating_label, rating_points, award)
+            VALUES (${eventId}::uuid, ${row.id}::uuid, ${m.display_name.trim()}, ${m.position ?? null},
+                    ${m.is_captain ?? null}, ${m.rating_label ?? null}, ${m.rating_points ?? null}, ${m.award ?? null})
+            ON CONFLICT (event_id, event_team_id, display_name) WHERE streamer_id IS NULL DO UPDATE SET
+              position = EXCLUDED.position, is_captain = EXCLUDED.is_captain,
+              rating_label = EXCLUDED.rating_label, rating_points = EXCLUDED.rating_points,
+              award = EXCLUDED.award
+          `;
+        } else {
+          throw new Error(`event_team '${t.name}' 참가자는 streamer_id 또는 display_name 이 필요합니다.`);
+        }
       }
     }
     const keep = [...byName.values()];

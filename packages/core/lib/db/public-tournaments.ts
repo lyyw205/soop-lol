@@ -38,8 +38,8 @@ export interface PublicTournamentTeamRow {
 
 export interface PublicTournamentMemberRow {
   event_team_id: string;
-  streamer_id: string;
-  slug: string;
+  streamer_id: string | null;
+  slug: string | null;
   display_name: string;
   profile_image_url: string | null;
   channel_id: string | null;
@@ -92,13 +92,14 @@ export async function listPublicTournamentEvents(): Promise<PublicTournamentEven
              max(name) FILTER (WHERE placement_rank=1) AS winner,
              array_agg(name) AS names FROM core_public.event_team GROUP BY event_id
     ), people AS (
-      SELECT ids.event_id,array_agg(DISTINCT s.display_name) AS names
-        FROM (
-          SELECT event_id,streamer_id FROM core_public.event_team_member
-          UNION
-          SELECT m.event_id,mp.streamer_id FROM core_public.match_participant mp
-            JOIN core_public.match m ON m.match_id=mp.match_id WHERE m.event_id IS NOT NULL
-        ) ids JOIN core_public.streamer s ON s.streamer_id=ids.streamer_id GROUP BY ids.event_id
+      SELECT names.event_id,array_agg(DISTINCT names.display_name) AS names FROM (
+        SELECT event_id,member_display_name AS display_name FROM core_public.event_team_member
+        UNION ALL
+        SELECT m.event_id,s.display_name FROM core_public.match_participant mp
+          JOIN core_public.match m ON m.match_id=mp.match_id
+          JOIN core_public.streamer s ON s.streamer_id=mp.streamer_id
+         WHERE m.event_id IS NOT NULL
+      ) names GROUP BY names.event_id
     )
     SELECT e.event_id,e.slug,e.name,e.kind,e.organizer,e.source_url,e.starts_at,e.ends_at,
            g.first_match,g.last_match,COALESCE(t.team_count,0)::int AS team_count,
@@ -125,9 +126,9 @@ export async function getPublicTournamentFacts(eventId: string): Promise<{
       SELECT event_team_id,name,placement,placement_rank,prize,vote_rank FROM core_public.event_team
        WHERE event_id=${eventId}::uuid ORDER BY placement_rank NULLS LAST,name`,
     sql<PublicTournamentMemberRow[]>`
-      SELECT tm.event_team_id,s.streamer_id,s.slug,s.display_name,s.profile_image_url,ch.channel_id,tm.position,
-             tm.is_captain,tm.rating_label,tm.rating_points::float8 AS rating_points,tm.award
-        FROM core_public.event_team_member tm JOIN core_public.streamer s ON s.streamer_id=tm.streamer_id
+      SELECT tm.event_team_id,tm.streamer_id,s.slug,tm.member_display_name AS display_name,s.profile_image_url,ch.channel_id,tm.position,
+         tm.is_captain,tm.rating_label,tm.rating_points::float8 AS rating_points,tm.award
+        FROM core_public.event_team_member tm LEFT JOIN core_public.streamer s ON s.streamer_id=tm.streamer_id
         LEFT JOIN LATERAL (SELECT channel_id FROM core_public.streamer_channel WHERE streamer_id=s.streamer_id AND platform='soop' ORDER BY is_primary DESC LIMIT 1) ch ON true
        WHERE tm.event_id=${eventId}::uuid ORDER BY s.display_name`,
     sql<PublicTournamentMatchRow[]>`

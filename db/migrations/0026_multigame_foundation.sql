@@ -129,3 +129,4 @@ CREATE OR REPLACE VIEW core_public.streamer_encounter AS
                 AND m.game_code = 'lol'
     JOIN streamer a ON a.id = se.streamer_a_id AND a.visibility = 'public'
     JOIN streamer b ON b.id = se.streamer_b_id AND b.visibility = 'public';
+

@@ -32,7 +32,7 @@ export interface TournamentSummary {
 }
 export interface TournamentMember {
   id: string;
-  slug: string;
+  slug: string | null;
   name: string;
   imageUrl: string | null;
   channelId: string | null;

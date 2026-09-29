@@ -48,7 +48,7 @@ export async function getTournament(slug: string): Promise<TournamentDetail | nu
     members: members
       .filter((m) => m.event_team_id === t.event_team_id)
       .map((m) => ({
-        id: m.streamer_id,
+        id: m.streamer_id ?? `${t.event_team_id}:${m.display_name}`,
         slug: m.slug,
         name: m.display_name,
         imageUrl: m.profile_image_url,

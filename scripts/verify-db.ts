@@ -468,10 +468,16 @@ try {
 
   // ── 대회 팀 (마이그레이션 0008) ──────────────────────────────────────
   const teamIds = await tournaments.saveEventTeams(eventId, [
-    { name: "알파팀", members: [{ streamer_id: s1.id, position: "MIDDLE" }] },
+    { name: "알파팀", members: [{ streamer_id: s1.id, position: "MIDDLE" }, { display_name: "미등록 과거 참가자", position: "TOP" }] },
     { name: "베타팀", members: [{ streamer_id: s2.id, position: "MIDDLE" }] },
   ]);
   check("대회 팀과 명단이 저장된다", teamIds.size === 2, [...teamIds.keys()].join(","));
+  const publicManualMember = await sqlClient()<{ member_display_name: string; streamer_id: string | null; slug: string | null }[]>`
+    SELECT member_display_name,streamer_id,slug FROM core_public.event_team_member
+     WHERE event_team_id=${teamIds.get("알파팀")!}::uuid AND member_display_name='미등록 과거 참가자'`;
+  check("등록하지 않은 과거 참가자 이름도 팀 로스터에 공개되고 계정·프로필 링크는 비어 있다",
+    publicManualMember.length === 1 && publicManualMember[0].streamer_id === null && publicManualMember[0].slug === null,
+    publicManualMember[0]?.member_display_name);
 
   // 한 사람이 한 대회에서 두 팀에 속하면 대회 성적이 두 줄로 갈라진다. 못 하게 막혀 있어야 한다.
   let twoTeamsRejected = false;
