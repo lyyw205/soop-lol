@@ -129,8 +129,6 @@ interface SeedTournament {
   ends_at?: string;
   source_url?: string;
   teams: Record<string, string[]>;
-  /** 스트리머로 등록하지 않은 옛 참가자 — 출처 이름과 포지션만 저장한다. */
-  unregistered_members?: Record<string, { display_name: string; position?: string }[]>;
   /**
    * slug → 로스터 포지션. 경기마다 lineup 을 적지 않아도 이걸로 포지션이 붙는다.
    * ★ 없으면 대회 맞라인 전적이 통째로 안 생긴다 — 상대 5명 전부와 조우가 맺히는데
@@ -207,17 +205,6 @@ function validate(list: SeedTournament[]): string[] {
     if (!t.teams || Object.keys(t.teams).length === 0) errors.push(`${at}: teams 가 비었다`);
 
     const teamNames = new Set(Object.keys(t.teams ?? {}));
-    for (const [team, members] of Object.entries(t.unregistered_members ?? {})) {
-      if (!teamNames.has(team)) errors.push(`${at} unregistered_members: '${team}' 팀이 teams 에 없다`);
-      const seen = new Set<string>();
-      for (const member of members) {
-        const name = member.display_name?.trim();
-        if (!name) errors.push(`${at} unregistered_members: '${team}' 참가자 이름이 비었다`);
-        else if (seen.has(name)) errors.push(`${at} unregistered_members: '${team}' 에 '${name}' 이 중복됐다`);
-        else seen.add(name);
-        if (member.position && !positions.has(member.position)) errors.push(`${at} unregistered_members: '${name}' position '${member.position}' 은 ${[...positions].join('/')} 중 하나여야 한다`);
-      }
-    }
     for (const [field, map] of [["team_placements", t.team_placements], ["team_prizes", t.team_prizes],
       ["team_vote_ranks", t.team_vote_ranks], ["captains", t.captains]] as const) {
       for (const team of Object.keys(map ?? {})) {
@@ -456,8 +443,9 @@ try {
         placement_rank: placementRank(t.team_placements?.[name]),
         prize: t.team_prizes?.[name] ?? null,
         vote_rank: t.team_vote_ranks?.[name] ?? null,
-        members: [
-          ...roster.filter((slug) => idBySlug.has(slug)).map((slug) => ({
+        members: roster
+          .filter((slug) => idBySlug.has(slug))
+          .map((slug) => ({
             streamer_id: idBySlug.get(slug)!,
             position: t.roster_positions?.[slug],
             // 팀장 명단이 있는 대회에서만 true 다. 나머지는 모름(NULL) — false 로 적지 않는다.
@@ -466,11 +454,6 @@ try {
             rating_points: t.member_ratings?.[slug]?.points ?? null,
             award: t.member_awards?.[slug] ?? null,
           })),
-          ...(t.unregistered_members?.[name] ?? []).map((member) => ({
-            display_name: member.display_name,
-            position: member.position ?? null,
-          })),
-        ],
       })),
     );
     console.log(`  팀 ${teamIdByName.size}개 명단 저장`);

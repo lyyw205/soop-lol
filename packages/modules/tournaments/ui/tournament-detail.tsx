@@ -14,7 +14,6 @@ import {
 import {
   tournamentPlayerRecords,
   type TournamentDetail,
-  type TournamentMember,
   type TournamentSeries,
   type TournamentTeam,
 } from "../server/tournament.ts";
@@ -45,13 +44,6 @@ const tabs = [
   ["info", "대회 안내"],
 ];
 const score = (n: number | null) => n ?? "—";
-function MemberAnchor({ member, children, className }: {
-  member: TournamentMember; children: ReactNode; className?: string;
-}) {
-  return member.slug
-    ? <Link href={`/s/${member.slug}`} className={className}>{children}</Link>
-    : <span className={className}>{children}</span>;
-}
 const stageLabel = (placement: string | null | undefined) => {
   if (!placement) return null;
   if (placement === "우승" || placement === "1위") return "우승";
@@ -529,7 +521,11 @@ function Overview({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
                       positions.findIndex((p) => p[0] === b.position),
                   )
                   .map((m) => (
-                    <MemberAnchor member={m} key={m.id} className={m.id === mvp?.id ? "tp-champion-mvp" : undefined}>
+                    <Link
+                      href={`/s/${m.slug}`}
+                      key={m.id}
+                      className={m.id === mvp?.id ? "tp-champion-mvp" : undefined}
+                    >
                       <Avatar name={m.name} src={m.imageUrl} channelId={m.channelId} />
                       <span>
                         <b>
@@ -541,7 +537,7 @@ function Overview({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
                         </small>
                       </span>
                       <ChevronRight size={14} />
-                      </MemberAnchor>
+                    </Link>
                   ))}
               </div>
             </section>
@@ -861,7 +857,7 @@ function Teams({ data }: { data: TournamentDetail }) {
                           const rating = m.rating;
                           return (
                             <div className="tp-roster-person" key={m.id}>
-                              <MemberAnchor member={m}>
+                              <Link href={`/s/${m.slug}`}>
                                 <span className="tp-roster-person-photo">
                                   <Avatar
                                     name={m.name}
@@ -885,7 +881,7 @@ function Teams({ data }: { data: TournamentDetail }) {
                                     )}
                                   </>
                                 )}
-                              </MemberAnchor>
+                              </Link>
                             </div>
                           );
                         })}
@@ -917,7 +913,7 @@ function Teams({ data }: { data: TournamentDetail }) {
               .filter((m) => !m.position)
               .map((m) => (
                 <p key={`${t.id}:${m.id}`}>
-                  {t.name} · <MemberAnchor member={m}>{m.name}</MemberAnchor>
+                  {t.name} · <Link href={`/s/${m.slug}`}>{m.name}</Link>
                 </p>
               )),
           )}
@@ -1055,7 +1051,7 @@ function Info({ data }: { data: TournamentDetail }) {
         {awards.length > 0 && (
           <Panel title="개인상">
             <Facts
-              rows={awards.map((m) => [m.award, <>{m.slug ? <Link href={`/s/${m.slug}`}>{m.name}</Link> : m.name} · {m.team}</>])}
+              rows={awards.map((m) => [m.award, <>{<Link href={`/s/${m.slug}`}>{m.name}</Link>} · {m.team}</>])}
             />
           </Panel>
         )}
