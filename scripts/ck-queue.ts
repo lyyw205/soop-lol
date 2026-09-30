@@ -35,7 +35,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { kstDate, makeOpt } from "./lib/cli.mjs";
-import { CK_RECENT_DAYS, recentFrom, vodWork, type VodReason } from "@soop-lol/core/lib/metrics/ck-vod-status";
+import { CK_RECENT_DAYS, recentFrom, titleExclusion, vodWork, type VodReason } from "@soop-lol/core/lib/metrics/ck-vod-status";
 import { listBroadcasts } from "./lib/soop-vod.mjs";
 
 const argv = process.argv.slice(2);
@@ -79,8 +79,10 @@ try {
   const byKey = new Map(leads.map((l) => [l.source_key, l]));
 
   const queue: Item[] = [];
-  let skipped = 0;
+  let skipped = 0, excluded = 0;
   for (const { duration_sec, ...v } of found) {
+    // 공식 대회 시청 방송처럼 제목만으로 뺄 수 있는 VOD — 백필과 같은 규칙이다.
+    if (titleExclusion(v.title)) { excluded++; continue; }
     // 완료 판정은 수동 백필과 같은 함수다 — 한쪽이 끝낸 VOD 를 다른 쪽이 다시 보지 않는다.
     const { reason } = vodWork(byKey.get(`vod:${v.title_no}`)?.raw, duration_sec);
     if (reason) queue.push({ ...v, reason });
@@ -91,6 +93,7 @@ try {
   const channels = watch.filter((w) => w.channel_id).map((w) => w.channel_id!);
   const stale = await listRunningLeads(channels);
   for (const l of stale) {
+    if (titleExclusion(l.title)) continue;
     if (inQueue.has(l.source_key)) continue;
     const w = watch.find((x) => x.channel_id === l.channel_id)!;
     queue.push({
@@ -101,7 +104,7 @@ try {
   // 오래된 것부터 — 기간 창에서 먼저 빠져나가는 쪽이다.
   queue.sort((a, b) => a.ended_at.localeCompare(b.ended_at));
 
-  console.log(`롤 와치리스트 ${watch.length}명 · ${FROM} ~ ${TO} · VOD ${found.length}개 · 조사 끝 ${skipped} · 큐 ${queue.length}`);
+  console.log(`롤 와치리스트 ${watch.length}명 · ${FROM} ~ ${TO} · VOD ${found.length}개 · 조사 끝 ${skipped} · 제목으로 제외 ${excluded} · 큐 ${queue.length}`);
   for (const q of queue) {
     console.log(`  ${q.ended_at}  vod:${q.title_no}  ${q.hours}h  ${q.streamer}  [${q.reason}]  ${q.title}`);
   }

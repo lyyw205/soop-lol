@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {recentFrom, newestFirst, vodWork, madeProgress, END_TOLERANCE_SEC} from './ck-vod-status.ts';
+import {recentFrom, newestFirst, vodWork, madeProgress, END_TOLERANCE_SEC, titleExclusion} from './ck-vod-status.ts';
 
 const done={status:'done',failed:[],requested:[[0,100]],opened:[10]};
 test('자동 조사 창은 오늘 포함 3개 KST 날짜다',()=>{
@@ -63,4 +63,10 @@ test('진척은 도장이 아니라 남은 일로 판단한다',()=>{
   vodWork({candidates:[{conclusion:'match'}],scan:{status:'running',requested:[[0,100]]}},100)),true,'후보 해소');
  assert.equal(madeProgress(vodWork(undefined,100),vodWork(undefined,100)),false);
  assert.equal(madeProgress(vodWork({},100),vodWork({access:{status:'unavailable',reason:'비공개 확인'}},100)),true);
+});
+test('LCK Watch Party 태그 방송은 제목만으로 뺀다',()=>{
+ assert.equal(titleExclusion('김민교x칸 LCK T1 vs BFX 플레이오프 #LckWatchParty'),'LCK Watch Party');
+ assert.equal(titleExclusion('이상호 DNS vs NS 샤벨스승님응원갑니다 #LckWatchparty'),'LCK Watch Party');
+ assert.equal(titleExclusion('김민교 롤 상어녀CK'),null);
+ assert.equal(titleExclusion('김민교 LCK 결승 보고 내전'),null,'태그 없이 LCK 만 적힌 제목은 빼지 않는다');
 });

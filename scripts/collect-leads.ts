@@ -31,6 +31,7 @@
 
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { watchedIds } from "@soop-lol/core/lib/db/watchlist";
+import { titleExclusion } from "@soop-lol/core/lib/metrics/ck-vod-status";
 
 import { BoardBlocked, comments, posts } from "./lib/soop-board.mjs";
 import {
@@ -194,6 +195,7 @@ try {
     for (const v of list) {
       const day = v.ended_at.slice(0, 10);
       if (day < FROM || day > TO) continue;
+      if (titleExclusion(v.title)) continue;   // 공식 대회 시청 방송 — 조사·백필과 같은 규칙
       const cand: Vod = { ...v, at: v.ended_at, category: LOL_CATEGORY, views: v.views };
       if (NO_SCAN) { vods.push(cand); continue; }
       if (scannedHours >= SCAN_BUDGET_H) { skippedNoGame++; continue; }

@@ -36,6 +36,18 @@ export function newestFirst(a: VodPosition, b: VodPosition): number {
  */
 export const END_TOLERANCE_SEC = 5;
 
+/**
+ * 제목만으로 조사에서 빼는 VOD. 빼는 이유(표시용)를 돌려주고, 대상이면 null.
+ *
+ * ★ LCK Watch Party — 공식 대회(LCK)를 틀어 놓고 같이 보는 방송이다. 스트리머 경기가 없다.
+ *   실측(2026-09-30): 태그 붙은 VOD 63개 중 28개(99시간)를 끝까지 조사했고 연결된 경기 0건,
+ *   미해결 후보도 0건이었다. SOOP 공식 태그라 표기가 일정하다(#LckWatchParty / #LckWatchparty).
+ * ⚠ 태그가 붙은 방송 안에서 시청 뒤 내전을 한 경우는 놓친다. 위 실측에선 한 번도 없었다.
+ */
+export function titleExclusion(title: string): string | null {
+  return /#\s*lck\s*watch\s*party/i.test(title) ? 'LCK Watch Party' : null;
+}
+
 export type ScanRaw = Record<string, any>;
 /** 다시 봐야 하는 이유. null 이면 완료 또는 확인된 접근 불가. */
 export type VodReason = 'new' | 'lead_only' | 'running' | 'failed_left' | 'partial';

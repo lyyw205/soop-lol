@@ -11,7 +11,7 @@ import { closeDb } from '@soop-lol/core/lib/db/client';
 import { kstDateString } from '@soop-lol/core/lib/time';
 import { resolveBackfillTarget, getBackfillRequest, saveBackfillRequest, vodRaws, ensureVodLeads,
   channelLeadsBetween, recordVodAccess, type BackfillTarget, type BackfillVod } from '@soop-lol/core/lib/db/ck-backfill';
-import { vodWork, madeProgress, vodDate, type VodWork } from '@soop-lol/core/lib/metrics/ck-vod-status';
+import { vodWork, madeProgress, vodDate, titleExclusion, type VodWork } from '@soop-lol/core/lib/metrics/ck-vod-status';
 import { listRange } from './lib/ck-backfill.ts';
 import { listBroadcasts } from './lib/soop-vod.mjs';
 
@@ -26,7 +26,7 @@ const {values,positionals} = parseArgs({allowPositionals:true,options:{
 }});
 const command = positionals[0] ?? 'status';
 
-interface PlannedVod extends BackfillVod { reason: VodWork['reason']; unavailable: boolean }
+interface PlannedVod extends BackfillVod { reason: VodWork['reason']; unavailable: boolean; excluded: string | null }
 interface Plan {
   target: BackfillTarget; from: string; to: string; generated_at: string;
   vods: PlannedVod[]; queue: number[];
@@ -44,12 +44,15 @@ function locked() {
 
 async function evaluate(vods: BackfillVod[]): Promise<PlannedVod[]> {
   const raws = await vodRaws(vods.map(v=>v.title_no));
-  return vods.map(v => { const w = vodWork(raws.get(v.title_no), v.duration_sec); return { ...v, reason: w.reason, unavailable: w.unavailable }; });
+  return vods.map(v => { const w = vodWork(raws.get(v.title_no), v.duration_sec);
+    return { ...v, reason: w.reason, unavailable: w.unavailable, excluded: titleExclusion(v.title) }; });
 }
+/** 조사해야 할 VOD — 완료·접근 불가·제목 제외가 아닌 것. */
+const pendingVod = (v: PlannedVod) => v.reason !== null && !v.excluded;
 function summary(vods: PlannedVod[]) {
   const count = (f: (v: PlannedVod)=>boolean) => vods.filter(f).length;
   return { total: vods.length, complete: count(v=>v.reason===null && !v.unavailable), unavailable: count(v=>v.unavailable),
-    remaining: count(v=>v.reason!==null), running: count(v=>v.reason==='running') };
+    excluded: count(v=>!!v.excluded && v.reason!==null), remaining: count(pendingVod), running: count(v=>pendingVod(v) && v.reason==='running') };
 }
 
 async function plan() {
@@ -75,9 +78,9 @@ async function plan() {
   const missing = (await channelLeadsBetween(target.channel_id, from!, to!))
     .filter(l => !listed.has(l.source_key))
     .map(l => ({ vod: Number(l.source_key.slice(4)), title: l.title, reason: vodWork(l.raw, null).reason }))
-    .filter(l => l.reason !== null);
+    .filter(l => l.reason !== null && !titleExclusion(l.title));
   const result: Plan = { target, from: from!, to: to!, generated_at: new Date().toISOString(),
-    vods, queue: vods.filter(v=>v.reason!==null).map(v=>v.title_no), missing };
+    vods, queue: vods.filter(pendingVod).map(v=>v.title_no), missing };
   writeJson(values.write, result);
   writeJson(lastPlanPath(target.channel_id), result);
   console.log(JSON.stringify({ streamer: target.display_name, from, to, ...summary(vods), missing }, null, 2));
@@ -91,9 +94,10 @@ async function next() {
   const raws = await vodRaws(p.queue);
   for (const no of p.queue) {
     const vod = byNo.get(no)!;
+    if (titleExclusion(vod.title)) continue;
     const before = vodWork(raws.get(no), vod.duration_sec);
     if (before.reason === null) continue;
-    writeJson(values.current, { vod: { ...vod, reason: before.reason, unavailable: before.unavailable }, before } satisfies Current);
+    writeJson(values.current, { vod: { ...vod, reason: before.reason, unavailable: before.unavailable, excluded: null }, before } satisfies Current);
     console.log(`다음 VOD ${no} [${before.reason}] ${vod.title} (${((vod.duration_sec??0)/3600).toFixed(1)}h)`);
     return;
   }
@@ -123,7 +127,7 @@ async function status() {
   const p = readJson<Plan>(path);
   const vods = await evaluate(p.vods);
   console.log(JSON.stringify({ target, request, last_plan: { from: p.from, to: p.to, generated_at: p.generated_at, ...summary(vods),
-    pending: vods.filter(v=>v.reason!==null).map(v=>({ vod: v.title_no, reason: v.reason, ended_at: v.ended_at, title: v.title })),
+    pending: vods.filter(pendingVod).map(v=>({ vod: v.title_no, reason: v.reason, ended_at: v.ended_at, title: v.title })),
     missing: p.missing } }, null, 2));
 }
 

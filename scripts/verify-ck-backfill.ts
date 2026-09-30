@@ -59,9 +59,9 @@ try {
  assert.throws(()=>wl.parseWatchGame('valorant'));
 
  // ── 2. 가짜 SOOP: 양쪽 날짜가 있어야 거르고, 60개씩 페이지를 나눈다 ──
- const row=(titleNo:number,regDate:string,sec=3600)=>({titleNo,titleName:`VOD ${titleNo}`,regDate,ucc:{totalFileDuration:sec*1000},count:{}});
+ const row=(titleNo:number,regDate:string,sec=3600,titleName=`VOD ${titleNo}`)=>({titleNo,titleName,regDate,ucc:{totalFileDuration:sec*1000},count:{}});
  const rows=[row(305,'2026-09-21 12:00:00'),row(303,'2026-09-20 19:00:00'),row(304,'2026-09-20 05:17:05'),row(302,'2026-09-19 12:00:00'),
-  row(301,'2026-09-18 12:00:00'),row(300,'2026-09-17 12:00:00'),
+  row(301,'2026-09-18 12:00:00'),row(306,'2026-09-19 20:00:00',3600,'김민교x칸 LCK T1 vs HLE #LckWatchParty'),row(300,'2026-09-17 12:00:00'),
   ...Array.from({length:130},(_,i)=>row(1000+i,'2026-09-05 12:00:00',600))];
  const fixture=join(dir,'http.mjs');
  writeFileSync(fixture,`const rows=${JSON.stringify(rows)};
@@ -94,7 +94,8 @@ try {
  assert.match((await cli('plan','--streamer','백필CLI','--from','2026-09-18','--write',queue)).out,/함께/);
  assert.equal((await cli('plan','--streamer','백필CLI','--write',queue)).code,1,'처음엔 기간이 필요하다');
  assert.equal((await cli('plan','--streamer','백필CLI','--from','2026-09-18','--to','2026-09-20','--write',queue)).code,0);
- assert.deepEqual(plan().queue,[303,304,301]);
+ assert.deepEqual(plan().queue,[303,304,301],'LCK Watch Party(306)는 큐에 안 들어간다');
+ assert.equal(plan().vods.find((v:any)=>v.title_no===306).excluded,'LCK Watch Party');
  assert.deepEqual(plan().missing.map((m:any)=>m.vod),[299],'목록에서 사라진 미완료 VOD 를 알린다');
  const [kept]=await db()`SELECT raw,state,note FROM event_lead WHERE source_key='vod:301'`;
  assert.deepEqual([kept.raw,kept.state,kept.note],[{keep:'x'},'ignored','메모'],'기존 lead 는 건드리지 않는다');
