@@ -5,7 +5,7 @@
 import { db } from './client.ts';
 import { vodDate, type ScanRaw } from '../metrics/ck-vod-status.ts';
 
-export interface BackfillTarget { id: string; display_name: string; slug: string; channel_id: string; watch: boolean }
+export interface BackfillTarget { id: string; display_name: string; slug: string; channel_id: string }
 export interface BackfillRequest { channel_id: string; streamer_id: string; from_date: string; to_date: string; requested_at: Date }
 export interface BackfillVod {
   title_no: number; ended_at: string; title: string; channel_id: string;
@@ -14,7 +14,7 @@ export interface BackfillVod {
 
 export async function resolveBackfillTarget(name: string): Promise<BackfillTarget> {
   const rows = await db()<BackfillTarget[]>`
-    SELECT s.id, s.display_name, s.slug, s.watch, c.channel_id FROM streamer s
+    SELECT s.id, s.display_name, s.slug, c.channel_id FROM streamer s
     JOIN streamer_channel c ON c.streamer_id=s.id AND c.platform='soop' AND c.active_to IS NULL
     WHERE s.slug=${name} OR s.display_name=${name} OR c.channel_id=${name}`;
   if (rows.length !== 1) throw new Error(rows.length ? `대상이 모호하다: ${rows.map(r=>r.slug+':'+r.channel_id).join(', ')}` : `SOOP 채널을 찾지 못했다: ${name}`);

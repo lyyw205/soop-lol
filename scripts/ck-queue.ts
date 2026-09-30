@@ -29,6 +29,7 @@
  */
 
 import { listRunningLeads } from "@soop-lol/core/lib/db/ck-backfill";
+import { listWatched } from "@soop-lol/core/lib/db/watchlist";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -54,12 +55,7 @@ interface Item {
 const sql = db();
 let truncated: string[] = [];
 try {
-  const watch = await sql<{ display_name: string; slug: string; channel_id: string | null }[]>`
-    SELECT s.display_name, s.slug, c.channel_id
-      FROM streamer s
-      LEFT JOIN streamer_channel c ON c.streamer_id = s.id AND c.platform = 'soop' AND c.active_to IS NULL
-     WHERE s.watch
-     ORDER BY s.display_name`;
+  const watch = await listWatched("lol");
   const noChannel = watch.filter((w) => !w.channel_id);
   if (noChannel.length) console.log(`⚠ 채널이 없어 못 훑는 ${noChannel.length}명: ${noChannel.map((w) => w.display_name).join(", ")}`);
 
@@ -105,7 +101,7 @@ try {
   // 오래된 것부터 — 기간 창에서 먼저 빠져나가는 쪽이다.
   queue.sort((a, b) => a.ended_at.localeCompare(b.ended_at));
 
-  console.log(`와치리스트 ${watch.length}명 · ${FROM} ~ ${TO} · VOD ${found.length}개 · 조사 끝 ${skipped} · 큐 ${queue.length}`);
+  console.log(`롤 와치리스트 ${watch.length}명 · ${FROM} ~ ${TO} · VOD ${found.length}개 · 조사 끝 ${skipped} · 큐 ${queue.length}`);
   for (const q of queue) {
     console.log(`  ${q.ended_at}  vod:${q.title_no}  ${q.hours}h  ${q.streamer}  [${q.reason}]  ${q.title}`);
   }

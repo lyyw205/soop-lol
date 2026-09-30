@@ -44,6 +44,19 @@ try {
  assert.deepEqual(legacy.raw,{keep:1,access:{status:'unavailable',reason:'삭제 안내 확인',checked_at:'2026-09-27T00:00:00Z'}});
  assert.equal((await db()`SELECT to_regclass('ck_backfill_progress') AS t`)[0].t,null);
  assert.equal((await db()`SELECT relrowsecurity FROM pg_class WHERE relname='ck_backfill_request'`)[0].relrowsecurity,true);
+ // 0049: 옛 watch=true 는 롤 감시로 옮겨지고, 칸은 사라지고, 없는 게임은 거부된다.
+ assert.deepEqual((await db()`SELECT game_code FROM streamer_watch WHERE streamer_id=${s.id}`).map((r:any)=>r.game_code),['lol']);
+ assert.equal((await db()`SELECT count(*)::int n FROM information_schema.columns WHERE table_name='streamer' AND column_name='watch'`)[0].n,0);
+ assert.equal((await db()`SELECT relrowsecurity FROM pg_class WHERE relname='streamer_watch'`)[0].relrowsecurity,true);
+ await assert.rejects(db()`INSERT INTO streamer_watch(streamer_id,game_code) VALUES(${s.id},'valorant')`);
+ await db()`INSERT INTO streamer_watch(streamer_id,game_code) VALUES(${s.id},'fconline')`;
+ const wl=await import('../packages/core/lib/db/watchlist.ts');
+ assert.deepEqual((await wl.listWatched('lol')).map(r=>r.slug),['backfill-cli'],'게임별로 따로 나온다');
+ assert.deepEqual((await wl.listWatched('fconline')).map(r=>r.slug),['backfill-cli']);
+ await wl.setWatched(s.id,'fconline',false);
+ assert.equal((await wl.listWatched('fconline')).length,0,'한 게임을 빼도 다른 게임은 남는다');
+ assert.equal((await wl.listWatched('lol')).length,1);
+ assert.throws(()=>wl.parseWatchGame('valorant'));
 
  // ── 2. 가짜 SOOP: 양쪽 날짜가 있어야 거르고, 60개씩 페이지를 나눈다 ──
  const row=(titleNo:number,regDate:string,sec=3600)=>({titleNo,titleName:`VOD ${titleNo}`,regDate,ucc:{totalFileDuration:sec*1000},count:{}});
@@ -116,5 +129,5 @@ try {
  assert.equal((await cli('plan','--streamer','백필CLI','--from','2026-09-01','--to','2026-09-06','--write',queue)).code,0);
  assert.equal(plan().vods.length,130);
  assert.equal((await b.getBackfillRequest('bf-channel'))?.from_date,'2026-09-01');
- console.log('백필 DB 검증 통과: 옛 기록 정리·실제 SOOP 날짜 규칙·페이지·공통 판정·목록 밖 대조·진척 판정·재개·접근 상태');
+ console.log('백필 DB 검증 통과: 게임별 감시 명단 이관·옛 기록 정리·실제 SOOP 날짜 규칙·페이지·공통 판정·목록 밖 대조·진척 판정·재개·접근 상태');
 } finally {rmSync(dir,{recursive:true,force:true});await closeDb();await server.stop();await database.close();}

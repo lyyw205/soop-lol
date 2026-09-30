@@ -30,6 +30,7 @@
  */
 
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
+import { watchedIds } from "@soop-lol/core/lib/db/watchlist";
 
 import { BoardBlocked, comments, posts } from "./lib/soop-board.mjs";
 import {
@@ -131,12 +132,14 @@ try {
   console.log(`${FROM === TO ? DATE : `${FROM} ~ ${TO}`} 치 단서 수집${DRY ? "  (확인만 — 아무것도 쓰지 않는다)" : ""}\n`);
 
   // 등록된 채널 ↔ 스트리머. 참가자를 즉시 이어붙이는 데 쓴다.
+  // 롤 단서 수집이라 롤 감시 목록만 본다. FC 감시 대상은 여기서 훑지 않는다.
+  const lolWatch = await watchedIds("lol");
   const known = new Map<string, { id: string; name: string; watch: boolean; vod_availability: string }>(
-    (await sql<{ channel_id: string; id: string; display_name: string; watch: boolean; vod_availability: string }[]>`
-      SELECT c.channel_id, s.id, s.display_name, s.watch, c.vod_availability
+    (await sql<{ channel_id: string; id: string; display_name: string; vod_availability: string }[]>`
+      SELECT c.channel_id, s.id, s.display_name, c.vod_availability
         FROM streamer_channel c JOIN streamer s ON s.id = c.streamer_id
        WHERE c.platform = 'soop' AND c.active_to IS NULL
-    `).map((r) => [r.channel_id, { id: r.id, name: r.display_name, watch: r.watch, vod_availability: r.vod_availability }]),
+    `).map((r) => [r.channel_id, { id: r.id, name: r.display_name, watch: lolWatch.has(r.id), vod_availability: r.vod_availability }]),
   );
   console.log(`등록 채널 ${known.size}개 · 그중 매일 훑을 대상 ${[...known.values()].filter((k) => k.watch).length}명`);
   const unlikelyVod = [...known.values()].filter((k) => k.watch && k.vod_availability === "usually_unavailable").length;

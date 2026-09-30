@@ -44,7 +44,7 @@
     "seed:soop-fa": "node --env-file-if-exists=apps/web/.env.local scripts/build-soop-fa.mjs",
     "//candidates:identify": "★ 내전에서 만난 미등록 참가자를 FA 등록과 대조해 식별한다. 기본은 확인만 — 넣으려면 -- --apply.",
     "candidates:identify": "node --env-file-if-exists=apps/web/.env.local scripts/identify-candidates.ts",
-    "//watch": "★ 매일 자동 수집할 스트리머 명단(50~60명)을 정한다. 인자 없이 돌리면 지금 명단을 보여준다. --vod-usually-unavailable/available/unknown은 채널별 VOD 성향 힌트이며 목록 조회를 끄지 않는다.",
+    "//watch": "★ 매일 자동 수집할 스트리머 명단을 게임별로 정한다(--game lol|fconline, 없으면 lol). 인자 없이 돌리면 지금 명단을 보여준다. --vod-usually-unavailable/available/unknown은 채널별 VOD 성향 힌트이며 목록 조회를 끄지 않는다.",
     "watch": "node --env-file-if-exists=apps/web/.env.local scripts/set-watchlist.ts",
     "//ck:collect": "⚠ VOD 조사 역할은 ck:probe → ck:merge 가 대체했다. 다만 게시판 글·댓글 같은 **다른 출처의 단서 수집**은 여기에만 있어서 남겨 둔다. 그날 단서와 참가 명단을 텍스트로만 긁어 event_lead 에 쌓는다 — 확인만 하려면 -- --dry-run.",
     "ck:collect": "node --env-file-if-exists=apps/web/.env.local scripts/collect-leads.ts",
