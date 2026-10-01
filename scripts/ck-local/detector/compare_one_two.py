@@ -31,7 +31,7 @@ for ch in chans:
     b = LogisticRegression(C=3, class_weight="balanced", max_iter=5000).fit(XB, YB)
     for name, f in [("A 결과창 판별기", lambda e: a.predict_proba(e)[:, 1]), ("B 종류 판별기", lambda e: b.predict_proba(e)[:, [M.CLASSES.index("result"), M.CLASSES.index("graph")]].sum(1))]:
         for v in vods:
-            at, emb = E[v]; s = f(emb); rs = T.runs_of(s, 0.7, 2)
+            at, emb = E[v]; s = f(emb); rs = T.runs_of(s, 0.7, 2, at)
             ts = sorted(truth[v]); gs = []
             for t in ts:
                 if gs and t - gs[-1][-1] <= 90: gs[-1].append(t)

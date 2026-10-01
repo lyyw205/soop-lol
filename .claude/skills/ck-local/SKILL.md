@@ -53,6 +53,8 @@ description: (실험) 학습한 판별기가 썸네일 전체에 화면 종류 �
 **5. 후보 판정 — 판별기가 배우는 자료다. 한 줄로:**
 `npm run ck:local -- --review --vod <번호> --run <run_id> --verdicts 3:result,4:result,5:other,6:graph`
 (`result` 결과창 점수판 · `graph` 결과창 다른 탭 · `ingame` · `client` · `other` 전적 사이트·FC·방송 그래픽 등). 연 후보만 적는다.
+판별기가 **놓친 결과창**이나 **지도 라벨이 틀린 곳**은 시각으로 같이 남긴다(같은 명령에 붙여도 된다):
+`--label 1:23:45=result,0:57:51=lobby` (라벨: result·graph·banpick·lobby·client·ingame·end·other — 원본이나 띠로 직접 본 것만)
 
 **6. 기록 — 초안은 도구가 조립한다.**
 ```bash

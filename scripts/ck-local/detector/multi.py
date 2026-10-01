@@ -38,22 +38,26 @@ def make(C=3):
 def evaluate(a):
     X, Y, C, XA, YA, CA = data(a.model)
     print("종류별 칸:", {CLASSES[k]: n for k, n in sorted(Counter(Y).items())})
-    hit = defaultdict(int); tot = defaultdict(int); pred_n = defaultdict(int); pred_ok = defaultdict(int)
+    # 세 숫자를 함께 낸다(Codex 검토, 2026-10-01 — 예전엔 "모름"을 분모에서 빼 재현율이 부풀었다):
+    #   전체 재현율 = 그 종류 칸 중 맞는 라벨을 받은 비율("모름"도 놓친 것으로 센다)
+    #   부여율     = 그 종류 칸 중 라벨이 붙은(모름이 아닌) 비율
+    #   정확도     = 그 라벨이 붙은 칸 중 실제로 그 종류인 비율
+    n = defaultdict(int); labeled = defaultdict(int); hit = defaultdict(int); pred_n = defaultdict(int); pred_ok = defaultdict(int)
     for ch in sorted(set(C)):
         te = C == ch
         if te.sum() < 10: continue
         clf = make(a.C).fit(np.concatenate([X[~te], XA[CA != ch]]), np.concatenate([Y[~te], YA[CA != ch]]))
         p = clf.predict_proba(X[te]); pr = p.argmax(1); conf = p.max(1)
         for y, q, c in zip(Y[te], pr, conf):
+            n[y] += 1
             if c < a.min_conf: continue   # 확신 낮으면 "모름" — 라벨을 안 붙인다
-            tot[y] += 1; pred_n[q] += 1
+            labeled[y] += 1; pred_n[q] += 1
             if y == q: hit[y] += 1; pred_ok[q] += 1
-        tot["모름"] = tot.get("모름", 0) + int((conf < a.min_conf).sum())
-    print(f"(스트리머 하나씩 빼고 시험 · 확신 {a.min_conf} 미만은 라벨 안 붙임 → 모름 {tot.get('모름', 0)}칸)")
-    print(f"{'종류':8} {'맞게 붙임':>10} {'붙인 것 중 맞음':>14}")
+    print(f"(스트리머 하나씩 빼고 시험 · 확신 {a.min_conf} 미만은 모름)")
+    print(f"{'종류':8} {'전체 재현율':>14} {'부여율':>8} {'정확도':>14}")
     for k, name in enumerate(CLASSES):
-        if not tot[k] and not pred_n[k]: continue
-        print(f"{name:8} {hit[k]:4}/{tot[k]:<4} {hit[k] / max(tot[k], 1):5.0%}   {pred_ok[k]:4}/{pred_n[k]:<4} {pred_ok[k] / max(pred_n[k], 1):5.0%}")
+        if not n[k] and not pred_n[k]: continue
+        print(f"{name:8} {hit[k]:4}/{n[k]:<4} {hit[k] / max(n[k], 1):5.0%}  {labeled[k] / max(n[k], 1):6.0%}  {pred_ok[k]:4}/{pred_n[k]:<4} {pred_ok[k] / max(pred_n[k], 1):5.0%}")
 
 def fit(a):
     X, Y, C, XA, YA, CA = data(a.model)

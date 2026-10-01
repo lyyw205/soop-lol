@@ -15,6 +15,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
 from embed import FH, FW, PER, letterbox, load_model  # noqa: E402
+from runs import group_runs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = ROOT / "out/ck-detector"
@@ -54,14 +55,11 @@ def main():
             ats.extend(p["offset"] + (k * PER + np.arange(n)) * 3)
     at = np.array(ats, dtype=np.float64); s = np.concatenate(scores) if scores else np.zeros(0)
     # 덩어리: 문턱을 넘는 칸, 2칸(6초) 이하 끊김은 잇는다. 파일 경계를 넘는 덩어리는 시각 차로 끊긴다.
-    hi = np.where(s >= a.threshold)[0]
     cands = []
-    if len(hi):
-        groups = np.split(hi, np.where((np.diff(hi) > 2) | (np.diff(at[hi]) > 9))[0] + 1)
-        for g in groups:
-            if len(g) < a.min_len: continue
+    for g0, g1 in group_runs(at, s, a.threshold, a.min_len):
+            g = np.arange(g0, g1 + 1); g = g[s[g] >= a.threshold] if (s[g] >= a.threshold).any() else g
             m = int(g[np.argmax(s[g])])
-            cands.append({"from": round(float(at[g[0]])), "to": round(float(at[g[-1]])), "peak": round(float(at[m])),
+            cands.append({"from": round(float(at[g0])), "to": round(float(at[g1])), "peak": round(float(at[m])),
                           "peak_score": round(float(s[m]), 3), "len": int(len(g))})
     timeline = []
     if multi is not None and kinds:

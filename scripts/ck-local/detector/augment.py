@@ -7,7 +7,7 @@
 변화는 현실 범위 안에서만 — 정답이 바뀌면(결과창이 잘려 나가면) 오히려 해롭다:
   · 확대: 칸의 70~95% 영역을 잘라 다시 키운다(창이 화면을 더 크게 차지한 방송)
   · 축소: 칸을 60~90% 로 줄여 다른 칸 위에 얹는다(창이 작고 주변이 다른 방송)
-  · 가림: 다른 칸의 조각(캠·캐릭터·채팅처럼)을 가장자리·모서리에 10~25% 얹는다
+  · 가림: 같은 채널 다른 칸의 조각(캠·캐릭터·채팅처럼)을 가장자리·모서리에 10~25% 얹는다
 """
 import argparse, json, random, sys
 from pathlib import Path
@@ -65,12 +65,17 @@ def main():
         x = rnd.choice([0, FW - w, rnd.randint(0, FW - w)]); y = rnd.choice([0, FH - h, rnd.randint(0, FH - h)])
         out.paste(src.crop((sx, sy, sx + w, sy + h)), (x, y))
         return out
+    by_channel = {}
+    for v, i in keys: by_channel.setdefault(metas[v]["channel"], []).append((v, i))
     imgs, meta = [], []
     for v, i in keys:
         im = cell(v, i)
         if im is None: continue
         for k in range(a.k):
-            ov, oi = keys[rnd.randrange(len(keys))]
+            # ★ 가림·배경 조각은 **같은 채널** 사진에서만 고른다. 전체에서 고르면 시험(스트리머 하나 빼기)에 쓸 채널의
+            #   이미지 조각이 학습 변형에 섞여 "처음 보는 스트리머" 조건이 약해진다(Codex 검토, 2026-10-01).
+            same = by_channel[metas[v]["channel"]]
+            ov, oi = same[rnd.randrange(len(same))]
             other = cell(ov, oi) or im
             op = rnd.choice(["in", "out", "occ", "in+occ"])
             x = zoom_in(im) if op in ("in", "in+occ") else zoom_out(im, other) if op == "out" else im

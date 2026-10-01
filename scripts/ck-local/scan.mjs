@@ -3,7 +3,8 @@
  *
  *   npm run ck:local -- --vod <번호>                                     # 준비: 판별 + 후보 원본 + 몽타주
  *   npm run ck:local -- --vod <번호> --strip 0:44:00~0:48:00 [--step 10] # 띠: 그 구간 썸네일 한 장 (안전장치)
- *   npm run ck:local -- --review --vod <번호> --run <run_id> --cand 3 --is result|ingame|client|other   # 후보 판정 → 학습 데이터
+ *   npm run ck:local -- --review --vod <번호> --run <run_id> --verdicts 3:result,5:other            # 후보 판정 → 학습 데이터
+ *   npm run ck:local -- --review --vod <번호> --run <run_id> --label 1:23:45=result,5130=banpick     # 시각으로 정정(놓친 화면·틀린 라벨)
  *   npm run ck:local -- --review --vod <번호> --run <run_id> --opened candidates-1.jpg,overview-1.jpg [--note "…"]
  *   npm run ck:local -- --review --vod <번호> --run <run_id> --merged done|running|failed [--note "…"]
  *
@@ -61,6 +62,22 @@ if (args.includes("--review")) {
       out.push({ cand: c.n, is });
     }
     entry.verdicts = out;
+  }
+  if (flag("--label")) {
+    // 후보 번호 없이 시각으로 — 판별기가 놓친 결과창, 틀린 지도 라벨도 학습 데이터로 남긴다(Codex 검토, 2026-10-01)
+    //   --label 1:23:45=result,5130=banpick   (VOD 전체 시각: h:mm:ss 또는 초)
+    const KINDS = ["result", "graph", "banpick", "lobby", "client", "ingame", "end", "other"];
+    const sec = (x) => x.split(":").map(Number).reduce((p, q) => p * 60 + q, 0);
+    const out = [];
+    for (const tok of flag("--label").split(",").map((x) => x.trim()).filter(Boolean)) {
+      const m = /^([\d:]+)=(\w+)$/.exec(tok);
+      if (!m || !KINDS.includes(m[2]) || !Number.isFinite(sec(m[1])) || sec(m[1]) > state.total_sec) {
+        console.error(`--label 값이 이상하다: ${tok} (시각=${KINDS.join("|")})`); process.exit(1);
+      }
+      appendFileSync("out/ck-detector/review-labels.jsonl", `${JSON.stringify({ vod: Number(vodId), at: sec(m[1]), label: m[2], source: `ck-local:${run}` })}\n`);
+      out.push({ at: sec(m[1]), label: m[2] });
+    }
+    entry.labels = out;
   }
   if (flag("--cand")) {
     const n = Number(flag("--cand")), is = flag("--is");

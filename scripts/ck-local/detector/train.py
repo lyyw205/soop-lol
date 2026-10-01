@@ -196,11 +196,10 @@ def review(a):
     (dst / "items.json").write_text(json.dumps(items, ensure_ascii=False, indent=0))
     print(f"검수 {len(items)}칸 · {dst} · 페이지 {(len(items) + PAGE - 1) // PAGE}")
 
-def runs_of(s, thr, min_len):
-    hi = np.where(s >= thr)[0]
-    if not len(hi): return []
-    groups = np.split(hi, np.where(np.diff(hi) > 2)[0] + 1)   # 2칸(6초) 이하 끊김은 잇는다
-    return [(int(g[0]), int(g[-1])) for g in groups if g[-1] - g[0] + 1 >= min_len]
+def runs_of(s, thr, min_len, at=None):
+    """실행과 같은 묶기(runs.group_runs). at 이 없으면 칸 간격 3초로 본다."""
+    from runs import group_runs
+    return group_runs(at if at is not None else np.arange(len(s)) * 3.0, s, thr, min_len)
 
 def games(a):
     """판 단위 평가 — 시험·dev 채널 VOD 의 알려진 판(DB 결과창 시각)마다 후보 덩어리가 걸렸나, 남는 덩어리는 몇 개인가."""
@@ -217,7 +216,7 @@ def games(a):
                 hit = tot = extra = 0; hours = 0.0
                 for vod in vods:
                     at = E[vod][0]; s = np.load(OUT / "scores" / a.model / f"{vod}.npy")
-                    rs = runs_of(s, thr, min_len)
+                    rs = runs_of(s, thr, min_len, at)
                     hours += (at[-1] - at[0]) / 3600
                     # 같은 판의 결과창 사진 여러 장은 90초 안에 모인다 — 그걸 한 판으로 센다
                     ts = sorted(truth[vod]); gs = []
