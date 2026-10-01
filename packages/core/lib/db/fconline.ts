@@ -191,10 +191,10 @@ export async function listFcoVersus(aId: string, bId: string): Promise<FcoGame[]
   const rows = await db().unsafe<GameRow[]>(`
     SELECT ${gameSelect}
       AND EXISTS (SELECT 1 FROM fco_match_participant a
-                   JOIN streamer_fco_account la ON la.ouid = a.ouid AND la.visibility = 'public'
+                   JOIN streamer_fco_account la ON la.ouid = a.ouid AND la.streamer_id = a.streamer_id AND la.visibility = 'public'
                    WHERE a.match_id = m.match_id AND a.streamer_id = $1)
       AND EXISTS (SELECT 1 FROM fco_match_participant b
-                   JOIN streamer_fco_account lb ON lb.ouid = b.ouid AND lb.visibility = 'public'
+                   JOIN streamer_fco_account lb ON lb.ouid = b.ouid AND lb.streamer_id = b.streamer_id AND lb.visibility = 'public'
                    WHERE b.match_id = m.match_id AND b.streamer_id = $2)
      ORDER BY m.game_creation DESC LIMIT 200
   `, [aId, bId]);

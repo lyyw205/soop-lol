@@ -22,6 +22,9 @@ export const metadata = { title: { absolute: "개인기록 · SOOP FC 온라인"
 const TABS = ["games", "opponents", "events", "squad"] as const;
 type ProfileTab = typeof TABS[number];
 
+/** 프로필이 한 번에 집계하는 경기 수의 상한. 넘으면 화면에 '잘렸다'고 표시한다. */
+const FC_PROFILE_GAME_LIMIT = 1000;
+
 export default async function FcProfile({ params, searchParams }: {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ tab?: string; sort?: string; mode?: string; period?: string; from?: string; to?: string }>;
@@ -34,9 +37,12 @@ export default async function FcProfile({ params, searchParams }: {
   const mode = sp.mode && modeKeys.includes(sp.mode) ? sp.mode : "all";
   const period = resolveRecordPeriod({ period: sp.period, from: sp.from, to: sp.to });
   const filter = { mode: mode === "all" ? undefined : mode, from: period.from, to: period.to };
+  // ★ 개요·상대 전적·대회·스쿼드가 이 목록으로 집계된다. 상한에 걸리면 **오래된 경기부터 조용히 빠지므로** 걸렸다고 화면에 말한다
+  //   (실측: 경기가 200건을 넘는 스트리머가 이미 여럿이다 — 김민교 500+, 도현 427, 클리드1 335).
   const [games, streamerGames] = period.error ? [[], []] : await Promise.all([
-    listFcoGamesForPerson(person.id, 200, filter), listFcoStreamerGamesForPerson(person.id, 200, filter),
+    listFcoGamesForPerson(person.id, FC_PROFILE_GAME_LIMIT, filter), listFcoStreamerGamesForPerson(person.id, FC_PROFILE_GAME_LIMIT, filter),
   ]);
+  const gamesTruncated = games.length >= FC_PROFILE_GAME_LIMIT || streamerGames.length >= FC_PROFILE_GAME_LIMIT;
   const periodLabel = recordPeriodLabel(period);
   const modeLabel = mode === "all" ? "전체 경기" : FCO_MODE_LABEL[mode] ?? `모드 ${mode}`;
 
@@ -111,11 +117,11 @@ export default async function FcProfile({ params, searchParams }: {
         value: key, label: FCO_MODE_LABEL[key] ?? `모드 ${key}`, href: hrefFor({ mode: key }),
       }))]}
       trailing={<RecordPeriodFilters key={`${period.key}:${period.from ?? ""}:${period.to ?? ""}`} href={hrefFor()} period={period} />} />
-    <FcoPersonalOverview person={person} games={games} scopeLabel={`${modeLabel} · ${periodLabel} · 수집 경기 ${games.length}건 기준`}
+    <FcoPersonalOverview person={person} games={games} scopeLabel={`${modeLabel} · ${periodLabel} · 수집 경기 ${games.length}건 기준${gamesTruncated ? ` (최근 ${FC_PROFILE_GAME_LIMIT}건까지만 집계 — 더 오래된 경기는 빠져 있다)` : ""}`}
       eventHref={fcTournamentsIndexHref() ? (slug) => fcTournamentHref(slug)! : undefined} />
     <div id="record-content"><RecordSectionTabs items={tabs} active={tab} /></div>
     {tab === "games" && <RecordContentPanel className="fc-tab-panel">
-        <h2>스트리머 간 경기 <small>{streamerGames.length}경기</small></h2>
+        <h2>스트리머 간 경기 <small>{streamerGames.length}{streamerGames.length >= FC_PROFILE_GAME_LIMIT ? "+" : ""}경기</small></h2>
         <FcoMatchList games={streamerGames} perspectiveStreamerId={person.id} />
     </RecordContentPanel>}
     {tab === "opponents" && <RecordContentPanel className="arena-records">

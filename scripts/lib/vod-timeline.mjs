@@ -19,7 +19,7 @@ import { join } from "node:path";
 import jpeg from "jpeg-js";
 
 import { soopFetch } from "./soop-http.mjs";
-import { hlsSegments } from "./soop-vod.mjs";
+import { hlsSegments } from "./vod-hls.mjs";
 
 export const SHEET_SEC = 3;          // 칸 하나 = 3초 (실측)
 export const PER_SHEET = 100;        // 시트 하나 = 10×10 칸
