@@ -331,11 +331,11 @@ export { gameHomeHref, profileHref, streamersHref, fcMatchHref, routeHref } from
 export type { SiteGame, HrefQuery } from "../site-paths.ts";
 
 // 편성표 — 공개 일정(core_public 만 읽는다)과 시간 규칙. 상태 문구·진행 판정은 metrics/schedule 하나가 정한다.
-export { listPublicSchedule, SCHEDULE_MAX_DAYS } from "../db/schedule-public.ts";
-export type { PublicScheduleEntry, PublicScheduleSlot, PublicScheduleQuery } from "../db/schedule-public.ts";
+export { getPublicScheduleEntry, listPublicSchedule, listPublicScheduleChanges, SCHEDULE_MAX_DAYS } from "../db/schedule-public.ts";
+export type { PublicScheduleChange, PublicScheduleEntry, PublicScheduleSlot, PublicScheduleQuery } from "../db/schedule-public.ts";
 export {
   addDays, daysBetween, entryPeriod, entryState, kstClock, kstDayStart, slotPhase, slotTimeLabel,
   ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL, SCHEDULE_SCALE_LABEL,
-  SCHEDULE_GAMES, SCHEDULE_SCALES,
+  SCHEDULE_GAMES, SCHEDULE_SCALES, describeChange,
 } from "../metrics/schedule.ts";
 export type { EntryState, ScheduleGame, ScheduleScale, SlotPhase } from "../metrics/schedule.ts";

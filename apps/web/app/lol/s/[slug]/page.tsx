@@ -7,6 +7,7 @@ import { buildOpponentHistory } from "@soop-lol/core/lib/metrics/opponent-histor
 import { recordPeriodLabel, resolveRecordPeriod } from "@soop-lol/core/lib/metrics/record-period";
 import { Avatar } from "@/components/avatar";
 import { notFound } from "next/navigation";
+import { UpcomingSchedule } from "@/components/upcoming-schedule";
 import { RecordLayout } from "../../../../../../packages/ui/record-layout";
 import { RecordContentPanel } from "@/components/record-structure";
 import { PersonalProfileInfo } from "@/components/personal-profile-info";
@@ -187,9 +188,8 @@ export default async function StreamerProfile({
     <>
       <PageShell>
         <RecordLayout
-          // 개인 기록의 우측 컬럼은 다음 스트리머 정보 모듈을 위한 자리다.
-          // 지금은 내용을 넣지 않아도 본문 폭과 개인/상대전적의 시선 축을 유지한다.
-          sidebar={<aside className="record-sidebar record-sidebar-empty" aria-label="추가 스트리머 정보" />}
+          // 개인 기록의 우측 컬럼 — 다가오는 일정(편성표). 없으면 빈 칸으로 본문 폭과 시선 축만 유지한다.
+          sidebar={<UpcomingSchedule slug={slug} />}
         >
         <RecordSearch key={`${slug}-${sp.opponent ?? ""}`} options={searchOptions} a={slug} b={sp.opponent} mode="personal" versusPath={versusIndexHref()} category={category} year={year} />
         <PersonalRecordFilters key={periodKey} category={category} year={year} period={recordPeriod} hrefFor={hrefFor} />

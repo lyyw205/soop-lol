@@ -135,6 +135,49 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
     (await pub.listPublicSchedule({ from: "2026-10-01", to: "2026-10-07", streamer: "sched-hidden" })).length === 0);
   check("스트리머 필터 — 주최 slug 로는 그 일정들이 나온다",
     (await pub.listPublicSchedule({ from: "2026-10-01", to: "2026-10-07", streamer: "sched-host" })).some((e) => e.schedule_id === major.id));
+
+  console.log("\n▸ 편성표 — 변경 이력·상세·다가오는 일정 (2단계)");
+  const { describeChange } = await import("../../packages/core/lib/metrics/schedule.ts");
+  const hist = await schedule.saveScheduleEntry({ ...base(), title: "이력 시험" });
+  const histCount = async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM schedule_change WHERE entry_id = ${hist.id}`)[0].n;
+  check("처음 저장은 이력이 없다", (await histCount()) === 0);
+  const h2 = await schedule.saveScheduleEntry({ ...base(), title: "이력 시험" }, { id: hist.id, version: hist.version });
+  check("값이 그대로인 저장은 이력을 남기지 않는다", (await histCount()) === 0);
+  const h3 = await schedule.saveScheduleEntry({ ...base(), title: "이력 시험",
+    slots: [{ label: null, on_date: "2026-10-04", starts_at: kst("2026-10-04T19:00"), ends_at: null, channel_id: null }] }, { id: hist.id, version: h2.version });
+  const rows = await schedule.listScheduleChanges(hist.id);
+  check("★ 날짜를 옮기면 slots 이력 한 줄 — 'A → B'", rows.length === 1 && rows[0].field === "slots"
+    && describeChange(rows[0]) === "일정 변경: 10/3 20:00–23:00 → 10/4 19:00 시작", rows.map(describeChange).join(" | "));
+  const h4 = await schedule.saveScheduleEntry({ ...base(), title: "이력 시험 (오타 고침)",
+    slots: [{ label: null, on_date: "2026-10-04", starts_at: kst("2026-10-04T19:00"), ends_at: null, channel_id: null }] },
+    { id: hist.id, version: h3.version, recordHistory: false });
+  check("★ 오타 수정으로 저장하면 이력을 남기지 않는다", (await histCount()) === 1);
+  await expectReject("저장이 실패하면 이력도 남지 않는다(같은 트랜잭션)",
+    () => schedule.saveScheduleEntry({ ...base(), status: "cancelled",
+      participants: [{ streamer_id: "00000000-0000-4000-8000-0000000000bb", role: "player", team: null }] }, { id: hist.id, version: h4.version }),
+    "foreign key");
+  check("  └ 실패한 저장의 '무산' 이력이 없다", (await histCount()) === 1);
+  const h5 = await schedule.saveScheduleEntry({ ...base(), title: "이력 시험 (오타 고침)", status: "cancelled",
+    slots: [{ label: null, on_date: "2026-10-04", starts_at: kst("2026-10-04T19:00"), ends_at: null, channel_id: null }] }, { id: hist.id, version: h4.version });
+  const pubChanges = await pub.listPublicScheduleChanges(hist.id);
+  check("공개 이력은 최근 것부터 — 무산 처리 → 일정 변경", pubChanges.map(describeChange).join(" | ") === "예정 → 무산 | 일정 변경: 10/3 20:00–23:00 → 10/4 19:00 시작",
+    pubChanges.map(describeChange).join(" | "));
+  const one = await pub.getPublicScheduleEntry(hist.id);
+  check("상세: 공개 일정 하나를 읽는다(일정 변경 시각 포함)", one?.title === "이력 시험 (오타 고침)" && one.slots_changed_at !== null);
+  await schedule.saveScheduleEntry({ ...base(), title: "이력 시험 (오타 고침)", status: "cancelled", visibility: "hidden",
+    slots: [{ label: null, on_date: "2026-10-04", starts_at: kst("2026-10-04T19:00"), ends_at: null, channel_id: null }] }, { id: hist.id, version: h5.version });
+  check("★ 숨긴 일정은 상세도 이력도 공개로 나오지 않는다",
+    (await pub.getPublicScheduleEntry(hist.id)) === null && (await pub.listPublicScheduleChanges(hist.id)).length === 0);
+  check("상세: 없는 id·형식이 아닌 id 는 null", (await pub.getPublicScheduleEntry("00000000-0000-4000-8000-000000000000")) === null
+    && (await pub.getPublicScheduleEntry("not-a-uuid")) === null);
+
+  const upcoming = await pub.listUpcomingScheduleFor("sched-host", kst("2026-10-02T12:00"));
+  check("★ 다가오는 일정: 무산·지난 일정은 빼고, 이미 시작한 대회는 다음 칸 기준",
+    upcoming.length > 0 && upcoming.every((e) => e.status !== "cancelled") && upcoming.some((e) => e.schedule_id === major.id && e.next.label === "결승"),
+    JSON.stringify(upcoming.map((e) => [e.title, e.next.on_date])));
+  check("다가오는 일정: 가장 가까운 다음 칸 순", upcoming.every((e, i) => i === 0 || upcoming[i - 1].next.on_date <= e.next.on_date));
+  check("다가오는 일정: 숨긴 참가자 slug 로는 비어 있다", (await pub.listUpcomingScheduleFor("sched-hidden", kst("2026-10-02T12:00"))).length === 0);
+
   const far = await pub.listPublicSchedule({ from: "2026-10-01", to: "2027-12-31" });
   check(`조회 기간은 최대 ${pub.SCHEDULE_MAX_DAYS}일로 잘린다`, far.every((e) => e.slots.some((s) => s.on_date <= "2026-10-31")));
 }

@@ -11,6 +11,7 @@ import { OpponentHistoryHeading } from "@/components/opponent-history-filters";
 import { SectionTitle } from "@/components/public";
 import { FcoSquadUsage } from "@/components/fco-squad-usage";
 import { DEFAULT_OPPONENT_SORT, isOpponentSort, sortOpponents } from "@soop-lol/core/lib/metrics/opponents";
+import { UpcomingSchedule } from "@/components/upcoming-schedule";
 import { RecordLayout } from "../../../../../../packages/ui/record-layout";
 import { LinkedRecordFilters } from "../../../../../../packages/ui/record-filters";
 import { RecordPeriodFilters } from "@/components/record-period-filters";
@@ -109,7 +110,7 @@ export default async function FcProfile({ params, searchParams }: {
     { key: "squad", label: "스쿼드", href: hrefFor({ tab: "squad" }) },
   ];
 
-  return <RecordLayout sidebar={<aside className="record-sidebar record-sidebar-empty" aria-label="추가 정보" />}>
+  return <RecordLayout sidebar={<UpcomingSchedule slug={person.slug} />}>
     <FcRecordSearch people={people} a={person.slug} versusPath={fcVersusIndexHref()} />
     <LinkedRecordFilters category={mode} categoryLabel="경기 모드" year="all" years={[]}
       categories={[{ value: "all", label: "전체 경기", href: hrefFor({ mode: "all" }) }, ...modeKeys.map((key) => ({

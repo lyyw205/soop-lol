@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  addDays, buildSlotTimes, daysBetween, entryPeriod, entryState, kstDayStart, pickBroadcastChannel,
+  addDays, buildSlotTimes, daysBetween, describeChange, entryPeriod, entryState, kstDayStart, pickBroadcastChannel,
+  scheduleChanges, slotSummary,
   slotPhase, slotTimeLabel, validateScheduleInput, type ScheduleInput, type SlotTime,
 } from "./schedule.ts";
 
@@ -108,4 +109,25 @@ test("검증 — 칸 날짜와 시작 시각의 날짜가 다르면 거부", () 
 test("검증 — 결과 연결은 개최 확인일 때만, 칸이 없으면 거부", () => {
   assert.ok(validateScheduleInput({ ...base(), event_id: "00000000-0000-0000-0000-000000000000" }).some((e) => e.includes("개최 확인")));
   assert.ok(validateScheduleInput({ ...base(), slots: [] }).some((e) => e.includes("칸")));
+});
+
+
+test("변경 이력 — 같으면 안 남긴다(칸 입력 순서가 달라도)", () => {
+  const a = slotSummary([{ label: null, ...slot("2026-10-05") }, { label: "결승", ...slot("2026-10-12", "19:00", "23:00") }]);
+  const b = slotSummary([{ label: "결승", ...slot("2026-10-12", "19:00", "23:00") }, { label: null, ...slot("2026-10-05") }]);
+  assert.deepEqual(scheduleChanges({ title: "x", status: "scheduled", slots: a }, { title: "x ", status: "scheduled", slots: b }), []);
+});
+
+test("변경 이력 — 연기는 'A → B' 한 줄로", () => {
+  const before = slotSummary([{ label: "8강", ...slot("2026-10-05") }]);
+  const after = slotSummary([{ label: "8강", ...slot("2026-10-06", "19:00") }]);
+  const [c] = scheduleChanges({ title: "t", status: "scheduled", slots: before }, { title: "t", status: "scheduled", slots: after });
+  assert.equal(describeChange(c), "일정 변경: 10/5 시각 미정 (8강) → 10/6 19:00 시작 (8강)");
+});
+
+test("변경 이력 — 칸이 늘거나 줄면 빠짐·추가로, 상태·제목은 그대로 문장", () => {
+  const one = slotSummary([{ label: null, ...slot("2026-10-05", "19:00", "22:00") }]);
+  const two = slotSummary([{ label: null, ...slot("2026-10-05", "19:00", "22:00") }, { label: "결승", ...slot("2026-10-12") }]);
+  const changes = scheduleChanges({ title: "옛 이름", status: "scheduled", slots: one }, { title: "새 이름", status: "cancelled", slots: two });
+  assert.deepEqual(changes.map(describeChange), ["제목 변경: 옛 이름 → 새 이름", "예정 → 무산", "일정 변경: 10/12 시각 미정 (결승) 추가"]);
 });

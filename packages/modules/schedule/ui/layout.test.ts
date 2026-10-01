@@ -7,7 +7,7 @@ import { barSpan, cardsByDay, majorRows, windowDays } from "./layout.ts";
 
 const entry = (title: string, slots: [string, string | null][]): PublicScheduleEntry => ({
   schedule_id: title, game_code: "lol", title, scale: "major", planned_kind: "tournament", sponsor: null, description: null,
-  status: "scheduled", origin: "manual", participants: [], sources: [], result: null,
+  status: "scheduled", origin: "manual", participants: [], sources: [], result: null, slots_changed_at: null,
   slots: slots.map(([on_date, hhmm]) => ({
     label: null, on_date, ends_at: null, channel_id: null, starts_at: hhmm ? new Date(`${on_date}T${hhmm}:00+09:00`) : null,
   })),

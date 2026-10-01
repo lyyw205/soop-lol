@@ -12,8 +12,8 @@
 import { db } from "./client.ts";
 import { kstDateString } from "../time.ts";
 import {
-  entryPeriod, entryState, validateScheduleInput,
-  type EntryState, type ScheduleGame, type ScheduleInput, type SchedulePlannedKind, type ScheduleRole,
+  entryPeriod, entryState, scheduleChanges, slotSummary, validateScheduleInput,
+  type EntryState, type ScheduleChangeField, type ScheduleGame, type ScheduleInput, type SchedulePlannedKind, type ScheduleRole,
   type ScheduleScale, type ScheduleStatus,
 } from "../metrics/schedule.ts";
 
@@ -31,12 +31,14 @@ export const STALE_VERSION_MESSAGE = "다른 수정이 먼저 저장됐습니다
 
 export async function saveScheduleEntry(
   input: ScheduleInput,
-  opts: { id?: string | null; version?: string | null } = {},
+  /** recordHistory=false: 오타 수정처럼 공개 변경 이력에 남기지 않을 저장. 기본은 남긴다. */
+  opts: { id?: string | null; version?: string | null; recordHistory?: boolean } = {},
 ): Promise<{ id: string; version: string }> {
   const errors = validateScheduleInput(input);
   if (errors.length) throw new ScheduleSaveError(errors);
 
   return db().begin(async (tx) => {
+    let previous: { title: string; status: ScheduleStatus; slots: ReturnType<typeof slotSummary> } | null = null;
     if (opts.id) {
       const [cur] = await tx<{ game_code: string; event_id: string | null; version: string }[]>`
         SELECT game_code, event_id, updated_at::text AS version FROM schedule_entry WHERE id = ${opts.id}::uuid FOR UPDATE
@@ -46,6 +48,11 @@ export async function saveScheduleEntry(
       if (cur.event_id && cur.game_code !== input.game_code) {
         throw new ScheduleSaveError(["결과 경기와 연결된 일정은 게임을 바꿀 수 없습니다. 연결을 먼저 끊고 저장하세요."]);
       }
+      // 변경 이력의 '이전 값'. 칸은 아래에서 지우고 다시 넣으므로 그 전에 읽는다.
+      const [prev] = await tx<{ title: string; status: ScheduleStatus }[]>`SELECT title, status FROM schedule_entry WHERE id = ${opts.id}::uuid`;
+      const prevSlots = await tx<{ on_date: string; starts_at: Date | null; ends_at: Date | null; label: string | null }[]>`
+        SELECT on_date::text AS on_date, starts_at, ends_at, label FROM schedule_slot WHERE entry_id = ${opts.id}::uuid`;
+      previous = { title: prev.title, status: prev.status, slots: slotSummary([...prevSlots]) };
     }
     if (input.event_id) {
       const [ev] = await tx<{ game_code: string }[]>`SELECT game_code FROM event WHERE id = ${input.event_id}::uuid`;
@@ -81,6 +88,14 @@ export async function saveScheduleEntry(
     for (const s of input.sources) {
       await tx`INSERT INTO schedule_source (entry_id, url, title, posted_at)
                VALUES (${row.id}::uuid, ${s.url}, ${s.title}, ${s.posted_at})`;
+    }
+    // 같은 트랜잭션에서 남긴다 — 저장이 실패하면 이력도 없다. 값이 그대로면 아무것도 안 남는다.
+    if (previous && opts.recordHistory !== false) {
+      const changes = scheduleChanges(previous, { title: input.title, status: input.status, slots: slotSummary(input.slots) });
+      for (const c of changes) {
+        await tx`INSERT INTO schedule_change (entry_id, field, before, after)
+                 VALUES (${row.id}::uuid, ${c.field}, ${tx.json(c.before as never)}, ${tx.json(c.after as never)})`;
+      }
     }
     return row;
   });
@@ -192,4 +207,9 @@ export async function streamerIdsBySlug(slugs: string[]): Promise<Map<string, st
 /** 참가자 고르기용 전체 명부(관리자). 숨긴 사람도 고를 수 있다 — 공개 뷰가 거른다. */
 export async function listStreamerChoices(): Promise<{ slug: string; display_name: string }[]> {
   return db()`SELECT slug, display_name FROM streamer ORDER BY display_name`;
+}
+
+/** 관리자 편집 화면의 변경 이력(공개 여부와 무관하게 전부). */
+export async function listScheduleChanges(id: string): Promise<{ field: ScheduleChangeField; before: unknown; after: unknown; changed_at: Date }[]> {
+  return db()`SELECT field, before, after, changed_at FROM schedule_change WHERE entry_id = ${id}::uuid ORDER BY changed_at DESC, id DESC`;
 }

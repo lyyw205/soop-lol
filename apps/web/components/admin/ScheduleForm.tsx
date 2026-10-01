@@ -142,7 +142,11 @@ export function ScheduleForm({ initial, streamers, events }: {
         <button type="button" className="mt-2 rounded border border-ink-700 px-2 py-1 text-xs" onClick={() => addRow("sources", { url: "", title: "", posted_at: "" })}>출처 추가</button>
       </section>
 
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
+        {v.id && <label className="flex items-center gap-2 text-sm text-ink-200" title="처음 입력을 고친 것까지 공개 화면에 '일정 변경' 으로 보이면 거짓이다">
+          <input type="checkbox" className="size-4 accent-accent-600" checked={v.typo} onChange={(e) => set("typo", e.target.checked)} />
+          오타 수정 — 공개 변경 이력에 남기지 않음
+        </label>}
         <SubmitButton>{v.id ? "저장" : "일정 등록"}</SubmitButton>
         <ActionMessage state={state} />
       </div>

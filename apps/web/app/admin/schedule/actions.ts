@@ -15,6 +15,8 @@ import { requireAdmin } from "@/lib/admin-auth";
 export interface ScheduleFormPayload {
   id: string | null;
   version: string | null;
+  /** 오타 수정 — 공개 변경 이력에 남기지 않는다. */
+  typo: boolean;
   game_code: string;
   title: string;
   scale: string;
@@ -79,7 +81,7 @@ export async function saveScheduleAction(_prev: ActionState, form: FormData): Pr
   if ("errors" in converted) return { ok: false, message: converted.errors.join(" / ") };
   let saved: { id: string };
   try {
-    saved = await saveScheduleEntry(converted.input, { id: payload.id, version: payload.version });
+    saved = await saveScheduleEntry(converted.input, { id: payload.id, version: payload.version, recordHistory: !payload.typo });
   } catch (e) {
     if (e instanceof ScheduleSaveError) return { ok: false, message: e.reasons.join(" / ") };
     throw e;

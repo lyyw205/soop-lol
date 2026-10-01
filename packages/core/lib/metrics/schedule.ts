@@ -198,3 +198,56 @@ export function validateScheduleInput(input: ScheduleInput): string[] {
   return errors;
 }
 
+
+// ── 변경 이력 ────────────────────────────────────────────────────────
+//
+// 공개 화면이 보여 주는 의미 있는 변화만 — 제목·상태·방송 칸(날짜·시각·단계). 관리자 메모·공개 여부는 아니다.
+// 저장 형태는 사람이 읽을 수 있는 요약(KST "HH:MM")이다 — 화면이 그대로 문장으로 만든다.
+
+export type ScheduleChangeField = "title" | "status" | "slots";
+export interface SlotSummary { on_date: string; start: string | null; end: string | null; label: string | null }
+export interface ScheduleChange { field: ScheduleChangeField; before: unknown; after: unknown }
+
+export const STATUS_CHANGE_LABEL: Record<ScheduleStatus, string> = { scheduled: "예정", held: "개최 확인", cancelled: "무산" };
+
+/** 칸 목록의 비교용 요약. 순서는 날짜·시각순으로 맞춘다(입력 순서가 달라도 같은 일정이면 같다). */
+export function slotSummary(slots: (SlotTime & { label: string | null })[]): SlotSummary[] {
+  return slots
+    .map((s) => ({ on_date: s.on_date, start: s.starts_at ? kstClock(s.starts_at) : null, end: s.ends_at ? kstClock(s.ends_at) : null, label: s.label ?? null }))
+    .sort((a, b) => a.on_date.localeCompare(b.on_date) || (a.start ?? "99").localeCompare(b.start ?? "99") || (a.label ?? "").localeCompare(b.label ?? ""));
+}
+
+/** 이전 값 → 새 값. 같으면 빈 배열. */
+export function scheduleChanges(
+  prev: { title: string; status: ScheduleStatus; slots: SlotSummary[] },
+  next: { title: string; status: ScheduleStatus; slots: SlotSummary[] },
+): ScheduleChange[] {
+  const out: ScheduleChange[] = [];
+  if (prev.title.trim() !== next.title.trim()) out.push({ field: "title", before: prev.title.trim(), after: next.title.trim() });
+  if (prev.status !== next.status) out.push({ field: "status", before: prev.status, after: next.status });
+  if (JSON.stringify(prev.slots) !== JSON.stringify(next.slots)) out.push({ field: "slots", before: prev.slots, after: next.slots });
+  return out;
+}
+
+const shortDate = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+function slotText(s: SlotSummary): string {
+  const time = !s.start ? "시각 미정" : s.end ? `${s.start}–${s.end}` : `${s.start} 시작`;
+  return `${shortDate(s.on_date)} ${time}${s.label ? ` (${s.label})` : ""}`;
+}
+
+/**
+ * 이력 한 줄을 문장으로. 칸은 빠진 것과 생긴 것만 말한다 — 그대로인 칸까지 늘어놓으면 무엇이 바뀌었는지 안 보인다.
+ * 하나가 빠지고 하나가 생기면 "A → B" 로 잇는다(연기·시각 변경의 흔한 모양).
+ */
+export function describeChange(c: ScheduleChange): string {
+  if (c.field === "title") return `제목 변경: ${c.before} → ${c.after}`;
+  if (c.field === "status") return `${STATUS_CHANGE_LABEL[c.before as ScheduleStatus]} → ${STATUS_CHANGE_LABEL[c.after as ScheduleStatus]}`;
+  const before = c.before as SlotSummary[];
+  const after = c.after as SlotSummary[];
+  const key = (s: SlotSummary) => JSON.stringify(s);
+  const gone = before.filter((b) => !after.some((a) => key(a) === key(b)));
+  const added = after.filter((a) => !before.some((b) => key(a) === key(b)));
+  if (gone.length === 1 && added.length === 1) return `일정 변경: ${slotText(gone[0])} → ${slotText(added[0])}`;
+  const parts = [...gone.map((s) => `${slotText(s)} 빠짐`), ...added.map((s) => `${slotText(s)} 추가`)];
+  return `일정 변경: ${parts.join(" · ")}`;
+}

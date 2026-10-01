@@ -5,7 +5,7 @@
   "description": "core 의 공개 편성(공지된 대회·CK·이벤트전 예정)을 읽어 게임을 가로지르는 편성표로 보여준다.",
   "schema": "mod_schedule",
   "site": "platform",
-  "routes": [{ "path": "/schedule", "title": "편성표" }],
+  "routes": [{ "path": "/schedule", "title": "편성표" }, { "path": "/schedule/[id]" }],
   "provides": ["schedule"],
   "navOrder": 10
 }

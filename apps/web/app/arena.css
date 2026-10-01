@@ -732,3 +732,11 @@
 .lobby-game dt { color: #a6b2c4; font-size: 12px; }
 .lobby-game dd { font-size: 20px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .lobby-game-go { margin-top: auto; color: #abb6c6; font-size: 13px; }
+
+/* ── 프로필 "다가오는 일정" ─────────────────────────────────────────── */
+.upcoming-schedule ul { display: grid; gap: 10px; margin-bottom: 12px; }
+.upcoming-schedule li a, .upcoming-schedule li > span { display: grid; gap: 2px; color: inherit; }
+.upcoming-schedule li a:hover strong { color: #ffc49e; }
+.upcoming-schedule strong { font-size: 13px; }
+.upcoming-schedule small { color: #a6b2c4; font-size: 11px; }
+.upcoming-when { color: #f69a60; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }

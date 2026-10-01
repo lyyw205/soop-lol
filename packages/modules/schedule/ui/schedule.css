@@ -73,3 +73,16 @@
   .sched-toolbar { flex-direction: column; align-items: flex-start; }
   .sched-badges { margin-left: 0; }
 }
+
+/* ── 상세(/schedule/[id]) ────────────────────────────────────────── */
+.sched-tag.is-changed { color: #ffe08a; border-color: #ffe08a66; }
+.sched-back { margin-bottom: 10px; font-size: 13px; }
+.sched-back a { color: var(--muted); }
+.sched-detail-card { padding-top: 12px; margin-bottom: 26px; }
+.sched-detail-head { padding: 0 14px 8px; }
+.sched-detail-head .sched-badges { margin-left: 0; }
+.sched-sources-list ol, .sched-changes { display: grid; gap: 4px; padding-left: 0; list-style: none; margin-top: 4px; }
+.sched-changes { font-size: 13px; color: #d5dce6; }
+.sched-changes small, .sched-sources-list small { color: var(--muted); }
+.sched-muted { color: var(--muted); font-size: 13px; }
+.tabular { font-variant-numeric: tabular-nums; }
