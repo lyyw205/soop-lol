@@ -10,8 +10,12 @@ import { RecordAwards, RecordChampions, type RecordAward, type RecordChampion } 
  */
 export function PersonalProfileInfo({ slug, champions, awards, placements }: {
   slug: string; champions: RecordChampion[]; awards: RecordAward[];
-  placements: { total: number; buckets: { key: string; count: number }[] };
+  placements: { total: number; buckets: { key: string; count: number }[]; exhibition: { champion: number; runnerup: number } };
 }) {
+  // 올스타전·이벤트 매치 우승은 정규 우승 숫자에 섞지 않고 따로 적는다(0052).
+  const ex = placements.exhibition;
+  const exText = ex.champion + ex.runnerup > 0
+    ? ` (올스타·이벤트전 ${[ex.champion ? `우승 ${ex.champion}` : "", ex.runnerup ? `준우승 ${ex.runnerup}` : ""].filter(Boolean).join(" · ")} 별도)` : "";
   // These panels describe the whole career, independent of the record filters.
   const eventsHref = `/s/${slug}?tab=events`;
   return <>
@@ -23,7 +27,7 @@ export function PersonalProfileInfo({ slug, champions, awards, placements }: {
       <h3>수상 경력 <small>통산</small></h3>
       <RecordAwards awards={awards} href={eventsHref} layout="profile" />
       <Link className="profile-career-link" href={eventsHref}>
-        우승 {placements.buckets.find((b) => b.key === "champion")?.count ?? 0} · 준우승 {placements.buckets.find((b) => b.key === "runnerup")?.count ?? 0} · 참가 {placements.total}회 →
+        우승 {placements.buckets.find((b) => b.key === "champion")?.count ?? 0} · 준우승 {placements.buckets.find((b) => b.key === "runnerup")?.count ?? 0}{exText} · 참가 {placements.total}회 →
       </Link>
     </section>
   </>;

@@ -566,6 +566,19 @@ try {
     tally3.buckets.find((b) => b.key === "qualifier")?.count === 1 && tally3.unknown === 0,
     JSON.stringify(tally3));
 
+  // ★ 올스타전·이벤트 매치는 우승 숫자에서 뺀다(0052). 참가 수에는 넣고, 따로 센다.
+  await db.query("UPDATE event SET counts_toward_titles = false WHERE id = $1::uuid", [otherEventId]);
+  await tournaments.saveEventTeams(otherEventId, [
+    { name: "올스타팀", placement: "우승", placement_rank: 1, members: [{ streamer_id: s2.id }] },
+  ]);
+  const tally4 = await publicDb.summarizePlacements(s2.id);
+  check("★ 올스타전·이벤트전 우승은 우승 숫자에 안 들어가고 따로 센다(참가 수에는 들어간다)",
+    tally4.buckets.find((b) => b.key === "champion")?.count === 0 && tally4.exhibition.champion === 1 && tally4.total === 2,
+    JSON.stringify(tally4));
+  check("대회 성적 목록에는 그대로 나오고 표시 칸이 있다",
+    (await publicDb.listStreamerEvents(s2.id)).some((r) => r.team_name === "올스타팀" && r.counts_toward_titles === false));
+  await db.query("UPDATE event SET counts_toward_titles = true WHERE id = $1::uuid", [otherEventId]);
+
   // ── 다전제: 세트와 매치를 나눠 셀 수 있는가 (마이그레이션 0007) ──────
   //
   // 3판 2선승을 2:1 로 이기면 **세트 2승 1패 · 매치 1승 0패** 다. 이 둘이 한 질의에서

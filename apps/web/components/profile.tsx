@@ -71,7 +71,11 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
       {events.map((e) => (
         <RecordEventItem key={e.event_slug}>
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <span className="font-medium text-ink-200">{e.event_name}</span>
+            <span className="font-medium text-ink-200">
+              {e.event_name}
+              {/* 올스타전·이벤트 매치 — 목록엔 그대로, 우승 숫자에서만 뺀다(0052). 왜 숫자가 안 맞는지 여기서 보이게. */}
+              {!e.counts_toward_titles && <span className="ml-2 text-[11px] font-normal text-ink-400">이벤트전 · 우승 집계 제외</span>}
+            </span>
             <span className="text-[11px] text-ink-400">
               {e.placement && (
                 <span
@@ -102,6 +106,8 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
             <p className="tabular mt-2 text-[11px] text-ink-400">
               {e.placement_rank === 99
                 ? "예선에서 탈락해 본선 경기가 없습니다."
+                : e.placement === "실격"
+                  ? "실격 처리되어 본선 경기가 없습니다."
                 : e.placement_rank == null
                   ? "본선 경기 기록이 없습니다 — 예선에서 탈락했는지, 우리가 경기를 못 붙였는지는 확인하지 못했습니다."
                   : "명단에는 있으나 경기 기록을 붙이지 못했습니다 — 라이엇 계정을 확인하지 못한 참가자입니다."}

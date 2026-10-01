@@ -216,7 +216,7 @@ export default async function StreamerProfile({
             })}</p>}
           </>}
           details={<PersonalProfileInfo slug={slug} placements={placements}
-            awards={allEvents.filter((e) => e.placement_rank === 1 || e.placement_rank === 2).slice(0, 3).map((e) => ({id:e.event_slug, title:e.event_name, placement:e.placement, year:kstYear(new Date(e.starts_at)), team:e.team_name}))}
+            awards={allEvents.filter((e) => e.counts_toward_titles && (e.placement_rank === 1 || e.placement_rank === 2)).slice(0, 3).map((e) => ({id:e.event_slug, title:e.event_name, placement:e.placement, year:kstYear(new Date(e.starts_at)), team:e.team_name}))}
             champions={topChampions.map((c) => {
               const champion = championById(c.champion_id);
               return {id:c.champion_id, name:champion?.name ?? c.champion_name ?? "챔피언 미상", image:champion ? championIconPath(champion) : undefined, games:c.games};

@@ -445,6 +445,8 @@ export interface EventRecord {
   /** 출처가 쓴 그대로의 순위 표기. 모르면 null — 지어내지 않는다. */
   placement: string | null;
   placement_rank: number | null;
+  /** false 면 올스타전·이벤트 매치 — 우승 집계에서 뺀다(0052). 목록에는 그대로 나온다. */
+  counts_toward_titles: boolean;
   matches: number;
   match_wins: number;
   /** 무승부. 2세트제 조별리그가 1:1 로 끝난 경기 (2014~2017). */
@@ -489,7 +491,7 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
         FROM per_series GROUP BY event_id
     )
     SELECT e.slug AS event_slug, e.name AS event_name, e.starts_at,
-           t.name AS team_name, tm.position, t.placement, t.placement_rank,
+           t.name AS team_name, tm.position, t.placement, t.placement_rank, e.counts_toward_titles,
            COALESCE(a.matches, 0)     AS matches,
            COALESCE(a.match_wins, 0)  AS match_wins,
            COALESCE(a.match_draws, 0) AS match_draws,
@@ -580,9 +582,13 @@ export interface PlacementTally {
 
 /** 순위 요약 한 덩어리. 화면 쪽에서 프로퍼티로 받으려면 이름이 있어야 한다. */
 export interface PlacementSummary {
+  /** 정규 대회만(올스타전·이벤트 매치 제외, 0052). */
   buckets: PlacementTally[];
   unknown: number;
+  /** 참가 대회 수 — 올스타전·이벤트 매치 포함(참가는 참가다). */
   total: number;
+  /** 올스타전·이벤트 매치의 우승·준우승. 우승 숫자에 섞지 않고 따로 보여 준다. */
+  exhibition: { champion: number; runnerup: number };
 }
 
 /**
@@ -596,23 +602,30 @@ export async function summarizePlacements(
   year?: number,
 ): Promise<PlacementSummary> {
   const sql = db();
-  const rows = await sql<{ placement_rank: number | null }[]>`
-    SELECT t.placement_rank
+  const rows = await sql<{ placement_rank: number | null; counts_toward_titles: boolean }[]>`
+    SELECT t.placement_rank, e.counts_toward_titles
       FROM core_public.event_team_member tm
       JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
       JOIN core_public.event e ON e.event_id = tm.event_id
      WHERE tm.streamer_id = ${streamerId}::uuid
        AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.starts_at) = ${year ?? null}::int)
   `;
+  // ★ 올스타전·이벤트 매치는 우승 숫자에서 뺀다(0052, 사용자 결정 2026-10-01). 참가 수(total)에는 넣는다.
+  const titled = rows.filter((r) => r.counts_toward_titles);
+  const exhibit = rows.filter((r) => !r.counts_toward_titles);
   const buckets = PLACEMENT_BUCKETS.map((b) => ({
     key: b.key as string,
     label: b.label as string,
-    count: rows.filter((r) => r.placement_rank != null && b.match(r.placement_rank)).length,
+    count: titled.filter((r) => r.placement_rank != null && b.match(r.placement_rank)).length,
   }));
   return {
     buckets,
-    unknown: rows.filter((r) => placementBucket(r.placement_rank) === null).length,
+    unknown: titled.filter((r) => placementBucket(r.placement_rank) === null).length,
     total: rows.length,
+    exhibition: {
+      champion: exhibit.filter((r) => r.placement_rank === 1).length,
+      runnerup: exhibit.filter((r) => r.placement_rank === 2).length,
+    },
   };
 }
 
