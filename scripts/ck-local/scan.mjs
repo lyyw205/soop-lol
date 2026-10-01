@@ -289,8 +289,11 @@ for (const x of (det.timeline ?? []).filter((x) => x.label === "fc_match")) {
   const b = fcBlocks.at(-1);
   if (b && x.from - b.to <= 180) b.to = x.to; else fcBlocks.push({ from: x.from, to: x.to });
 }
-const fcResults = (det.timeline ?? []).filter((x) => x.label === "fc_result").map((x) => Math.round((x.from + x.to) / 2));
-const fc = { blocks: fcBlocks.filter((b) => b.to - b.from >= 180), results: fcResults };
+// 결과 시각은 구간 가운데가 아니라 실제로 fc_result 로 검출된 칸 — 6초 안에 이어진 칸은 첫 칸 하나로(Codex 검토, 2026-10-01)
+const fcResults = (det.fc_result_cells ?? []).filter((t, i, arr) => i === 0 || t - arr[i - 1] > 6);
+// fc.supported=false 면 FC 를 모르는 모델로 만든 지도다 — "FC 결과 없음"과 구별한다
+const fc = { supported: (det.multi_classes ?? []).includes("fc_result"), model: det.multi_version ?? null,
+  blocks: fcBlocks.filter((b) => b.to - b.from >= 180), results: fcResults };
 for (const b of fc.blocks) {
   const rs = fcResults.filter((t) => t >= b.from - 60 && t <= b.to + 240);
   mapSegs.push({ label: "fc", from: b.from, to: b.to, cands: [], note: rs.length ? `결과 화면 ${rs.map(hms).join(" · ")}` : "" });
@@ -337,7 +340,7 @@ const prev = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8"))
 const summary = { run_id: runId, started_at: new Date(started).toISOString(), finished_at: new Date().toISOString(),
   detector: `${det.model} ≥${det.threshold} ×${det.min_len}`, cells: det.cells, candidates: candidates.length, elapsed_sec: elapsedSec };
 writeJson(statePath, {
-  vod_id: Number(vodId), title: detail.title ?? null, total_sec: Math.round(total), ...summary,
+  schema: 2, vod_id: Number(vodId), title: detail.title ?? null, total_sec: Math.round(total), ...summary,
   failed: failedMerged, file_tails: fileTails.map((t) => ({ at: t, frame: frameOf(t) })),
   candidates, candidate_pages: candidatePages, overview_pages: overviewPages, map: mapSegs, fc,
   runs: [...(prev?.runs ?? []), summary],

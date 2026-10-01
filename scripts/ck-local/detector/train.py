@@ -95,6 +95,7 @@ def fit(a):
     for (vod, i), (lab, _) in L.items():
         s = split_of(metas[vod]["channel"], vod)
         X[s].append(E[vod][1][i]); Y[s].append(binary(lab))
+    import multi as _m; _m.stale_aug_check(a.model)
     # 늘려 보기 학습 재료(augment.py) — 학습 칸의 변형만 학습에 더한다. dev·시험은 원본 칸으로만 잰다.
     aug = OUT / "aug" / f"{a.model}.npz"
     XA_dev, YA_dev = [], []   # dev 채널 변형 — 선택(dev 채점)엔 안 쓰고 최종 판별기에만 더한다

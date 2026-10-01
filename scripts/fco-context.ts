@@ -198,10 +198,14 @@ async function locateCommand() {
   const spans = [];
   for (const vod of vods) spans.push(await vodSpan(vod));
   // 롤·FC 공유 준비(ck-local)의 구간 지도가 있으면 FC 결과 화면 칸을 함께 보여준다 — 위치 안내일 뿐(docs/CK-LOCAL-FC-PLAN.md §4-5)
+  // null = 쓸 지도 없음(없거나 FC 를 모르는 옛 지도) — "결과 화면 없음"과 다르다. 그때는 기존 5분할.
   const fcMap = new Map<number, number[] | null>();
   for (const vod of vods) {
     const p = `out/ck/${vod}/local/scan.json`;
-    fcMap.set(vod, existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")).fc?.results ?? null) : null);
+    const j = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+    const ok = j?.fc?.supported === true && !(j.failed ?? []).length;
+    fcMap.set(vod, ok ? j.fc.results : null);
+    console.log(`지도 VOD ${vod}: ${ok ? `FC 결과 화면 ${j.fc.results.length}곳` : j ? (j.fc?.supported ? "썸네일 실패 구간이 있어 쓰지 않음" : "FC 를 모르는 옛 지도 — npm run ck:local -- --vod " + vod + " 로 다시") : "없음(기존 5분할)"}`);
   }
   let missing = 0;
   for (const t of targets.sort((a, b) => a.played_at.localeCompare(b.played_at))) {
@@ -215,7 +219,9 @@ async function locateCommand() {
       const at = [plan.pre, plan.start, plan.end, plan.post].filter((x): x is number => x != null);
       console.log(`  VOD ${span.vod}  시작 ${o.start ?? "?"}s · 종료 ${o.end}s${o.start == null ? "  (시작이 VOD 앞 — 경기 전·시작 없음)" : ""}`);
       console.log(`    4종   npm run ck:probe -- --vod ${span.vod} --at ${at.join(",")}`);
-      const near = (fcMap.get(span.vod) ?? []).filter((x) => x >= o.end - 30 && x <= o.end + 120);
+      // API 종료 −30~+120초 안, 가까운 순. 시간축(HLS vs 방송 시작 차감)이 어긋날 수 있으니 원본으로 참가자·스코어를 확인하고 아니면 5분할
+      const near = (fcMap.get(span.vod) ?? []).filter((x) => x >= o.end - 30 && x <= o.end + 120).sort((x, y) => Math.abs(x - o.end) - Math.abs(y - o.end));
+      if (fcMap.get(span.vod) && !near.length) console.log(`    지도  이 시간창에 FC 결과 화면 검출 없음 — 5분할로`);
       if (near.length) console.log(`    지도  FC 결과 화면 ${near.join(",")}s → npm run ck:probe -- --vod ${span.vod} --at ${near.join(",")}   (아니면 아래 5분할)`);
       console.log(`    결과  npm run ck:probe -- --vod ${span.vod} --between ${plan.result[0]}:${plan.result[1]} --divide 5`);
     }

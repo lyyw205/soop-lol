@@ -61,8 +61,13 @@ def main():
             m = int(g[np.argmax(s[g])])
             cands.append({"from": round(float(at[g0])), "to": round(float(at[g1])), "peak": round(float(at[m])),
                           "peak_score": round(float(s[m]), 3), "len": int(len(g))})
-    timeline = []
+    timeline = []; fc_result_cells = []
     if multi is not None and kinds:
+        # FC 결과 화면은 수 초다 — 구간 묶기 전에 실제로 fc_result 로 검출된 칸 시각을 따로 남긴다(지도 요약에 먹히지 않게)
+        _names = [str(x) for x in multi["classes"]]; _k = np.concatenate(kinds); _c = np.concatenate(confs)
+        if "fc_result" in _names:
+            fi = _names.index("fc_result")
+            fc_result_cells = [round(float(at[i])) for i in np.where((_k == fi) & (_c >= float(multi["min_conf"])))[0]]
         names = [str(x) for x in multi["classes"]]; k = np.concatenate(kinds); c = np.concatenate(confs)
         lab = [names[x] if cf >= float(multi["min_conf"]) else "unknown" for x, cf in zip(k, c)]
         # 구간으로 묶는다. 짧은 끊김(2칸 이하의 모름·다른 라벨)은 앞 구간에 붙인다 — 지도가 수천 줄이 되지 않게.
@@ -82,7 +87,10 @@ def main():
                 merged[-1]["to"] = seg["to"]; merged[-1]["n"] += seg["n"]; continue
             merged.append(dict(seg))
         timeline = [{"label": x["label"], "from": round(x["from"]), "to": round(x["to"]), "n": x["n"]} for x in merged]
-    print(json.dumps({"model": a.model, "threshold": a.threshold, "min_len": a.min_len, "cells": int(len(s)), "candidates": cands, "timeline": timeline}))
+    print(json.dumps({"model": a.model, "threshold": a.threshold, "min_len": a.min_len, "cells": int(len(s)), "candidates": cands, "timeline": timeline,
+                      "multi_version": str(multi["version"]) if multi is not None and "version" in multi else None,
+                      "multi_classes": [str(x) for x in multi["classes"]] if multi is not None else [],
+                      "fc_result_cells": fc_result_cells}))
 
 if __name__ == "__main__":
     main()

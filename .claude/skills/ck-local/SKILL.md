@@ -52,7 +52,8 @@ DB 후보로 넣지 않고 5단계 `--verdicts` 로만 남긴다. `--finish` 가
 라이엇 공개 큐 기록과의 대조는 전용 조회 명령이 생기면 그 명령으로 한다. 그 전엔 DB 조회 스크립트를 새로 짜지 않는다.
 
 **4. 롤이 없으면** — 파일 끝 원본(`scan.json` 의 `file_tails[].frame`)을 연다(개요는 2단계에서 이미 봤다).
-지도의 **FC 경기** 구간은 롤 조사 대상이 아니다 — FC 맥락은 fco-match-context 가 같은 지도로 본다. `fco:context clue` 를 손으로 남기지 않는다(지도가 그 역할을 한다).
+지도의 **FC 경기** 구간은 롤 조사 대상이 아니다. 원본으로 FC 화면을 **실제로 열었으면** ck-research 대로 단서를 한 번 남긴다
+(`npm run fco:context -- clue --vod <번호> --at <초> --observed "본 것"`) — FC 조사가 어느 VOD 를 볼지 찾는 경로는 아직 이 단서다.
 
 **롤 유무와 상관없이** `scan.json` 의 `failed`(썸네일을 못 받은 범위)는 ck-research 훑기로 원본을 본다.
 

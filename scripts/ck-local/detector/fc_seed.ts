@@ -3,6 +3,8 @@
  *   node --env-file-if-exists=apps/web/.env.local scripts/ck-local/detector/fc_seed.ts
  * role result → fc_result · start·end → fc_match. pre·post·역할 없음은 화면이 섞여 안 쓴다(docs/CK-LOCAL-FC-PLAN.md §4-2).
  * out/ck-detector/review-labels.jsonl 에 source "db:fco-evidence" 로 붙인다(이미 있으면 다시 안 붙인다).
+ * ⚠ 원본 프레임의 role 과 그 시각 썸네일 칸의 화면이 다를 수 있다(썸네일은 몇 초 앞 장면). 2026-10-01 검수(r14)에서
+ *   113칸 중 22칸이 틀렸다 — 붙인 뒤 반드시 몽타주로 확인하고 고친다. 검수 라벨은 나중 줄이라 시드를 덮는다.
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { db, closeDb } from "@soop-lol/core/lib/db/client";

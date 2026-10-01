@@ -20,7 +20,17 @@ sys.argv = _a
 
 CLASSES = ["result", "graph", "banpick", "lobby", "client", "ingame", "end", "other", "fc_match", "fc_result", "fc_menu"]
 
+# 지도 산출물을 소비하는 쪽(locate 등)이 "이 지도가 FC 라벨을 아는 모델로 만들어졌나"를 가린다. 라벨 목록이 바뀌면 올린다.
+VERSION = "multi-2-fc"
+
+def stale_aug_check(model):
+    """늘려 보기 파일이 정답 파일보다 오래됐으면 멈춘다 — 옛 라벨의 변형이 새 정답과 다른 답으로 학습된다(Codex 검토)."""
+    aug = T.OUT / "aug" / f"{model}.npz"; lab = T.OUT / "review-labels.jsonl"
+    if aug.exists() and lab.exists() and aug.stat().st_mtime < lab.stat().st_mtime:
+        sys.exit(f"늘려 보기({aug.name})가 정답 파일보다 오래됐다 — 먼저 augment.py 를 다시 돌린다")
+
 def data(model):
+    stale_aug_check(model)
     metas = T.load_meta(); E = T.load_emb(model, metas); L = T.load_labels(E, metas)
     X, Y, C = [], [], []
     for (v, i), (lab, src) in L.items():
@@ -48,7 +58,9 @@ def evaluate(a):
         te = C == ch
         if te.sum() < 10: continue
         clf = make(a.C).fit(np.concatenate([X[~te], XA[CA != ch]]), np.concatenate([Y[~te], YA[CA != ch]]))
-        p = clf.predict_proba(X[te]); pr = p.argmax(1); conf = p.max(1)
+        # ★ predict_proba 의 열은 clf.classes_ 순서다 — 이 학습 묶음에 없는 종류(한 채널에만 있는 FC 결과 등)가 빠지면
+        #   열 번호와 CLASSES 번호가 어긋난다. 열을 실제 라벨 번호로 바꾼다(Codex 검토, 2026-10-01).
+        p = clf.predict_proba(X[te]); pr = clf.classes_[p.argmax(1)]; conf = p.max(1)
         for y, q, c in zip(Y[te], pr, conf):
             n[y] += 1
             if c < a.min_conf: continue   # 확신 낮으면 "모름" — 라벨을 안 붙인다
@@ -64,7 +76,9 @@ def fit(a):
     X, Y, C, XA, YA, CA = data(a.model)
     clf = make(a.C).fit(np.concatenate([X, XA]), np.concatenate([Y, YA]))
     dst = T.OUT / "model" / a.model; dst.mkdir(parents=True, exist_ok=True)
-    np.savez(dst / "multi.tmp.npz", coef=clf.coef_, intercept=clf.intercept_, classes=np.array(CLASSES), min_conf=a.min_conf)
+    # 저장하는 라벨 목록은 실제로 학습된 순서(clf.classes_)여야 detect.py 의 argmax 가 맞는 이름을 가리킨다
+    np.savez(dst / "multi.tmp.npz", coef=clf.coef_, intercept=clf.intercept_, classes=np.array([CLASSES[k] for k in clf.classes_]),
+             min_conf=a.min_conf, version=np.array(VERSION))
     (dst / "multi.tmp.npz").replace(dst / "multi.npz")
     print("저장", dst / "multi.npz", {CLASSES[k]: n for k, n in sorted(Counter(Y).items())})
 
