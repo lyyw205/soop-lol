@@ -67,7 +67,7 @@ def main():
         lab = [names[x] if cf >= float(multi["min_conf"]) else "unknown" for x, cf in zip(k, c)]
         # 구간으로 묶는다. 짧은 끊김(2칸 이하의 모름·다른 라벨)은 앞 구간에 붙인다 — 지도가 수천 줄이 되지 않게.
         # 결과창·그래프·종료처럼 짧게 뜨는 화면은 1칸이어도 따로 둔다.
-        SHORT_OK = {"result", "graph", "end"}
+        SHORT_OK = {"result", "graph", "end", "fc_result"}
         for i, l in enumerate(lab):
             t = float(at[i])
             if timeline and timeline[-1]["label"] == l and t - timeline[-1]["to"] <= 9:

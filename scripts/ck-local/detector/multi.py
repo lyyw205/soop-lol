@@ -5,6 +5,7 @@
 
 라벨(검수만 쓴다 — DB 초벌 notresult 는 종류를 모른다):
   result(점수판) · graph(결과창 다른 탭) · banpick · lobby(사용자 설정 게임 방) · client(그 밖 클라이언트) · ingame · end · other
+  fc_match(FC 경기 중) · fc_result(FC 결과 화면) · fc_menu(FC 메뉴) — 롤·FC 공유 준비(docs/CK-LOCAL-FC-PLAN.md)
   loading 은 예시가 2칸뿐이라 뺐다 — 썸네일에서 로딩 화면이 드물다(2026-10-01).
 판단은 하지 않는다. 확률이 낮은 칸은 "모름"으로 둔다. docs/CK-LOCAL-DETECTOR.md §12
 """
@@ -17,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent)); _a = sys.argv; sys.argv = [_a[0]
 import train as T  # noqa: E402
 sys.argv = _a
 
-CLASSES = ["result", "graph", "banpick", "lobby", "client", "ingame", "end", "other"]
+CLASSES = ["result", "graph", "banpick", "lobby", "client", "ingame", "end", "other", "fc_match", "fc_result", "fc_menu"]
 
 def data(model):
     metas = T.load_meta(); E = T.load_emb(model, metas); L = T.load_labels(E, metas)

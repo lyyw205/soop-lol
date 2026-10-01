@@ -12,6 +12,7 @@
  * 경기 구간 ≈ [matchDate−12분, matchDate]. 판정 규칙이 아니라 탐색 시작점이다.
  */
 import { readdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import { closeDb } from "@soop-lol/core/lib/db/client";
 import {
   addFcoCrossClue, applyFcoMatchContext, getFcoContextDetail, getFcoReviewWorkspace,
@@ -162,7 +163,8 @@ async function resolveTargets(): Promise<FcoTarget[]> {
   } else {
     const queue = await listFcoContextQueue({ from: option("from"), to: option("to"), streamer: option("streamer") });
     if (!queue.length) throw new Error("대상 경기가 없다 — --event 나 --from/--to 를 확인하라");
-    targets = queue.map((r) => ({ provider_match_id: r.provider_match_id, played_at: r.played_at, who: r.players }));
+    // ★ 큐는 DB 의 timestamptz 를 Date 로 돌려준다 — 행사 경로(문자열)와 맞춰 ISO 문자열로. Date 그대로면 locate 정렬이 깨졌다.
+    targets = queue.map((r) => ({ provider_match_id: r.provider_match_id, played_at: new Date(r.played_at).toISOString(), who: r.players }));
   }
 
   if (ids?.length) targets = targets.filter((t) => ids.includes(t.provider_match_id));
@@ -195,6 +197,12 @@ async function locateCommand() {
   const targets = await resolveTargets();
   const spans = [];
   for (const vod of vods) spans.push(await vodSpan(vod));
+  // 롤·FC 공유 준비(ck-local)의 구간 지도가 있으면 FC 결과 화면 칸을 함께 보여준다 — 위치 안내일 뿐(docs/CK-LOCAL-FC-PLAN.md §4-5)
+  const fcMap = new Map<number, number[] | null>();
+  for (const vod of vods) {
+    const p = `out/ck/${vod}/local/scan.json`;
+    fcMap.set(vod, existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")).fc?.results ?? null) : null);
+  }
   let missing = 0;
   for (const t of targets.sort((a, b) => a.played_at.localeCompare(b.played_at))) {
     console.log(`\n${t.label ? `[${t.label}] ` : ""}${t.who}  ${t.provider_match_id}`);
@@ -207,6 +215,8 @@ async function locateCommand() {
       const at = [plan.pre, plan.start, plan.end, plan.post].filter((x): x is number => x != null);
       console.log(`  VOD ${span.vod}  시작 ${o.start ?? "?"}s · 종료 ${o.end}s${o.start == null ? "  (시작이 VOD 앞 — 경기 전·시작 없음)" : ""}`);
       console.log(`    4종   npm run ck:probe -- --vod ${span.vod} --at ${at.join(",")}`);
+      const near = (fcMap.get(span.vod) ?? []).filter((x) => x >= o.end - 30 && x <= o.end + 120);
+      if (near.length) console.log(`    지도  FC 결과 화면 ${near.join(",")}s → npm run ck:probe -- --vod ${span.vod} --at ${near.join(",")}   (아니면 아래 5분할)`);
       console.log(`    결과  npm run ck:probe -- --vod ${span.vod} --between ${plan.result[0]}:${plan.result[1]} --divide 5`);
     }
     if (!found) { missing++; console.log("  ✗ 이 경기의 종료가 어느 VOD 에도 없다 — 다른 POV 를 찾거나 미해결로 남긴다"); }

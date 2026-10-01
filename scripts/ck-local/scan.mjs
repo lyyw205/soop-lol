@@ -66,7 +66,7 @@ if (args.includes("--review")) {
   if (flag("--label")) {
     // 후보 번호 없이 시각으로 — 판별기가 놓친 결과창, 틀린 지도 라벨도 학습 데이터로 남긴다(Codex 검토, 2026-10-01)
     //   --label 1:23:45=result,5130=banpick   (VOD 전체 시각: h:mm:ss 또는 초)
-    const KINDS = ["result", "graph", "banpick", "lobby", "client", "ingame", "end", "other"];
+    const KINDS = ["result", "graph", "banpick", "lobby", "client", "ingame", "end", "other", "fc_match", "fc_result", "fc_menu"];
     const sec = (x) => x.split(":").map(Number).reduce((p, q) => p * 60 + q, 0);
     const out = [];
     for (const tok of flag("--label").split(",").map((x) => x.trim()).filter(Boolean)) {
@@ -282,9 +282,24 @@ for (const m of mapSegs) {
   const ns = ["result", "graph"].includes(m.label) ? candidates.filter((c) => c.to >= m.from - 6 && c.from <= m.to + 6).map((c) => `#${c.n}`) : [];
   m.cands = ns;
 }
+// ── FC 블록 (롤·FC 공유 준비 — docs/CK-LOCAL-FC-PLAN.md) ──
+//   FC 경기 중 구간을 3분 안 끊김으로 잇고 3분 이상만, 결과 화면은 칸 덩어리의 가운데 시각. 라벨일 뿐 — 판단은 fco-match-context.
+const fcBlocks = [];
+for (const x of (det.timeline ?? []).filter((x) => x.label === "fc_match")) {
+  const b = fcBlocks.at(-1);
+  if (b && x.from - b.to <= 180) b.to = x.to; else fcBlocks.push({ from: x.from, to: x.to });
+}
+const fcResults = (det.timeline ?? []).filter((x) => x.label === "fc_result").map((x) => Math.round((x.from + x.to) / 2));
+const fc = { blocks: fcBlocks.filter((b) => b.to - b.from >= 180), results: fcResults };
+for (const b of fc.blocks) {
+  const rs = fcResults.filter((t) => t >= b.from - 60 && t <= b.to + 240);
+  mapSegs.push({ label: "fc", from: b.from, to: b.to, cands: [], note: rs.length ? `결과 화면 ${rs.map(hms).join(" · ")}` : "" });
+}
 for (const c of candidates) if (!mapSegs.some((m) => m.cands.includes(`#${c.n}`))) mapSegs.push({ label: "result", from: c.from, to: c.to, cands: [`#${c.n}`], note: "후보만" });
 mapSegs.sort((x, y) => x.from - y.from);
-const mapText = mapSegs.map((m) => `${hms(m.from)}${m.to > m.from ? `~${hms(m.to)}` : ""} ${m.note ? "결과창 후보" : KO[m.label]}${m.cands.length ? ` (후보 ${m.cands.join(",")})` : ""}`);
+const mapText = mapSegs.map((m) => m.label === "fc"
+  ? `${hms(m.from)}~${hms(m.to)} FC 경기${m.note ? ` (${m.note})` : ""}`
+  : `${hms(m.from)}${m.to > m.from ? `~${hms(m.to)}` : ""} ${m.note ? "결과창 후보" : KO[m.label]}${m.cands.length ? ` (후보 ${m.cands.join(",")})` : ""}`);
 console.log(`  판별 ${det.cells}칸 → 결과창 후보 ${candidates.length}개 (문턱 ${det.threshold} · ${det.min_len}칸 이상)`);
 
 // ③ 원본 — 후보마다 가장 높은 칸 + 파일마다 끝 지점. ck:probe 가 out/ck/<vod>/g<초>.jpg 로 받는다(이미 있으면 건너뛴다).
@@ -324,7 +339,7 @@ const summary = { run_id: runId, started_at: new Date(started).toISOString(), fi
 writeJson(statePath, {
   vod_id: Number(vodId), title: detail.title ?? null, total_sec: Math.round(total), ...summary,
   failed: failedMerged, file_tails: fileTails.map((t) => ({ at: t, frame: frameOf(t) })),
-  candidates, candidate_pages: candidatePages, overview_pages: overviewPages, map: mapSegs,
+  candidates, candidate_pages: candidatePages, overview_pages: overviewPages, map: mapSegs, fc,
   runs: [...(prev?.runs ?? []), summary],
 });
 const broadcast = vodBroadcastTimes(detail);
