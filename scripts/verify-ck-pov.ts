@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 /**
  * 다시점 경기 통합을 **실제 `ck:merge` 명령으로** 끝까지 돌려 본다. docs/CK-MULTI-POV-PLAN.md §11
  *
@@ -23,7 +24,7 @@ const ROOT = join(import.meta.dirname, "..");
 const PORT = Number(process.env.VERIFY_DB_PORT ?? 5437);
 const WORK = join(ROOT, "out", "ck", "_verify-pov");
 // 실제 VOD 번호와 겹치지 않는 가짜 번호. 사진 파일은 out/ck/<번호>/ 에 둔다(ck-merge 가 존재를 본다).
-const VODS = { a: 99990101, c: 99990102, k: 99990103, b: 99990104, e: 99990105, f: 99990106, g: 99990107 };
+const VODS = { a: 99990101, c: 99990102, k: 99990103, b: 99990104, e: 99990105, f: 99990106, g: 99990107, h: 99990108 };
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -206,6 +207,24 @@ try {
   check("기존 경기에 null 은 철회로 받는다", r.code === 0 && c4.observed.match?.winning_team === undefined && dObs?.team === undefined,
     r.code ? r.out.slice(-300) : JSON.stringify(c4.observed.match));
   check("철회도 이력에 남는다", c4.history.some((h) => h.field === "winning_team" && h.after === null));
+
+  console.log("\n▸ 검수 화면을 연 사이에 새 관측이 들어오면 완료 클릭이 거부된다 (같은 제출 재전송은 방해하지 않는다)");
+  await sql()`UPDATE match SET review_completed_at = NULL WHERE match_id = 'pov:m1'`;
+  const verOf = async () => (await sql()<{ review_version: number }[]>`SELECT review_version FROM match WHERE match_id = 'pov:m1'`)[0].review_version;
+  const v0 = await verOf();
+  fakeVod(VODS.h, [900]);
+  const submitH = () => merge([
+    scan(VODS.h, "pov_h", [900]),
+    { resultType: "match", match_id: "pov:m1", pov: { link_basis: "결과창" },
+      participants: [{ streamer_slug: "pov-c", kills: 5 }], evidence_frames: [framePath(VODS.h, 900)] },
+  ]);
+  r = await submitH();
+  const v1 = await verOf();
+  check("★★ 새 시점(경기 값은 안 바뀜)이 들어와도 검수 버전이 올라간다", r.code === 0 && v1 > v0, r.code ? r.out.slice(-300) : `${v0} → ${v1}`);
+  r = await submitH();
+  check("★★ 같은 제출을 다시 보내면 버전이 안 오른다", r.code === 0 && (await verOf()) === v1, `${v1} → ${await verOf()}`);
+  await assert.rejects(() => ck.setMatchReviewCompleted("pov:m1", true, v0), /바뀌었습니다/);
+  check("★★ 열어 둔 옛 화면(v0)의 완료 요청은 거부된다", true);
 
   console.log("\n▸ 거부해야 하는 것");
   r = await merge([scan(VODS.c, "pov_c", [500, 600], [{ id: "c9", at: [500, 600], conclusion: "linked", match_id: "pov:m1" }])]);

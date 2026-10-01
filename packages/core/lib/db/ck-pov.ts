@@ -7,6 +7,7 @@
  * ★ 검수된 경기(match.reviewed_at)도 시점·사진은 받는다. 값만 잠긴다.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import type postgres from "postgres";
 
 import { db } from "./client.ts";
@@ -180,6 +181,11 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
   }
 
   // 이 VOD 의 사진만, 사람이 고치지 않은 것만 잇는다.
+  // 새로 이어진 사진이 있는지 먼저 센다 — 같은 사진을 다시 보내는 것은 새 증거가 아니다(검수 버전 판단용).
+  const newlyAttached = input.frame_ids.length === 0 ? 0 : (await tx<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM match_evidence_frame
+     WHERE id = ANY(${input.frame_ids}::uuid[]) AND lead_id = ${input.lead_id}::uuid AND reviewed_at IS NULL
+       AND match_id IS DISTINCT FROM ${input.match_id}`)[0].n;
   const attached = input.frame_ids.length === 0 ? 0 : (await tx`
     UPDATE match_evidence_frame SET match_id = ${input.match_id}
      WHERE id = ANY(${input.frame_ids}::uuid[]) AND lead_id = ${input.lead_id}::uuid AND reviewed_at IS NULL`).count;
@@ -208,6 +214,13 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
     await tx`UPDATE match SET review_completed_at = NULL, review_version = review_version + 1
               WHERE match_id = ${input.match_id}`;
     reopened = true;
+  }
+  // ★ 검수 화면을 열어 둔 사이에 새 관측·새 사진이 들어오면 완료 클릭이 거부돼야 한다(setMatchReviewCompleted 가 review_version 을 본다).
+  //   값이 안 바뀌는 새 시점(경기 값을 안 채움)은 0043 트리거가 안 걸려 버전이 그대로였고, 사람이 못 본 증거까지 "검수 완료"가 됐다.
+  //   **실제로 내용이 달라졌을 때만** 올린다 — 같은 제출을 다시 보내는 것은 검수를 방해하지 않는다. 이미 위에서 올렸으면 또 올리지 않는다.
+  const contentChanged = !prev || !isDeepStrictEqual(prev.observed, observed) || newlyAttached > 0;
+  if (contentChanged && !reopened) {
+    await tx`UPDATE match SET review_version = review_version + 1 WHERE match_id = ${input.match_id}`;
   }
   return { role: prev?.role ?? role, filled, attached, locked, reopened, summary, unmatched: final.unmatched };
 }

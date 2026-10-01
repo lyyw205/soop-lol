@@ -34,13 +34,27 @@ if ! flock -n 9; then
   exit 0
 fi
 
+# ★ 종료 코드는 실패를 숨기지 않는다 — systemd 가 이 코드를 그대로 본다(systemctl --user status 에 실패가 보인다).
+#   0 정상 · 1 큐 생성 실패(DB 접속 등 — 빈 큐와 구분된다) · 그 밖은 claude 조사 세션의 종료 코드.
+#   ck:queue 가 2(목록이 잘림)면 받은 만큼 조사하되 로그에 경고를 남긴다(경고는 실패가 아니다).
+QCODE=0
 {
   echo "=== $(date -Is) ck-auto ==="
   npm run -s ck:queue -- --write "$QUEUE"
-  echo "ck:queue 종료 코드 $?"
+  QCODE=$?
+  echo "ck:queue 종료 코드 $QCODE"
 } >>"$LOG" 2>&1
 
-N="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).queue.length)' "$QUEUE" 2>>"$LOG" || echo 0)"
+if { [[ "$QCODE" != "0" && "$QCODE" != "2" ]]; } || [[ ! -s "$QUEUE" ]]; then
+  echo "!!! 큐 생성 실패(종료 코드 $QCODE, 큐 파일 $([[ -s "$QUEUE" ]] && echo 있음 || echo 없음)) — 이번 회차는 조사하지 않는다. 빈 큐가 아니다" >>"$LOG"
+  exit 1
+fi
+[[ "$QCODE" == "2" ]] && echo "경고: 목록 조회가 일부 잘렸다 — 받은 만큼만 조사한다" >>"$LOG"
+
+N="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).queue.length)' "$QUEUE" 2>>"$LOG")" || {
+  echo "!!! 큐 파일을 읽지 못했다($QUEUE) — 이번 회차는 조사하지 않는다" >>"$LOG"
+  exit 1
+}
 if [[ "$N" == "0" || "${1:-}" == "--dry-run" ]]; then
   echo "큐 ${N}개 — Claude 를 부르지 않는다" >>"$LOG"
   exit 0
@@ -58,8 +72,12 @@ PROMPT="/ck-research 무인 자동 실행이다. 사람이 없으니 묻지 말�
 # 세션 ID 를 정해서 넘기고 로그에 적는다 — 전체 기록(도구 호출 하나하나)은
 # ~/.claude/projects/<프로젝트>/<세션ID>.jsonl 에 남는다. 이 로그엔 최종 요약만 찍힌다.
 SESSION="$(cat /proc/sys/kernel/random/uuid)"
+CCODE=0
 {
   echo "--- claude 시작 $(date -Is) · 큐 ${N}개 · 세션 $SESSION"
   claude -p "$PROMPT" --permission-mode bypassPermissions --session-id "$SESSION"
-  echo "--- claude 종료 $(date -Is) · 코드 $?"
+  CCODE=$?
+  echo "--- claude 종료 $(date -Is) · 코드 $CCODE"
 } >>"$LOG" 2>&1
+# 조사 세션이 실패했으면(로그인 만료·사용량 한도 등) 그대로 알린다. 못 끝낸 VOD 는 도장이 done 이 아니라 다음 회차 큐에 다시 들어온다.
+exit "$CCODE"

@@ -611,7 +611,10 @@ try {
         }
         const [povLead] = povKey ? await tx`
           SELECT id, raw FROM event_lead WHERE source = 'vod_title' AND source_key = ${povKey}` : [];
-        const [current] = await tx`SELECT reviewed_at FROM match WHERE match_id = ${r.match_id}`;
+        // ★ 행을 잠그고 읽는다 — 아래 soleCreator 판단("덮어써도 되나")과 실제 저장 사이에 다른 조사가 시점·증거를 더하면
+        //   낡은 판단으로 덮어쓴다. 시점을 더하는 쪽(submitMatchPovInTx)도 같은 행을 먼저 잠그므로 여기서 직렬화된다.
+        //   잠근 뒤의 다음 문장이 최신 커밋을 본다(READ COMMITTED) — match_pov 조회가 그 뒤에 온다.
+        const [current] = await tx`SELECT reviewed_at FROM match WHERE match_id = ${r.match_id} FOR UPDATE`;
         const exists = current != null;
         const povs = exists ? await tx`SELECT lead_id::text AS lead_id, role FROM match_pov WHERE match_id = ${r.match_id}` : [];
         // ★ 경기를 만든 시점만 붙어 있을 때만 그 시점이 값을 고칠 수 있다(§4.4). 다른 시점이 한 번이라도
