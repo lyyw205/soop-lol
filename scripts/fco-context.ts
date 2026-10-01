@@ -7,6 +7,9 @@
  *   show   경기 하나의 맥락 상세 (판단 이력·근거·행사)
  *   apply  반영 (유일한 쓰기 창구) — casual/unresolved/event + 근거. --dry-run 지원
  *   clue   LoL 조사 중 실제로 연 FC 화면의 교차 단서
+ *   screen VOD 결과 화면에서 읽은 경기를 저장 — API 에 없는 경기(30일 이전 등). 관측을 먼저 숨겨 저장하고,
+ *          같은 경기의 API·화면 기록이 유일하게 맞으면 연결, 애매하면 검수 대기(docs/FCO-SCREEN-MATCH-DESIGN.md). --dry-run 지원
+ *   scan   VOD 하나의 FC 조사 도장(raw.fco_scan) — 롤 도장(scan)과 따로다. done 은 VOD 전 범위를 본 뒤에만
  *
  * 시간창 제안은 실측(docs/FCO-TIME-SAMPLES.md)의 초기값이다 — matchDate 는 경기 종료 시각,
  * 경기 구간 ≈ [matchDate−12분, matchDate]. 판정 규칙이 아니라 탐색 시작점이다.
@@ -397,6 +400,93 @@ async function clueCommand() {
   console.log(fresh ? `교차 단서 저장 — fc:${vod}:${at}` : `이미 있는 단서다 — fc:${vod}:${at} (중복 저장 안 함)`);
 }
 
+/**
+ * 화면 경기 저장. 입력 파일(배열):
+ *   [{ "vod": 207643193, "at_sec": 5310,                 ← 결과 화면의 VOD 전체 초(ck:probe 축)
+ *      "sides": [{ "nickname": "알파감독", "score": 2 }, { "nickname": "일반감독", "score": 1 }],
+ *      "mode_key": null, "observed": "결과 화면 2:1 …",  ← 본 것. 근거 프레임 g<초>.jpg 에 건다
+ *      "ended_at": null }]                                ← 없으면 방송 시작 + at_sec 로 계산
+ * 사람 붙이기: 등록 계정 닉네임과 **정확히 하나만** 일치하면 도구가 붙인다. 방송 주인 본인 칸은
+ *   "streamer_slug": "…", "basis": "vod_owner" 로 명시한다. 근거 없이 slug 를 적지 않는다.
+ */
+async function screenCommand() {
+  const file = option("file");
+  if (!file) throw new Error("사용법: npm run fco:context -- screen --file out/fco/<이름>.json [--dry-run]");
+  type Side = { nickname: string; score: number | null; outcome?: "win" | "draw" | "loss"; streamer_slug?: string; basis?: "vod_owner" | "manual" };
+  type Item = { vod: number; at_sec: number; sides: [Side, Side]; mode_key?: string | null; observed: string; why?: string; ended_at?: string | null };
+  const parsed = JSON.parse(await readFile(file, "utf8")) as Item | Item[];
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  const dryRun = flag("dry-run");
+  const { saveFcoScreenMatch, screenMatchId } = await import("@soop-lol/core/lib/games/fconline/screen");
+  const spans = new Map<number, Awaited<ReturnType<typeof vodSpan>>>();
+  const tally: Record<string, number> = {};
+  let failed = 0;
+  for (const it of items) {
+    const label = `vod ${it.vod} @${it.at_sec}s`;
+    try {
+      if (!Number.isInteger(it.vod) || !Number.isInteger(it.at_sec)) throw new Error("vod·at_sec 는 정수다");
+      if (!Array.isArray(it.sides) || it.sides.length !== 2) throw new Error("sides 는 두 칸이다(1:1 경기만)");
+      if (!it.observed?.trim()) throw new Error("observed(본 것)가 비었다 — 읽은 것을 적는다");
+      if (!spans.has(it.vod)) spans.set(it.vod, await vodSpan(it.vod));
+      const span = spans.get(it.vod)!;
+      if (it.at_sec > span.lengthSec) throw new Error(`at_sec ${it.at_sec} 가 VOD 길이(${span.lengthSec}초) 밖이다`);
+      const endedAt = it.ended_at ?? new Date(span.startMs + it.at_sec * 1000).toISOString();
+      const frame = `out/ck/${it.vod}/g${String(it.at_sec).padStart(7, "0")}.jpg`;
+      if (!existsSync(frame)) throw new Error(`근거 프레임이 없다: ${frame} — npm run ck:probe -- --vod ${it.vod} --at ${it.at_sec} 로 뽑고 연 뒤 저장한다`);
+      const input = {
+        vodTitleNo: it.vod, atSec: it.at_sec, endedAt, channelId: span.channel, modeKey: it.mode_key ?? null,
+        sides: it.sides.map((x) => ({ nickname: x.nickname, score: x.score, outcome: x.outcome, streamerSlug: x.streamer_slug, basis: x.basis })) as never,
+        evidence: [{ observed: it.observed, why: it.why, frame_path: frame }],
+      };
+      if (dryRun) {
+        console.log(`  · ${label} → ${screenMatchId(it.vod, it.at_sec)} · 종료 ${endedAt} · ${it.sides.map((x) => `${x.nickname} ${x.score ?? "?"}`).join(" : ")} (dry-run)`);
+        continue;
+      }
+      const r = await saveFcoScreenMatch(input);
+      tally[r.status] = (tally[r.status] ?? 0) + 1;
+      const extra = r.status === "linked" ? ` → ${r.link_to} (${r.link_to_source === "provider_api" ? "API 경기" : "다른 화면 경기"}에 연결·근거 복사)`
+        : r.status === "needs_review" ? ` → 검수 대기: 후보 ${r.candidates.join(", ")}`
+        : r.status === "protected" ? ` — ${r.reason}`
+        : r.expect_api ? " (최근 30일·등록 계정 — API 경기가 오면 reconcile 이 연결한다)" : "";
+      console.log(`  ✓ ${label} ${r.status} ${r.match_id}${extra}`);
+    } catch (e) {
+      failed++;
+      console.log(`  ✗ ${label}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  console.log(`\n${dryRun ? "(dry-run — 저장하지 않았다) " : ""}${Object.entries(tally).map(([k, n]) => `${k} ${n}`).join(" · ") || "저장 0"}${failed ? ` · 실패 ${failed}` : ""}`);
+  if (failed) process.exitCode = 1;
+}
+
+/** FC 조사 도장. done 은 VOD 전 범위를 본 뒤에만 — 범위가 모자라면 partial 로 다시 큐에 든다(vodWork). */
+async function scanCommand() {
+  const vod = Number(option("vod"));
+  const status = option("status");
+  if (!Number.isInteger(vod) || !["done", "running", "failed"].includes(String(status))) {
+    throw new Error("사용법: npm run fco:context -- scan --vod 207643193 --status done|running|failed [--requested 0-12000] [--opened 5310,5400] [--failed a-b] [--note '…']");
+  }
+  const ranges = (v?: string) => (v ?? "").split(",").filter(Boolean).map((r) => r.split("-").map(Number) as [number, number]);
+  const { markLeadScan, upsertEventLead } = await import("@soop-lol/core/lib/db/ck");
+  const { vodWork } = await import("@soop-lol/core/lib/metrics/ck-vod-status");
+  const span = await vodSpan(vod);
+  const [lead] = await db()<{ id: string }[]>`SELECT id FROM event_lead WHERE source = 'vod_title' AND source_key = ${`vod:${vod}`}`;
+  // FC 만 있는 VOD 는 롤 조사 단서가 없을 수 있다 — 같은 키의 VOD 단서를 만든다(롤 도장은 비어 있어 롤 큐 판정에 영향 없다).
+  const title = lead ? null : (await (await import("./lib/soop-vod.mjs")).vodDetail(vod))?.title ?? `vod:${vod}`;
+  const leadId = lead?.id ?? await upsertEventLead({
+    source: "vod_title", source_key: `vod:${vod}`, url: `https://vod.sooplive.com/player/${vod}`,
+    channel_id: span.channel, title: String(title), observed_at: new Date(span.startMs), raw: { vod_total_sec: span.lengthSec },
+  });
+  const next = await markLeadScan(leadId, {
+    status: status as "done" | "running" | "failed",
+    requested: ranges(option("requested")), failed: ranges(option("failed")),
+    opened: (option("opened") ?? "").split(",").filter(Boolean).map(Number),
+    note: option("note"), finished_at: new Date().toISOString(),
+  }, { key: "fco_scan" });
+  const [row] = await db()<{ raw: Record<string, unknown> }[]>`SELECT raw FROM event_lead WHERE id = ${leadId}::uuid`;
+  const work = vodWork(row.raw, span.lengthSec, "fco_scan");
+  console.log(`FC 도장 vod:${vod} — ${next.status} · 남은 일 ${work.reason ?? "없음(완료)"}${work.uncovered ? ` · 덜 본 ${work.uncovered}초` : ""}`);
+}
+
 async function main() {
   switch (command) {
     case "list": return listCommand();
@@ -405,8 +495,10 @@ async function main() {
     case "show": return showCommand();
     case "apply": return applyCommand();
     case "clue": return clueCommand();
+    case "screen": return screenCommand();
+    case "scan": return scanCommand();
     default:
-      throw new Error("사용법: npm run fco:context -- <list|locate|draft|show|apply|clue> …  (파일 상단 주석 참고)");
+      throw new Error("사용법: npm run fco:context -- <list|locate|draft|show|apply|clue|screen|scan> …  (파일 상단 주석 참고)");
   }
 }
 

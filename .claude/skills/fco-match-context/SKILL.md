@@ -1,12 +1,15 @@
 ---
 name: fco-match-context
-description: 넥슨 API로 확인된 스트리머 간 FC 온라인 경기의 맥락(단순 친선/CK/대회)을 VOD·공지로 조사해 기록한다. "FC 경기 맥락 조사해줘", "피온 내전 확인", "이 FC 경기 무슨 대회야" 같은 요청에 쓴다. LoL VOD 전량 조사는 ck-research 가 담당한다.
+description: 스트리머 간 FC 온라인 경기를 조사해 기록한다 — 넥슨 API로 확인된 경기의 맥락(단순 친선/CK/대회)을 VOD·공지로 판단하고, API에 없는 경기(30일 이전 등)는 VOD 결과 화면으로 찾아 기록한다. "FC 경기 맥락 조사해줘", "피온 내전 확인", "이 FC 경기 무슨 대회야", "이 VOD의 FC 경기 기록해줘" 같은 요청에 쓴다. LoL VOD 전량 조사는 ck-research 가 담당한다.
 ---
 
 # FC 경기 맥락 조사
 
 경기 사실(누가 이겼나)은 **넥슨 API가 이미 안다.** 여기서 알아내는 것은 **무슨 판이었나**다 —
 단순 친선인가, CK인가, 대회인가. VOD 화면으로 API 값을 다시 판독하지 않는다.
+
+**단, API 는 최근 30일만 준다.** 그 이전 경기, 등록 계정의 API 기록에서 빠진 경기는 **VOD 결과 화면으로만** 안다 —
+그때는 아래 [VOD 에서 출발하기](#vod-에서-출발하기--api-에-없는-경기)로 경기 자체를 기록한다. 출발점이 둘이고 규칙은 같다.
 
 > **반드시 정해진 것은 「무엇을 수행하고 무엇을 기록하나」뿐이다.**
 > 그 자료가 무슨 뜻인지, 어떤 결론을 내릴지, 더 조사할지는 **네가 판단한다.**
@@ -59,6 +62,32 @@ fco:context list --vods        미조사 경기 + 후보 VOD 시간창
 시간창 초기값은 실측(docs/FCO-TIME-SAMPLES.md)에서 온다: **matchDate 는 경기 종료 시각**,
 경기 구간 ≈ [matchDate−12분, matchDate]. 판정 규칙이 아니라 탐색 시작점이다.
 프레임·전사의 시각은 전부 **VOD 전체 초** 하나로 쓴다(ck:probe 와 같은 축).
+
+## VOD 에서 출발하기 — API 에 없는 경기
+
+API 경기 목록이 아니라 **VOD 를 받아** 그 안의 FC 경기를 찾는 흐름이다(과거 백필·대회 VOD). 설계: docs/FCO-SCREEN-MATCH-DESIGN.md.
+
+1. **지도** — `npm run ck:local -- --vod <번호>`(롤·FC 공용 준비, 6시간 VOD 약 1분). `out/ck/<번호>/local/map.txt` 의
+   `FC 경기` 구간과 `결과 화면 …s` 가 찾을 곳이다. 지도는 위치 안내다 — 결과 화면 검출은 처음 보는 방송에서 놓치는 게 많다
+   (재현율 약 26%). **구간마다 결과 화면을 직접 찾는다**(아래 「결과 화면을 찾는 기본 방법」, 구간 끝에서 시작).
+2. **읽기** — 결과 화면 원본에서 두 닉네임·스코어(·보이면 모드·승부차기)를 읽는다. 보이는 것만 적는다 — 스쿼드·통계는 비운다.
+   같은 점수(승부차기 가능)·못 읽은 점수는 적지 않으면 도구가 `unknown` 으로 둔다. 승부차기 승자를 봤으면 `outcome` 으로 적는다.
+3. **저장** — `npm run fco:context -- screen --file out/fco/<이름>.json [--dry-run]`
+   ```json
+   [{ "vod": 207643193, "at_sec": 5310,
+      "sides": [{ "nickname": "알파감독", "score": 2 }, { "nickname": "상대감독", "score": 1 }],
+      "observed": "결과 화면 2:1, 알파감독(홈) vs 상대감독" }]
+   ```
+   - `at_sec` 는 **연 결과 화면 프레임의 VOD 전체 초**다(`out/ck/<vod>/g<초>.jpg` 가 있어야 한다 — 그 프레임이 근거로 걸린다).
+   - 사람: 등록 계정 닉네임과 **정확히 하나만** 맞으면 도구가 붙인다. 방송 주인 본인 칸은 `"streamer_slug": "…", "basis": "vod_owner"`.
+     그 밖의 추정으로 slug 를 적지 않는다 — 모르면 닉네임만 둔다.
+   - 결과: `created`(새 화면 경기, 숨김) · `linked`(같은 경기의 API·다른 화면 기록에 연결, 근거 복사) ·
+     `needs_review`(후보가 둘 이상이거나 조건 부족 — **그대로 둔다**, 검수가 정한다) · `protected`(검수된 경기).
+     관측은 어느 경우든 먼저 저장된다 — "API 가 곧 가져오겠지"로 저장을 건너뛰지 않는다.
+4. **맥락** — 행사·CK 로 볼 근거가 있으면 기존 흐름(`apply`)과 같다. 화면 경기는 `linked` 면 연결된 API 경기에, 아니면 아직
+   `apply` 대상이 아니다(API matchId 가 없다) — 맥락 근거는 `observed` 에 적어 두고 보고에 남긴다.
+5. **도장** — VOD 를 다 봤으면 `npm run fco:context -- scan --vod <번호> --status done --requested 0-<길이> --opened <연 초,…>`.
+   못 끝냈으면 `--status running`. **롤 도장과 따로다** — 롤 조사가 끝난 VOD 도 FC 로는 따로 끝내야 한다.
 
 ## 경기마다 뽑는 장면 — 4종 + 결과 화면
 
@@ -113,6 +142,8 @@ npm run fco:context -- draft  --vods … (--event slug | --from/--to) [--out out
 npm run fco:context -- draft --vods 205292057,205320949 --event <행사slug> [--out out/fco/x.json]
 npm run fco:context -- show --match-id <넥슨matchId>
 npm run fco:context -- apply --file out/fco/0923.json [--dry-run] [--admin]
+npm run fco:context -- screen --file out/fco/<이름>.json [--dry-run]   # API 에 없는 경기 — VOD 결과 화면으로 기록
+npm run fco:context -- scan --vod <번호> --status done|running [--requested 0-<길이>] [--opened …]   # FC 조사 도장
 npm run fco:sync -- --streamer slug --nickname 감독명   # 계정 연결·경기 수집 (일일은 워커 engine_e_fco)
 ```
 
