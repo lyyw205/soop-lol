@@ -14,9 +14,8 @@
  *   예고 없이 바뀐다. 값이 안 오면 우리 코드보다 이쪽을 먼저 의심한다.
  */
 
-import jpeg from "jpeg-js";
-
 import { soopFetch } from "./soop-http.mjs";
+import { cellOf, decodeSheet, fetchSheets, PER_SHEET } from "./vod-timeline.mjs";
 
 const UA = { "User-Agent": "Mozilla/5.0" };
 /** 제목에 이게 있으면 내전으로 본다. 넓게 잡고 뒤에서 거른다. (내부용 — 검색 함수들이 쓴다) */
@@ -230,55 +229,42 @@ export const playableFiles = (detail) =>
 const rowKeyOf = (url) => new URL(url, "https://videoimg.sooplive.co.kr").searchParams.get("rowKey");
 
 // ── 썸네일 시트 ───────────────────────────────────────────────────────
+//
+// 수신·칸 대응은 scripts/lib/vod-timeline.mjs 가 단일 출처다. 여기는 거름망용 통계만 낸다.
 
-const FW = 192, FH = 108;   // 시트 한 칸 (1920×1080 을 10×10 으로 나눈 것)
-const PER_SHEET = 100;
-
-/** 시트 한 장에서 100칸의 밝기·채도를 뽑는다. 3픽셀씩 건너뛴다 — 통계라 충분하다. */
-function statsOfSheet(buf) {
-  const img = jpeg.decode(buf, { useTArray: true });
-  const out = [];
-  for (let fy = 0; fy < 10; fy++) {
-    for (let fx = 0; fx < 10; fx++) {
-      let r = 0, g = 0, b = 0, sat = 0, n = 0;
-      for (let y = 0; y < FH; y += 3) {
-        for (let x = 0; x < FW; x += 3) {
-          const i = ((fy * FH + y) * img.width + fx * FW + x) * 4;
-          const R = img.data[i], G = img.data[i + 1], B = img.data[i + 2];
-          r += R; g += G; b += B; n++;
-          const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
-          sat += mx === 0 ? 0 : (mx - mn) / mx;
-        }
-      }
-      out.push({ lum: (0.299 * r + 0.587 * g + 0.114 * b) / n, sat: (sat / n) * 100 });
+/** 칸 하나의 밝기·채도. 3픽셀씩 건너뛴다 — 통계라 충분하다. */
+function statsOfCell(img) {
+  let r = 0, g = 0, b = 0, sat = 0, n = 0;
+  for (let y = 0; y < img.height; y += 3) {
+    for (let x = 0; x < img.width; x += 3) {
+      const i = (y * img.width + x) * 4;
+      const R = img.data[i], G = img.data[i + 1], B = img.data[i + 2];
+      r += R; g += G; b += B; n++;
+      const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
+      sat += mx === 0 ? 0 : (mx - mn) / mx;
     }
   }
-  return out;
+  return { lum: (0.299 * r + 0.587 * g + 0.114 * b) / n, sat: (sat / n) * 100 };
 }
 
-/** 파일 하나의 프레임 전체를 훑는다. 5시간이면 시트 60장 45MB. LLM 을 부르지 않는다. */
-export async function scanSheets(file) {
-  // snapshot 이 없는 파일이 실재한다(짧은 조각 등). rowKey=null 로 남의 서버를
-  // 두드리거나, HTML 오류 페이지를 jpeg.decode 에 넣어 **무인 실행 전체를 죽이는**
-  // 것보다 빈 결과가 낫다 — 호출부는 frames.length 로 구분한다.
-  if (!file.snapshot) return { frames: [], bytes: 0, total: file.duration / 1000, sec: 0 };
-  const rowKey = rowKeyOf(file.snapshot);
+/**
+ * 파일 하나의 프레임 전체를 훑는다. 5시간이면 시트 60장 45MB. LLM 을 부르지 않는다.
+ *
+ * 계약: `frames[i]` = 파일 로컬 `i × sec` 초의 칸(중복 시트 제외), `sec` = 3 고정,
+ *       `total` = 파일 길이(넘겨준 length, 없으면 API), `failed` = 못 덮은 파일 로컬 초 범위.
+ * ★ 예전엔 column 0(=column 1 중복)까지 세고 `sec = 길이 ÷ 칸 수` 로 계산해 앞쪽 시각이 최대 5분 늦었고,
+ *   중간 오류도 "끝" 으로 받아 조용히 멈췄다(docs/CK-LOCAL-FIX-PLAN.md §1).
+ */
+export async function scanSheets(file, { length = null } = {}) {
+  const total = length ?? file.duration / 1000;
+  const got = await fetchSheets(file, total);
   const frames = [];
-  let bytes = 0;
-  for (let c = 0; ; c++) {
-    const r = await soopFetch(`https://videoimg.sooplive.co.kr/php/SnapshotLoad.php?rowKey=${rowKey}&column=${c}`,
-      { headers: { ...UA, Referer: "https://vod.sooplive.com/" } });
-    const buf = Buffer.from(await r.arrayBuffer());
-    if (buf.length < 1000) break;      // 빈 응답 = 마지막 시트를 지났다
-    bytes += buf.length;
-    try {
-      frames.push(...statsOfSheet(buf));
-    } catch {
-      break;   // JPEG 가 아니다(오류 페이지 등) — 여기서 멈추고 그때까지의 프레임으로 간다
-    }
+  for (const [k, s] of got.sheets.entries()) {
+    const sheet = decodeSheet(s.buf);
+    const n = Math.min(PER_SHEET, got.cells - k * PER_SHEET);
+    for (let c = 0; c < n; c++) frames.push(statsOfCell(cellOf(sheet, c)));
   }
-  const total = file.duration / 1000;
-  return { frames, bytes, total, sec: frames.length ? total / frames.length : 0 };
+  return { frames, bytes: got.bytes, total, sec: frames.length ? got.sec : 0, failed: got.failed, reason: got.reason };
 }
 
 // ── 판정 ──────────────────────────────────────────────────────────────

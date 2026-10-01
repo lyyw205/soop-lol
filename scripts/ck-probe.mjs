@@ -33,7 +33,8 @@ import { join } from "node:path";
 import { mergeRanges } from "@soop-lol/core/lib/metrics/ranges";
 
 import { dividedPoints } from "./lib/ck-probe-points.mjs";
-import { detect, hlsSegments, hms, scanSheets, segmentAt, segmentsSpan, vodBroadcastTimes, vodDetail } from "./lib/soop-vod.mjs";
+import { detect, hms, scanSheets, segmentAt, segmentsSpan, vodBroadcastTimes, vodDetail } from "./lib/soop-vod.mjs";
+import { coveragePoints, measureParts } from "./lib/vod-timeline.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -115,38 +116,16 @@ if (!detail) {
 const files = detail.files ?? [];
 console.log(`\n${detail.title ?? "(제목 없음)"}  ·  분할 파일 ${files.length}개`);
 
-const parts = [];
-let axis = 0;
-const failedRanges = [];
-
-for (const [i, file] of files.entries()) {
-  const apiSec = (file.duration ?? 0) / 1000;
-  let hls = null;
-  try {
-    hls = await hlsSegments(file);
-  } catch (e) {
-    console.log(`  f${i + 1}  ⚠ HLS 를 못 읽었다 — ${String(e.message).slice(0, 60)}`);
-  }
-  const hlsSec = hls?.segs?.length
-    ? hls.segs[hls.segs.length - 1].start + hls.segs[hls.segs.length - 1].dur
-    : null;
-
-  // ★ 잰 값이 있으면 그걸 쓴다. 없으면 API 값으로 축을 이어가되 **미확인 범위로 남긴다** —
-  //   길이를 모르는 채 넘어가면 뒤 파일의 전역 시각이 통째로 어긋난다.
-  const length = hlsSec ?? apiSec;
-  const measured = hlsSec != null;
-  parts.push({ index: i + 1, file, offset: axis, length, measured, hls });
-
-  const gap = measured && apiSec - hlsSec > 60 ? ` (API 는 ${(apiSec / 3600).toFixed(2)}h 라고 한다 — 뒤가 안 받아진다)` : "";
-  console.log(`  f${i + 1}  ${hms(axis)} ~ ${hms(axis + length)}  ${(length / 3600).toFixed(2)}h`
-    + `${measured ? "" : "  ⚠ 길이 미확인"}${gap}`);
-
-  if (!measured) failedRanges.push([Math.round(axis), Math.round(axis + length)]);
-  else if (apiSec - hlsSec > 60) failedRanges.push([Math.round(axis + hlsSec), Math.round(axis + apiSec)]);
-
-  axis += length;
+// 축 계산은 scripts/lib/vod-timeline.mjs 가 단일 출처다 — ck-local 등 다른 도구와 같은 초를 쓴다.
+const measured = await measureParts(detail, { log: (m) => console.log(m) });
+const parts = measured.parts;
+const failedRanges = [...measured.failed];
+for (const p of parts) {
+  const gap = p.measured && p.apiLength - p.length > 60 ? ` (API 는 ${(p.apiLength / 3600).toFixed(2)}h 라고 한다 — 뒤가 안 받아진다)` : "";
+  console.log(`  f${p.index}  ${hms(p.offset)} ~ ${hms(p.offset + p.length)}  ${(p.length / 3600).toFixed(2)}h`
+    + `${p.measured ? "" : "  ⚠ 길이 미확인"}${gap}`);
 }
-
+const axis = measured.total;
 const total = axis;
 if (total <= 0) {
   console.error("받을 수 있는 구간이 없다.");
@@ -204,15 +183,8 @@ if (targeted) {
   if (planned.size === 0) { console.error("받을 수 있는 지점이 없다."); process.exit(1); }
 } else {
   // ★ 거름망과 **독립적으로** 깐다. 거름망이 놓친 자리도 기본 탐색에는 남아야 한다(§9).
-  for (let t = 0; t < total; t += interval) planned.add(Math.round(t));
-  // 끝을 포함한다. 마지막 구간이 간격보다 짧아도 한 장은 본다.
-  planned.add(Math.max(0, Math.round(total - 30)));
-  // ★ 파일마다 최소 한 장 — 2분짜리 꼬리 파일이 통째로 빠지는 것을 막는다(§3-B).
-  for (const p of parts) {
-    if (p.length <= 0) continue;
-    const mid = Math.round(p.offset + Math.min(p.length / 2, 60));
-    if (![...planned].some((t) => t >= p.offset && t < p.offset + p.length)) planned.add(mid);
-  }
+  //   격자 + 파일마다 최소 한 장(§3-B, 2분짜리 꼬리 파일) + 파일마다 끝 − 30초. 규칙은 vod-timeline 의 coveragePoints.
+  for (const t of coveragePoints(parts, total, interval)) planned.add(t);
 }
 
 // ── ③ 픽셀 거름망은 **추가 제안**일 뿐 ──────────────────────────────
@@ -221,7 +193,7 @@ if (!noSieve && !targeted) {
   for (const p of parts) {
     if (!p.file.snapshot) continue;
     try {
-      const { frames, sec } = await scanSheets(p.file);
+      const { frames, sec } = await scanSheets(p.file, { length: p.length });
       if (!frames.length || !sec) continue;
       const d = detect(frames, sec);
       // 게임 같은 구간의 한가운데 + 밴픽/로딩 후보. 전역 초로 바꿔 담는다.

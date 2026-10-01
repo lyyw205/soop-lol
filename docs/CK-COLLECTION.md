@@ -108,6 +108,10 @@ POST https://api.m.sooplive.co.kr/station/video/a/view
 # 썸네일 시트 — 1920×1080 에 10×10=100 프레임, 3초 간격, 장당 ~750KB
 https://videoimg.sooplive.co.kr/php/SnapshotLoad.php?rowKey=<…_t>&column=0..N
 #   시간당 12장. 5시간 방송 전체가 60장 45MB
+#   ★ column 0 은 column 1 과 **같은 이미지**다. 파일 로컬 t 초 = column 1+floor(t/300) 의 칸 floor(t/3)%100.
+#     칸 수는 ceil(길이/3) ±1. 끝나면 **HTTP 500 + 빈 본문** — 오류와 모양이 같아 칸이 끝까지 덮었나로 판정한다.
+#     (2026-09-30 실측. 옛 계산은 파일 앞쪽 시각을 최대 5분 늦게 냈다. 단일 출처: scripts/lib/vod-timeline.mjs,
+#      검증: node scripts/verify-sheet-axis.mjs --vod <번호>)
 
 # 채팅 — ★ startTime 없이 부르면 404. 300초 창으로 끊어서 준다
 https://videoimg.sooplive.co.kr/php/ChatLoadSplit.php?rowKey=<…_c>&startTime=0
