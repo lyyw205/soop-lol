@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { applyAll } from "./lib/migrations.ts";
 import { verifyReviewRecordUpgrade } from "./lib/verify-review-record-migration.ts";
+import { verifyScheduleDb } from "./lib/verify-schedule-db.ts";
 
 import { PGlite } from "@electric-sql/pglite";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -1913,6 +1914,8 @@ try {
   check("★★ VOD 단서를 지워도 확정된 경기의 최종 결과 근거는 남는다",
     matchEvidenceAfterLeadDelete[0]?.body === "1:10:00 결과창 그래프탭",
     matchEvidenceAfterLeadDelete[0]?.body ?? "없음");
+
+  await verifyScheduleDb(check, expectReject);
 } finally {
   await closeDb();
   await server.stop();

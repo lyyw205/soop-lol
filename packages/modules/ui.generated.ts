@@ -25,6 +25,7 @@ export const MODULE_UI: Record<string, () => Promise<ModuleUiEntry>> = {
   "fc_leaderboard": () => import("./fc_leaderboard/ui/page.tsx"),
   "fc_tournaments": () => import("./fc_tournaments/ui/page.tsx"),
   "fc_versus": () => import("./fc_versus/ui/page.tsx"),
+  "schedule": () => import("./schedule/ui/page.tsx"),
   "tournaments": () => import("./tournaments/ui/page.tsx"),
   "versus": () => import("./versus/ui/page.tsx"),
 };

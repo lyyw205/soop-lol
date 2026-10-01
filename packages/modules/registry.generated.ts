@@ -84,6 +84,21 @@ export const MODULES: RegisteredModule[] = [
     hasUi: true,
   },
   {
+    name: "schedule",
+    version: "0.1.0",
+    title: "편성표",
+    description: "core 의 공개 편성(공지된 대회·CK·이벤트전 예정)을 읽어 게임을 가로지르는 편성표로 보여준다.",
+    schema: "mod_schedule",
+    routes: [{"path":"/schedule","title":"편성표"}],
+    provides: ["schedule"],
+    navOrder: 10,
+    site: "platform",
+    jobs: [
+
+    ],
+    hasUi: true,
+  },
+  {
     name: "tournaments",
     version: "0.1.0",
     title: "대회",

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardCheck, Database, LayoutDashboard, ListChecks, Radio, Trophy, Users } from "lucide-react";
+import { ClipboardCheck, Database, LayoutDashboard, ListChecks, Radio, Trophy, Users, CalendarDays } from "lucide-react";
 import type { ReactNode } from "react";
 
 const NAV = [
@@ -12,6 +12,7 @@ const NAV = [
   { href: "/admin/ck", label: "경기 검수", icon: ClipboardCheck, match: (path: string) => path.startsWith("/admin/ck") },
   { href: "/admin/overview", label: "경기 확인", icon: ListChecks, match: (path: string) => path.startsWith("/admin/overview") },
   { href: "/admin/fco", label: "FC 맥락 검수", icon: Trophy, match: (path: string) => path.startsWith("/admin/fco") },
+  { href: "/admin/schedule", label: "편성표", icon: CalendarDays, match: (path: string) => path.startsWith("/admin/schedule") },
 ] as const;
 
 export function AdminShell({ children }: { children: ReactNode }) {

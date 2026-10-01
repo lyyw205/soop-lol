@@ -1,0 +1,75 @@
+/* 편성표 모듈 화면. 모듈을 지우면 같이 사라진다. 색은 arena 테마(어두운 남색 판 · 주황 강조)를 따른다. */
+
+.sched { --label: 200px; --line: #303b4c; --panel: #171f2b; --muted: #a6b2c4; --accent: #f69a60; }
+.sched a:hover { color: #fff; }
+
+.sched-toolbar { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; margin-bottom: 18px; font-size: 13px; }
+.sched-week, .sched-filters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.sched-week a, .sched-chips a { color: var(--muted); padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; }
+.sched-week a[aria-current], .sched-chips a[aria-current] { color: #fff; border-color: var(--accent); }
+.sched-range { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sched-chips { display: inline-flex; gap: 4px; }
+.sched-person { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+.sched-person select, .sched-person button { background: var(--panel); color: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.sched-empty { color: var(--muted); padding: 40px 0; text-align: center; border: 1px dashed var(--line); border-radius: 8px; }
+
+/* ── 간트 ─────────────────────────────────────────────────────────── */
+.sched-gantt { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); margin-bottom: 26px; overflow: hidden; }
+.sched-row { display: grid; grid-template-columns: var(--label) repeat(var(--days), minmax(0, 1fr)); align-items: center; min-height: 34px; border-top: 1px solid #222c3b; }
+.sched-head { border-top: 0; font-size: 12px; color: var(--muted); text-align: center; min-height: 38px; }
+.sched-head small { opacity: .7; }
+.sched-head .is-today { color: #fff; font-weight: 750; box-shadow: inset 0 -2px 0 var(--accent); }
+.sched-group { padding: 6px 12px; font-size: 11px; font-weight: 750; color: var(--muted); background: #131a24; border-top: 1px solid var(--line); }
+.sched-label { grid-column: 1; padding: 0 12px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 막대와 방송일 표시는 같은 줄(grid-row 1)에 겹친다. 막대가 위, 방송일 칸은 그 아래 진하게. */
+.sched-bar, .sched-live { grid-row: 1; }
+.sched-live { height: 22px; margin: 0 2px; border-radius: 4px; background: #f69a6055; }
+.sched-bar { z-index: 1; height: 22px; margin: 0 2px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff;
+  border: 1px solid #f69a6099; border-radius: 4px; white-space: nowrap; overflow: hidden; }
+.sched-cells { align-items: stretch; }
+.sched-cells > div { padding: 4px 3px; border-left: 1px solid #222c3b; display: flex; flex-direction: column; gap: 4px; min-height: 64px; }
+.sched-cells > div.is-today { background: #f69a600d; }
+.sched-card { display: block; font-size: 11px; line-height: 1.3; padding: 4px 5px; border-radius: 4px; background: #222c3b; color: #d5dce6; overflow: hidden; }
+.sched-card small { display: block; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* 상태: 예정은 연하게, 진행 시간은 강조, 지난 미확인은 흐리게, 무산은 취소선 */
+[data-state="upcoming"].sched-card { background: #1d2532; border: 1px dashed #3a4659; }
+[data-state="in_window"], [data-state="started"] { outline: 1px solid var(--accent); }
+[data-state="past_unconfirmed"] { opacity: .6; }
+[data-state="held"].sched-card, [data-state="held"].sched-bar { background: #f69a6033; }
+[data-state="cancelled"] { opacity: .5; text-decoration: line-through; }
+
+/* ── 목록(넓은 화면에서는 간트 아래 상세, 좁은 화면에서는 이것만) ─────────── */
+.sched-list { margin-bottom: 26px; }
+.sched-list h2 { font-size: 15px; font-weight: 750; margin-bottom: 10px; }
+.sched-day { margin-bottom: 14px; }
+.sched-day h3 { font-size: 13px; color: var(--muted); margin: 0 0 6px; font-variant-numeric: tabular-nums; }
+.sched-day h3.is-today { color: var(--accent); }
+.sched-major-line { display: block; font-size: 13px; color: #d5dce6; padding: 6px 12px; border-left: 3px solid var(--accent); margin-bottom: 6px; background: #131a24; border-radius: 0 6px 6px 0; }
+.sched-entry { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; margin-bottom: 6px; }
+.sched-entry[data-state="cancelled"] { text-decoration: none; }
+.sched-entry[data-state="cancelled"] .sched-title { text-decoration: line-through; }
+.sched-entry:target { border-color: var(--accent); }
+.sched-entry summary { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 10px 14px; cursor: pointer; list-style: none; }
+.sched-entry summary::-webkit-details-marker { display: none; }
+.sched-entry summary:focus-visible { outline: 2px solid #ffac79; outline-offset: 2px; }
+.sched-when { min-width: 92px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.sched-title { font-weight: 700; font-size: 14px; }
+.sched-badges { display: inline-flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-left: auto; }
+.sched-tag { font-size: 11px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
+.sched-tag.is-notice { color: #ffd2b3; border-color: #f69a6066; }
+.sched-tag.is-manual { border-style: dashed; }
+.sched-state { font-size: 12px; font-weight: 700; color: #fff; }
+.sched-body { padding: 0 14px 14px; font-size: 13px; color: #d5dce6; display: grid; gap: 6px; }
+.sched-body a { color: #ffc49e; }
+.sched-k { display: inline-block; min-width: 64px; color: var(--muted); font-size: 12px; }
+.sched-slots { display: grid; gap: 3px; padding-left: 0; list-style: none; }
+.sched-slots li[data-phase="past"] { color: var(--muted); }
+.sched-slots li[data-phase="in_window"] b { color: var(--accent); }
+.sched-result { font-weight: 700; }
+
+@media (max-width: 760px) {
+  .sched-gantt { display: none; }
+  .sched-toolbar { flex-direction: column; align-items: flex-start; }
+  .sched-badges { margin-left: 0; }
+}
