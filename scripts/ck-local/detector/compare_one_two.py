@@ -22,7 +22,7 @@ for ch in chans:
     if not vods: continue
     tr = [r for r in rows if r[0] != ch]; za = ZC != ch
     # A
-    XA = np.array([r[1] for r in tr] + list(z["emb"][za].astype(np.float32))); YA = np.array([r[2] == "result" for r in tr] + list(ZL[za] == "result"))
+    XA = np.array([r[1] for r in tr] + list(z["emb"][za].astype(np.float32))); YA = np.array([r[2] in ("result", "graph") for r in tr] + list(np.isin(ZL[za], ("result", "graph"))))  # 실행 판별기(train.binary)와 같은 규칙
     a = LogisticRegression(C=10, class_weight="balanced", max_iter=4000).fit(XA, YA)
     # B
     keep = [r for r in tr if r[2] in M.CLASSES and not (r[2] == "result" and not (r[3].startswith("review") or r[3].startswith("ck-local") or r[3] == "db:result"))]
