@@ -291,11 +291,17 @@ else check(`db/migrations 에서 core 이름을 읽었다 (테이블·뷰 ${CORE
 // ── 주소 글자 금지 ──────────────────────────────────────────────────────
 // 프로필 주소(`/s/${slug}`)가 모듈·공용 UI 에 글자로 박혀 있어서, 롤을 /lol 로 옮기려니 40곳을 고쳐야 했다
 // (docs/PLATFORM-LAYER-PLAN.md). core 화면 주소는 계약의 주소 함수(profileHref …)로,
-// 모듈 자기 주소는 module.json 의 routes 로 만든다. 정적 파일(/images/…)만 글자로 쓴다.
-const ASSET_PATH = /^\/(images|fonts)\//;
+// 모듈 자기 주소는 module.json 의 routes 로 만든다. 정적 파일만 글자로 쓴다.
+// ★ 정적 파일 범위는 손으로 적지 않는다 — apps/web/public 의 실제 맨 위 폴더·파일이 곧 예외다.
+//   폴더를 새로 만들면 자동으로 따라오고, public 에 없는 경로는 사이트 주소로 본다.
+// ★ "/" 하나도 주소다(사이트 첫 화면). 예전 정규식(/^\/[a-z]/)은 이걸 놓쳤다.
+const PUBLIC_DIR = join(ROOT, "apps", "web", "public");
+const PUBLIC_ENTRIES = existsSync(PUBLIC_DIR) ? readdirSync(PUBLIC_DIR) : [];
+const isAssetPath = (text: string) => PUBLIC_ENTRIES.some((e) => text === `/${e}` || text.startsWith(`/${e}/`));
+const looksLikeSitePath = (text: string) => /^\/(?![/*])/.test(text) || text === "/";
 function checkNoSitePaths(file: string, strings: SqlText[]) {
   for (const s of strings) {
-    if (/^\/[a-z]/i.test(s.text) && !ASSET_PATH.test(s.text)) {
+    if (looksLikeSitePath(s.text) && !isAssetPath(s.text)) {
       check(`${file}:${s.line}: 주소 "${s.text.slice(0, 40)}" 를 글자로 쓴다`, false,
         "core 화면은 계약의 주소 함수(profileHref 등), 자기 화면은 module.json 의 routes(routeHref)로 만든다");
     }
@@ -307,6 +313,18 @@ for (const m of modules) {
   check(`manifest 이름이 디렉터리와 같다`, m.manifest.name === m.name, String(m.manifest.name));
   // ★ mod_ 로 시작하기만 하면 되던 시절엔 남의 스키마 이름을 적어도 통과했다.
   check(`manifest 의 schema 가 mod_${m.name} 이다`, m.schema === `mod_${m.name}`, m.schema);
+  // routeHref 는 파라미터 이름 조합이 같은 경로 중 **첫 번째**를 조용히 고른다. 둘이면 어느 화면으로 갈지 모호하다.
+  {
+    const keyOf = (path: string) => [...path.matchAll(/\[(\w+)\]/g)].map((x) => x[1]).sort().join(",");
+    const routes = Array.isArray(m.manifest.routes) ? (m.manifest.routes as { path: string }[]) : [];
+    const seen = new Map<string, string>();
+    const clashes = routes.flatMap((r) => {
+      const k = keyOf(r.path), prev = seen.get(k);
+      seen.set(k, r.path);
+      return prev ? [`${prev} ↔ ${r.path}`] : [];
+    });
+    check(`경로마다 파라미터 조합이 다르다 (routeHref 가 하나로 고를 수 있다)`, clashes.length === 0, clashes.join(", "));
+  }
 
   const files = sourcesIn("packages", "modules", m.name);
   const before = failures;

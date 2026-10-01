@@ -53,6 +53,14 @@ test("datetime-local — 초가 없어도 받는다 (step 없는 브라우저)",
   assert.equal(fromKstInputValue("2026-09-19T22:01")!.toISOString(), "2026-09-19T13:01:00.000Z");
 });
 
+test("datetime-local — 없는 날짜·시각은 넘기지 않고 null", () => {
+  assert.equal(fromKstInputValue("2026-02-30T20:00"), null, "3월 2일로 넘어가면 안 된다");
+  assert.equal(fromKstInputValue("2026-13-01T00:00"), null);
+  assert.equal(fromKstInputValue("2026-10-03T25:00"), null);
+  assert.equal(fromKstInputValue("2026-10-03T20:60"), null);
+  assert.equal(fromKstInputValue("2028-02-29T00:00")!.toISOString(), "2028-02-28T15:00:00.000Z", "윤년은 있는 날짜다");
+});
+
 test("datetime-local — 형식이 아니면 null (던지지 않는다)", () => {
   assert.equal(fromKstInputValue("어제"), null);
   assert.equal(fromKstInputValue(""), null);

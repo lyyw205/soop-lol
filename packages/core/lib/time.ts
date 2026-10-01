@@ -73,13 +73,18 @@ export function toKstInputValue(at: Date): string {
 /**
  * 위 짝. `datetime-local` 이 돌려준 KST 벽시계를 실제 시각으로 되돌린다.
  * 형식이 아니면 `null` — 호출부가 "형식이 올바르지 않다" 고 말할 수 있게 던지지 않는다.
+ *
+ * ★ 없는 날짜·시각도 `null` 이다. `Date.UTC` 는 넘친 값을 조용히 다음 달·다음 날로 넘긴다 —
+ *   `2026-02-30` 이 3월 2일로, `25:00` 이 다음 날 01시로 저장됐다. 되돌려 같은지로 확인한다.
  */
 export function fromKstInputValue(value: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
   if (!m) return null;
   const [, y, mo, d, h, mi, s] = m;
-  const asUtc = Date.UTC(+y, +mo - 1, +d, +h, +mi, s ? +s : 0);
-  return new Date(asUtc - KST_OFFSET_MS);
+  const wall = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, s ? +s : 0));
+  const back = [wall.getUTCFullYear(), wall.getUTCMonth() + 1, wall.getUTCDate(), wall.getUTCHours(), wall.getUTCMinutes(), wall.getUTCSeconds()];
+  if (back.join() !== [+y, +mo, +d, +h, +mi, s ? +s : 0].join()) return null;
+  return new Date(wall.getTime() - KST_OFFSET_MS);
 }
 
 /**

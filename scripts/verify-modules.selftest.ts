@@ -82,6 +82,8 @@ function sandbox(opts: { probes?: boolean } = {}): string {
   for (const f of readdirSync(REPO).filter((f) => /^tsconfig.*\.json$|^package\.json$/.test(f))) {
     cpSync(join(REPO, f), join(root, f));
   }
+  // public/ 은 무거워서 복사하지 않는다. 주소 검사는 맨 위 이름만 보므로(정적 파일 예외) 빈 폴더로 세운다.
+  for (const e of readdirSync(join(REPO, "apps", "web", "public"))) mkdirSync(join(root, "apps", "web", "public", e), { recursive: true });
   if (opts.probes) { addProbeModule(root, "probea"); addProbeModule(root, "probeb"); }
 
   mkdirSync(join(root, "node_modules", "@soop-lol"), { recursive: true });
@@ -216,6 +218,10 @@ const VIOLATIONS: Violation[] = [
     code: "export const INDEX = \"/probea\";", expect: /주소 "\/probea" 를 글자로/ },
   { name: "공용 UI 가 core 주소를 글자로 박는다", file: "packages/ui/__probe.ts",
     code: "export const href = \"/streamers\";", expect: /주소 "\/streamers" 를 글자로/ },
+  { name: "공용 UI 가 첫 화면 주소 \"/\" 를 박는다", file: "packages/ui/__probe.ts",
+    code: "export const home = \"/\";", expect: /주소 "\/" 를 글자로/ },
+  { name: "public 에 없는 정적 파일처럼 보이는 경로", file: "packages/ui/__probe.ts",
+    code: "export const icon = \"/icons/logo.svg\";", expect: /주소 "\/icons\/logo.svg" 를 글자로/ },
 ];
 
 const MODULE_NAMES = readdirSync(join(REPO, "packages", "modules"), { withFileTypes: true })
@@ -246,6 +252,16 @@ describe("verify:modules 자체 검증", { concurrency: Math.max(2, availablePar
     const r = await verify(root);
     assert.equal(r.status, 1, r.out);
     assert.match(r.out, /schema 가 mod_probea 이다 — mod_probeb/);
+  }));
+
+  test("위반을 잡는다 — 파라미터 조합이 같은 경로가 둘", () => withSandbox({ probes: true }, async (root) => {
+    const path = join(root, "packages/modules/probea/module.json");
+    const manifest = JSON.parse(readFileSync(path, "utf8"));
+    manifest.routes = [{ path: "/probea/[slug]" }, { path: "/probea/x/[slug]" }];
+    writeFileSync(path, JSON.stringify(manifest));
+    const r = await verify(root);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /파라미터 조합이 다르다.*\/probea\/\[slug\] ↔ \/probea\/x\/\[slug\]/);
   }));
 
   test("위반을 잡는다 — 기존 파일 끝에 덧붙인 우회도", () => withSandbox({ probes: true }, async (root) => {
