@@ -538,6 +538,28 @@ try {
   check("행사 정보를 [대회] 탭에서 고칠 수 있다",
     (await listFcoEventOptions()).some((o) => o.id === dec.id && o.name === "결정컵 2026" && o.organizer === "주최자"));
 
+  console.log("\n▸ 시리즈 대진 비교는 사람으로 한다 — 화면 경기(ouid 없음)와 API 경기의 같은 사람은 같은 대진 (0054)");
+  {
+    const { saveFcoScreenMatch } = await import("../packages/core/lib/games/fconline/screen.ts");
+    await saveFcoMatch(detailOf("sr-api", "2026-06-01 10:30:00", ["ouid-a", "ouid-b"]));
+    // 같은 두 사람의 화면 경기(30일 이전) — 스트리머만 있고 ouid 는 없다
+    const scr = await saveFcoScreenMatch({ vodTitleNo: 990001, atSec: 100, endedAt: "2026-06-01T10:10:00Z",
+      sides: [{ nickname: "알파감독", score: 2 }, { nickname: "베타감독", score: 1 }] });
+    await sql`INSERT INTO match_series (id, game_code) VALUES ('sr-1', 'fconline')`;
+    await sql`UPDATE match SET series_id = 'sr-1', series_game_no = 1 WHERE match_id = ${(scr as { match_id: string }).match_id}`;
+    const joined = await applyFcoMatchContext({ provider_match_id: "sr-api", series: { id: "sr-1", game_no: 2 } });
+    check("★★ 화면 경기와 API 경기의 같은 두 사람은 같은 대진으로 본다(예전엔 ouid 비교라 '다른 대진'으로 거부)",
+      joined.actions.some((a) => a.includes("시리즈 연결")), JSON.stringify(joined));
+    // 상대가 다른 화면 경기는 여전히 거부
+    const other = await saveFcoScreenMatch({ vodTitleNo: 990002, atSec: 100, endedAt: "2026-06-01T11:10:00Z",
+      sides: [{ nickname: "알파감독", score: 2 }, { nickname: "모르는사람", score: 0 }] });
+    await sql`INSERT INTO match_series (id, game_code) VALUES ('sr-2', 'fconline')`;
+    await sql`UPDATE match SET series_id = 'sr-2', series_game_no = 1 WHERE match_id = ${(other as { match_id: string }).match_id}`;
+    await saveFcoMatch(detailOf("sr-api-2", "2026-06-01 11:30:00", ["ouid-a", "ouid-b"]));
+    await assert.rejects(() => applyFcoMatchContext({ provider_match_id: "sr-api-2", series: { id: "sr-2", game_no: 2 } }), /다른 대진/);
+    check("상대가 다른 화면 경기와는 여전히 같은 대진이 아니다", true);
+  }
+
   console.log("\n▸ 사람이 제외한 경기는 어느 경로로도 되살아나지 않는다 (직접 연결·시리즈·다른 세트)");
   const { linkFcoMatchToEvent } = await import("../packages/core/lib/games/fconline/ingest.ts");
   await saveFcoMatch(detailOf("ex-1", "2026-09-28 10:00:00", ["ouid-a", "ouid-b"]));

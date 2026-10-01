@@ -14,6 +14,8 @@
 
 export interface FcoSeriesParticipantLike {
   ouid: string;
+  /** 공개 연결된 스트리머. 있으면 이것으로 같은 사람을 합친다(부계정·화면 경기 포함). */
+  streamer_id?: string | null;
   nickname: string;
   streamer_name?: string | null;
   outcome: string;
@@ -58,11 +60,13 @@ export function fcoSeriesStanding(setsInput: FcoSeriesSetLike[]): FcoSeriesStand
   let draws = 0;
   for (const set of sets) {
     for (const p of set.participants) {
-      const side = sides.get(p.ouid) ?? { key: p.ouid, name: displayName(p), set_wins: 0 };
+      // 같은 사람을 한 쪽으로 합친다 — 공개 조회는 ouid 를 주지만(미공개 상대는 'unlinked:<side>'), 스트리머가 있으면 그게 정체다.
+      const key = p.streamer_id ? `streamer:${p.streamer_id}` : p.ouid;
+      const side = sides.get(key) ?? { key, name: displayName(p), set_wins: 0 };
       // 최신 세트의 표시 이름을 쓴다 — 닉네임이 바뀌어도 같은 key 로 합쳐진다.
       side.name = displayName(p);
       if (p.outcome === "win") side.set_wins += 1;
-      sides.set(p.ouid, side);
+      sides.set(key, side);
     }
     if (set.participants.length > 0 && set.participants.every((p) => p.outcome === "draw")) draws += 1;
   }

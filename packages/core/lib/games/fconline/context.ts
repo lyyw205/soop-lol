@@ -284,12 +284,15 @@ export async function applyFcoMatchContext(
         }
 
         // 같은 대진인지 — 상대가 바뀌면 다전제가 아니다. 대회면 event 로 묶어야 한다.
+        // ★ 사람 비교는 fco_participant_key(스트리머 → 계정 → 화면 이름, 0054)로 한다. ouid 로 비교하면 화면 경기(ouid 없음)가
+        //   같은 사람인데도 "다른 대진"이 되고, NULL 끼리는 array_agg 에서 같은 값처럼 합쳐진다.
         const [mine] = await tx<{ ouids: string[] }[]>`
-          SELECT array_agg(ouid ORDER BY ouid) AS ouids
+          SELECT array_agg(fco_participant_key(ouid, streamer_id, nickname) ORDER BY fco_participant_key(ouid, streamer_id, nickname)) AS ouids
             FROM fco_match_participant WHERE match_id = ${game.match_id}
         `;
         const siblings = await tx<{ match_id: string; game_no: number | null; ouids: string[] }[]>`
-          SELECT m.match_id, m.series_game_no AS game_no, array_agg(p.ouid ORDER BY p.ouid) AS ouids
+          SELECT m.match_id, m.series_game_no AS game_no,
+                 array_agg(fco_participant_key(p.ouid, p.streamer_id, p.nickname) ORDER BY fco_participant_key(p.ouid, p.streamer_id, p.nickname)) AS ouids
             FROM match m JOIN fco_match_participant p ON p.match_id = m.match_id
            WHERE m.series_id = ${meta.id} AND m.game_code = 'fconline' AND m.match_id <> ${game.match_id}
            GROUP BY m.match_id, m.series_game_no

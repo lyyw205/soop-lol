@@ -139,8 +139,11 @@ try {
   assert.equal((await sql`SELECT count(*)::int AS n FROM fco_context_evidence WHERE match_id = ${id1}`)[0].n, 2, "두 VOD 의 근거가 정본 경기에 모인다");
 
   // 10) 참가자 구분 키
-  const key = await sql`SELECT fco_participant_key('o', NULL, 'n') AS a, fco_participant_key(NULL, ${ids[0]}::uuid, 'n') AS b, fco_participant_key(NULL, NULL, 'n') AS c`;
+  // 스트리머 → 계정 → 화면 이름 순(0054). 같은 사람이 API 경기(ouid+스트리머)와 화면 경기(스트리머만)에서 같은 키를 받는다.
+  const key = await sql`SELECT fco_participant_key('o', NULL, 'n') AS a, fco_participant_key(NULL, ${ids[0]}::uuid, 'n') AS b,
+                               fco_participant_key(NULL, NULL, 'n') AS c, fco_participant_key('o', ${ids[0]}::uuid, 'n') AS d`;
   assert.equal(key[0].a, "o"); assert.equal(key[0].b, `streamer:${ids[0]}`); assert.equal(key[0].c, "name:n");
+  assert.equal(key[0].d, key[0].b, "API 경기의 같은 사람(ouid+스트리머)과 화면 경기(스트리머만)가 같은 키");
 
   // 11) R2 — 화면으로 먼저 안 경기가 나중에 API 로 들어오면 합친다
   const t11 = dayAgo(70);
