@@ -181,6 +181,14 @@ try {
   assert.deepEqual((r13 as { candidates: string[] }).candidates.filter((c) => c.startsWith("fco:api-two")).sort(), ["fco:api-two-1", "fco:api-two-2"]);
   assert.equal((await sql`SELECT count(*)::int AS n FROM fco_screen_link WHERE screen_match_id = 'fcs:900012@12'`)[0].n, 0);
 
+  // 12-2) 닉네임 한 글자 오독(5단계 검증의 실제 사례) — API 경기와 시각·스코어가 맞아도 자동 연결하지 않고 검수 대기로 올린다
+  const t14 = dayAgo(75);
+  await saveFcoMatch({ matchId: "api-typo", matchDate: apiDate(t14), matchType: 40, matchInfo: [player("alpha-ouid", "알파감독", "승", 2), player("beta-ouid", "베타감독", "패", 1)] });
+  const r14 = await S.saveFcoScreenMatch(input(900013, 14, new Date(t14.getTime() + 5_000), { nickname: "알파감둑", score: 2 }, { nickname: "베타감독", score: 1 }));
+  assert.equal(r14.status, "needs_review", "한 글자 오독은 같은 경기 의심으로 검수 대기");
+  assert.ok((r14 as { candidates: string[] }).candidates.includes("fco:api-typo"));
+  assert.equal((await sql`SELECT count(*)::int AS n FROM fco_screen_link WHERE screen_match_id = 'fcs:900013@14'`)[0].n, 0, "자동 연결은 하지 않는다");
+
   // 13) 시각 창 계산
   const win = S.fcoApiWindowStart(new Date("2026-10-01T03:00:00Z")); // KST 10-01 12:00 → 9-01 00:00 KST = 08-31 15:00Z
   assert.equal(win.toISOString(), "2026-08-31T15:00:00.000Z");

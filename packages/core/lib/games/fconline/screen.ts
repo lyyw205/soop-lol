@@ -84,17 +84,35 @@ export function screenOutcomes(sides: FcoScreenMatchInput["sides"]): ["win" | "d
   return a.score > b.score ? ["win", "loss"] : ["loss", "win"];
 }
 
-export interface SideSig { key: string; score: number | null }
+/** name: 화면·원본에 적힌 닉네임(정규화 전). 사람 키가 다를 때 오독 가능성을 보는 데만 쓴다. */
+export interface SideSig { key: string; score: number | null; name?: string }
 export interface MatchSig { at: number; sides: [SideSig, SideSig] }
 
 /**
  * 같은 경기인지 — 세 가지가 모두 맞아야 "same". 하나라도 모자라면 "maybe"(R3 — 사람이 본다), 어긋나면 "no".
  *   참가자: 두 칸의 키가 (순서 무관) 같다 · 시각: ±SCREEN_TIME_TOLERANCE_SEC · 스코어: 키별로 같다(둘 다 읽었을 때만 확인 가능)
  */
+/** 두 문자열의 편집 거리(삽입·삭제·바꾸기). 짧은 닉네임용. */
+export function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+/**
+ * 같은 경기인지 — 세 가지가 모두 맞아야 "same". 하나라도 모자라면 "maybe"(R3 — 사람이 본다), 어긋나면 "no".
+ *   참가자: 두 칸의 키가 (순서 무관) 같다 · 시각: ±SCREEN_TIME_TOLERANCE_SEC · 스코어: 키별로 같다(둘 다 읽었을 때만 확인 가능)
+ * ★ 닉네임 오독(5단계 검증 2026-10-01: 뀨뀨rr→꾸꾸rr·걍하리→강하리·잉유진→임유진, 27경기 중 11경기)은 사람 키가 달라져
+ *   "다른 경기"가 됐다 — API 경기와 연결되지 않고 숨긴 중복이 남는다. 그래서 키가 달라도 **두 닉네임이 각각 오독 범위 안이고
+ *   시각·스코어가 맞으면 "maybe"**(검수 대기)로 올린다(자모 단위 비교 — nearName). 이름으로 사람을 단정하지 않는다 — 자동 연결("same")은 하지 않는다.
+ */
 export function compareMatches(a: MatchSig, b: MatchSig): "same" | "maybe" | "no" {
   const ka = a.sides.map((s) => s.key).sort().join("|"), kb = b.sides.map((s) => s.key).sort().join("|");
   const gap = Math.abs(a.at - b.at) / 1000;
-  if (ka !== kb || gap > SCREEN_TIME_TOLERANCE_SEC * 3) return "no";
+  if (gap > SCREEN_TIME_TOLERANCE_SEC * 3) return "no";
+  if (ka !== kb) return nearNames(a, b) ? "maybe" : "no";
   const scoreOf = (m: MatchSig, key: string) => m.sides.find((s) => s.key === key)?.score ?? null;
   let scoreKnown = true, scoreEqual = true;
   for (const s of a.sides) {
@@ -104,6 +122,34 @@ export function compareMatches(a: MatchSig, b: MatchSig): "same" | "maybe" | "no
   }
   if (!scoreEqual) return "no";
   return gap <= SCREEN_TIME_TOLERANCE_SEC && scoreKnown ? "same" : "maybe";
+}
+
+/** 한글 음절을 자모(초·중·종성)로 편다 — 오독은 글자가 아니라 자모 하나에서 난다(ㅠ↔ㅜ·ㅑ↔ㅏ·ㅇ↔ㅁ). 나머지 글자는 그대로. */
+export function toJamo(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    const c = ch.codePointAt(0)! - 0xac00;
+    if (c < 0 || c > 11171) { out += ch; continue; }
+    out += String.fromCodePoint(0x1100 + Math.floor(c / 588), 0x1161 + Math.floor((c % 588) / 28));
+    if (c % 28) out += String.fromCodePoint(0x11a7 + (c % 28));
+  }
+  return out;
+}
+
+/** 닉네임 오독 허용 — 자모 편집 거리가 1 이하, 또는 자모 길이의 1/3 이하(뀨뀨rr→꾸꾸rr 은 자모 6개 중 2개). */
+export function nearName(a: string, b: string): boolean {
+  const p = toJamo(normalizeName(a)), q = toJamo(normalizeName(b));
+  const d = editDistance(p, q);
+  return d <= Math.max(1, Math.floor(Math.max(p.length, q.length) / 3));
+}
+
+/** 키는 달라도 두 닉네임이 짝지어 오독 범위 안이고, 시각 ±3분·스코어(둘 다 읽음)가 짝지어 같은가. */
+function nearNames(a: MatchSig, b: MatchSig): boolean {
+  if (Math.abs(a.at - b.at) / 1000 > SCREEN_TIME_TOLERANCE_SEC) return false;
+  const fits = (x: SideSig, y: SideSig) =>
+    x.name != null && y.name != null && nearName(x.name, y.name) && x.score != null && x.score === y.score;
+  const [a0, a1] = a.sides, [b0, b1] = b.sides;
+  return (fits(a0, b0) && fits(a1, b1)) || (fits(a0, b1) && fits(a1, b0));
 }
 
 type Tx = postgres.TransactionSql | postgres.Sql;
@@ -132,7 +178,7 @@ async function resolveSide(tx: Tx, side: FcoScreenSideInput): Promise<ResolvedSi
   return { nickname, streamerId, basis, key: streamerId ?? `name:${normalizeName(nickname)}`, score: side.score };
 }
 
-const sigOf = (at: Date | string, sides: { key: string; score: number | null }[]): MatchSig =>
+const sigOf = (at: Date | string, sides: { key: string; score: number | null; name?: string }[]): MatchSig =>
   ({ at: new Date(at).getTime(), sides: [sides[0], sides[1]] });
 
 /** 화면 경기 → 같은 경기의 기존 기록 연결. 숨기고(지우지 않는다), 근거를 그쪽으로 복사한다. 이미 연결돼 있으면 아무것도 안 한다. */
@@ -169,7 +215,7 @@ export async function saveFcoScreenMatch(input: FcoScreenMatchInput): Promise<Fc
 
     const sides = [await resolveSide(tx, input.sides[0]), await resolveSide(tx, input.sides[1])] as const;
     if (sides[0].key === sides[1].key) throw new Error("두 칸이 같은 사람이다 — 닉네임·slug 를 확인한다");
-    const sig = sigOf(endedAt, [sides[0], sides[1]]);
+    const sig = sigOf(endedAt, sides.map((x) => ({ key: x.key, score: x.score, name: x.nickname })));
 
     // ① 관측 보존 — 무엇이 이미 있든 먼저 숨긴 채 저장한다.
     await tx`
@@ -212,7 +258,7 @@ export async function saveFcoScreenMatch(input: FcoScreenMatchInput): Promise<Fc
         SELECT nickname, streamer_id, ouid, coalesce(score_display, goals) AS score
           FROM fco_match_participant WHERE match_id = ${cand.match_id} ORDER BY side_no`;
       if (parts.length !== 2) continue;
-      const candSig = sigOf(cand.game_creation, parts.map((p) => ({ key: p.streamer_id ?? `name:${normalizeName(p.nickname)}`, score: p.score })));
+      const candSig = sigOf(cand.game_creation, parts.map((p) => ({ key: p.streamer_id ?? `name:${normalizeName(p.nickname)}`, score: p.score, name: p.nickname })));
       const v = compareMatches(sig, candSig);
       if (v !== "no") verdicts.push({ id: cand.match_id, source: cand.source, v, at: candSig.at });
     }
@@ -254,7 +300,7 @@ async function loadScreenRows(tx: Tx, where: "pending" | "all"): Promise<ScreenR
 }
 
 const rowSig = (r: { game_creation: Date; parts: ScreenRow["parts"] }): MatchSig =>
-  sigOf(r.game_creation, r.parts.map((p) => ({ key: p.streamer_id ?? `name:${normalizeName(p.nickname)}`, score: p.score })));
+  sigOf(r.game_creation, r.parts.map((p) => ({ key: p.streamer_id ?? `name:${normalizeName(p.nickname)}`, score: p.score, name: p.nickname })));
 
 /**
  * R2 — API 경기가 들어온 뒤, 같은 경기인 화면 경기를 합친다(자동은 세 조건이 모두 맞을 때만). 여러 번 불러도 같다.
