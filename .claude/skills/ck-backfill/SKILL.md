@@ -6,6 +6,12 @@ description: 사용자가 지정한 SOOP 스트리머의 과거 VOD를 기간 �
 # 과거 VOD 수동 백필
 
 사용자 요청으로만 실행한다. 화면 판독 규칙은 [ck-research](../ck-research/SKILL.md)가 정본이다.
+**FC 백필(`--game fconline`)** — 넥슨 API 는 최근 30일만 주므로 그 이전 FC 경기는 VOD 결과 화면으로 채운다.
+조사 세션은 [fco-match-context](../fco-match-context/SKILL.md)의 'VOD 에서 출발하기', 준비는 공용 지도 + FC 전용 판별기(fc.json),
+진척 도장은 `fco_scan`(롤 도장과 따로 — 롤로 끝낸 VOD 도 FC 로는 다시 본다), 마지막 요청 기간도 게임별이다(0055).
+FC 방송 채널 중 다시보기 대부분이 재생 파일 없음(구독자 전용으로 보임)인 곳이 있다 — 접근 불가로 남고 채울 수 없다.
+화면 경기는 숨긴 채 저장되고 공개는 검수 뒤다.
+
 **조사 세션은 기본으로 [ck-local](../ck-local/SKILL.md)이다** — VOD 마다 로컬 판별기 준비를 먼저 돌리고 세션 하나로 조사한다
 (2026-10-01 비교 시험 결과, docs/CK-LOCAL-DETECTOR.md). 예전 방식이 필요하면 `CK_BACKFILL_SKILL=ck-research` 를 붙인다(준비도 꺼진다).
 이 스킬에 결과창 탐색·경기 연결 규칙을 복사하지 않는다.
@@ -32,6 +38,7 @@ description: 사용자가 지정한 SOOP 스트리머의 과거 VOD를 기간 �
    scripts/ck-backfill.sh --streamer <이름> --from YYYY-MM-DD --to YYYY-MM-DD   # 새 기간
    scripts/ck-backfill.sh --streamer <이름>                                    # 마지막 기간 이어서
    scripts/ck-backfill.sh --streamer <이름> --model haiku ...                # 조사 세션만 다른 모델로
+   scripts/ck-backfill.sh --streamer <이름> --game fconline --from … --to … # FC 과거 백필
    ```
    종료 코드 75 면 다른 조사(자동 포함)가 잠금을 잡고 있다. 알리고 시작하지 않는다. 대기 작업을 만들지 않는다.
    사용자가 특정 모델을 지정하면(예: "Haiku로") `--model`을 붙인다. 전역 기본 모델은 그대로 두고 이 백필의

@@ -4,6 +4,7 @@
 #   scripts/ck-backfill.sh --streamer 이상호 --from 2026-08-20 --to 2026-09-25   # 기간 지정(저장된다)
 #   scripts/ck-backfill.sh --streamer 이상호                                    # 마지막 요청 기간을 이어서
 #   scripts/ck-backfill.sh --streamer 김민교 --model haiku --from ...           # 조사 세션만 다른 모델로
+#   scripts/ck-backfill.sh --streamer 걍하리 --game fconline --from ... --to ...   # FC 과거 백필(도장 fco_scan · FC 스킬)
 #   scripts/ck-backfill.sh --stop                                               # 지금 VOD 를 마친 뒤 멈춤
 #   Ctrl-C / TERM                                                               # 즉시 멈춤(조사 중 VOD 는 마지막 저장 지점부터)
 #
@@ -19,23 +20,21 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$HOME/.local/node/bin:$PATH"
 cd "$ROOT"
 STOP_FILE="$ROOT/out/ck/backfill/STOP"
-STREAMER=""; FROM=""; TO=""; MODEL=""
+STREAMER=""; FROM=""; TO=""; MODEL=""; GAME="lol"
 # 조사 세션이 따를 스킬. 기본은 ck-local(로컬 판별기 준비 + 원본 판독) — 2026-10-01 비교 시험(VOD 8개)에서
 #   ck-research 가 찾은 경기를 하나도 놓치지 않고 같은 값을 읽으면서 비용 64%·시간 44% 를 줄였다(docs/CK-LOCAL-DETECTOR.md).
 #   예전 방식으로 돌리려면 CK_BACKFILL_SKILL=ck-research (그러면 준비 단계도 기본으로 꺼진다).
-SKILL="${CK_BACKFILL_SKILL:-ck-local}"
+SKILL_ENV="${CK_BACKFILL_SKILL:-}"
 # VOD 마다 Claude 세션 **전에** 돌릴 준비 명령({vod} 자리에 번호). ck-local 이면 기본으로 판별기 준비를 돌린다.
 #   CK_BACKFILL_PREP 를 **빈 값으로** 주면 준비를 끈다(그때 ck-local 스킬은 준비 실패 절차 = ck-research 로 간다).
 # ★ 같은 잠금·같은 중단 처리(프로세스 그룹) 안에서 직렬로 돈다 — SOOP 호출이 Claude 조사와 겹치지 않는다.
 # ★ 준비 명령이 성공하며 찍은 마지막 `PREP:` 줄만 프롬프트에 넘긴다. 실패하면 실패했다고만 넘긴다 — 옛 산출물을 새 결과로 오인하지 않게.
-if [[ -n "${CK_BACKFILL_PREP+set}" ]]; then PREP_CMD="$CK_BACKFILL_PREP"
-elif [[ "$SKILL" == "ck-local" ]]; then PREP_CMD='node scripts/ck-local/scan.mjs --vod {vod}'
-else PREP_CMD=""; fi
+
 while (( $# )); do
   case "$1" in
-    --streamer|--from|--to|--model)
+    --streamer|--from|--to|--model|--game)
       if (( $# < 2 )); then echo "$1 값 필요" >&2; exit 1; fi
-      case "$1" in --streamer) STREAMER="$2";; --from) FROM="$2";; --to) TO="$2";; --model) MODEL="$2";; esac
+      case "$1" in --streamer) STREAMER="$2";; --from) FROM="$2";; --to) TO="$2";; --model) MODEL="$2";; --game) GAME="$2";; esac
       shift 2;;
     --stop)
       mkdir -p "$(dirname "$STOP_FILE")"; touch "$STOP_FILE"
@@ -45,6 +44,13 @@ while (( $# )); do
   esac
 done
 [[ -n "$STREAMER" ]] || { echo '--streamer 필요' >&2; exit 1; }
+[[ "$GAME" == lol || "$GAME" == fconline ]] || { echo "--game 은 lol 또는 fconline" >&2; exit 1; }
+# 게임별 기본값. 롤: ck-local + 판별기 준비. FC: FC 스킬(VOD 에서 출발하기) + 공용 준비 → FC 전용 판별기(fc.json).
+if [[ "$GAME" == fconline ]]; then SKILL="${SKILL_ENV:-fco-match-context}"; else SKILL="${SKILL_ENV:-ck-local}"; fi
+if [[ -n "${CK_BACKFILL_PREP+set}" ]]; then PREP_CMD="$CK_BACKFILL_PREP"
+elif [[ "$GAME" == fconline ]]; then PREP_CMD='node scripts/ck-local/scan.mjs --vod {vod} && (cd scripts/fco-local && ../../out/ck-detector/venv/bin/python fc_detect.py --vod {vod})'
+elif [[ "$SKILL" == "ck-local" ]]; then PREP_CMD='node scripts/ck-local/scan.mjs --vod {vod}'
+else PREP_CMD=""; fi
 for program in node claude flock setsid; do command -v "$program" >/dev/null || { echo "$program 필요" >&2; exit 1; }; done
 mkdir -p out/ck/auto out/ck/backfill
 exec 9>out/ck/auto/.lock
@@ -77,7 +83,7 @@ run_child() {
 # 로그에 쌓되, 이번 명령이 남긴 줄은 화면에도 보여준다.
 cli() {
   local n; n=$(wc -l <"$LOG" 2>/dev/null || echo 0)
-  run_child node --env-file-if-exists=apps/web/.env.local scripts/ck-backfill.ts "$@"; local code=$?
+  run_child node --env-file-if-exists=apps/web/.env.local scripts/ck-backfill.ts "$@" --game "$GAME"; local code=$?
   tail -n +"$((n+1))" "$LOG"; return "$code"
 }
 say() { echo "$*" | tee -a "$LOG"; }
@@ -96,7 +102,17 @@ while true; do
   (( CODE == 0 )) || { RESULT='다음 VOD 선택 실패'; break; }
   VOD="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1]));console.log(c.vod.title_no)' "$CURRENT")" || { CODE=1; RESULT='current.json 읽기 실패'; break; }
   SESSIONS=$((SESSIONS+1))
-  PROMPT="/$SKILL 수동 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD).
+  if [[ "$GAME" == fconline ]]; then
+  PROMPT="/$SKILL FC 과거 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD). 스킬의 'VOD 에서 출발하기' 흐름을 그대로 따른다.
+ck-backfill 스킬이나 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다. SOOP 조사 도구는 병렬 실행하지 않는다.
+- VOD 안의 FC 경기를 전부 찾는다. 결과 화면 원본을 열어 읽은 경기만 fco:context screen 으로 저장한다(--dry-run 으로 형식을 먼저 확인).
+- 탐색 단계를 마칠 때마다 npm run fco:context -- scan --vod $VOD --status running --requested <본 범위> --opened <연 초> 로 진척을 남긴다.
+- VOD 전 범위를 다 봤을 때만 --status done --requested 0-<영상 길이>. FC 화면이 하나도 없으면 무엇을 보고 그렇게 판단했는지 --note 에 적고 done.
+- 재생 파일이 없거나(구독자 전용 등) 삭제·비공개를 실제 확인했으면 npm run ck:backfill -- access --vod $VOD --status unavailable --reason <확인 근거>.
+  일시 오류는 --status temporary 로 남기고 이 세션을 끝낸다.
+종료 뒤 셸이 DB 도장(fco_scan)으로 진척을 확인한다. 찾은 경기 수·저장 결과(created/linked/needs_review)·못 찾은 구간을 요약한다."
+  else
+    PROMPT="/$SKILL 수동 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD).
 분석은 $SKILL 스킬을 그대로 따른다. ck-backfill 스킬이나 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다.
 SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 이전 기록(ck:record --lead)과 ck:merge --find-match --vod $VOD 를 보고,
 중단된 조사면 남은 지점부터 잇는다. 탐색 단계를 마칠 때마다 scan 을 running 과 지금까지의 범위로 ck:merge 에 저장해
@@ -106,6 +122,7 @@ SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 이전 기록(ck:rec
 못 본 구간이 영상 길이 밖이거나 세그먼트가 영구 누락이라 다시 봐도 못 푸는 것이면 scan.resolved_failed 로 닫고 이유를 note 에 남긴다.
 안 닫으면 다음 실행이 같은 VOD 에서 진척 없음으로 멈춘다.
 종료 뒤 셸이 DB 도장으로 진척을 확인한다. 완료·연결·접근 불가·남은 범위를 요약한다."
+  fi
   if [[ -n "$PREP_CMD" ]]; then
     PREP_OUT="$DIR/prep-$VOD.log"
     say "준비: ${PREP_CMD//\{vod\}/$VOD}"

@@ -19,6 +19,7 @@ function fixture(mode:string, env:Record<string,string>={}) {
  // ck-local 준비 단계(기본) — 실제 판별기 대신 PREP 줄만 찍는다.
  if(String(args[0]).endsWith('ck-local/scan.mjs')){fs.appendFileSync(process.env.ORDER,'prep\n');console.log('PREP: ck-local run_id=fake');process.exit(Number(process.env.PREP_CODE??0));}
  const command=args[2];fs.appendFileSync(process.env.ORDER,command+'\n');
+ if(args.includes('--game')&&args[args.indexOf('--game')+1]!=='lol')fs.appendFileSync(process.env.GAMES??'/dev/null',command+':'+args[args.indexOf('--game')+1]+'\n');
  const opt=k=>args[args.indexOf(k)+1];
  if(command==='plan')fs.writeFileSync(opt('--write'),'{}');
  if(command==='next'){const n=fs.readFileSync(process.env.ORDER,'utf8').split('\n').filter(x=>x==='next').length;
@@ -27,7 +28,7 @@ function fixture(mode:string, env:Record<string,string>={}) {
  `,{mode:0o755});
  writeFileSync(join(dir,'bin/claude'),'#!/bin/bash\n'+String.raw`
  echo claude >> "$ORDER"
- for a in "$@"; do [[ "$a" == /ck-local* ]] && echo skill:ck-local >> "$ORDER"; [[ "$a" == /ck-research* ]] && echo skill:ck-research >> "$ORDER"; [[ "$a" == *"run_id=fake"* ]] && echo got-prep >> "$ORDER"; done
+ for a in "$@"; do [[ "$a" == /ck-local* ]] && echo skill:ck-local >> "$ORDER"; [[ "$a" == /ck-research* ]] && echo skill:ck-research >> "$ORDER"; [[ "$a" == /fco-match-context* ]] && echo skill:fco >> "$ORDER"; [[ "$a" == *"fco_scan"* ]] && echo fc-prompt >> "$ORDER"; [[ "$a" == *"run_id=fake"* ]] && echo got-prep >> "$ORDER"; done
  while (( $# )); do [[ "$1" == --model ]] && echo "model:$2" >> "$ORDER"; shift; done
  if flock -n out/ck/auto/.lock true; then echo unlocked >> "$ORDER"; exit 91; fi
  case "$MODE" in
@@ -89,4 +90,12 @@ test('기본은 ck-local + 준비 단계. CK_BACKFILL_SKILL=ck-research 면 준�
 test('준비가 실패해도 조사는 한다 — 실패를 알리고 스킬의 준비 실패 절차로', async()=>{
  const f=fixture('ok',{NEXT_N:'1',PREP_CODE:'2'});try {assert.equal(await done(f.start()),0);
   assert.equal(f.order(),'plan\nnext\nprep\nclaude\nskill:ck-local\nafter\nnext\nstatus\n');}finally{f.cleanup();}
+});
+
+test('--game fconline 은 FC 스킬·FC 지시문·FC 준비로 돌고, 모든 CLI 호출에 게임을 넘긴다', async()=>{
+ const f=fixture('ok',{NEXT_N:'1'});try {assert.equal(await done(f.start('--streamer','test','--game','fconline')),0);
+  const o=f.order();
+  assert.ok(o.includes('skill:fco') && o.includes('fc-prompt'), o);
+  assert.ok(o.indexOf('prep')<o.indexOf('claude'), '준비가 세션보다 먼저 돈다');}finally{f.cleanup();}
+ const g=fixture('ok');try {assert.equal(await done(g.start('--streamer','test','--game','dota')),1);}finally{g.cleanup();}
 });

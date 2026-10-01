@@ -10,12 +10,12 @@ import { dirname, join } from 'node:path';
 import { closeDb } from '@soop-lol/core/lib/db/client';
 import { kstDateString } from '@soop-lol/core/lib/time';
 import { resolveBackfillTarget, getBackfillRequest, saveBackfillRequest, vodRaws, ensureVodLeads,
-  channelLeadsBetween, recordVodAccess, type BackfillTarget, type BackfillVod } from '@soop-lol/core/lib/db/ck-backfill';
-import { vodWork, madeProgress, vodDate, titleExclusion, type VodWork } from '@soop-lol/core/lib/metrics/ck-vod-status';
+  channelLeadsBetween, recordVodAccess, type BackfillGame, type BackfillTarget, type BackfillVod } from '@soop-lol/core/lib/db/ck-backfill';
+import { vodWork as vodWorkFor, madeProgress, vodDate, titleExclusion as lolTitleExclusion, type ScanRaw, type VodWork } from '@soop-lol/core/lib/metrics/ck-vod-status';
 import { listRange } from './lib/ck-backfill.ts';
 import { listBroadcasts } from './lib/soop-vod.mjs';
 
-const HELP = `ck:backfill status --streamer <이름>
+const HELP = `ck:backfill status --streamer <이름> [--game lol|fconline]
 실행: scripts/ck-backfill.sh --streamer <이름> [--from YYYY-MM-DD --to YYYY-MM-DD]
 멈춤: scripts/ck-backfill.sh --stop   (지금 VOD 를 마친 뒤 멈춘다)
 접근 상태: ck:backfill access --vod <번호> --status temporary|unavailable|retry --reason <근거>`;
@@ -23,8 +23,15 @@ const HELP = `ck:backfill status --streamer <이름>
 const {values,positionals} = parseArgs({allowPositionals:true,options:{
   streamer:{type:'string'},from:{type:'string'},to:{type:'string'},write:{type:'string'},queue:{type:'string'},
   current:{type:'string'},vod:{type:'string'},status:{type:'string'},reason:{type:'string'},help:{type:'boolean'},
+  game:{type:'string'},
 }});
 const command = positionals[0] ?? 'status';
+// ★ 게임마다 조사 도장이 다르다(롤 scan · FC fco_scan) — 롤이 끝난 VOD 도 FC 로는 따로 끝내야 한다. 접근 불가(raw.access)는 공용이다.
+const GAME = (values.game ?? 'lol') as BackfillGame;
+if (GAME !== 'lol' && GAME !== 'fconline') throw new Error(`--game 은 lol 또는 fconline: ${values.game}`);
+const vodWork = (raw: ScanRaw | undefined, sec: number | null) => vodWorkFor(raw, sec, GAME === 'fconline' ? 'fco_scan' : 'scan');
+// LCK Watch Party 제외는 롤 조사 비용 정책이다. FC 백필에는 적용하지 않는다.
+const titleExclusion = (title: string) => GAME === 'lol' ? lolTitleExclusion(title) : null;
 
 interface PlannedVod extends BackfillVod { reason: VodWork['reason']; unavailable: boolean; excluded: string | null }
 interface Plan {
@@ -34,7 +41,7 @@ interface Plan {
 }
 interface Current { vod: PlannedVod; before: VodWork }
 
-const lastPlanPath = (channel: string) => join('out/ck/backfill', `last-${channel}.json`);
+const lastPlanPath = (channel: string) => join('out/ck/backfill', GAME === 'lol' ? `last-${channel}.json` : `last-${GAME}-${channel}.json`);
 const shiftDay = (day: string, d: number) => kstDateString(new Date(new Date(`${day}T00:00:00+09:00`).getTime() + d*86400000));
 const readJson = <T,>(p: string): T => JSON.parse(readFileSync(p,'utf8')) as T;
 function writeJson(p: string, v: unknown) { mkdirSync(dirname(p),{recursive:true}); writeFileSync(p, JSON.stringify(v,null,2)+'\n'); }
@@ -63,9 +70,9 @@ async function plan() {
   if (!!from !== !!to) throw new Error('--from 과 --to 는 함께 준다. 둘 다 없으면 마지막 요청 기간을 쓴다');
   if (from && to) {
     if (to > kstDateString(new Date())) throw new Error(`--to 가 오늘(KST) 이후다: ${to}`);
-    await saveBackfillRequest(target, from, to);
+    await saveBackfillRequest(target, from, to, GAME);
   } else {
-    const last = await getBackfillRequest(target.channel_id);
+    const last = await getBackfillRequest(target.channel_id, GAME);
     if (!last) throw new Error('이 채널은 요청한 기간이 없다. --from, --to 로 처음 요청할 것');
     ({ from_date: from, to_date: to } = last);
   }
@@ -83,7 +90,7 @@ async function plan() {
     vods, queue: vods.filter(pendingVod).map(v=>v.title_no), missing };
   writeJson(values.write, result);
   writeJson(lastPlanPath(target.channel_id), result);
-  console.log(JSON.stringify({ streamer: target.display_name, from, to, ...summary(vods), missing }, null, 2));
+  console.log(JSON.stringify({ streamer: target.display_name, game: GAME, from, to, ...summary(vods), missing }, null, 2));
 }
 
 /** 큐에서 아직 완료가 아닌 첫 VOD. 시작 직전에 DB 도장을 다시 읽는다 — 그사이 다른 조사가 끝냈을 수 있다. */
@@ -121,7 +128,7 @@ async function after() {
 async function status() {
   if (!values.streamer) throw new Error('--streamer 가 필요하다');
   const target = await resolveBackfillTarget(values.streamer);
-  const request = await getBackfillRequest(target.channel_id);
+  const request = await getBackfillRequest(target.channel_id, GAME);
   const path = lastPlanPath(target.channel_id);
   if (!request || !existsSync(path)) { console.log(JSON.stringify({ target, request, last_plan: null }, null, 2)); return; }
   const p = readJson<Plan>(path);

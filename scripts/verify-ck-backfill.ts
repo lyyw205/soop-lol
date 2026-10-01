@@ -137,5 +137,15 @@ try {
  assert.equal((await cli('plan','--streamer','백필CLI','--from','2026-09-01','--to','2026-09-06','--write',queue)).code,0);
  assert.equal(plan().vods.length,130);
  assert.equal((await b.getBackfillRequest('bf-channel'))?.from_date,'2026-09-01');
- console.log('백필 DB 검증 통과: 게임별 감시 명단 이관·옛 기록 정리·실제 SOOP 날짜 규칙·페이지·공통 판정·목록 밖 대조·진척 판정·재개·접근 상태');
+ // ── 7. FC 백필(--game fconline)은 따로 센다 — 롤 완료 VOD 도 FC 로는 미조사, 요청 기간도 따로 저장 ──
+ assert.equal((await cli('plan','--streamer','백필CLI','--from','2026-09-18','--to','2026-09-20','--write',queue,'--game','fconline')).code,0);
+ assert.ok(plan().queue.includes(302),'롤로 끝낸 VOD(302)도 FC 큐에는 들어간다');
+ assert.equal((await b.getBackfillRequest('bf-channel'))?.from_date,'2026-09-01','FC 요청이 롤 요청 기간을 덮지 않는다');
+ assert.equal((await b.getBackfillRequest('bf-channel','fconline'))?.from_date,'2026-09-18');
+ await ck.markLeadScan(await leadId(302),full(3599),{key:'fco_scan'});
+ assert.equal((await cli('plan','--streamer','백필CLI','--write',queue,'--game','fconline')).code,0);
+ assert.ok(!plan().queue.includes(302),'FC 도장이 찍히면 FC 큐에서 빠진다(기간은 FC 마지막 요청을 쓴다)');
+ assert.equal((await cli('plan','--streamer','백필CLI','--write',queue)).code,0);
+ assert.equal(plan().from,'2026-09-01','롤 이어 하기는 롤의 마지막 요청 기간을 쓴다');
+ console.log('백필 DB 검증 통과: 게임별 감시 명단 이관·옛 기록 정리·실제 SOOP 날짜 규칙·페이지·공통 판정·목록 밖 대조·진척 판정·재개·접근 상태·게임별(FC) 큐와 요청 기간');
 } finally {rmSync(dir,{recursive:true,force:true});await closeDb();await server.stop();await database.close();}

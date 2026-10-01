@@ -6,6 +6,7 @@ import { db } from './client.ts';
 import { vodDate, type ScanRaw } from '../metrics/ck-vod-status.ts';
 
 export interface BackfillTarget { id: string; display_name: string; slug: string; channel_id: string }
+export type BackfillGame = 'lol' | 'fconline';
 export interface BackfillRequest { channel_id: string; streamer_id: string; from_date: string; to_date: string; requested_at: Date }
 export interface BackfillVod {
   title_no: number; ended_at: string; title: string; channel_id: string;
@@ -21,17 +22,18 @@ export async function resolveBackfillTarget(name: string): Promise<BackfillTarge
   return rows[0];
 }
 
-export async function getBackfillRequest(channel: string): Promise<BackfillRequest | null> {
+/** 게임별 마지막 요청 기간(0055). 롤과 FC 는 같은 채널이어도 따로 요청한다. */
+export async function getBackfillRequest(channel: string, game: BackfillGame = 'lol'): Promise<BackfillRequest | null> {
   const [row] = await db()<BackfillRequest[]>`
     SELECT channel_id, streamer_id, to_char(from_date,'YYYY-MM-DD') AS from_date,
            to_char(to_date,'YYYY-MM-DD') AS to_date, requested_at
-      FROM ck_backfill_request WHERE channel_id=${channel}`;
+      FROM ck_backfill_request WHERE channel_id=${channel} AND game_code=${game}`;
   return row ?? null;
 }
-export async function saveBackfillRequest(target: BackfillTarget, from: string, to: string): Promise<void> {
-  await db()`INSERT INTO ck_backfill_request (channel_id, streamer_id, from_date, to_date)
-    VALUES (${target.channel_id}, ${target.id}, ${from}, ${to})
-    ON CONFLICT (channel_id) DO UPDATE SET streamer_id=EXCLUDED.streamer_id,
+export async function saveBackfillRequest(target: BackfillTarget, from: string, to: string, game: BackfillGame = 'lol'): Promise<void> {
+  await db()`INSERT INTO ck_backfill_request (channel_id, game_code, streamer_id, from_date, to_date)
+    VALUES (${target.channel_id}, ${game}, ${target.id}, ${from}, ${to})
+    ON CONFLICT (channel_id, game_code) DO UPDATE SET streamer_id=EXCLUDED.streamer_id,
       from_date=EXCLUDED.from_date, to_date=EXCLUDED.to_date, requested_at=now()`;
 }
 

@@ -93,7 +93,7 @@ API 저장 경로(`saveFcoMatch`)에서는 부르지 않는다 — API 경로를
 | 3 | FC 스킬에 **VOD 출발 흐름**: 지도 → 결과 화면 읽기 → `fco:context screen`(관측 보존·연결·검수 대기) → `fco:context scan`(FC 도장). 이름은 `fco-match-context` 유지(롤 스킬 합칠 때 정리) | `.claude/skills/fco-match-context` | **완료**(2026-10-01, 실제 조사 미실행) |
 | 4 | **FC 전용 판별기**(A안 — ck-local 판별기는 그대로): `scripts/fco-local/`(harvest → fc_review → fc_train → fc_detect), 모델 `out/fco-detector/model/siglip/fc.npz`. API 경기 종료 시각으로 12채널 VOD 24개에서 96경기 구간(1,258칸)을 모아 검수 → 라벨 1,150칸(결과 화면 144). 처음 보는 채널 기준 **결과 화면 칸 재현율 38%→90%·정확도 89%, 경기 단위 91%**(문턱 0.5, 결과 화면 없던 경기 헛짚음 3). VOD 전체에 돌리면 후보 28 중 27이 API 경기 종료 근처. `locate` 는 `out/ck/<vod>/local/fc.json` 을 먼저 쓴다. ck-local 무변경 확인(git diff·판별기 지문) | `scripts/fco-local/` | **완료**(2026-10-01) |
 | 5 | **검증**(2026-10-01) — 학습에 안 쓴 VOD 4개(안 쓴 채널 2·쓴 채널의 안 쓴 VOD 2, 약 19시간)를 API 기록을 보지 않고 화면만으로 조사, API 정답 29경기와 대조: **찾음 27(93%) · 스코어 전부 정확 · 시각 +0~15초(한 번 +46초)** · 닉네임 자모 하나 오독 11경기 · $18.4·46분 · 원본 VOD당 38~253장. 방송에 잡힌 다른 사람 경기 35개도 읽었다. ⚠ 처음 고른 VOD 4개는 전부 재생 파일 없음(구독자 전용으로 보임) — 채널에 따라 화면으로 채울 수 있는 과거가 적다. **고친 것:** 오독 닉네임은 같은 경기를 "다른 경기"로 만들었다 → 시각·스코어가 맞고 닉네임이 자모 단위로 가까우면 자동 연결 대신 검수 대기(`nearName`). 스킬에 닉네임 확대 확인 지시. 판정: 16경기 자동 연결 · 11경기 검수 대기 · 틀린 연결 0 | `out/fco-test/` · `scripts/fco-local/score_test.ts` | **완료** |
-| 6 | 백필 `--game fconline` → 과거 FC 백필 시작 | `ck-backfill.sh`·`ck-backfill.ts` | |
+| 6 | 백필 `--game fconline`: FC 도장(`fco_scan`)으로 큐·완료 판정, 게임별 마지막 요청 기간(0055), FC 스킬·FC 준비(공용 지도 + fc_detect)·FC 지시문. 롤 동작 불변(기본 `--game lol`) | `ck-backfill.sh`·`ck-backfill.ts` | **도구 완료**(2026-10-01) — 실제 백필은 사용자 요청으로 |
 | 7 | 검수 화면(단계 3) → 공개 표시(단계 4) | 위 §4 | |
 
 ## 5. 사용자가 정한 것 (2026-10-01)
