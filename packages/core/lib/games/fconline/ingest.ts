@@ -1,4 +1,5 @@
 import { db } from "../../db/client.ts";
+import { isHumanExcluded } from "./context.ts";
 import type { FcoMatchDetail, FcoMatchPlayer } from "./types.ts";
 import type postgres from "postgres";
 
@@ -112,10 +113,14 @@ export async function linkFcoAccount(input: {
   });
 }
 
-/** 대회 경기는 사람이 확인한 matchId만 연결한다. 다른 대회와의 충돌은 거부한다. */
+/**
+ * 대회 경기는 사람이 확인한 matchId만 연결한다. 다른 대회와의 충돌은 거부한다.
+ * ★ 사람(admin)이 이 행사에서 뺀 경기는 거부한다 — 되살리려면 force 로 **명시**한다(그러면 admin 의 include 결정을 남겨 공개 값과 결정 이력이 맞는다).
+ *   이 함수는 구형 직접 연결 명령(fco:link-event)의 몸체다. 새 연결은 applyFcoMatchContext 를 쓴다.
+ */
 export async function linkFcoMatchToEvent(input: {
   providerMatchId: string; eventSlug: string; eventName: string;
-  sourceUrl: string;
+  sourceUrl: string; force?: boolean;
 }): Promise<void> {
   if (!input.sourceUrl.trim()) throw new Error("대회 경기 연결에는 확인 근거 URL이 필요합니다.");
   const sql = db();
@@ -140,6 +145,11 @@ export async function linkFcoMatchToEvent(input: {
     `;
     if (game[0].event_id && game[0].event_id !== event[0].id) {
       throw new Error("경기가 이미 다른 대회에 연결돼 있습니다.");
+    }
+    if (await isHumanExcluded(tx, event[0].id, game[0].match_id)) {
+      if (!input.force) throw new Error("사람이 이 행사에서 제외한 경기다 — 다시 붙이지 않는다. 의도한 것이면 force 로 명시한다.");
+      await tx`INSERT INTO fco_event_match_decision (event_id, match_id, decision, note, created_by)
+               VALUES (${event[0].id}::uuid, ${game[0].match_id}, 'include', '직접 연결 명령(force)으로 다시 포함', 'admin')`;
     }
     await tx`UPDATE match SET event_id = ${event[0].id}, source_url = ${input.sourceUrl}
               WHERE match_id = ${game[0].match_id}`;

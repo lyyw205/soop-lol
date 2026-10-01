@@ -1,4 +1,36 @@
+import type postgres from "postgres";
 import { db } from "../../db/client.ts";
+
+type Tx = postgres.TransactionSql;
+
+/**
+ * 사람(admin)이 이 행사에서 뺀 경기인가 — (행사, 경기)의 마지막 결정이 admin 의 exclude 다(0034).
+ * ★ 행사 연결은 경로가 여럿이다(단독 연결·시리즈를 통한 연결·직접 연결 명령). 어느 경로든 저장 전에 이 검사를 거친다 —
+ *   한 경로만 검사하면 다른 경로가 사람의 제외를 조용히 되살린다.
+ */
+export async function isHumanExcluded(tx: Tx, eventId: string, matchId: string): Promise<boolean> {
+  const [last] = await tx<{ decision: string; created_by: string }[]>`
+    SELECT decision, created_by FROM fco_event_match_decision
+     WHERE event_id = ${eventId}::uuid AND match_id = ${matchId}
+     ORDER BY created_at DESC LIMIT 1`;
+  return last?.decision === "exclude" && last.created_by === "admin";
+}
+
+/**
+ * 이 시리즈의 세트 중 사람이 이 행사에서 뺀 경기가 있나. 시리즈에 행사를 붙이면 세트의 행사는 시리즈가 정하므로(0027)
+ * 그 세트가 되살아난다 — 다른 세트를 고치다가 제외된 경기가 돌아오는 경로다. 있으면 그 경기 id 를 돌려준다.
+ */
+export async function humanExcludedInSeries(tx: Tx, seriesId: string, eventId: string): Promise<string | null> {
+  const rows = await tx<{ match_id: string }[]>`
+    SELECT m.match_id FROM match m
+      JOIN LATERAL (SELECT decision, created_by FROM fco_event_match_decision d
+                     WHERE d.event_id = ${eventId}::uuid AND d.match_id = m.match_id
+                     ORDER BY d.created_at DESC LIMIT 1) last ON true
+     WHERE m.series_id = ${seriesId} AND m.game_code = 'fconline'
+       AND last.decision = 'exclude' AND last.created_by = 'admin'
+     LIMIT 1`;
+  return rows[0]?.match_id ?? null;
+}
 
 /**
  * FC 경기 맥락의 단일 반영 경로 (0032, FCO-MATCH-CONTEXT-SKILL-PLAN 데이터 계약 3·4).
@@ -275,6 +307,22 @@ export async function applyFcoMatchContext(
           SELECT event_id, best_of, best_of_evidence FROM match_series
            WHERE id = ${meta.id} AND game_code = 'fconline'
         `;
+        // ★ 사람의 제외는 시리즈를 통해서도 우회되지 않는다(근거는 위에서 이미 저장했다 — 보존).
+        //   (1) 이 경기가 붙으려는 행사(이번 호출의 행사 또는 시리즈가 이미 가진 행사)에서 사람이 이 경기를 뺐다
+        //   (2) 이번 호출이 시리즈에 행사를 처음 붙이는데, 같은 시리즈의 다른 세트를 사람이 그 행사에서 뺐다
+        let seriesBlock: string | null = null;
+        if (createdBy !== "admin") {
+          for (const ev of new Set([eventId, known?.event_id].filter((x): x is string => !!x))) {
+            if (await isHumanExcluded(tx, ev, game.match_id)) seriesBlock = "사람이 이 행사에서 제외한 경기다";
+          }
+        }
+        if (!seriesBlock && eventId && !known?.event_id) {
+          const excluded = known || game.series_id === meta.id ? await humanExcludedInSeries(tx, meta.id, eventId) : null;
+          if (excluded) seriesBlock = `같은 시리즈의 ${excluded} 를 사람이 이 행사에서 제외했다 — 시리즈에 행사를 붙이면 되살아난다`;
+        }
+        if (seriesBlock) {
+          out.skipped.push(`시리즈 ${meta.id} ${meta.game_no}세트 — ${seriesBlock}. 자동으로 연결하지 않는다`);
+        } else {
         if (!known) {
           await tx`
             INSERT INTO match_series (id, game_code, event_id, best_of, best_of_evidence)
@@ -314,6 +362,7 @@ export async function applyFcoMatchContext(
              WHERE match_id = ${game.match_id}
           `;
           out.actions.push(`시리즈 연결 ${meta.id} ${meta.game_no}세트`);
+        }
         }
       }
 
@@ -843,6 +892,10 @@ export async function decideFcoEventMatch(
           throw new Error("이 경기의 다전제가 다른 행사에 붙어 있다 — 시리즈 단위로 옮겨라");
         }
         if (!game.series_event_id) {
+          const excluded = await humanExcludedInSeries(tx, game.series_id, input.eventId);
+          if (excluded && excluded !== game.match_id) {
+            throw new Error(`같은 시리즈의 ${excluded} 를 사람이 이 행사에서 제외했다 — 시리즈에 행사를 붙이면 되살아난다. 먼저 그 세트를 정리하라`);
+          }
           await tx`UPDATE match_series SET event_id = ${input.eventId}::uuid, updated_at = now()
                     WHERE id = ${game.series_id} AND game_code = 'fconline'`;
           out.actions.push("다전제를 행사에 연결");

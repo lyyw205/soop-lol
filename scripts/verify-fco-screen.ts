@@ -112,23 +112,31 @@ try {
   assert.equal((await S.saveFcoScreenMatch(input(900001, 3600, old, { nickname: "다른이름", score: 9 }, {}))).status, "protected");
   assert.equal((await sql`SELECT nickname FROM fco_match_participant WHERE match_id = ${id1} AND side_no = 1`)[0].nickname, "알파감독");
 
-  // 7) R1 — 같은 경기의 API 기록이 이미 있으면 만들지 않는다
+  // 7) R1 — 같은 경기의 API 기록이 이미 있으면 **연결**한다. 관측은 먼저 저장되고, 근거는 API 경기로 복사된다(버리지 않는다)
   const r7 = await S.saveFcoScreenMatch(input(900005, 300, new Date(recent.getTime() + 60_000), { streamerSlug: "alpha-fc", basis: "vod_owner" }, { nickname: "베타감독" }));
-  assert.equal(r7.status, "api_exists");
-  assert.equal((r7 as { match_id: string }).match_id, "fco:api-recent");
-  assert.equal((await sql`SELECT 1 FROM match WHERE match_id = 'fcs:900005@300'`).length, 0);
+  assert.equal(r7.status, "linked");
+  assert.equal((r7 as { link_to: string }).link_to, "fco:api-recent");
+  assert.equal((await sql`SELECT visibility FROM match WHERE match_id = 'fcs:900005@300'`)[0].visibility, "hidden", "관측은 숨긴 채 남는다");
+  assert.equal((await sql`SELECT count(*)::int AS n FROM fco_context_evidence WHERE match_id = 'fco:api-recent'`)[0].n, 1, "새 영상의 근거가 API 경기에 붙었다");
+  assert.equal((await S.saveFcoScreenMatch(input(900005, 300, new Date(recent.getTime() + 60_000), { streamerSlug: "alpha-fc", basis: "vod_owner" }, { nickname: "베타감독" }))).status, "linked", "다시 불러도 같다");
+  assert.equal((await sql`SELECT count(*)::int AS n FROM fco_screen_link WHERE screen_match_id = 'fcs:900005@300'`)[0].n, 1);
 
-  // 8) R1 — 최근 30일 + 등록 계정이 있는데 API 경기가 아직 없다 → 자동 수집이 받아 온다(만들지 않는다)
+  // 8) 최근 30일 + 등록 계정이 있는데 API 경기가 아직 없다 → **저장은 하고** expect_api 로 알린다. API 가 끝내 안 와도 관측은 남는다.
   const r8 = await S.saveFcoScreenMatch(input(900006, 400, dayAgo(2), { streamerSlug: "alpha-fc", basis: "vod_owner" }, {}));
-  assert.equal(r8.status, "api_expected");
-  assert.equal((await sql`SELECT 1 FROM match WHERE match_id = 'fcs:900006@400'`).length, 0);
-  // 최근이어도 등록 계정이 없으면 API 가 못 준다 → 만든다(결정 2)
-  assert.equal((await S.saveFcoScreenMatch(input(900007, 500, dayAgo(2), { nickname: "남1" }, { nickname: "남2" }))).status, "created");
+  assert.equal(r8.status, "created");
+  assert.equal((r8 as { expect_api: boolean }).expect_api, true);
+  assert.equal((await sql`SELECT visibility FROM match WHERE match_id = 'fcs:900006@400'`)[0].visibility, "hidden");
+  assert.equal((await sql`SELECT count(*)::int AS n FROM fco_context_evidence WHERE match_id = 'fcs:900006@400'`)[0].n, 1);
+  // 최근이어도 등록 계정이 없으면 API 가 못 준다 → expect_api false (결정 2)
+  const r8b = await S.saveFcoScreenMatch(input(900007, 500, dayAgo(2), { nickname: "남1" }, { nickname: "남2" }));
+  assert.deepEqual({ s: r8b.status, e: (r8b as { expect_api: boolean }).expect_api }, { s: "created", e: false });
 
-  // 9) 다른 VOD 가 같은 경기를 또 찍었다 → 근거만 더한다
+  // 9) 다른 VOD 가 같은 경기를 또 찍었다 → 기존 기록에 연결하고 근거를 더한다
   const r9 = await S.saveFcoScreenMatch(input(900008, 77, new Date(old.getTime() + 90_000), { streamerSlug: "alpha-fc", basis: "vod_owner" }, {}));
-  assert.equal(r9.status, "duplicate_screen");
-  assert.equal((r9 as { match_id: string }).match_id, id1);
+  assert.equal(r9.status, "linked");
+  assert.equal((r9 as { link_to: string }).link_to, id1);
+  assert.equal((r9 as { link_to_source: string }).link_to_source, "manual");
+  assert.equal((await sql`SELECT count(*)::int AS n FROM fco_context_evidence WHERE match_id = ${id1}`)[0].n, 2, "두 VOD 의 근거가 정본 경기에 모인다");
 
   // 10) 참가자 구분 키
   const key = await sql`SELECT fco_participant_key('o', NULL, 'n') AS a, fco_participant_key(NULL, ${ids[0]}::uuid, 'n') AS b, fco_participant_key(NULL, NULL, 'n') AS c`;
@@ -162,6 +170,13 @@ try {
       matchInfo: [player("alpha-ouid", "알파감독", "승", 2), player("beta-ouid", "베타감독", "패", 1)] });
   }
   assert.deepEqual((await S.reconcileFcoScreenMatches()).linked, [], "후보가 둘이면 합치지 않는다");
+  const amb = (await S.findFcoScreenSuspects()).filter((x) => x.screen_match_id === "fcs:900011@11");
+  assert.deepEqual(amb.map((x) => x.verdict), ["ambiguous", "ambiguous"], "후보가 둘이면 둘 다 의심 목록에 올라온다");
+  // 후보가 이미 둘인 상태에서 새로 저장해도 먼저 찾은 것을 고르지 않고, 관측은 저장하고 검수 대기로 둔다
+  const r13 = await S.saveFcoScreenMatch(input(900012, 12, new Date(t13.getTime() + 20_000), { streamerSlug: "alpha-fc", basis: "vod_owner" }, { nickname: "베타감독", score: 1 }));
+  assert.equal(r13.status, "needs_review");
+  assert.deepEqual((r13 as { candidates: string[] }).candidates.filter((c) => c.startsWith("fco:api-two")).sort(), ["fco:api-two-1", "fco:api-two-2"]);
+  assert.equal((await sql`SELECT count(*)::int AS n FROM fco_screen_link WHERE screen_match_id = 'fcs:900012@12'`)[0].n, 0);
 
   // 13) 시각 창 계산
   const win = S.fcoApiWindowStart(new Date("2026-10-01T03:00:00Z")); // KST 10-01 12:00 → 9-01 00:00 KST = 08-31 15:00Z

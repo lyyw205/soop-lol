@@ -513,6 +513,52 @@ try {
   check("행사 정보를 [대회] 탭에서 고칠 수 있다",
     (await listFcoEventOptions()).some((o) => o.id === dec.id && o.name === "결정컵 2026" && o.organizer === "주최자"));
 
+  console.log("\n▸ 사람이 제외한 경기는 어느 경로로도 되살아나지 않는다 (직접 연결·시리즈·다른 세트)");
+  const { linkFcoMatchToEvent } = await import("../packages/core/lib/games/fconline/ingest.ts");
+  await saveFcoMatch(detailOf("ex-1", "2026-09-28 10:00:00", ["ouid-a", "ouid-b"]));
+  await saveFcoMatch(detailOf("ex-2", "2026-09-28 10:20:00", ["ouid-a", "ouid-b"]));
+  await saveFcoMatch(detailOf("ex-3", "2026-09-28 10:40:00", ["ouid-a", "ouid-b"]));
+  const exEvent = { slug: "ex-cup", name: "제외컵", kind: "tournament" as const, source_url: "https://example.com/ex" };
+  await applyFcoMatchContext({ provider_match_id: "ex-1", conclusion: "event", event: exEvent });
+  const exEventId = (await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = 'ex-cup'`)[0].id;
+  await decideFcoEventMatch({ eventId: exEventId, providerMatchId: "ex-1", decision: "exclude", note: "대회 밖 경기" }, { createdBy: "admin" });
+  const evOf = async (id: string) => (await sql<{ event_id: string | null; series_id: string | null }[]>`SELECT event_id, series_id FROM match WHERE match_id = ${`fco:${id}`}`)[0];
+  check("준비: admin 이 제외하면 행사에서 빠진다", (await evOf("ex-1")).event_id === null);
+
+  // ① 직접 연결 명령(구형)
+  await assert.rejects(() => linkFcoMatchToEvent({ providerMatchId: "ex-1", eventSlug: "ex-cup", eventName: "제외컵", sourceUrl: "https://example.com/ex" }), /사람이 이 행사에서 제외/);
+  check("★★ 직접 연결 명령도 사람의 제외를 우회하지 못한다", (await evOf("ex-1")).event_id === null);
+
+  // ② 단독 연결·시리즈 경로(자동)
+  const viaEvent = await applyFcoMatchContext({ provider_match_id: "ex-1", conclusion: "event", event: exEvent });
+  check("★★ 단독 연결 경로는 건너뛴다(기존 동작)", viaEvent.skipped.some((x) => x.includes("제외")) && (await evOf("ex-1")).event_id === null);
+  const viaSeries = await applyFcoMatchContext({ provider_match_id: "ex-1", conclusion: "event", event: exEvent,
+    series: { id: "ex-s1", game_no: 1 }, evidences: [{ evidence_key: "ex:1", kind: "url", url: "https://example.com/e", observed: "대진표에 이 경기가 없다" }] });
+  const exAfter = await evOf("ex-1");
+  check("★★ 시리즈 경로도 건너뛴다 — 시리즈에 편입되지도, 행사가 붙지도 않는다",
+    viaSeries.skipped.some((x) => x.includes("시리즈") && x.includes("제외")) && exAfter.series_id === null && exAfter.event_id === null,
+    JSON.stringify(viaSeries.skipped));
+  check("근거는 보존된다", (await sql`SELECT 1 FROM fco_context_evidence WHERE match_id = 'fco:ex-1' AND evidence_key = 'ex:1'`).length === 1);
+
+  // ③ 다른 세트를 고치다가 제외된 세트가 되살아나는 경로
+  await sql`INSERT INTO match_series (id, game_code) VALUES ('ex-s2', 'fconline')`;
+  await sql`UPDATE match SET series_id = 'ex-s2', series_game_no = 1 WHERE match_id = 'fco:ex-1'`;
+  const sibling = await applyFcoMatchContext({ provider_match_id: "ex-2", conclusion: "event", event: exEvent, series: { id: "ex-s2", game_no: 2 } });
+  const s2 = (await sql<{ event_id: string | null }[]>`SELECT event_id FROM match_series WHERE id = 'ex-s2'`)[0];
+  check("★★ 다른 세트(자동)가 시리즈에 행사를 붙여 제외된 세트를 되살리지 못한다",
+    s2.event_id === null && sibling.skipped.some((x) => x.includes("되살아난다")), JSON.stringify(sibling.skipped));
+  check("그 세트도 시리즈에 편입되지 않는다(전부 건너뜀)", (await evOf("ex-2")).series_id === null);
+  await sql`UPDATE match SET series_id = 'ex-s2', series_game_no = 3 WHERE match_id = 'fco:ex-3'`;
+  await assert.rejects(() => decideFcoEventMatch({ eventId: exEventId, providerMatchId: "ex-3", decision: "include" }), /제외했다/);
+  check("★★ 포함 결정도 같은 시리즈의 제외된 세트가 있으면 시리즈에 행사를 못 붙인다",
+    (await sql<{ event_id: string | null }[]>`SELECT event_id FROM match_series WHERE id = 'ex-s2'`)[0].event_id === null);
+
+  // ④ 사람(admin)의 명시적 재포함은 된다 — 의도적 되돌림은 막지 않는다
+  await applyFcoMatchContext({ provider_match_id: "ex-1", conclusion: "event", event: exEvent, series: { id: "ex-s2", game_no: 1 } }, { createdBy: "admin" });
+  check("admin 이 명시적으로 다시 포함하면 연결된다",
+    (await sql<{ event_id: string | null }[]>`SELECT event_id FROM match_series WHERE id = 'ex-s2'`)[0].event_id === exEventId);
+  await linkFcoMatchToEvent({ providerMatchId: "ex-2", eventSlug: "ex-cup", eventName: "제외컵", sourceUrl: "https://example.com/ex" }).catch(() => undefined);
+
   if (failures) { console.error(`\n${failures}개 실패.`); process.exitCode = 1; }
   else console.log("\nFC 맥락 계약 검증 전부 통과.");
 } finally {

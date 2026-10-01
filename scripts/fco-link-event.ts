@@ -13,9 +13,10 @@ async function main() {
   const eventName = option("name");
   const sourceUrl = option("source-url");
   if (!providerMatchId || !eventSlug || !eventName || !sourceUrl) {
-    throw new Error("사용법: npm run fco:link-event -- --match-id 넥슨matchId --slug 대회slug --name 대회명 --source-url 확인근거URL");
+    throw new Error("사용법: npm run fco:link-event -- --match-id 넥슨matchId --slug 대회slug --name 대회명 --source-url 확인근거URL [--force]");
   }
-  await linkFcoMatchToEvent({ providerMatchId, eventSlug, eventName, sourceUrl });
+  // 사람이 제외한 경기는 기본으로 거부한다. 의도한 것이면 --force 로 명시한다.
+  await linkFcoMatchToEvent({ providerMatchId, eventSlug, eventName, sourceUrl, force: args.includes("--force") });
   console.log(`${providerMatchId} → ${eventName} 연결 완료`);
 }
 
