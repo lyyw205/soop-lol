@@ -247,24 +247,6 @@ export async function listChampionRecords(
   `;
 }
 
-export interface RecentGame {
-  match_id: string;
-  game_creation: Date;
-  game_duration: number | null;
-  queue_id: number;
-  /** 경기 분류 (solo/ck/tournament …). 화면이 뱃지를 달 때 쓴다. */
-  category: string;
-  champion_id: number;
-  champion_name: string | null;
-  team_position: string | null;
-  outcome: MatchOutcome;
-  /** 못 읽었으면 NULL (0020). 0 과 구분해서 쓸 것 — 화면은 '—' 로 그린다. */
-  kills: number | null;
-  deaths: number | null;
-  assists: number | null;
-  cs: number | null;
-}
-
 /**
  * 상대전적. **세트와 매치를 나눠서** 준다.
  *
@@ -366,34 +348,6 @@ export async function listChampions(
             OR cs.category = ANY(${expandCategory(category)}::text[]))
      GROUP BY cs.champion_id
      ORDER BY sum(cs.games) DESC
-     LIMIT ${limit}
-  `;
-}
-
-export async function listRecentGames(
-  streamerId: string,
-  limit = 20,
-  /**
-   * 기본은 **공개 큐 묶음**이다(§11-7) — 화면도 "공개 큐만" 이라고 써 놨다.
-   * 'ck' 를 주면 내전 목록이 되고, 'all' 은 말 그대로 전부다.
-   */
-  category: MatchCategoryFilter = "public_queue",
-): Promise<RecentGame[]> {
-  const sql = db();
-  return sql<RecentGame[]>`
-    SELECT mp.match_id, m.game_creation, m.game_duration, m.queue_id, m.category,
-           mp.champion_id, mp.champion_name, mp.team_position, mp.outcome,
-           mp.kills, mp.deaths, mp.assists, mp.cs
-      FROM core_public.match_participant mp
-      JOIN core_public.match m ON m.match_id = mp.match_id
-     WHERE mp.streamer_id = ${streamerId}::uuid
-       -- ★ 아무 것도 안 주면 **공개 큐만**이다(§11-7). 화면이 이 목록에 "공개 큐만"
-       --   이라고 써 두는데 거르지 않으면 그 말이 거짓이 된다. 실제로 그랬다 —
-       --   내전을 처음 넣자마자 수기 경기 5건이 최근 경기 맨 위를 차지했고,
-       --   챔피언을 모르니 '챔피언 0' 으로 떴다.
-       AND (${expandCategory(category)}::text[] IS NULL
-            OR m.category = ANY(${expandCategory(category)}::text[]))
-     ORDER BY m.game_creation DESC
      LIMIT ${limit}
   `;
 }
@@ -663,35 +617,6 @@ export async function summarizePlacements(
 }
 
 // ── 홈 ───────────────────────────────────────────────────────────────
-
-export interface RecentEncounter {
-  match_id: string;
-  a_slug: string; a_name: string; a_outcome: MatchOutcome;
-  b_slug: string; b_name: string; b_outcome: MatchOutcome;
-  relation: "opponent" | "ally";
-  is_lane_matchup: boolean;
-  queue_id: number;
-  game_creation: Date;
-}
-
-/** 홈의 훅. "누가 누구를 만났나" 가 이 사이트의 첫 화면이어야 한다. */
-export async function listRecentEncounters(limit = 10): Promise<RecentEncounter[]> {
-  const sql = db();
-  return sql<RecentEncounter[]>`
-    SELECT e.match_id, e.relation, e.is_lane_matchup, e.queue_id, e.game_creation,
-           a.slug AS a_slug, a.display_name AS a_name, e.a_outcome,
-           b.slug AS b_slug, b.display_name AS b_name, e.b_outcome
-      FROM core_public.streamer_encounter e
-      JOIN core_public.streamer a ON a.streamer_id = e.streamer_a_id
-      JOIN core_public.streamer b ON b.streamer_id = e.streamer_b_id
-     -- ★ 첫 화면도 "공개 큐만" 이라고 써 둔다(§11-7). 내전 한 판을 넣는 순간
-     --   최신순 첫 화면이 통째로 내전으로 덮인다 — 수기 기록은 한 방송에서
-     --   5~10건이 한꺼번에 들어오기 때문이다.
-     WHERE e.source = 'public_queue'
-     ORDER BY e.game_creation DESC
-     LIMIT ${limit}
-  `;
-}
 
 export async function countPublic(): Promise<{ streamers: number; matches: number; encounters: number }> {
   const sql = db();

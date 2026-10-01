@@ -48,16 +48,6 @@ export function FcoMatchList({ games, perspectiveStreamerId, rowIdPrefix }: { ga
   })}</RecordTimeline>;
 }
 
-export function FcoKpis({ stats }: { stats: FcoStatLine }) {
-  return <div className="fc-kpis">
-    <div className="fc-kpi"><b>{stats.games}</b><span>경기</span></div>
-    <div className="fc-kpi"><b>{stats.wins}승 {stats.draws}무 {stats.losses}패</b><span>승무패</span></div>
-    <div className="fc-kpi"><b>{stats.goals}</b><span>득점</span></div>
-    <div className="fc-kpi"><b>{stats.shots}</b><span>슛</span></div>
-    <div className="fc-kpi"><b>{stats.shotsOnTarget}</b><span>유효 슛</span></div>
-  </div>;
-}
-
 export function statsForGames(games: FcoGame[], streamerId: string): FcoStatLine {
   return games.flatMap((game) => game.participants.filter((p) => p.streamer_id === streamerId))
     .reduce(addFcoStats, EMPTY_FCO_STATS);
@@ -89,28 +79,6 @@ export function FcoStatsTable({ games, emptyMessage = "대회에 연결된 경�
         <td>{stats.tackles}</td>
       </tr>)}</tbody>
   </table></div>;
-}
-
-export function matchMetric(p: FcoParticipant, key: "shoot" | "pass" | "defence" | "matchDetail", field: string): number {
-  const data = p.match_info[key];
-  return fcoNumber(data && typeof data === "object" && !Array.isArray(data)
-    ? (data as Record<string, unknown>)[field] : null);
-}
-
-export function FcoShotMap({ participant }: { participant: FcoParticipant }) {
-  const raw = participant.match_info.shootDetail;
-  const shots = Array.isArray(raw) ? raw as Record<string, unknown>[] : [];
-  if (!shots.length) return <div className="fc-empty">슛 위치 데이터가 없습니다.</div>;
-  return <div>
-    <div className="fc-shotmap" aria-label={`${participant.nickname}의 슛 위치`}>
-      {shots.filter((s) => typeof s.x === "number" && typeof s.y === "number")
-        .map((s, i) => <span key={i} className="fc-shot"
-          data-goal={s.result === 3 || s.result === "3"}
-          title={`슛 ${i + 1}${s.result === 3 ? " · 골" : ""}`}
-          style={{ left: `${Math.max(0,Math.min(100,fcoNumber(s.x)*100))}%`, top: `${Math.max(0,Math.min(100,fcoNumber(s.y)*100))}%` }} />)}
-    </div>
-    <p className="fc-card-sub">빨강: 득점 · 노랑: 그 외 슛. 좌표는 API의 경기장 좌표입니다.</p>
-  </div>;
 }
 
 export function FcoSquad({ participant, names, positions }: {

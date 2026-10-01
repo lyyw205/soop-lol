@@ -510,12 +510,3 @@ export async function setNamuPage(streamerId: string, page: string): Promise<boo
   `;
   return rows.length > 0;
 }
-
-/** 나무위키 인물 문서 → slug. 옛 표기를 이 지도로 잇는다. */
-export async function slugsByNamuPage(): Promise<Map<string, string>> {
-  const sql = db();
-  const rows = await sql<{ namu_page: string; slug: string }[]>`
-    SELECT namu_page, slug FROM streamer WHERE namu_page IS NOT NULL
-  `;
-  return new Map(rows.map((r) => [r.namu_page, r.slug]));
-}

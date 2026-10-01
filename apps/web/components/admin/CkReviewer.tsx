@@ -928,10 +928,13 @@ function RosterInspector({
         <input type="hidden" name="lead_id" value={leadId} />
         <input type="hidden" name="match_id" value={match.match_id} />
         <input type="hidden" name="roster" value={JSON.stringify(rows)} />
-        {[100, 200].map((team) => (
-          <RosterTeam key={team} team={team} rows={rows.filter((row) => row.team_id === String(team))}
-            winner={match.winning_team === team} activeCell={activeCell} onOpen={setActiveCell} onChange={update} streamers={streamers} />
-        ))}
+        {/* ★ 저장 중엔 입력을 잠근다(메타 폼과 같은 방식). contents 라 레이아웃은 그대로다. */}
+        <fieldset disabled={pending} className="contents">
+          {[100, 200].map((team) => (
+            <RosterTeam key={team} team={team} rows={rows.filter((row) => row.team_id === String(team))}
+              winner={match.winning_team === team} activeCell={activeCell} onOpen={setActiveCell} onChange={update} streamers={streamers} />
+          ))}
+        </fieldset>
         <div className="sticky bottom-0 -mx-1 flex items-center gap-3 border-t border-ink-800 bg-ink-900/95 px-1 pt-3">
           <SubmitButton>변경사항 저장</SubmitButton>
           <ActionMessage state={state} />

@@ -22,8 +22,6 @@ export const EVENT_KIND_LABEL: Record<string, string> = {
  */
 export const REVIEWED_LABEL = "관리자 확인";
 export const REVIEWED_HINT = "관리자가 고치거나 확인한 경기입니다. 자동 수집이 이 경기를 덮어쓰지 않습니다. 모든 칸을 검수했다는 뜻은 아닙니다.";
-export const MARK_REVIEWED_LABEL = "관리자 확인으로 표시";
-export const UNMARK_REVIEWED_LABEL = "확인 해제";
 
 /**
  * 이 경기를 **어떻게 알게 됐나**(관리 화면용). 공개 화면은 source(API/수기)만 쓴다.

@@ -1,5 +1,4 @@
 import { Fragment, type CSSProperties, type ReactNode } from "react";
-import Link from "next/link";
 import { RecordOverviewCard, RecordTimeline, RecordTimelineRow, RecordTimelineYear } from "../../../packages/ui/record-structure";
 import type { PublicRosterEntry } from "@soop-lol/core/lib/contract";
 import { MatchDetails } from "../../../packages/ui/match-details";
@@ -22,8 +21,8 @@ import type { HrefFor } from "./profile";
  *   서로를 덮어썼다. `?year=` 와 `?period=` 는 배타적이라 한쪽을 누르면 다른 쪽이 조용히
  *   풀리는데, 두 줄에 떨어져 있으면 그게 화면에서 안 보인다. 한 줄에 두면 보인다.
  */
-export function PersonalRecordFilters({ category, year, years, period, hrefFor }: {
-  category: MatchCategoryFilter; year?: number; years: number[]; period: RecordPeriod; hrefFor: HrefFor;
+export function PersonalRecordFilters({ category, year, period, hrefFor }: {
+  category: MatchCategoryFilter; year?: number; period: RecordPeriod; hrefFor: HrefFor;
 }) {
   return <LinkedRecordFilters category={category} year={year ? String(year) : "all"}
     categories={MATCH_CATEGORIES.map((c)=>({value:c.key,label:c.label,href:hrefFor({category:c.key,page:null})}))}
@@ -63,9 +62,8 @@ export function PersonalRecordSummary({ records, category, art, portrait, identi
 }
 
 /** A history row is one series, even when several opposing streamers participated. */
-export function PersonalMatchHistory({ matches, rosters, streamerId, streamerName, slug, category, year }: {
+export function PersonalMatchHistory({ matches, rosters, streamerId, streamerName }: {
   matches: PersonalMatch[]; rosters: PublicRosterEntry[]; streamerId: string; streamerName: string;
-  slug: string; category: MatchCategoryFilter; year?: number;
 }) {
   if (!matches.length) return <p className="personal-history-empty">선택한 조건에 해당하는 매치가 없습니다.</p>;
   const byMatch = new Map<string, PublicRosterEntry[]>();

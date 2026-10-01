@@ -35,7 +35,6 @@ export interface RegisteredModule {
   hasUi: boolean;
 }
 
-import * as tournaments_server from "./tournaments/server/index.ts";
 import * as versus_server from "./versus/server/index.ts";
 
 export const MODULES: RegisteredModule[] = [

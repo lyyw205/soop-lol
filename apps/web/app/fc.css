@@ -131,12 +131,6 @@
 .fc-featured-more { margin-top: 15px; text-align: right; font-size: 11px; }
 .fc-featured-more a { color: var(--fc-accent-soft); }
 
-.fc-kpis { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); margin-top: 22px; padding: 17px 0; border-block: 1px solid #303b4c; }
-.fc-kpi { padding: 0 18px; border-right: 1px solid #303b4c; }
-.fc-kpi:first-child { padding-left: 0; }
-.fc-kpi:last-child { border: 0; }
-.fc-kpi b { display: block; color: #f1f5fa; font-size: 23px; font-weight: 750; font-variant-numeric: tabular-nums; }
-.fc-kpi span { color: var(--fc-muted); font-size: 11px; }
 .fc-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 17px 18px; background: #1b2330; border: 1px solid var(--fc-line); border-radius: 8px; }
 .fc-form label { display: grid; gap: 6px; color: #bdc7d6; font-size: 11px; flex: 1; min-width: 180px; }
 .fc-form :is(input, select) { width: 100%; min-height: 43px; padding: 8px 11px; color: #edf2f9; background: #111823; border: 1px solid var(--fc-line); border-radius: 5px; font-size: 13px; }
@@ -146,26 +140,15 @@
 .fc-stat-pair { display: flex; justify-content: space-between; gap: 15px; padding: 11px 0; border-bottom: 1px solid #303b4c; font-size: 12px; }
 .fc-stat-pair span { color: var(--fc-muted); }
 .fc-stat-pair b { font-variant-numeric: tabular-nums; }
-.fc-shotmap { position: relative; width: min(100%,430px); aspect-ratio: 1.5; margin: auto; border: 2px solid #668d78; border-radius: 7px; background: linear-gradient(90deg,#123e2c,#1b5c3e); overflow: hidden; }
-.fc-shotmap::before { content: ""; position: absolute; inset: 25% 0 25% 70%; border: 2px solid #96c7a5; border-right: 0; }
-.fc-shot { position: absolute; width: 10px; height: 10px; border: 1px solid #fff; border-radius: 50%; transform: translate(-50%,-50%); background: #e3db81; }
-.fc-shot[data-goal="true"] { width: 13px; height: 13px; background: #f46e68; }
 .fc-profile-head { display: flex; align-items: center; gap: 15px; }
 .fc-profile-head .arena-avatar { width: 68px; height: 68px; font-size: 22px; }
 
 @media (max-width: 760px) {
   .fc-title { font-size: 24px; }
   .fc-two-col { grid-template-columns: 1fr; }
-  .fc-kpis { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px 0; }
-  .fc-kpi:nth-child(3) { border-right: 0; }
-  .fc-kpi:nth-child(4) { padding-left: 0; }
 }
 @media (max-width: 520px) {
   .fc-site .opponent-history-expanded li { grid-template-columns: minmax(0,1fr) 55px 75px 16px; }
-  .fc-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .fc-kpi:nth-child(3) { border-right: 1px solid #303b4c; padding-left: 0; }
-  .fc-kpi:nth-child(4) { padding-left: 18px; border-right: 0; }
-  .fc-kpi:nth-child(5) { padding-left: 0; }
 }
 
 /* ── 경기 상세 ─────────────────────────────────────────────────────

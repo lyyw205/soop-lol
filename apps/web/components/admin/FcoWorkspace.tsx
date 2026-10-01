@@ -524,7 +524,6 @@ export function FcoWorkspace({ unit, eventOptions, vodStarts }: {
   }, [unit.matches]);
 
   const frameIndex = selected ? groupFramesList.findIndex((f) => evidenceId(f) === evidenceId(selected)) : -1;
-  const nonFrameEvidences = unit.evidences.filter((e) => !e.frame_path);
 
   return (
     <div className="ck-review-workbench">

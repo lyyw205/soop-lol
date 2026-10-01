@@ -601,12 +601,9 @@ export async function recordEvidenceFramesInTx(
  *   생긴다. 반면 경로는 알고 있다(파일 이름이 곧 시각이다). 그래서 근거를 **경로로** 걸고,
  *   창구가 id 로 바꾼다. 안 그러면 "넣고 → id 확인하고 → 다시 넣는" 왕복이 생기고,
  *   그 왕복을 귀찮아하면 근거가 안 붙은 경기가 쌓인다.
+ *
+ * 같은 트랜잭션에서 방금 기록한 프레임도 찾아야 하므로(ck-merge) tx 를 받는다.
  */
-export async function evidenceFrameIdsByPath(paths: string[]): Promise<Map<string, string>> {
-  return db().begin((tx) => evidenceFrameIdsByPathInTx(tx, paths)) as Promise<Map<string, string>>;
-}
-
-/** 같은 트랜잭션에서 방금 기록한 프레임도 찾아야 하므로(ck-merge) tx 를 받는다. */
 export async function evidenceFrameIdsByPathInTx(tx: Tx, paths: string[]): Promise<Map<string, string>> {
   if (paths.length === 0) return new Map();
   const rows = await tx<{ id: string; frame_path: string }[]>`

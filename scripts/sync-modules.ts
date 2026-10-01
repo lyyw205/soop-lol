@@ -52,6 +52,12 @@ if (existsSync(MODULES_DIR)) {
 
 const hasUi = (name: string) => existsSync(join(MODULES_DIR, name, "ui", "page.tsx"));
 const hasServer = (name: string) => existsSync(join(MODULES_DIR, name, "server", "index.ts"));
+/**
+ * ★ 등록부가 서버 진입점을 쓰는 곳은 jobs 의 run 하나뿐이다. jobs 가 없는 모듈까지 import 하면
+ *   쓰지 않는 import 가 생성 파일에 남는다(noUnusedLocals 진단). 생성 파일을 손으로 고치면
+ *   다음 sync 가 되돌리므로 여기서 거른다.
+ */
+const needsServerImport = (m: Manifest) => hasServer(m.name) && (m.jobs ?? []).length > 0;
 
 const body = `// ⚠️ 생성 파일이다. 직접 고치지 말 것 — \`npm run modules:sync\` 가 다시 만든다.
 // 모듈 디렉터리를 지우고 이걸 다시 돌리면 등록부에서도 사라진다.
@@ -91,7 +97,7 @@ export interface RegisteredModule {
 }
 
 ${manifests
-  .filter((m) => hasServer(m.name))
+  .filter(needsServerImport)
   .map((m) => `import * as ${m.name.replace(/-/g, "_")}_server from "./${m.name}/server/index.ts";`)
   .join("\n")}
 

@@ -125,7 +125,7 @@ export default async function FcProfile({ params, searchParams }: {
         <FcoMatchList games={streamerGames} perspectiveStreamerId={person.id} />
     </RecordContentPanel>}
     {tab === "opponents" && <RecordContentPanel className="arena-records">
-        <OpponentHistoryHeading href={hrefFor({ tab: "opponents" })} period={period} laneOnly={false}
+        <OpponentHistoryHeading href={hrefFor({ tab: "opponents" })} period={period}
           categoryLabel={mode === "all" ? undefined : modeLabel} count={sortedOpponents.length} sort={opponentSort} />
         <FcoOpponentHistory rows={sortedOpponents} people={people} streamerId={person.id} streamerSlug={person.slug} streamerName={person.name} />
     </RecordContentPanel>}

@@ -254,13 +254,6 @@ export async function fetchAllSeries(titles) {
   return { series: out, missing };
 }
 
-/** 팀 두 개(순서 무관)로 경기를 찾는다. */
-export function findSeries(series, a, b) {
-  const key = [a, b].sort().join(" ");
-  const hits = series.filter((s) => [s.a, s.b].sort().join(" ") === key);
-  return hits;
-}
-
 /** 목차만 뽑는다 (구조 파악용). 문서가 없으면 null. */
 export async function fetchToc(title) {
   const res = await fetch(namuUrl(title), { headers: { "User-Agent": UA } });

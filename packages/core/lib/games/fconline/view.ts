@@ -93,9 +93,6 @@ export const FCO_SHOOT_TYPE_LABEL: Record<number, string> = {
   13: "레이저 슈터(추정)",
 };
 
-/** 슛 결과. 1 유효슛 · 2 빗나감 · 3 골. */
-export const FCO_SHOOT_RESULT_LABEL: Record<number, string> = { 1: "유효 슛", 2: "빗나감", 3: "골" };
-
 /**
  * 볼타는 등급표가 따로다. division-volta.json 의 13개 번호가 전부 일반 등급과 겹치므로
  * matchType 을 보지 않고 한 표만 쓰면 1100(볼타 최상위 월드 스타)이 챌린저1로 잘못 나온다.

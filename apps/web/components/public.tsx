@@ -17,7 +17,6 @@ import {
   type HeadToHead,
 } from "@soop-lol/core/lib/metrics/affinity";
 import { formatRank } from "@soop-lol/core/lib/metrics/lp";
-import { POSITION_LABEL, QUEUE_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 
 // ── 크롬 ─────────────────────────────────────────────────────────────
 
@@ -76,31 +75,12 @@ export function RankChip({
   );
 }
 
-export function DualRecord({
-  match, set, label,
-}: { match: HeadToHead; set: HeadToHead; label?: string }) {
-  const sameUnit = match.wins === set.wins && match.losses === set.losses;
-  return (
-    <div>
-      <RecordBar record={match} label={label} />
-      {!sameUnit && (
-        <p className="tabular mt-2 text-[11px] text-ink-500">
-          세트로는 {set.wins}승 {set.losses}패
-          <span className="ml-1">({Math.round((rawWinRate(set) ?? 0) * 100)}%)</span>
-        </p>
-      )}
-    </div>
-  );
-}
-
-
 export function RecordBar({ record, label }: { record: HeadToHead; label?: string }) {
   const n = record.wins + record.losses;
   if (n === 0) return <EmptyLine>{label ? `${label} 기록이 없습니다.` : "기록이 없습니다."}</EmptyLine>;
 
   const raw = rawWinRate(record) ?? 0;
   const small = isSmallSample(record);
-  const pct = Math.round(raw * 100);
 
   return (
     <div>
@@ -127,20 +107,6 @@ export function RecordBar({ record, label }: { record: HeadToHead; label?: strin
       )}
     </div>
   );
-}
-
-export function QueueTag({ queueId }: { queueId: number }) {
-  return (
-    <span className="rounded border border-ink-700 bg-ink-800 px-1.5 py-0.5 text-[11px] text-ink-400">
-      {QUEUE_LABEL[queueId] ?? `큐 ${queueId}`}
-    </span>
-  );
-}
-
-export function PositionTag({ position }: { position: string | null }) {
-  if (!position) return <span className="text-[11px] text-ink-400">—</span>;
-  const label = POSITION_LABEL[position as Position] ?? position;
-  return <span className="text-[11px] text-ink-400">{label}</span>;
 }
 
 export function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {

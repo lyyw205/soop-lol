@@ -268,16 +268,6 @@ export async function getMatchPovViews(matchId: string): Promise<PovView[]> {
   });
 }
 
-/** 경기별 시점 수·미해결 불일치 수. 조회 도구가 쓴다. */
-export async function povCountsInTx(tx: Tx | postgres.Sql, matchId: string) {
-  const stored = await loadStoredMatchInTx(tx, matchId);
-  if (!stored) return { povs: 0, mismatch_open: 0 };
-  const povs = await listMatchPovsInTx(tx, matchId);
-  let open = 0;
-  for (const p of povs) open += summarizeComparison(comparePov(stored, p.observed)).mismatch_open;
-  return { povs: povs.length, mismatch_open: open };
-}
-
 export interface EventPovLead {
   lead_id: string;
   source_key: string;

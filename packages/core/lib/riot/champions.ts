@@ -48,10 +48,6 @@ export function championByName(name: string): Champion | null {
   return byName.get(norm(name)) ?? null;
 }
 
-export function championIdByName(name: string): number | null {
-  return championByName(name)?.id ?? null;
-}
-
 export function championById(id: number): Champion | null {
   return byId.get(id) ?? null;
 }

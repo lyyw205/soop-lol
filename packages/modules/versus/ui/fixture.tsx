@@ -20,16 +20,3 @@ export function FixturePersonView({ person, badge, linked = false, profileHref }
     {linked ? <Link className="arena-person-name" href={profileHref ?? `/s/${person.slug}`}>{person.display_name}</Link> : <span className="arena-person-name">{person.display_name}</span>}
   </div>;
 }
-
-export function FixtureCard({ x, y, wins, losses, art = "LeeSin" }: {
-  x: FixturePerson; y: FixturePerson; wins: number; losses: number; art?: string;
-}) {
-  return <Link className="arena-fixture arena-fixture-small" data-art={art}
-    href={`/m/versus?a=${encodeURIComponent(x.slug)}&b=${encodeURIComponent(y.slug)}`}
-    aria-label={`${x.display_name} 대 ${y.display_name} · 세트 ${wins} 대 ${losses}`}>
-    <div className="arena-fixture-top">상대전적 · {wins + losses}세트</div>
-    <div className="arena-duel"><FixturePersonView person={x} /><span className="arena-duel-divider" /><FixturePersonView person={y} /></div>
-    <div className="arena-score">{wins}<span>–</span>{losses}</div>
-    <span className="arena-fixture-bottom">상대전적 보기　→</span>
-  </Link>;
-}

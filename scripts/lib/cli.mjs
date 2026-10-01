@@ -19,15 +19,6 @@ export const makeOpt = (argv) => (name, dflt) => {
   return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : dflt;
 };
 
-/** `--name a b c` 처럼 다음 `--` 전까지 전부 읽는다 (다중 값 인자용). */
-export const makeAfter = (argv) => (name) => {
-  const i = argv.indexOf(name);
-  if (i < 0) return [];
-  const out = [];
-  for (let j = i + 1; j < argv.length && !argv[j].startsWith("--"); j++) out.push(argv[j]);
-  return out;
-};
-
 /**
  * KST 기준 'YYYY-MM-DD'. `kstDate(1)` = 어제.
  * 계산은 core/lib/time 의 kstDateString 하나만 믿는다 — +9시간 인라인 복붙 금지.

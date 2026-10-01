@@ -174,7 +174,7 @@ async function resolveTargets(): Promise<FcoTarget[]> {
 
 /** VOD 의 시간축 — broad_start 그대로(등록시각−길이로 추정하지 않는다). */
 async function vodSpan(vod: number): Promise<FcoVodSpan & { channel: string | null }> {
-  const { vodDetail, vodBroadcastTimes } = await import("./lib/soop-vod.mjs");
+  const { vodDetail } = await import("./lib/soop-vod.mjs");
   const detail = await vodDetail(vod);
   if (!detail?.broad_start) throw new Error(`VOD ${vod}: broad_start 를 못 읽었다 — 시간축을 세울 수 없다`);
   const startMs = Date.parse(`${String(detail.broad_start).replace(" ", "T")}+09:00`);

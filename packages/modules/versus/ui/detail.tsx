@@ -503,7 +503,7 @@ function MatchRow({
           </button>
 
           {open && <MatchDetails
-            sets={m.sets.map((s,index)=>({matchId:s.match_id,label:setLabel({standalone:isStandaloneSet(s.match_id,s.series_key),best_of:s.best_of,set_order_known:s.set_order_known,series_game_no:s.series_game_no}),players:roster.get(s.match_id) ?? []}))}
+            sets={m.sets.map((s)=>({matchId:s.match_id,label:setLabel({standalone:isStandaloneSet(s.match_id,s.series_key),best_of:s.best_of,set_order_known:s.set_order_known,series_game_no:s.series_game_no}),players:roster.get(s.match_id) ?? []}))}
             streamerId={streamerId} highlightedStreamerIds={[x.streamer_id,y.streamer_id]} />}
         </div>
       </div>

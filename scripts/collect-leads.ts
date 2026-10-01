@@ -41,7 +41,7 @@ import {
 import { soopPace } from "./lib/soop-http.mjs";
 import { kstDate, makeOpt } from "./lib/cli.mjs";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const argv = process.argv.slice(2);
@@ -118,8 +118,6 @@ const KEYWORD_BOARD = String(opt("--board-keywords", "ck")).split(",").map((x) =
 const SIGNUP = /(탑|정글|미드|원딜|서폿|서포터|adc|jgl)\s*[가-힣a-z]*(아이언|브론즈|실버|골드|골|플래|플|에메|다이아|다야|마스터|그마|챌린저)|신청|참가|저요|하실분|넣어주세|갈게요|할게요/i;
 
 interface Vod { title_no: number; channel_id: string; title: string; at: string; category: string; views: number }
-/** `findVods` 가 돌려주는 모양. 방송 종료 시각이 `ended_at` 이다. */
-interface ChannelVod { title_no: number; channel_id: string; title: string; ended_at: string; hours: number; views: number; url: string }
 /** `lib/soop-board.mjs` 가 돌려주는 모양. 그쪽은 .mjs 라 타입이 없어 여기서 적는다. */
 interface Post {
   title_no: number; bbs_no: number; title: string;

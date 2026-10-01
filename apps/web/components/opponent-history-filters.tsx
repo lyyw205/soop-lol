@@ -11,8 +11,8 @@ import type { OpponentSort } from "@soop-lol/core/lib/metrics/opponents";
  * ★ 요약에서 '상대/맞라인' 을 뺐다. 바로 오른쪽 토글이 그걸 말하고 있고, 탭 이름에도
  *   '상대 전적' 이 있어서 같은 말이 한 화면에 세 번 나왔다.
  */
-export function OpponentHistoryHeading({href, period, laneOnly, categoryLabel, count, sort, laneToggle, scopeLabel}: {
-  href: string; period: RecordPeriod; laneOnly: boolean; categoryLabel?: string; count: number; sort: OpponentSort;
+export function OpponentHistoryHeading({href, period, categoryLabel, count, sort, laneToggle, scopeLabel}: {
+  href: string; period: RecordPeriod; categoryLabel?: string; count: number; sort: OpponentSort;
   laneToggle?: ReactNode; scopeLabel?: string;
 }) {
   const router = useRouter();

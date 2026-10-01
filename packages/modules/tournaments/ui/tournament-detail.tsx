@@ -8,8 +8,6 @@ import {
   Sparkles,
   X,
   Users,
-  MapPin,
-  CalendarDays,
 } from "lucide-react";
 import {
   tournamentPlayerRecords,
