@@ -104,8 +104,13 @@ export async function GET(
       },
     });
   } catch {
-    // 프레임 파일이 지워졌어도 DB 행은 남는다(디스크를 비웠을 때). 그걸 그대로 말한다.
-    return new Response("프레임 파일이 없습니다. out/ 을 비웠다면 ck:prep 을 다시 돌려야 합니다.", {
+    // 프레임 파일이 지워졌어도 DB 행은 남는다(디스크를 비웠을 때). 그걸 그대로 말하고, 되살릴 수 있으면 정확한 명령을 준다.
+    // ck:probe 는 `out/ck/<VOD>/g<전체 초 7자리>.jpg` 를 같은 이름으로 다시 만든다. 그 밖의 경로(옛 날짜 폴더·ck-local 시트 등)는 못 만든다.
+    const g = /^ck\/(\d+)\/g(\d{7})\.jpg$/.exec(rel.join("/"));
+    return new Response(g
+      ? `프레임 파일이 없습니다. 같은 경로로 다시 뽑으려면:\nnpm run ck:probe -- --vod ${g[1]} --at ${Number(g[2])}`
+      : "프레임 파일이 없습니다. 이 경로(옛 날짜 폴더·ck-local 시트 등)는 같은 이름으로 다시 만들 수 없습니다.\n"
+        + "같은 시각을 `npm run ck:probe -- --vod <번호> --at <VOD 전체 초>` 로 뽑아 근거를 다시 거세요.", {
       status: 404,
     });
   }

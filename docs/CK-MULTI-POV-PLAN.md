@@ -5,7 +5,7 @@
 **구현 상태(2026-09-28):** 10절 1~4단계 구현·검증 완료, 마이그레이션 0045 운영 DB 적용.
 5~6단계(실제 VOD 소규모 검증 → 추석 CK 9개 재조사)와 2단계(토큰 절약)는 아직이다.
 검증: `npm run verify:ck:pov`(실제 `ck:merge` 로 28개 사례), 비교 규칙 단위 테스트 `packages/core/lib/metrics/pov.test.ts`.
-관련: [공통 조사 설계](CK-RESEARCH-PLAN.md) · [수동 백필 계획](CK-BACKFILL-PLAN.md) · [조사 스킬](../.claude/skills/ck-research/SKILL.md)
+관련: [공통 조사 설계](CK-RESEARCH-PLAN.md) · [수동 백필](CK-BACKFILL.md) · [조사 스킬](../.claude/skills/ck-research/SKILL.md)
 
 ## 1. 목적
 

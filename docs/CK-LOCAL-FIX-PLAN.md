@@ -28,7 +28,7 @@ VOD 3개·파일 7개(205676943, 207602969 f1~f4, 206431267 f1~f2).
 
 `scripts/lib/soop-vod.mjs` 의 `scanSheets` 는 column 0 부터 받고 `sec = 길이 ÷ 칸 수` 로 시각을 낸다.
 그래서 **파일 앞쪽일수록 최대 약 5분 늦은 시각**을 보고한다(뒤로 갈수록 줄어 끝에서 0).
-쓰는 곳: `ck-probe`(거름망 추천 지점), `collect-leads`, `prep-ck-frames`, `scan-vod-frames`.
+쓰는 곳: `ck-probe`(거름망 추천 지점), `collect-leads`, `prep-ck-frames`(2026-10-01 삭제), `scan-vod-frames`.
 ck-probe 에서는 30분 격자가 따로 있어 위험이 줄었지만 **누락이 없었다고 단정할 수는 없다** — collect-leads·prep-ck-frames 는 거름망 결과에 직접 기댄다.
 끝 판정(`길이 < 1000B → 끝`)도 같아서 중간 500 오류가 조용히 "끝"이 된다.
 

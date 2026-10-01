@@ -39,10 +39,11 @@ export const END_TOLERANCE_SEC = 5;
 /**
  * 제목만으로 조사에서 빼는 VOD. 빼는 이유(표시용)를 돌려주고, 대상이면 null.
  *
- * ★ LCK Watch Party — 공식 대회(LCK)를 틀어 놓고 같이 보는 방송이다. 스트리머 경기가 없다.
+ * ★ LCK Watch Party — 공식 대회(LCK)를 틀어 놓고 같이 보는 방송이다. **비용을 줄이려고 조사에서 빼는 정책**이다
+ *   ("경기가 없다"는 사실이 아니라 표본에서 없었다는 관측이다).
  *   실측(2026-09-30): 태그 붙은 VOD 63개 중 28개(99시간)를 끝까지 조사했고 연결된 경기 0건,
  *   미해결 후보도 0건이었다. SOOP 공식 태그라 표기가 일정하다(#LckWatchParty / #LckWatchparty).
- * ⚠ 태그가 붙은 방송 안에서 시청 뒤 내전을 한 경우는 놓친다. 위 실측에선 한 번도 없었다.
+ * ⚠ 한계: 태그가 붙은 방송 안에서 시청 뒤 내전을 한 경우는 놓친다. 위 표본에선 한 번도 없었다.
  */
 export function titleExclusion(title: string): string | null {
   return /#\s*lck\s*watch\s*party/i.test(title) ? 'LCK Watch Party' : null;
@@ -76,7 +77,8 @@ export function vodWork(raw: ScanRaw | undefined, apiSeconds: number | null): Vo
   // requested(이번 실행이 훑기로 한 범위)가 정본이지만, ck-research 는 그 칸을 채우라는
   // 지시가 없으면 비운다 — 안 비운 done 스캔도 실측에서 안 채운 사례가 있었다(2026-09-28).
   // sampled(대표 화면을 배치한 범위)로 물러난다 — done 상태에서 이게 [0,total] 을 덮으면
-  // 스킬의 표준 샘플링 방법(5~15분 간격)을 실제로 실행했다는 뜻이라 완료 신호로 쓸 수 있다.
+  // 전 범위 훑기를 실제로 실행했다는 뜻이라 완료 신호로 쓸 수 있다(간격은 무관 — 지금 스킬 기본은 30분,
+  // 예전 기록은 5~15분이었다. 이 대체 규칙은 requested 가 없던 예전 기록과의 호환용이라 지우지 않는다).
   const requested = mergeRanges(scan?.requested?.length ? scan.requested : (scan?.sampled ?? []));
   const failed = coveredSeconds(scan?.failed ?? []);
   const unresolved = Array.isArray(raw?.candidates)

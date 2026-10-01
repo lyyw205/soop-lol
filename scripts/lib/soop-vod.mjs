@@ -1,6 +1,6 @@
 /**
  * SOOP VOD 접근 + 내전 구간 탐지. **세 스크립트의 단일 출처다.**
- *   collect-leads.ts · prep-ck-frames.mjs · scan-vod-*.mjs · build-soop-fa.mjs · set-watchlist.ts
+ *   collect-leads.ts · ck-probe.mjs · scan-vod-*.mjs · build-soop-fa.mjs · set-watchlist.ts
  *
  * ★ 왜 모아 뒀나
  *   이 API 는 함정이 세 개인데 셋 다 조용히 틀린다 — 에러가 아니라 **빈 결과**로 온다:

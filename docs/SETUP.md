@@ -115,8 +115,9 @@ anon 키로는 아무것도 못 읽고, 우리 앱(`postgres.js` 로 소유자 �
 `evidence`(제보자 메모)가 anon 키만으로 그대로 읽힌다. 삭제 요청 경로를 살려둔 의미가 사라진다.
 공개 API 가 필요해지면 그때 **뷰 + 명시적 정책**으로 연다.
 
-> 스키마를 바꿀 땐 [`db/schema.sql`](../db/schema.sql) 을 고치고 Supabase 에도 같이 적용한다.
-> 로컬 검증(`npm run verify:db`)이 보는 건 그 파일이므로, 둘이 어긋나면 검증이 거짓말을 하게 된다.
+> 스키마를 바꿀 땐 **[`db/migrations/`](../db/migrations/) 에 다음 번호의 새 파일을 추가**한다. 이미 적용된 파일은 고치지 않는다
+> (러너가 파일 지문을 장부에 남겨 바뀐 파일을 거부한다 — 빈 줄 하나도). 적용은 `npm run db:migrate`, 상태는 `npm run db:migrate -- --status`.
+> 로컬 검증(`npm run verify:db`)은 같은 마이그레이션 묶음을 PGlite 에 올려 본다. `db/schema.sql` 은 없어졌다 — 다시 만들지 않는다.
 
 ---
 
@@ -181,7 +182,7 @@ npm run build
 ```
 
 `verify:db` 가 확인하는 것:
-- `db/schema.sql` 이 오류 없이 적용되는가 (테이블 15개)
+- `db/migrations/` 전체가 순서대로 오류 없이 적용되는가
 - `lp_absolute` 가 SQL 과 TS 에서 **같은 값**을 내는가 (93개 조합)
 - 근거 없는 계정 매핑을 실제로 **거부**하는가
 - 한 계정을 두 스트리머가 동시에 못 갖는가

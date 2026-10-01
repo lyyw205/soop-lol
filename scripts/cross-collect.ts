@@ -22,7 +22,7 @@
  *   2. 대회 기간(±pad 일)에 대해 채널마다 `ck:collect` 를 돌린다
  *   3. 채널이 없는 선수는 **이름을 찍어서 알린다** — 조용히 빠지면 안 된다
  *
- * 그다음은 `ck:prep --per-session N` 으로 여러 시점의 결과창을 뽑는다.
+ * 그다음은 단서 VOD 마다 ck-research 로 조사한다(`ck:probe --vod <번호>` → 판독 → `ck:merge`).
  */
 
 import { spawnSync } from "node:child_process";
@@ -92,7 +92,7 @@ try {
     else console.error(`  ✖ ${ch} 실패 (exit ${r.status})`);
   }
   console.log(`\n채널 ${ok}/${channels.length} 완료. 다음:`);
-  console.log(`  npm run ck:prep -- --date <날짜> --per-session 5`);
+  console.log(`  단서 VOD 마다 ck-research 로 조사한다 — npm run ck:probe -- --vod <VOD번호> 부터 (스킬: .claude/skills/ck-research)`);
 } finally {
   await closeDb();
 }

@@ -43,7 +43,8 @@ npm run dev
 | [docs/SETUP.md](docs/SETUP.md) | **여기부터.** Riot API 키 발급, Supabase, 로컬 개발, 검증 |
 | [docs/PLAN.md](docs/PLAN.md) | 설계 전문 — 도메인 모델·수집 파이프라인·지표 정의·화면·로드맵 |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | 경쟁 지형·데이터 소스·Riot API 제약·법적 체크리스트 |
-| [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) | 내전 데이터를 잡는 유일한 경로 (2단계) |
+| [docs/CK-COLLECTION.md](docs/CK-COLLECTION.md) | 내전 수집 — 방송 VOD 판독(운영 중)과 토너먼트 코드(배포 뒤) 두 경로 |
+| [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) | 토너먼트 코드 경로의 구조 (배포 뒤에만 가능) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **식별자 분류 · 모듈 계약 5조 · core_public 경계** |
 | [CLAUDE.md](CLAUDE.md) | 코딩 원칙 |
 
@@ -51,7 +52,7 @@ npm run dev
 
 ```
 apps/web/            Next.js 16 (App Router). 공개 화면 + 관리자 + 모듈 마운트(app/[...path])
-apps/worker/         수집 엔진 A~D + 모듈 잡 스케줄러
+apps/worker/         수집 엔진(Riot A~D · 넥슨 FC) + 모듈 잡 스케줄러
 packages/core/       Riot 클라이언트·지표 계산·DB 질의·수집 변환
   lib/contract/      ★ 모듈에 노출하는 전부 (core_public 뷰만 읽는다)
 packages/modules/    기능 모듈. 지워도 core 와 다른 모듈에 영향이 없다
@@ -76,14 +77,8 @@ npm run build
 
 ## 진행 상황
 
-- [x] 리서치 · 설계 · 스키마
-- [x] `RiotClient` 게이트웨이 (2중 레이트리밋 · `Retry-After` 존중 · 404 정상 처리)
-- [x] 지표 계산 (맞라인 판정 · 상성지수 · 티어 환산)
-- [x] 관리자 화면 — 스트리머 등록, 계정 매핑(근거 필수), 커리어 수기 입력
-- [x] 수집 워커 (Engine A~D) — 랭크 스냅샷 · 신규 매치 · 2년 백필 · 조우 재파생
-- [ ] Riot API 키 투입 후 실제 수집 ← **다음** (docs/SETUP.md §1)
-- [ ] 공개 화면 `/s/[slug]`, `/vs/[a]/[b]`
-- [ ] 토너먼트 코드 (내전)
+현재 상태(수집 경로별 운영 여부·건수)는 [CLAUDE.md 「지금 단계」](CLAUDE.md), 로드맵은 [docs/PLAN.md §10](docs/PLAN.md).
+이 README 에 체크리스트를 두 벌 두지 않는다 — 한쪽만 고쳐져 어긋난 적이 있다.
 
 ---
 

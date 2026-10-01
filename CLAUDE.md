@@ -20,19 +20,23 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 
 ## 지금 단계
 
-**M2 코드 완성.** 스키마·수집 워커(Engine A~D)·모듈 구조·공개 화면까지 다 만들었다.
-**남은 건 데이터다** — 조우 4건, 맞라인 0건이라 화면 검증이 얕다.
+> 숫자·상태는 **2026-10-01 실DB 조회** 기준이다. 오래되면 다시 조회하고 고친다 — 이 절을 근거로 "없는 기능"이라 판단하지 않는다.
 
-**다음은 M2.5 — 데이터 채우기** (`npm run worker -- loop`), 그다음 **M3 확장**.
-**배포(M4)는 마지막**으로 미뤘다. 다만 내전 수집(M5)은 Production Key 가 필요하고
-그 심사 요건이 "동작하는 사이트"라, **배포 전까지 내전은 시작할 수 없다.**
-Personal 키는 배포와 무관하므로 백필은 막히지 않는다. docs/PLAN.md §10.
+수집 경로마다 상태가 다르다.
 
-시한부인 것 두 개:
-- **2년 백필** — match-v5 보존이 2년이다. 미룬 만큼 영구히 사라진다. 커서는 아직 3주 전
+| 경로 | 상태 | 문서 |
+|---|---|---|
+| **롤 내전 — 방송 VOD 판독** | **운영 중.** VOD 판독 경기 87건(`origin='vod_scan'`). 매일 자동 조사(`scripts/ck-auto.sh`)·사용자 요청 백필 | [docs/CK-COLLECTION.md](docs/CK-COLLECTION.md) · [docs/CK-BACKFILL.md](docs/CK-BACKFILL.md) |
+| 롤 대회 — 나무위키 시드 | 경기 875건(`origin='wiki_seed'`, 멸망전 등 과거 대회). 롤 수기 경기 전체가 만든 조우 34,399건 | [seed/README.md](seed/README.md) |
+| **FC 온라인 — 넥슨 API + VOD 맥락** | **운영 중.** API 경기 2,790건. 화면으로만 아는 경기(30일 이전)는 저장 구조만 있다(0050, 공개 전) | [docs/FCO-SCREEN-MATCH-DESIGN.md](docs/FCO-SCREEN-MATCH-DESIGN.md) |
+| **롤 공개 큐 — Riot API(워커 Engine A~D)** | 코드 완성, **지금 데이터 없음**(공개 큐 경기 0건). Riot 키 상태는 docs/SETUP.md §1 에서 확인한다 | [docs/PLAN.md](docs/PLAN.md) §10 |
+| 롤 내전 — 토너먼트 코드 | 미시작. Production Key 가 필요하고 그 심사 요건이 "동작하는 사이트"라 **배포(M4) 뒤에만** 가능하다. VOD 판독과는 별개 경로다 | [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) |
+
+시한부인 것 두 개 (Riot 수집을 돌릴 때):
+- **2년 백필** — match-v5 보존이 2년이다. 미룬 만큼 영구히 사라진다
 - **랭크 스냅샷** — 하루 안 쌓으면 그날은 영원히 구멍이다. `worker -- rank` 만 돌려도 된다
 
-Riot Personal 키가 아직 없다 (Development 키는 24시간마다 죽어서 백필이 계속 끊긴다).
+FC 도 시한부다 — 넥슨 목록은 **최근 30일**만 준다(docs/FCO-TIME-SAMPLES.md).
 
 ## 검증 명령
 

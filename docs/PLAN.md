@@ -87,7 +87,7 @@ Riot ID(`닉네임#태그`)는 **바뀐다.** `summonerId` / `accountId`는 Riot
 
 ## 3. 테이블 목록
 
-전체 DDL은 [`db/schema.sql`](../db/schema.sql).
+전체 DDL은 [`db/migrations/`](../db/migrations/) 가 유일한 출처다(번호 순서대로 적용). 아래 표는 처음 설계 때의 개요이고, 이후 추가된 표·열은 마이그레이션 주석에 있다.
 
 ### 아이덴티티
 | 테이블 | 역할 |
@@ -325,7 +325,7 @@ soop-lol/
 ├─ packages/
 │  └─ core/          Riot 타입 · RiotClient · 지표 계산 · DB 쿼리
 ├─ db/
-│  ├─ schema.sql
+│  ├─ migrations/
 │  └─ migrations/
 └─ docs/
 ```
