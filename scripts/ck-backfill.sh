@@ -20,6 +20,13 @@ export PATH="$HOME/.local/node/bin:$PATH"
 cd "$ROOT"
 STOP_FILE="$ROOT/out/ck/backfill/STOP"
 STREAMER=""; FROM=""; TO=""; MODEL=""
+# 조사 세션이 따를 스킬. 실험 스킬(ck-local)을 시험할 때만 바꾼다 — 기본은 ck-research.
+SKILL="${CK_BACKFILL_SKILL:-ck-research}"
+# VOD 마다 Claude 세션 **전에** 돌릴 준비 명령({vod} 자리에 번호). 비우면 준비 단계 없음(기본).
+#   예: CK_BACKFILL_PREP='node scripts/ck-local/scan.mjs --vod {vod}'
+# ★ 같은 잠금·같은 중단 처리(프로세스 그룹) 안에서 직렬로 돈다 — SOOP 호출이 Claude 조사와 겹치지 않는다.
+# ★ 준비 명령이 성공하며 찍은 마지막 `PREP:` 줄만 프롬프트에 넘긴다. 실패하면 실패했다고만 넘긴다 — 옛 산출물을 새 결과로 오인하지 않게.
+PREP_CMD="${CK_BACKFILL_PREP:-}"
 while (( $# )); do
   case "$1" in
     --streamer|--from|--to|--model)
@@ -85,8 +92,8 @@ while true; do
   (( CODE == 0 )) || { RESULT='다음 VOD 선택 실패'; break; }
   VOD="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1]));console.log(c.vod.title_no)' "$CURRENT")" || { CODE=1; RESULT='current.json 읽기 실패'; break; }
   SESSIONS=$((SESSIONS+1))
-  PROMPT="/ck-research 수동 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD).
-분석은 ck-research 스킬을 그대로 따른다. ck-backfill 스킬이나 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다.
+  PROMPT="/$SKILL 수동 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD).
+분석은 $SKILL 스킬을 그대로 따른다. ck-backfill 스킬이나 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다.
 SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 이전 기록(ck:record --lead)과 ck:merge --find-match --vod $VOD 를 보고,
 중단된 조사면 남은 지점부터 잇는다. 탐색 단계를 마칠 때마다 scan 을 running 과 지금까지의 범위로 ck:merge 에 저장해
 세션이 중간에 끊겨도 진척이 남게 한다. 필수 조사를 모두 마쳤을 때만 done 으로 저장한다.
@@ -95,6 +102,16 @@ SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 이전 기록(ck:rec
 못 본 구간이 영상 길이 밖이거나 세그먼트가 영구 누락이라 다시 봐도 못 푸는 것이면 scan.resolved_failed 로 닫고 이유를 note 에 남긴다.
 안 닫으면 다음 실행이 같은 VOD 에서 진척 없음으로 멈춘다.
 종료 뒤 셸이 DB 도장으로 진척을 확인한다. 완료·연결·접근 불가·남은 범위를 요약한다."
+  if [[ -n "$PREP_CMD" ]]; then
+    PREP_OUT="$DIR/prep-$VOD.log"
+    say "준비: ${PREP_CMD//\{vod\}/$VOD}"
+    run_child bash -c "${PREP_CMD//\{vod\}/$VOD} >'$PREP_OUT' 2>&1"; PREP_CODE=$?
+    if (( PREP_CODE == 0 )) && PREP_LINE="$(grep '^PREP: ' "$PREP_OUT" | tail -1)" && [[ -n "$PREP_LINE" ]]; then
+      PROMPT+=$'\n'"준비 단계 결과(이번 실행): ${PREP_LINE#PREP: } — 이 run_id 의 산출물만 쓴다."
+    else
+      PROMPT+=$'\n'"준비 단계 실패(종료 코드 $PREP_CODE, 로그 $PREP_OUT) — 준비 산출물을 쓰지 말고 스킬의 준비 실패 절차로 조사한다."
+    fi
+  fi
   CLAUDE_ARGS=(-p "$PROMPT" --permission-mode bypassPermissions)
   [[ -n "$MODEL" ]] && CLAUDE_ARGS+=(--model "$MODEL")
   run_child claude "${CLAUDE_ARGS[@]}"; CLAUDE_CODE=$?
