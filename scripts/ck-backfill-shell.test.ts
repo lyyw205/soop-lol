@@ -16,6 +16,8 @@ function fixture(mode:string, env:Record<string,string>={}) {
  writeFileSync(join(dir,'bin/node'),`#!${process.execPath}\n`+String.raw`
  const fs=require('fs'), cp=require('child_process'), args=process.argv.slice(2);
  if(args[0]==='-e') {const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
+ // ck-local 준비 단계(기본) — 실제 판별기 대신 PREP 줄만 찍는다.
+ if(String(args[0]).endsWith('ck-local/scan.mjs')){fs.appendFileSync(process.env.ORDER,'prep\n');console.log('PREP: ck-local run_id=fake');process.exit(Number(process.env.PREP_CODE??0));}
  const command=args[2];fs.appendFileSync(process.env.ORDER,command+'\n');
  const opt=k=>args[args.indexOf(k)+1];
  if(command==='plan')fs.writeFileSync(opt('--write'),'{}');
@@ -25,6 +27,7 @@ function fixture(mode:string, env:Record<string,string>={}) {
  `,{mode:0o755});
  writeFileSync(join(dir,'bin/claude'),'#!/bin/bash\n'+String.raw`
  echo claude >> "$ORDER"
+ for a in "$@"; do [[ "$a" == /ck-local* ]] && echo skill:ck-local >> "$ORDER"; [[ "$a" == /ck-research* ]] && echo skill:ck-research >> "$ORDER"; [[ "$a" == *"run_id=fake"* ]] && echo got-prep >> "$ORDER"; done
  while (( $# )); do [[ "$1" == --model ]] && echo "model:$2" >> "$ORDER"; shift; done
  if flock -n out/ck/auto/.lock true; then echo unlocked >> "$ORDER"; exit 91; fi
  case "$MODE" in
@@ -41,19 +44,19 @@ function fixture(mode:string, env:Record<string,string>={}) {
 }
 test('남은 VOD가 없을 때까지 VOD마다 세션 하나로 반복한다',async()=>{
  const f=fixture('ok');try {assert.equal(await done(f.start()),0);
-  assert.equal(f.order(),'plan\nnext\nclaude\nafter\nnext\nclaude\nafter\nnext\nstatus\n');}finally{f.cleanup();}
+  assert.equal(f.order(),'plan\nnext\nprep\nclaude\nskill:ck-local\ngot-prep\nafter\nnext\nprep\nclaude\nskill:ck-local\ngot-prep\nafter\nnext\nstatus\n');}finally{f.cleanup();}
 });
 test('Claude가 실패하면 진척을 기록하고 멈춘다',async()=>{
- const f=fixture('fail');try {assert.equal(await done(f.start()),9);assert.equal(f.order(),'plan\nnext\nclaude\nafter\nstatus\n');}
+ const f=fixture('fail');try {assert.equal(await done(f.start()),9);assert.equal(f.order(),'plan\nnext\nprep\nclaude\nskill:ck-local\ngot-prep\nafter\nstatus\n');}
  finally{f.cleanup();}
 });
 test('진척이 없으면 4로 멈춘다',async()=>{
- const f=fixture('ok',{AFTER_CODE:'4'});try {assert.equal(await done(f.start()),4);assert.equal(f.order(),'plan\nnext\nclaude\nafter\nstatus\n');}
+ const f=fixture('ok',{AFTER_CODE:'4'});try {assert.equal(await done(f.start()),4);assert.equal(f.order(),'plan\nnext\nprep\nclaude\nskill:ck-local\ngot-prep\nafter\nstatus\n');}
  finally{f.cleanup();}
 });
 test('--stop은 지금 VOD를 마친 뒤 멈추고 요청을 소비한다',async()=>{
  const f=fixture('stop');try {assert.equal(await done(f.start()),0);
-  assert.equal(f.order(),'plan\nnext\nclaude\nafter\nstatus\n');
+  assert.equal(f.order(),'plan\nnext\nprep\nclaude\nskill:ck-local\ngot-prep\nafter\nstatus\n');
   assert.equal(existsSync(join(f.dir,'out/ck/backfill/STOP')),false);}finally{f.cleanup();}
 });
 test('지난 실행이 남긴 멈춤 요청은 새 실행을 멈추지 않는다',async()=>{
@@ -75,4 +78,15 @@ test('조사 내내 flock을 보유하고 다른 실행은 75, 중단하면 자�
   assert.ok(f.order().includes('stopped'));
   assert.ok(!f.order().includes('unlocked'));
  }finally{first.kill('SIGTERM');await firstDone;f.cleanup();}
+});
+
+test('기본은 ck-local + 준비 단계. CK_BACKFILL_SKILL=ck-research 면 준비 없이 예전 방식', async()=>{
+ const f=fixture('ok',{NEXT_N:'1',CK_BACKFILL_SKILL:'ck-research'});try {assert.equal(await done(f.start()),0);
+  assert.equal(f.order(),'plan\nnext\nclaude\nskill:ck-research\nafter\nnext\nstatus\n');}finally{f.cleanup();}
+ const g=fixture('ok',{NEXT_N:'1',CK_BACKFILL_PREP:''});try {assert.equal(await done(g.start()),0);
+  assert.equal(g.order(),'plan\nnext\nclaude\nskill:ck-local\nafter\nnext\nstatus\n','빈 PREP 는 준비를 끈다');}finally{g.cleanup();}
+});
+test('준비가 실패해도 조사는 한다 — 실패를 알리고 스킬의 준비 실패 절차로', async()=>{
+ const f=fixture('ok',{NEXT_N:'1',PREP_CODE:'2'});try {assert.equal(await done(f.start()),0);
+  assert.equal(f.order(),'plan\nnext\nprep\nclaude\nskill:ck-local\nafter\nnext\nstatus\n');}finally{f.cleanup();}
 });

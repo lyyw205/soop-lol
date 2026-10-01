@@ -6,6 +6,8 @@ description: 사용자가 지정한 SOOP 스트리머의 과거 VOD를 기간 �
 # 과거 VOD 수동 백필
 
 사용자 요청으로만 실행한다. 화면 판독 규칙은 [ck-research](../ck-research/SKILL.md)가 정본이다.
+**조사 세션은 기본으로 [ck-local](../ck-local/SKILL.md)이다** — VOD 마다 로컬 판별기 준비를 먼저 돌리고 세션 하나로 조사한다
+(2026-10-01 비교 시험 결과, docs/CK-LOCAL-DETECTOR.md). 예전 방식이 필요하면 `CK_BACKFILL_SKILL=ck-research` 를 붙인다(준비도 꺼진다).
 이 스킬에 결과창 탐색·경기 연결 규칙을 복사하지 않는다.
 
 ## 원리 — 진척은 VOD 도장 하나뿐

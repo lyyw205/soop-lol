@@ -20,13 +20,17 @@ export PATH="$HOME/.local/node/bin:$PATH"
 cd "$ROOT"
 STOP_FILE="$ROOT/out/ck/backfill/STOP"
 STREAMER=""; FROM=""; TO=""; MODEL=""
-# 조사 세션이 따를 스킬. 실험 스킬(ck-local)을 시험할 때만 바꾼다 — 기본은 ck-research.
-SKILL="${CK_BACKFILL_SKILL:-ck-research}"
-# VOD 마다 Claude 세션 **전에** 돌릴 준비 명령({vod} 자리에 번호). 비우면 준비 단계 없음(기본).
-#   예: CK_BACKFILL_PREP='node scripts/ck-local/scan.mjs --vod {vod}'
+# 조사 세션이 따를 스킬. 기본은 ck-local(로컬 판별기 준비 + 원본 판독) — 2026-10-01 비교 시험(VOD 8개)에서
+#   ck-research 가 찾은 경기를 하나도 놓치지 않고 같은 값을 읽으면서 비용 64%·시간 44% 를 줄였다(docs/CK-LOCAL-DETECTOR.md).
+#   예전 방식으로 돌리려면 CK_BACKFILL_SKILL=ck-research (그러면 준비 단계도 기본으로 꺼진다).
+SKILL="${CK_BACKFILL_SKILL:-ck-local}"
+# VOD 마다 Claude 세션 **전에** 돌릴 준비 명령({vod} 자리에 번호). ck-local 이면 기본으로 판별기 준비를 돌린다.
+#   CK_BACKFILL_PREP 를 **빈 값으로** 주면 준비를 끈다(그때 ck-local 스킬은 준비 실패 절차 = ck-research 로 간다).
 # ★ 같은 잠금·같은 중단 처리(프로세스 그룹) 안에서 직렬로 돈다 — SOOP 호출이 Claude 조사와 겹치지 않는다.
 # ★ 준비 명령이 성공하며 찍은 마지막 `PREP:` 줄만 프롬프트에 넘긴다. 실패하면 실패했다고만 넘긴다 — 옛 산출물을 새 결과로 오인하지 않게.
-PREP_CMD="${CK_BACKFILL_PREP:-}"
+if [[ -n "${CK_BACKFILL_PREP+set}" ]]; then PREP_CMD="$CK_BACKFILL_PREP"
+elif [[ "$SKILL" == "ck-local" ]]; then PREP_CMD='node scripts/ck-local/scan.mjs --vod {vod}'
+else PREP_CMD=""; fi
 while (( $# )); do
   case "$1" in
     --streamer|--from|--to|--model)
