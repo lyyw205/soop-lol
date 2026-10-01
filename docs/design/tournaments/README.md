@@ -2,7 +2,7 @@
 
 ## 본페이지 적용 (2026-09-25)
 
-- [대회 목록](http://localhost:3000/tournaments) · [Gen.G 상세](http://localhost:3000/tournaments/meljang-2026-geng) · [참가 팀 표](http://localhost:3000/tournaments/meljang-2026-geng?tab=teams)
+- [대회 목록](http://localhost:3000/lol/tournaments) · [Gen.G 상세](http://localhost:3000/lol/tournaments/meljang-2026-geng) · [참가 팀 표](http://localhost:3000/lol/tournaments/meljang-2026-geng?tab=teams)
 - 기존 사이트 내비게이션에 **대회** 추가. 전체/멸망전/이벤트 매치 3분류, 최신 항목만 A 사진 스타일의 작은 카드(데스크톱 150px), 나머지는 B 스타일 표. 연도·대회/팀/스트리머 검색 지원.
 - 목록은 개인 기록의 `RecordTimelineRow`를 사용한다. 연도는 해당 연도의 첫 대회와 같은 줄에 표시하고 첫 연결점만 강조한다. 분류 라벨은 제목 위에 두고 연도 사이에는 간격을 둔다.
 - 상세는 A 히어로를 데스크톱 266px로 축소. 히어로 아래 4개 통계 스트립 삭제. 개요 유지, 일정/결과 탭 삭제. 해당 탭의 라운드/팀 필터·선택 경기 수·날짜 출처 차이 안내는 대진표에 통합. 경기별 세트 상세 유지.

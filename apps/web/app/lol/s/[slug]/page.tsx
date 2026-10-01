@@ -7,11 +7,11 @@ import { buildOpponentHistory } from "@soop-lol/core/lib/metrics/opponent-histor
 import { recordPeriodLabel, resolveRecordPeriod } from "@soop-lol/core/lib/metrics/record-period";
 import { Avatar } from "@/components/avatar";
 import { notFound } from "next/navigation";
-import { RecordLayout } from "../../../../../packages/ui/record-layout";
+import { RecordLayout } from "../../../../../../packages/ui/record-layout";
 import { RecordContentPanel } from "@/components/record-structure";
 import { PersonalProfileInfo } from "@/components/personal-profile-info";
 import { championById, championIconPath, formatRank } from "@soop-lol/core/lib/contract";
-import { RecordSearch } from "../../../../../packages/ui/record-search";
+import { RecordSearch } from "../../../../../../packages/ui/record-search";
 import { listPublicStreamerOptions, listPublicStreamers, listMatchRosters } from "@soop-lol/core/lib/contract";
 import { listPersonalRecords, listPersonalMatches } from "@soop-lol/core/lib/db/personal";
 import { CATEGORY_LABEL, isMatchCategoryFilter } from "@soop-lol/core/lib/metrics/category";
@@ -32,7 +32,7 @@ import {
   DEFAULT_OPPONENT_SORT, isOpponentSort, sortOpponents, type OpponentSort,
 } from "@soop-lol/core/lib/metrics/opponents";
 
-import { PageShell, SectionTitle, SiteHeader } from "@/components/public";
+import { PageShell, SectionTitle } from "@/components/public";
 import { kstYear } from "@soop-lol/core/lib/time";
 import {
   DEFAULT_PROFILE_TAB, EventList,
@@ -185,7 +185,6 @@ export default async function StreamerProfile({
 
   return (
     <>
-      <SiteHeader />
       <PageShell>
         <RecordLayout
           // 개인 기록의 우측 컬럼은 다음 스트리머 정보 모듈을 위한 자리다.

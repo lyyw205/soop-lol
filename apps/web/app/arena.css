@@ -30,6 +30,7 @@
 .arena-nav { display: flex; gap: 27px; align-self: stretch; }
 .arena-nav a { display: flex; align-items: center; color: #abb6c6; border-bottom: 3px solid transparent; padding-top: 3px; font-weight: 650; white-space: nowrap; }
 .arena-nav a:hover, .arena-nav a[aria-current] { color: #fff; border-bottom-color: #f69a60; }
+.arena-nav-divider { align-self: center; width: 1px; height: 14px; background: #465065; }
 .arena-header-note { margin-left: auto; font-size: 10px; color: #8f9db1; }
 .game-switcher { position: relative; z-index: 20; flex: none; margin-left: -18px; }
 .game-switcher summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; padding: 8px 11px; border: 1px solid #465065; border-radius: 8px; color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
@@ -720,3 +721,14 @@
   /* 팀 카드가 한 줄을 통째로 쓰므로 좁은 화면에서도 다섯 칸을 유지한다. 간격만 좁힌다. */
   .match-details-player { grid-template-columns: 24px 24px minmax(0,auto) minmax(0,1fr) auto; gap: 6px; }
 }
+
+/* ── 로비 ───────────────────────────────────────────────────────────── */
+.lobby-games { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.lobby-game { display: flex; flex-direction: column; gap: 12px; transition: border-color .15s; }
+.lobby-game:hover { border-color: #f69a60; }
+.lobby-game h2 { font-size: 18px; margin: 0; }
+.lobby-game-tag { align-self: flex-start; font-size: 11px; font-weight: 750; color: #f69a60; border: 1px solid #f69a6066; border-radius: 4px; padding: 2px 6px; }
+.lobby-game dl { display: flex; gap: 24px; }
+.lobby-game dt { color: #a6b2c4; font-size: 12px; }
+.lobby-game dd { font-size: 20px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.lobby-game-go { margin-top: auto; color: #abb6c6; font-size: 13px; }

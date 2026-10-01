@@ -28,8 +28,8 @@ export interface RegisteredModule {
    */
   provides: string[];
   navOrder: number;
-  /** 어느 게임 사이트의 메뉴에 뜨나. 게임마다 머리말(nav)이 따로다. */
-  game: "lol" | "fconline";
+  /** 어느 공간의 틀 안에서 뜨나. platform(로비) · lol · fconline. 경기의 게임 종류와는 다른 축이다. */
+  site: "platform" | "lol" | "fconline";
   jobs: ModuleJob[];
   /** 화면이 있는 모듈인가. 실제 컴포넌트는 ui.generated.ts 에 있다 (아래 ★ 참조). */
   hasUi: boolean;
@@ -47,7 +47,7 @@ export const MODULES: RegisteredModule[] = [
     routes: [{"path":"/fc/leaderboard","title":"리더보드"}],
     provides: [],
     navOrder: 20,
-    game: "fconline",
+    site: "fconline",
     jobs: [
 
     ],
@@ -62,7 +62,7 @@ export const MODULES: RegisteredModule[] = [
     routes: [{"path":"/fc/tournaments","title":"대회"},{"path":"/fc/tournaments/[slug]"}],
     provides: ["fc-tournaments"],
     navOrder: 15,
-    game: "fconline",
+    site: "fconline",
     jobs: [
 
     ],
@@ -77,7 +77,7 @@ export const MODULES: RegisteredModule[] = [
     routes: [{"path":"/fc/versus","title":"상대전적"}],
     provides: ["fc-versus"],
     navOrder: 10,
-    game: "fconline",
+    site: "fconline",
     jobs: [
 
     ],
@@ -89,10 +89,10 @@ export const MODULES: RegisteredModule[] = [
     title: "대회",
     description: "core 의 공개 대회 사실(대회·팀·경기)을 읽어 대회 목록과 대진·순위·선수 기록을 보여준다.",
     schema: "mod_tournaments",
-    routes: [{"path":"/tournaments","title":"대회"},{"path":"/tournaments/[slug]"}],
+    routes: [{"path":"/lol/tournaments","title":"대회"},{"path":"/lol/tournaments/[slug]"}],
     provides: ["tournaments"],
     navOrder: 15,
-    game: "lol",
+    site: "lol",
     jobs: [
 
     ],
@@ -104,10 +104,10 @@ export const MODULES: RegisteredModule[] = [
     title: "상대전적",
     description: "코어의 조우를 읽어 두 스트리머의 맞대결·같은 팀·맞라인을 계산해 보여준다.",
     schema: "mod_versus",
-    routes: [{"path":"/m/versus","title":"상대전적"}],
+    routes: [{"path":"/lol/versus","title":"상대전적"}],
     provides: ["versus"],
     navOrder: 10,
-    game: "lol",
+    site: "lol",
     jobs: [
       { name: "recompute", everyMinutes: 60, run: () => versus_server.recompute() },
     ],
@@ -127,8 +127,8 @@ export const moduleProviding = (capability: string): RegisteredModule | undefine
  * 동적 경로(/tournaments/[slug])는 누를 수 있는 메뉴가 아니라 뺀다.
  * navOrder 를 같이 준다 — host 가 자기 메뉴와 섞어 한 줄로 정렬한다.
  */
-export const moduleNavRoutes = (game: "lol" | "fconline" = "lol"): { path: string; title: string; navOrder: number }[] =>
-  MODULES.filter((m) => m.game === game)
+export const moduleNavRoutes = (site: RegisteredModule["site"]): { path: string; title: string; navOrder: number }[] =>
+  MODULES.filter((m) => m.site === site)
     .sort((a, b) => a.navOrder - b.navOrder || a.name.localeCompare(b.name))
     .flatMap((m) => m.routes
       .filter((r) => !r.path.includes("["))

@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { SiteNav } from "./site-nav";
-import { versusIndexHref } from "@/lib/module-links";
-import { gameHomeHref, profilePrefix, streamersHref } from "@soop-lol/core/lib/site-paths";
+import { SiteNav, type SiteNavRoute } from "./site-nav";
+import { fcVersusIndexHref, versusIndexHref } from "@/lib/module-links";
+import { gameHomeHref, lobbyHref, profilePrefix, streamersHref, type SiteGame } from "@soop-lol/core/lib/site-paths";
 
 import { moduleNavRoutes } from "@soop-lol/modules/registry";
 import type { ReactNode } from "react";
@@ -21,35 +21,62 @@ import { formatRank } from "@soop-lol/core/lib/metrics/lp";
 
 // ── 크롬 ─────────────────────────────────────────────────────────────
 
-export function SiteHeader() {
-  const versusPath = versusIndexHref();
-  const moduleRoutes = moduleNavRoutes();
-  const versusRoute = moduleRoutes.find((route) => route.path === versusPath);
-  // core 메뉴와 모듈 메뉴를 navOrder 한 줄로 섞는다. 모듈 순서는 module.json 의 navOrder
-  // (상대전적 10 · 대회 15) — 스트리머는 대회 뒤에 오도록 18 이다.
-  const routes = [
-    { path: gameHomeHref("lol"), title: versusRoute ? "전적 검색" : "홈", activePaths: versusPath ? [versusPath] : [], activePrefixes: [profilePrefix("lol")], exact: true, navOrder: 0 },
-    { path: streamersHref(), title: "스트리머", navOrder: 18 },
-    ...moduleRoutes.filter((route) => route.path !== versusPath),
+export type Site = "platform" | SiteGame;
+
+const SITE_LABEL: Record<Site, string> = { platform: "전체", lol: "LOL", fconline: "FC 온라인" };
+const SITE_NOTE: Record<Site, string> = {
+  platform: "SOOP · 스트리머 기록실",
+  lol: "LEAGUE OF LEGENDS · 스트리머 기록실",
+  fconline: "FC ONLINE · 스트리머 기록실",
+};
+const siteHome = (site: Site) => site === "platform" ? lobbyHref() : gameHomeHref(site);
+
+/**
+ * 공간마다의 메뉴. core 메뉴와 그 공간의 모듈 메뉴를 navOrder 한 줄로 섞고, 게임 공간이면 끝에
+ * 플랫폼(로비) 모듈 메뉴를 붙인다 — 게임 안에서 편성표를 누르면 그 게임 필터(`?game=`)가 걸린 채로 로비로 간다.
+ * ★ 상대전적은 '전적 검색' 한 메뉴가 같이 맡는다(그 화면에서 전적 검색이 켜진다). 모듈이 없으면 그 자리는 그냥 사라진다.
+ */
+function siteRoutes(site: Site): SiteNavRoute[] {
+  const platform: SiteNavRoute[] = moduleNavRoutes("platform").map((r) => ({
+    path: r.path, title: r.title, group: "platform",
+    href: site === "platform" ? r.path : `${r.path}?game=${site}`,
+  }));
+  if (site === "platform") return platform;
+  const versusPath = site === "lol" ? versusIndexHref() : fcVersusIndexHref();
+  const mods = moduleNavRoutes(site);
+  const hasVersus = mods.some((r) => r.path === versusPath);
+  // 모듈 순서는 module.json 의 navOrder(상대전적 10 · 대회 15) — 롤 스트리머 목록은 대회 뒤에 오도록 18 이다.
+  const own = [
+    { path: gameHomeHref(site), title: site === "lol" && !hasVersus ? "홈" : "전적 검색",
+      activePaths: versusPath ? [versusPath] : [], activePrefixes: [profilePrefix(site)], exact: true, navOrder: 0 },
+    ...(site === "lol" ? [{ path: streamersHref(), title: "스트리머", navOrder: 18 }] : []),
+    ...mods.filter((r) => r.path !== versusPath),
   ].sort((a, b) => a.navOrder - b.navOrder);
+  return [...own, ...platform];
+}
+
+/** 공개 화면 머리말. 로비·롤·FC 가 같은 부품을 쓴다 — 공간마다 따로 그리면 메뉴 규칙이 어긋난다. */
+export function SiteHeader({ site }: { site: Site }) {
   return (
-    <header className="arena-header">
+    <header className={site === "fconline" ? "arena-header fc-header" : "arena-header"}>
       <div className="arena-header-inner">
-        <Link href={gameHomeHref("lol")} className="arena-brand" aria-label="SOOP LOL 홈"><span className="arena-brandmark">S</span>SOOP<span>LOL</span></Link>
-        <GameSwitcher game="lol" />
-        <SiteNav routes={routes} />
-        <span className="arena-header-note">LEAGUE OF LEGENDS · 스트리머 기록실</span>
+        <Link href={siteHome(site)} className="arena-brand" aria-label={site === "platform" ? "SOOP 홈" : `SOOP ${SITE_LABEL[site]} 홈`}>
+          <span className="arena-brandmark">S</span>SOOP{site !== "platform" && <span>{SITE_LABEL[site]}</span>}
+        </Link>
+        <GameSwitcher site={site} />
+        <SiteNav routes={siteRoutes(site)} />
+        <span className="arena-header-note">{SITE_NOTE[site]}</span>
       </div>
     </header>
   );
 }
 
-export function GameSwitcher({ game }: { game: "lol" | "fconline" }) {
+export function GameSwitcher({ site }: { site: Site }) {
   return <details className="game-switcher">
-    <summary aria-label="게임 선택">{game === "lol" ? "LOL" : "FC 온라인"}<span aria-hidden="true">⌄</span></summary>
+    <summary aria-label="게임 선택">{SITE_LABEL[site]}<span aria-hidden="true">⌄</span></summary>
     <div className="game-switcher-menu">
-      <Link href={gameHomeHref("lol")} aria-current={game === "lol" ? "page" : undefined}>LOL</Link>
-      <Link href={gameHomeHref("fconline")} aria-current={game === "fconline" ? "page" : undefined}>FC 온라인</Link>
+      {(["platform", "lol", "fconline"] as const).map((s) =>
+        <Link key={s} href={siteHome(s)} aria-current={site === s ? "page" : undefined}>{SITE_LABEL[s]}</Link>)}
     </div>
   </details>;
 }

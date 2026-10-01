@@ -6,7 +6,7 @@ core 는 **데이터와 계산**을 소유하고, 모듈은 **그걸로 만드�
 ### 무엇이 core 고 무엇이 모듈인가 (2026-09-25 결정)
 
 - **core** — 사실(사람·계정·경기·대회·팀·순위의 저장과 수집·검수), 공개 정책(`core_public`),
-  여러 기능이 같이 쓰는 계산(LP·KDA·날짜·표시 규칙). 사람 명부(`/streamers`)·프로필(`/s/[slug]`)도 core 다.
+  여러 기능이 같이 쓰는 계산(LP·KDA·날짜·표시 규칙). 사람 명부(`/lol/streamers`)·프로필(`/lol/s/[slug]`)·로비(`/`)도 core 다.
 - **모듈** — 기능별 정책과 화면. 무엇을 어떻게 묶어 해석하고 보여줄지(맞대결 집계, 대회 분류·
   시리즈 점수·선수 기록 …).
 - **핵심 기능도 모듈일 수 있다.** 기준은 "사이트에 중요한가" 가 아니라 "그 기능의 정책과 화면을
@@ -78,7 +78,7 @@ packages/modules/
     migrations/         mod_<name> 스키마만
     server/             집계·잡
     ui/                 화면 (선택)
-apps/web/               core 화면 + 모듈 마운트(app/[...path] — 등록부의 경로를 본다)
+apps/web/               core 화면 + 모듈 마운트(공간마다 하나: app/[...path] 로비 · app/lol/[...path] · app/fc/[...path])
 apps/worker/            Engine A~D + 모듈 잡
 ```
 
@@ -174,7 +174,8 @@ mkdir -p packages/modules/<name>/{migrations,server,ui}
 {
   "name": "<name>", "version": "0.1.0", "title": "표시 이름",
   "schema": "mod_<name>",
-  "routes": [{ "path": "/<name>", "title": "표시 이름" }, { "path": "/<name>/[slug]" }],
+  "site": "lol",
+  "routes": [{ "path": "/lol/<name>", "title": "표시 이름" }, { "path": "/lol/<name>/[slug]" }],
   "navOrder": 30,
   "jobs": [{ "name": "recompute", "everyMinutes": 30 }]
 }
@@ -182,12 +183,15 @@ mkdir -p packages/modules/<name>/{migrations,server,ui}
 
 - `jobs[].name` 은 `server/index.ts` 의 export 이름과 같아야 한다. 자기 테이블이 없으면 잡도
   `migrations/` 도 없어도 된다(대회 모듈이 그렇다)
-- **`routes[].path` 가 곧 주소다.** host 의 `app/[...path]` 가 등록부(`matchModuleRoute`)에 주소를 묻고
+- **`routes[].path` 가 곧 주소다.** 그 공간의 마운트가 등록부(`matchModuleRoute`)에 주소를 묻고
   `ui/page.tsx` 를 띄운다. `[name]` 한 칸이 `params.name` 이 된다. 더 구체적인 core 라우트가 언제나 먼저다
 - `ui/page.tsx` 는 `{ params, searchParams }` 를 받고, `generateMetadata` 를 export 하면 host 가 제목을 거기서 받는다
 - nav 에는 파라미터 없는 경로만 뜬다. core 메뉴와 `navOrder` 한 줄로 섞여 정렬된다
-- `"game": "fconline"` 이면 FC 사이트 메뉴에 뜨고, FC 레이아웃 안의 마운트(`app/fc/[...path]`)가 띄운다.
-  안 적으면 `lol`
+- **`site` 는 어느 공간의 틀(머리말) 안에서 뜨는가**다: `platform`(로비, `app/[...path]`) · `lol`(`app/lol/[...path]`) ·
+  `fconline`(`app/fc/[...path]`). 안 적으면 `lol`. 경로는 그 공간 주소 아래여야 한다(`/lol/…`·`/fc/…`, 로비는 그 둘 밖) —
+  어기면 `modules:sync` 가 멈춘다. ★ 경기 데이터의 게임 종류(`game_code`)와는 다른 축이라 이름이 `game` 이 아니다.
+  옛 이름 `game` 이 남아 있어도 `modules:sync` 가 멈춘다
+- 게임 공간 머리말 끝에는 플랫폼 모듈 메뉴가 붙는다(`?game=<그 게임>` 을 달고 로비로 간다)
 - **주소를 글자로 쓰지 않는다** — core 화면(프로필·스트리머 목록·게임 홈·FC 경기)은 계약의 주소 함수
   (`profileHref(game, slug)` 등, 정본 `core/lib/site-paths.ts`)로, 자기 화면은 `module.json` 의 `routes` 를
   `routeHref(manifest.routes, 파라미터)` 에 넘겨 만든다(`ui/paths.ts`). 모듈·공용 UI 에 `/` 로 시작하는 문자열이

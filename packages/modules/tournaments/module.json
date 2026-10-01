@@ -5,8 +5,8 @@
   "description": "core 의 공개 대회 사실(대회·팀·경기)을 읽어 대회 목록과 대진·순위·선수 기록을 보여준다.",
   "schema": "mod_tournaments",
   "routes": [
-    { "path": "/tournaments", "title": "대회" },
-    { "path": "/tournaments/[slug]" }
+    { "path": "/lol/tournaments", "title": "대회" },
+    { "path": "/lol/tournaments/[slug]" }
   ],
   "provides": ["tournaments"],
   "navOrder": 15

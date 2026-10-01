@@ -7,7 +7,8 @@ import { SiteHeader } from "@/components/public";
 import { roleHref } from "@/lib/module-links";
 
 /**
- * 모듈 화면 마운트 지점. core 화면이 차지하지 않은 주소는 전부 여기로 온다.
+ * **로비(플랫폼 공간)** 모듈 화면 마운트 지점. core 화면이 차지하지 않은 주소는 전부 여기로 온다.
+ * 게임 공간 모듈은 각자의 마운트(app/lol/[...path], app/fc/[...path])가 그 게임 틀 안에서 띄운다.
  *
  * core 웹은 어떤 모듈이 있는지 **모른다**. 등록부에 "이 주소를 선언한 모듈이 있나" 만 묻는다.
  * 모듈이 module.json 에 적은 경로가 곧 주소다(/tournaments/[slug], /m/versus …).
@@ -26,8 +27,7 @@ type Props = {
 
 async function resolve(props: Props) {
   const hit = matchModuleRoute((await props.params).path);
-  // FC 모듈은 FC 레이아웃 안의 마운트(app/fc/[...path])가 띄운다.
-  const load = hit?.module.game === "lol" ? moduleUi(hit.module.name) : undefined;
+  const load = hit?.module.site === "platform" ? moduleUi(hit.module.name) : undefined;
   if (!hit || !load) return null;
   return { params: hit.params, searchParams: await props.searchParams, ui: await load() };
 }
@@ -44,7 +44,7 @@ export default async function ModuleRoutePage(props: Props) {
   const View = r.ui.default;
   return (
     <>
-      <SiteHeader />
+      <SiteHeader site="platform" />
       <main className="arena-shell">
         <View params={r.params} searchParams={r.searchParams} roleHref={roleHref} />
       </main>

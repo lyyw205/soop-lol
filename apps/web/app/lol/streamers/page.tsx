@@ -9,7 +9,7 @@ import {
   type SortDirection, type StreamerSort,
 } from "@soop-lol/core/lib/metrics/streamer-sort";
 
-import { EmptyLine, PageShell, RankChip, SiteHeader } from "@/components/public";
+import { EmptyLine, PageShell, RankChip } from "@/components/public";
 
 export const metadata = { title: "스트리머" };
 export const dynamic = "force-dynamic";
@@ -78,7 +78,6 @@ export default async function StreamersPage({
 
   return (
     <>
-      <SiteHeader />
       <PageShell>
         {/* 개인 기록과 같은 2단 틀. 오른쪽은 다음 모듈 자리로 비워 둔다 — 지금 비어 있어도
             본문 폭이 개인 기록·상대전적과 같아야 페이지를 옮겨도 시선 축이 안 흔들린다. */}

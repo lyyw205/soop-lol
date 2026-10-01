@@ -14,8 +14,11 @@
 
 export type SiteGame = "lol" | "fconline";
 
-/** 게임 사이트의 뿌리. 롤을 옮길 때 고칠 곳은 여기 한 줄이다. */
-const GAME_BASE: Record<SiteGame, string> = { lol: "", fconline: "/fc" };
+/**
+ * 게임 공간의 뿌리. 주소를 옮길 때 고칠 곳은 여기 한 줄이다.
+ * `/` 는 게임과 무관한 로비(플랫폼 공간)다 — docs/PLATFORM-LAYER-PLAN.md. 롤은 2026-10-02 에 `/` 에서 `/lol` 로 옮겼다.
+ */
+const GAME_BASE: Record<SiteGame, string> = { lol: "/lol", fconline: "/fc" };
 
 export type HrefQuery = Record<string, string | number | null | undefined> | URLSearchParams;
 
@@ -27,8 +30,11 @@ function withQuery(path: string, query?: HrefQuery): string {
   return qs ? `${path}?${qs}` : path;
 }
 
-/** 게임 사이트 첫 화면. */
-export const gameHomeHref = (game: SiteGame): string => GAME_BASE[game] || "/";
+/** 로비(플랫폼 공간) 첫 화면. */
+export const lobbyHref = (): string => "/";
+
+/** 게임 공간 첫 화면. */
+export const gameHomeHref = (game: SiteGame): string => GAME_BASE[game];
 
 /** 스트리머 개인 기록. */
 export const profileHref = (game: SiteGame, slug: string, query?: HrefQuery): string =>

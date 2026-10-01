@@ -6,7 +6,7 @@
   "schema": "mod_versus",
   "routes": [
     {
-      "path": "/m/versus",
+      "path": "/lol/versus",
       "title": "상대전적"
     }
   ],

@@ -67,6 +67,18 @@ function games(rows: GameRow[]): FcoGame[] {
   return rows.map((row) => ({ ...row, participants: row.participants ?? [] }));
 }
 
+/**
+ * 공개 FC 경기의 조건. 경기 목록과 집계(countFcoPublic)가 같은 조건을 쓴다 — 두 벌이면 숫자와 목록이 어긋난다.
+ * 공개 경기이고, 공개 연결된 공개 스트리머가 한 명 이상 있다.
+ */
+const PUBLIC_FCO_MATCH = `m.game_code = 'fconline' AND m.visibility = 'public'
+    AND EXISTS (SELECT 1 FROM fco_match_participant visible
+      JOIN streamer_fco_account visible_link ON visible_link.ouid = visible.ouid
+        AND visible_link.visibility = 'public'
+      JOIN streamer visible_streamer ON visible_streamer.id = visible_link.streamer_id
+        AND visible_streamer.visibility = 'public'
+      WHERE visible.match_id = m.match_id)`;
+
 const gameSelect = `
   m.match_id AS id, d.provider_match_id AS provider_id, m.game_creation AS played_at,
   m.mode_key, COALESCE(ms.event_id, m.event_id) AS event_id,
@@ -92,13 +104,7 @@ const gameSelect = `
   JOIN fco_match_detail d ON d.match_id = m.match_id
   LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = 'fconline'
   LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id) AND e.game_code = 'fconline'
-  WHERE m.game_code = 'fconline' AND m.visibility = 'public'
-    AND EXISTS (SELECT 1 FROM fco_match_participant visible
-      JOIN streamer_fco_account visible_link ON visible_link.ouid = visible.ouid
-        AND visible_link.visibility = 'public'
-      JOIN streamer visible_streamer ON visible_streamer.id = visible_link.streamer_id
-        AND visible_streamer.visibility = 'public'
-      WHERE visible.match_id = m.match_id)`;
+  WHERE ${PUBLIC_FCO_MATCH}`;
 
 export async function listFcoPeople(): Promise<FcoPerson[]> {
   return db()<FcoPerson[]>`
@@ -115,6 +121,18 @@ export async function listFcoPeople(): Promise<FcoPerson[]> {
      GROUP BY s.id
      ORDER BY name
   `;
+}
+
+/** 로비의 FC 카드 숫자. 경기는 공개 FC 경기 수, 사람은 FC 기록 화면이 있는 스트리머 수(listFcoPeople 과 같은 조건). */
+export async function countFcoPublic(): Promise<{ people: number; matches: number }> {
+  const rows = await db().unsafe<{ people: number; matches: number }[]>(`
+    SELECT (SELECT count(DISTINCT s.id)::int
+              FROM streamer s
+              JOIN streamer_fco_account link ON link.streamer_id = s.id AND link.visibility = 'public'
+             WHERE s.visibility = 'public') AS people,
+           (SELECT count(*)::int FROM match m WHERE ${PUBLIC_FCO_MATCH}) AS matches
+  `);
+  return rows[0];
 }
 
 export async function getFcoPerson(slug: string): Promise<FcoPerson | null> {

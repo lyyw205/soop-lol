@@ -16,6 +16,8 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { gameHomeHref } from "../packages/core/lib/site-paths.ts";
+
 const ROOT = join(import.meta.dirname, "..");
 const MODULES_DIR = join(ROOT, "packages", "modules");
 const OUT = join(MODULES_DIR, "registry.generated.ts");
@@ -32,10 +34,19 @@ interface Manifest {
   provides?: string[];
   /** nav 에 뜨는 순서. 작을수록 앞. 안 적으면 100. */
   navOrder?: number;
-  /** 어느 게임 사이트의 메뉴에 뜨나. 안 적으면 lol. */
-  game?: "lol" | "fconline";
+  /**
+   * 어느 공간의 틀(머리말) 안에서 뜨나. 안 적으면 lol.
+   * ★ 경기 데이터의 게임 종류(game_code)와는 다른 축이다 — 그래서 이름이 game 이 아니다.
+   *   예전 이름 game 이 남아 있으면 조용히 lol 로 떨어지지 않게 생성을 멈춘다.
+   */
+  site?: Site;
   jobs?: { name: string; everyMinutes: number }[];
 }
+
+type Site = "platform" | "lol" | "fconline";
+const SITES: Site[] = ["platform", "lol", "fconline"];
+/** 그 공간의 주소 앞부분. 게임 공간 주소는 core 의 site-paths 가 정본이다. */
+const siteBase = (site: Site) => site === "platform" ? "" : gameHomeHref(site);
 
 const manifests: Manifest[] = [];
 if (existsSync(MODULES_DIR)) {
@@ -46,6 +57,18 @@ if (existsSync(MODULES_DIR)) {
     if (!existsSync(mf)) continue;
     const m = JSON.parse(readFileSync(mf, "utf8")) as Manifest;
     if (m.name !== dir) throw new Error(`module.json 의 name(${m.name}) 이 디렉터리(${dir})와 다르다`);
+    if ("game" in m) throw new Error(`${dir}/module.json: "game" 은 "site" 로 바뀌었다 (docs/PLATFORM-LAYER-PLAN.md)`);
+    const site = m.site ?? "lol";
+    if (!SITES.includes(site)) throw new Error(`${dir}/module.json: site 는 ${SITES.join("·")} 중 하나다 — ${site}`);
+    // 모듈 경로는 자기 공간의 주소 아래에 있어야 그 공간의 마운트가 띄운다. 아니면 조용히 404 가 된다.
+    const others = SITES.filter((x) => x !== site && x !== "platform").map(siteBase);
+    for (const r of m.routes ?? []) {
+      const base = siteBase(site);
+      const inside = site === "platform"
+        ? !others.some((o) => r.path === o || r.path.startsWith(`${o}/`))
+        : r.path.startsWith(`${base}/`);
+      if (!inside) throw new Error(`${dir}/module.json: 경로 ${r.path} 가 ${site} 공간(${base || "/"}) 밖이다`);
+    }
     manifests.push(m);
   }
 }
@@ -89,8 +112,8 @@ export interface RegisteredModule {
    */
   provides: string[];
   navOrder: number;
-  /** 어느 게임 사이트의 메뉴에 뜨나. 게임마다 머리말(nav)이 따로다. */
-  game: "lol" | "fconline";
+  /** 어느 공간의 틀 안에서 뜨나. platform(로비) · lol · fconline. 경기의 게임 종류와는 다른 축이다. */
+  site: "platform" | "lol" | "fconline";
   jobs: ModuleJob[];
   /** 화면이 있는 모듈인가. 실제 컴포넌트는 ui.generated.ts 에 있다 (아래 ★ 참조). */
   hasUi: boolean;
@@ -120,7 +143,7 @@ ${manifests
     routes: ${JSON.stringify(m.routes ?? [])},
     provides: ${JSON.stringify(m.provides ?? [])},
     navOrder: ${m.navOrder ?? 100},
-    game: ${JSON.stringify(m.game ?? "lol")},
+    site: ${JSON.stringify(m.site ?? "lol")},
     jobs: [
 ${jobs}
     ],
@@ -142,8 +165,8 @@ export const moduleProviding = (capability: string): RegisteredModule | undefine
  * 동적 경로(/tournaments/[slug])는 누를 수 있는 메뉴가 아니라 뺀다.
  * navOrder 를 같이 준다 — host 가 자기 메뉴와 섞어 한 줄로 정렬한다.
  */
-export const moduleNavRoutes = (game: "lol" | "fconline" = "lol"): { path: string; title: string; navOrder: number }[] =>
-  MODULES.filter((m) => m.game === game)
+export const moduleNavRoutes = (site: RegisteredModule["site"]): { path: string; title: string; navOrder: number }[] =>
+  MODULES.filter((m) => m.site === site)
     .sort((a, b) => a.navOrder - b.navOrder || a.name.localeCompare(b.name))
     .flatMap((m) => m.routes
       .filter((r) => !r.path.includes("["))
