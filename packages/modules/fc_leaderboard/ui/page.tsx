@@ -3,7 +3,7 @@
  * core 는 스트리머별 집계만 준다 — **줄 세우는 규칙은 이 모듈의 것이다.**
  */
 import Link from "next/link";
-import { listFcoLeaderboard, type FcoRankRow } from "@soop-lol/core/lib/contract";
+import { listFcoLeaderboard, profileHref, type FcoRankRow } from "@soop-lol/core/lib/contract";
 
 /** 승이 많은 순 → 골 → 경기 수 → 이름. */
 const byStanding = (a: FcoRankRow, b: FcoRankRow) =>
@@ -22,7 +22,7 @@ export default async function FcLeaderboard() {
       {rows.length ? <div className="fc-table-wrap"><table className="fc-table">
         <thead><tr><th>스트리머</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>승률</th><th>골</th></tr></thead>
         <tbody>{rows.map((row, i) => <tr key={row.id}>
-          <td>{i + 1}. <Link href={`/fc/s/${row.slug}`}>{row.name}</Link></td>
+          <td>{i + 1}. <Link href={profileHref("fconline", row.slug)}>{row.name}</Link></td>
           <td>{row.games}</td><td>{row.wins}</td><td>{row.draws}</td><td>{row.losses}</td>
           <td>{row.games ? `${Math.round(row.wins / row.games * 100)}%` : "—"}</td><td>{row.goals}</td>
         </tr>)}</tbody>

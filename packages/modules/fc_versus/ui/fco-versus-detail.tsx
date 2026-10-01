@@ -11,7 +11,7 @@ import { RecordContentPanel, RecordSectionTabs } from "../../../ui/record-struct
 import { FcRecordSearch } from "../../../ui/fc/fco-record-search.tsx";
 import { FcoVersusOverview } from "../../../ui/fc/fco-overview.tsx";
 import { FcoMatchList } from "../../../ui/fc/fco-records.tsx";
-import { VERSUS_PATH } from "./paths.ts";
+import { versusHref } from "./paths.ts";
 
 export function FcoVersusDetail({ a, b, people, games, initialTab, metrics, players }: {
   a: FcoPerson; b: FcoPerson; people: FcoPerson[]; games: FcoGame[];
@@ -26,12 +26,12 @@ export function FcoVersusDetail({ a, b, people, games, initialTab, metrics, play
     && withinRecordPeriod(game.played_at, period))
     .sort((left, right) => new Date(right.played_at).getTime() - new Date(left.played_at).getTime()), [games, mode, period]);
   const displayed = sort === "recent" ? filtered : [...filtered].reverse();
-  const base = `${VERSUS_PATH}?a=${encodeURIComponent(a.slug)}&b=${encodeURIComponent(b.slug)}`;
-  const swap = `${VERSUS_PATH}?a=${encodeURIComponent(b.slug)}&b=${encodeURIComponent(a.slug)}`;
+  const base = versusHref({ a: a.slug, b: b.slug });
+  const swap = versusHref({ a: b.slug, b: a.slug });
   const modeLabel = mode === "all" ? "전체 경기" : FCO_MODE_LABEL[mode] ?? `모드 ${mode}`;
 
   return <>
-    <FcRecordSearch people={people} a={a.slug} b={b.slug} mode="versus" versusPath={VERSUS_PATH} />
+    <FcRecordSearch people={people} a={a.slug} b={b.slug} mode="versus" versusPath={versusHref()} />
     <RecordFilters category={mode} categoryLabel="경기 모드" year="all" years={[]}
       categories={[{ value: "all", label: "전체 경기" }, ...modes.map((key) => ({ value: key, label: FCO_MODE_LABEL[key] ?? `모드 ${key}` }))]}
       onCategoryChange={setMode} onYearChange={() => {}}
@@ -64,8 +64,8 @@ export function FcoVersusDetail({ a, b, people, games, initialTab, metrics, play
     <div id="related-records">
       <RecordSectionTabs active={initialTab} label="상대 전적 추가 기록" items={[
         { key: "games", label: "경기 기록", href: base },
-        { key: "metrics", label: "경기 지표", href: `${base}&tab=metrics` },
-        { key: "players", label: "사용 선수", href: `${base}&tab=players` },
+        { key: "metrics", label: "경기 지표", href: versusHref({ a: a.slug, b: b.slug, tab: "metrics" }) },
+        { key: "players", label: "사용 선수", href: versusHref({ a: a.slug, b: b.slug, tab: "players" }) },
       ]} />
       {initialTab !== "games" && <RecordContentPanel className="fc-tab-panel">
         <h2>{initialTab === "metrics" ? "경기 지표" : "사용 선수"} <small>전체 맞대결 기준</small></h2>

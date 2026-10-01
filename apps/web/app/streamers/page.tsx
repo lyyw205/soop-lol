@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { profileHref, streamersHref } from "@soop-lol/core/lib/site-paths";
 import type { ReactNode } from "react";
 import { Avatar } from "@/components/avatar";
 
@@ -56,8 +57,7 @@ export default async function StreamersPage({
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (next.sort) { params.set("sort", next.sort); params.set("dir", next.dir!); }
-    const qs = params.toString();
-    return qs ? `/streamers?${qs}` : "/streamers";
+    return streamersHref(params);
   }
   function SortHeader({ column, children, className }: { column: StreamerSort; children: ReactNode; className?: string }) {
     const on = sort === column;
@@ -97,7 +97,7 @@ export default async function StreamersPage({
           </div>
 
           {/* 검색은 서버 렌더로 충분하다 — 40명 규모에 클라이언트 상태를 둘 이유가 없다. */}
-          <form className="flex gap-2" action="/streamers">
+          <form className="flex gap-2" action={streamersHref()}>
             <input
               type="search"
               name="q"
@@ -150,7 +150,7 @@ export default async function StreamersPage({
                         <span className="record-cell-name">
                           <Avatar name={c.display_name} src={c.profile_image_url}
                             channelId={c.platform === "soop" ? c.channel_id : null} />
-                          <Link href={`/s/${c.slug}`} title={c.display_name}>{c.display_name}</Link>
+                          <Link href={profileHref("lol", c.slug)} title={c.display_name}>{c.display_name}</Link>
                           {c.is_pro && <em className="streamer-pro">前프로</em>}
                         </span>
                       </th>

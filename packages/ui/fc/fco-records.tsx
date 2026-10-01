@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import {
-  addFcoStats, EMPTY_FCO_STATS, fcoNumber, FCO_MODE_LABEL, kstDateString,
+  addFcoStats, EMPTY_FCO_STATS, fcMatchHref, fcoNumber, FCO_MODE_LABEL, kstDateString, profileHref,
   type FcoGame, type FcoParticipant, type FcoStatLine,
 } from "@soop-lol/core/lib/contract";
 import { RecordTimeline, RecordTimelineRow, RecordTimelineYear } from "../record-structure.tsx";
@@ -33,7 +33,7 @@ export function FcoMatchList({ games, perspectiveStreamerId, rowIdPrefix }: { ga
         dateTime={kstDateString(new Date(game.played_at))} title={fcDate(game.played_at)} result={result}
         date={showDate ? <><span className="personal-match-date-year">{date.slice(0, 5)}</span>{date.slice(5)}</> : <span className="sr-only">{date}</span>}>
         <div className="personal-match-detail">
-          <Link className="arena-match-toggle personal-match-toggle fc-history-link" href={`/fc/m/${encodeURIComponent(game.provider_id)}`}>
+          <Link className="arena-match-toggle personal-match-toggle fc-history-link" href={fcMatchHref(game.provider_id)}>
             <span className="record-match-event" title={game.event_name ?? "일반 경기"}><span className="record-match-clip">{game.event_name ?? "일반 경기"}</span></span>
             <span className="personal-match-teams"><span className="record-match-clip">{a?.streamer_name ?? a?.nickname ?? "미확인"}</span>
               <strong>{a?.score_display ?? a?.goals ?? "?"}<i>:</i>{b?.score_display ?? b?.goals ?? "?"}</strong>
@@ -71,7 +71,7 @@ export function FcoStatsTable({ games, emptyMessage = "대회에 연결된 경�
     <thead><tr><th>참가자</th><th>경기</th><th>승-무-패</th><th>골</th><th>슛</th><th>유효 슛</th><th>패스 성공</th><th>평균 점유율</th><th>태클 성공</th></tr></thead>
     <tbody>{[...lines.values()].sort((a,b) => b.stats.wins-a.stats.wins || b.stats.goals-a.stats.goals).map(({name,slug,stats}) =>
       <tr key={`${name}:${slug}`}>
-        <td>{slug ? <Link href={`/fc/s/${slug}`}>{name}</Link> : name}</td>
+        <td>{slug ? <Link href={profileHref("fconline", slug)}>{name}</Link> : name}</td>
         <td>{stats.games}</td><td>{stats.wins}-{stats.draws}-{stats.losses}</td>
         <td>{stats.goals}</td><td>{stats.shots}</td><td>{stats.shotsOnTarget}</td>
         <td>{stats.passTry ? `${Math.round(stats.passSuccess/stats.passTry*100)}%` : "—"}</td>
@@ -140,7 +140,7 @@ export function FcoTournamentPlayers({ games, names, emptyMessage = "선수별 �
     <tbody>{[...rows.values()].sort((a,b) => b.goals-a.goals || b.assists-a.assists || b.games-a.games).map((line) =>
       <tr key={`${line.slug}:${line.playerId}`}>
         <td>{names.get(line.playerId) ?? `선수 ${line.playerId}`}</td>
-        <td>{line.slug ? <Link href={`/fc/s/${line.slug}`}>{line.streamer}</Link> : line.streamer}</td>
+        <td>{line.slug ? <Link href={profileHref("fconline", line.slug)}>{line.streamer}</Link> : line.streamer}</td>
         <td>{line.games}</td><td>{line.goals}</td><td>{line.assists}</td>
         <td>{line.rated ? (line.rating/line.rated).toFixed(1) : "—"}</td>
         <td>{line.passTry ? `${Math.round(line.passes/line.passTry*100)}%` : "—"}</td>

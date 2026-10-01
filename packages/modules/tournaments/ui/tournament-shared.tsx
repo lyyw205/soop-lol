@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, ExternalLink, Trophy, CalendarDays } from "lucide-react";
 import type { TournamentSummary } from "../server/tournament.ts";
+import { tournamentDetailHref } from "./paths.ts";
 /**
  * ★ **연출만.** 이 대회는 전용 사진·제목 장식·대진표 배치를 쓴다. 사실(순위·팀장·등급·상금·
  *   안내·출처)은 전부 core DB 에서 온다 — 여기에 사실을 적지 않는다.
@@ -15,7 +16,7 @@ export const positions = [
   ["UTILITY", "SUP"],
 ] as const;
 export const tournamentHref = (slug: string, tab?: string) =>
-  `/tournaments/${encodeURIComponent(slug)}${tab && tab !== "overview" ? `?tab=${tab}` : ""}`;
+  tournamentDetailHref(slug, tab && tab !== "overview" ? { tab } : undefined);
 export const dotted = (date: string | null) =>
   date ? date.replaceAll("-", ".") : "일정 미정";
 export const period = (e: TournamentSummary) =>

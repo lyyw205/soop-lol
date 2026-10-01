@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { listStreamers } from "@soop-lol/core/lib/db/streamers";
+import { profileHref } from "@soop-lol/core/lib/site-paths";
 
 import { SetupNotice } from "@/components/admin/SetupNotice";
 import { StreamerCreateForm } from "@/components/admin/StreamerForms";
@@ -64,7 +65,7 @@ export default async function StreamersPage({
                       {s.visibility === "hidden" && <Tag tone="warn">숨김</Tag>}
                     </div>
                     <div className="mt-0.5 truncate text-xs text-ink-400">
-                      /s/{s.slug}
+                      {profileHref("lol", s.slug)}
                       {s.channel_id && ` · ${s.platform ?? "soop"} ${s.channel_id}`}
                       {s.channel_count > 1 && ` (+${s.channel_count - 1})`}
                     </div>

@@ -3,6 +3,7 @@
 // Shared presentation only: the host and optional modules supply public search options.
 import { useId, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { profileHref, type SiteGame } from "@soop-lol/core/lib/contract";
 
 export interface RecordSearchOption {
   slug: string;
@@ -60,9 +61,9 @@ function PersonField({ label, options, value, onChange, hidden = false }: {
   </div>;
 }
 
-export function RecordSearch({ options, a, b, mode = "versus", versusPath, personalPathPrefix = "/s", includeOpponentInPersonal = true, category, year, personalHint, versusHint }: {
+export function RecordSearch({ options, a, b, mode = "versus", versusPath, game = "lol", includeOpponentInPersonal = true, category, year, personalHint, versusHint }: {
   options: RecordSearchOption[]; a?: string; b?: string; mode?: "personal" | "versus";
-  versusPath?: string | null; personalPathPrefix?: string; includeOpponentInPersonal?: boolean; category?: string; year?: number;
+  versusPath?: string | null; game?: SiteGame; includeOpponentInPersonal?: boolean; category?: string; year?: number;
   personalHint?: string; versusHint?: string;
 }) {
   const [selectedMode, setMode] = useState(versusPath ? mode : "personal");
@@ -83,7 +84,7 @@ export function RecordSearch({ options, a, b, mode = "versus", versusPath, perso
     if (year) query.set("year",String(year));
     let path: string;
     if (selectedMode === "personal") {
-      path = `${personalPathPrefix}/${encodeURIComponent(left.slug)}`;
+      path = profileHref(game, left.slug);
       if (includeOpponentInPersonal && right.slug && right.slug !== left.slug) query.set("opponent",right.slug);
     } else {
       if (!versusPath) return;

@@ -2,6 +2,7 @@ import { listPublicStreamers, listEncountersBetween } from "@soop-lol/core/lib/c
 import { topPairs } from "../server/index.ts";
 import Link from "next/link";
 import { Portrait } from "./fixture.tsx";
+import { versusHref } from "./paths.ts";
 
 /** 목록 숫자는 맞대결 세트 승수. 같은 팀 기록은 포함하지 않는다. */
 export async function TopPairs({ exclude }: { exclude?: [string, string] }) {
@@ -16,7 +17,7 @@ export async function TopPairs({ exclude }: { exclude?: [string, string] }) {
     const wins = rows.filter((g) => (xFirst ? g.a_outcome : g.b_outcome) === "win").length;
     const losses = rows.length - wins;
     return <li key={`${x.slug}-${y.slug}`}><Link className="arena-pair-row"
-      href={`/m/versus?a=${encodeURIComponent(x.slug)}&b=${encodeURIComponent(y.slug)}`}
+      href={versusHref({ a: x.slug, b: y.slug })}
       aria-label={`${x.display_name} 대 ${y.display_name} · 세트 ${wins} 대 ${losses}`}>
       <span className="arena-pair-person"><Portrait person={x} /><span title={x.display_name}>{x.display_name}</span></span>
       <span className="arena-pair-score">

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { FcoGame, FcoPerson } from "@soop-lol/core/lib/contract";
+import { fcMatchHref, profileHref, type FcoGame, type FcoPerson } from "@soop-lol/core/lib/contract";
 import { Avatar } from "../avatar.tsx";
 import { RecordOverviewCard } from "../record-structure.tsx";
 import { fcDate, statsForGames } from "./fco-records.tsx";
@@ -55,7 +55,7 @@ export function FcoVersusOverview({ a, b, games, periodLabel = "수집한 경기
     <RecordOverviewCard className="record-overview fc-versus-card" label="상대전적 요약">
       <div className="arena-fixture-top">FC 온라인 <span className="arena-fixture-sep" aria-hidden="true">|</span> {periodLabel}</div>
       <div className="arena-duel">
-        <Link href={`/fc/s/${a.slug}`} className="arena-person">
+        <Link href={profileHref("fconline", a.slug)} className="arena-person">
           <span className="arena-disc"><Avatar name={a.name} src={a.image} channelId={a.channel_id} /><i className="arena-person-badge">기준</i></span>
           <strong className="arena-person-name">{a.name}</strong><small>{a.nickname}</small>
         </Link>
@@ -65,7 +65,7 @@ export function FcoVersusOverview({ a, b, games, periodLabel = "수집한 경기
             <path d="M2.5 5h9M9 2.5 11.5 5 9 7.5M13.5 11h-9M7 8.5 4.5 11 7 13.5" />
           </svg>
         </Link>}
-        <Link href={`/fc/s/${b.slug}`} className="arena-person">
+        <Link href={profileHref("fconline", b.slug)} className="arena-person">
           <span className="arena-disc"><Avatar name={b.name} src={b.image} channelId={b.channel_id} /></span>
           <strong className="arena-person-name">{b.name}</strong><small>{b.nickname}</small>
         </Link>
@@ -87,7 +87,7 @@ export function FcoVersusOverview({ a, b, games, periodLabel = "수집한 경기
             ? <button type="button" className="fc-form-chip" data-result={outcome} title={title}
                 aria-label={`${title} · 경기 기록으로 이동`} onClick={() => onRecentSelect(game)}>{label}</button>
             : <Link className="fc-form-chip" data-result={outcome} title={title}
-                aria-label={`${title} · 경기 상세 보기`} href={`/fc/m/${encodeURIComponent(game.provider_id)}`}>{label}</Link>}</li>;
+                aria-label={`${title} · 경기 상세 보기`} href={fcMatchHref(game.provider_id)}>{label}</Link>}</li>;
         })}</ol>
         <span className="record-form-hint">오래된 → 최근</span>
       </div>}

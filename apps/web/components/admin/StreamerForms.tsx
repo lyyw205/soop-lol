@@ -5,6 +5,7 @@ import { useActionState } from "react";
 import { createStreamerAction, updateStreamerAction } from "@/app/admin/actions";
 import { IDLE } from "@/lib/action-state";
 import type { StreamerRow } from "@soop-lol/core/lib/db/types";
+import { profilePrefix } from "@soop-lol/core/lib/site-paths";
 
 import { ActionMessage, CheckField, Field, SelectField, SubmitButton } from "./Field";
 
@@ -19,7 +20,7 @@ export function StreamerCreateForm() {
         placeholder="예: phonics1"
         hint="플랫폼이 발급한 방송국 아이디. 라이엇 계정과 무관합니다."
       />
-      <Field label="slug" name="slug" placeholder="비우면 채널 아이디를 씁니다" hint="/s/{slug} 주소가 됩니다." />
+      <Field label="slug" name="slug" placeholder="비우면 채널 아이디를 씁니다" hint={`${profilePrefix("lol")}{slug} 주소가 됩니다.`} />
       <Field label="별명 (쉼표로 구분)" name="aliases" placeholder="구닉, 별명" hint="검색에 걸리게 할 이름들." />
       <div className="sm:col-span-2">
         <Field label="메모" name="note" placeholder="내부 메모" />

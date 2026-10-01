@@ -9,6 +9,7 @@ import { isStandaloneSet, setLabel } from "@soop-lol/core/lib/metrics/set-label"
 import { championById, championIconPath } from "@soop-lol/core/lib/riot/champions";
 import { POSITIONS, POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
+import { profileHref } from "@soop-lol/core/lib/site-paths";
 
 import { loadOverviewSetsAction, toggleOverviewReviewAction } from "@/app/admin/overview/actions";
 import { EVENT_KIND_LABEL } from "@/lib/admin-labels";
@@ -333,8 +334,8 @@ function PlayerCells({ p, tone, sub, mirror = false }: { p: OverviewParticipant 
   const flags = [sub && "직전 세트에 없던 선수 — 교체", !p.streamer_slug && "스트리머 미연결 — 화면에 보인 이름"].filter(Boolean).join(" · ");
   const who = <td className={`${tone} c-name`}>
     <span className={`overview-name${sub ? " is-sub" : ""}${p.streamer_slug ? "" : " is-unlinked"}`} title={flags || undefined}>
-      {p.streamer_name
-        ? <Link href={`/s/${p.streamer_slug}`} target="_blank" className="hover:underline">{p.streamer_name}</Link>
+      {p.streamer_name && p.streamer_slug
+        ? <Link href={profileHref("lol", p.streamer_slug)} target="_blank" className="hover:underline">{p.streamer_name}</Link>
         : p.observed_name ?? "이름 없음"}
     </span>
   </td>;

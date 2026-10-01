@@ -32,8 +32,9 @@ import { formatBadge, isRepeatedDate, matchOutcome } from "../../../ui/match-row
 //   좁은 계약이 곧 core 가 내부를 바꿀 수 있는 자유다.
 import {
   withinRecordPeriod, resolveRecordPeriod, recordPeriodLabel, type RecordPeriod, type PublicRosterEntry, QUEUE_LABEL, MATCH_CATEGORIES, CATEGORY_LABEL, expandCategory, kstDateString, kstYear, type MatchCategoryFilter,
-  setLabel, isStandaloneSet,
+  setLabel, isStandaloneSet, profileHref as contractProfileHref,
 } from "@soop-lol/core/lib/contract";
+import { versusHref } from "./paths.ts";
 
 // ── 화면에 오는 모양 ─────────────────────────────────────────────────
 
@@ -256,7 +257,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
   if (datePeriod.to) context.set("to", datePeriod.to);
   const profileHref = (slug: string, opponent: string) => {
     const q = new URLSearchParams(context);q.set("opponent",opponent);if(rel==="l")q.set("duel","lane");
-    return `/s/${encodeURIComponent(slug)}?${q}`;
+    return contractProfileHref("lol", slug, q);
   };
   const swapped = new URLSearchParams(context);swapped.set("a",y.slug);swapped.set("b",x.slug);
   if (isAlly) swapped.set("relation","ally");
@@ -293,7 +294,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
           <FixturePersonView person={x} linked profileHref={profileHref(x.slug,y.slug)} badge="기준" />
           {/* 순서 바꾸기는 **두 사람 사이**가 제자리다. 예전엔 카드 밖 아래에 글자 링크로
               있었는데, 무엇과 무엇을 바꾸는지 그 자리에서는 보이지 않았다. */}
-          <Link className="arena-duel-swap" href={`/m/versus?${swapped}`} title="스트리머 순서 바꾸기" aria-label="스트리머 순서 바꾸기">
+          <Link className="arena-duel-swap" href={versusHref(swapped)} title="스트리머 순서 바꾸기" aria-label="스트리머 순서 바꾸기">
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2.5 5h9M9 2.5 11.5 5 9 7.5M13.5 11h-9M7 8.5 4.5 11 7 13.5" />
             </svg>

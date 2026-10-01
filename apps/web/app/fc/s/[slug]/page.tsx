@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { profileHref } from "@soop-lol/core/lib/site-paths";
 import { getFcoPerson, listFcoGamesForPerson, listFcoModesForPerson, listFcoPeople, listFcoStreamerGamesForPerson } from "@soop-lol/core/lib/db/fconline";
 import { FcoMatchList } from "../../../../../../packages/ui/fc/fco-records";
 import { FcRecordSearch } from "../../../../../../packages/ui/fc/fco-record-search";
@@ -89,7 +90,6 @@ export default async function FcProfile({ params, searchParams }: {
   const sortedOpponents = sortOpponents([...opponents.values()], opponentSort);
   const sortedEvents = [...events.values()].sort((a, b) => b.lastPlayed.localeCompare(a.lastPlayed));
 
-  const base = `/fc/s/${encodeURIComponent(person.slug)}`;
   const hrefFor = (next: { tab?: ProfileTab; mode?: string } = {}) => {
     const nextTab = next.tab ?? tab;
     const nextMode = next.mode ?? mode;
@@ -100,8 +100,7 @@ export default async function FcProfile({ params, searchParams }: {
     if (sp.from) query.set("from", sp.from);
     if (sp.to) query.set("to", sp.to);
     if (nextTab === "opponents" && opponentSort !== DEFAULT_OPPONENT_SORT) query.set("sort", opponentSort);
-    const params = query.toString();
-    return params ? `${base}?${params}` : base;
+    return profileHref("fconline", person.slug, query);
   };
   const tabs: { key: ProfileTab; label: string; href: string }[] = [
     { key: "games", label: "매치 히스토리", href: hrefFor({ tab: "games" }) },

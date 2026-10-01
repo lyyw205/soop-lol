@@ -1,9 +1,10 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { gameHomeHref } from "@soop-lol/core/lib/site-paths";
 
 export function SiteFooter() {
-  const fc = usePathname().startsWith("/fc");
+  const fc = usePathname().startsWith(gameHomeHref("fconline"));
   return <footer className="border-t border-ink-800 px-6 py-8 text-xs leading-relaxed text-ink-400">
     {fc ? <>
       <p>Data based on NEXON Open API.</p>

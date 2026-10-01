@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { profileHref } from "@soop-lol/core/lib/site-paths";
 import { OpponentHistoryHeading } from "@/components/opponent-history-filters";
 import { OpponentModeToggle } from "@/components/record-period-filters";
 import { OpponentHistoryList } from "@/components/opponent-history";
@@ -100,8 +101,7 @@ export default async function StreamerProfile({
     }
     if (laneOnly) q.set("duel", "lane");
     if (so !== DEFAULT_OPPONENT_SORT) q.set("sort", so);
-    const qs = q.toString();
-    return qs ? `/s/${slug}?${qs}` : `/s/${slug}`;
+    return profileHref("lol", slug, q);
   };
 
   const id = streamer.streamer_id;

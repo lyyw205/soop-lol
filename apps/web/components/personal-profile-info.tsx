@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { profileHref } from "@soop-lol/core/lib/site-paths";
 import { RecordAwards, RecordChampions, type RecordAward, type RecordChampion } from "../../../packages/ui/record-profile-info";
 
 /**
@@ -17,11 +18,11 @@ export function PersonalProfileInfo({ slug, champions, awards, placements }: {
   const exText = ex.champion + ex.runnerup > 0
     ? ` (올스타·이벤트전 ${[ex.champion ? `우승 ${ex.champion}` : "", ex.runnerup ? `준우승 ${ex.runnerup}` : ""].filter(Boolean).join(" · ")} 별도)` : "";
   // These panels describe the whole career, independent of the record filters.
-  const eventsHref = `/s/${slug}?tab=events`;
+  const eventsHref = profileHref("lol", slug, { tab: "events" });
   return <>
     <section className="profile-most profile-info-section">
       <h3>모스트 챔피언 <small>통산</small></h3>
-      <RecordChampions champions={champions} href={`/s/${slug}?tab=champions`} layout="profile" />
+      <RecordChampions champions={champions} href={profileHref("lol", slug, { tab: "champions" })} layout="profile" />
     </section>
     <section className="profile-career profile-info-section">
       <h3>수상 경력 <small>통산</small></h3>

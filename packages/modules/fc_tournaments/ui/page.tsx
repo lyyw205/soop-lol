@@ -9,8 +9,8 @@ import { fcoMetadata, getFcoEvent, listFcoEventGames, listFcoEvents } from "@soo
 import { fcDate, FcoMatchList, FcoStatsTable, FcoTournamentPlayers } from "../../../ui/fc/fco-records.tsx";
 import { RecordContentPanel, RecordEventItem, RecordEventList } from "../../../ui/record-structure.tsx";
 import { FcoSeriesSummary } from "./fco-series.tsx";
+import { tournamentDetailHref, tournamentsIndexHref } from "./paths.ts";
 
-const INDEX_PATH = "/fc/tournaments";
 
 type Props = {
   params: Record<string, string>;
@@ -35,7 +35,7 @@ async function Index() {
     <p className="fc-desc">대회별로 확인된 경기와 당시 스쿼드, 경기 지표를 묶어 봅니다.</p>
     <RecordContentPanel className="fc-section fc-tab-panel">
       {events.length ? <RecordEventList>{events.map((event) => <RecordEventItem key={event.id}><div className="record-event-item-split">
-        <Link href={`${INDEX_PATH}/${event.slug}`}>{event.name} →</Link>
+        <Link href={tournamentDetailHref(event.slug)}>{event.name} →</Link>
         <span>{event.starts_at ? fcDate(event.starts_at) : "일정 미정"} · {event.organizer ?? "주최 미상"} · 확인된 경기 {event.game_count}개</span>
       </div></RecordEventItem>)}</RecordEventList> : <div className="fc-empty">등록된 FC 온라인 대회가 없습니다.</div>}
     </RecordContentPanel>
@@ -63,6 +63,6 @@ async function Detail({ slug }: { slug: string }) {
       <FcoSeriesSummary games={games} />
     </RecordContentPanel>
     <RecordContentPanel className="fc-section fc-tab-panel"><h2>경기별 기록과 당시 스쿼드</h2><FcoMatchList games={games} /></RecordContentPanel>
-    <p className="mt-6"><Link className="fc-card-link" href={INDEX_PATH}>← 대회 목록</Link></p>
+    <p className="mt-6"><Link className="fc-card-link" href={tournamentsIndexHref()}>← 대회 목록</Link></p>
   </div><aside className="record-sidebar record-sidebar-empty" aria-label="추가 정보" /></div>;
 }

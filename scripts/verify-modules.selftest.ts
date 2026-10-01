@@ -67,6 +67,8 @@ function addProbeModule(root: string, name: string) {
     "             WHERE p.slug IS DISTINCT FROM 'match'`;",
     "  return (await sql`SELECT count(*) FROM ONLY " + s + ".t`).length;",
     `}`,
+    // 정적 파일 경로는 주소가 아니다 — 이걸 막으면 과잉 차단이다.
+    `export const ICON = "/images/probe.png";`,
   ].join("\n"));
   write(root, `${dir}/migrations/001_init.sql`,
     `CREATE SCHEMA IF NOT EXISTS mod_${name};\nCREATE TABLE mod_${name}.t (id int);\n`);
@@ -206,6 +208,14 @@ const VIOLATIONS: Violation[] = [
     code: "export const q = \"SELECT slug FROM core_public.streamer\";", expect: /SQL 을 쓴다/ },
   { name: "공용 UI 가 DB 드라이버를 import", file: "packages/ui/__probe.ts",
     code: "import postgres from \"postgres\";\nexport const p = postgres;", expect: /DB 드라이버/ },
+
+  // ── 주소는 함수로만 만든다 (docs/PLATFORM-LAYER-PLAN.md) ──
+  { name: "모듈이 core 프로필 주소를 템플릿으로 박는다", file: A,
+    code: "export const href = (slug: string) => `/s/${slug}`;", expect: /주소 "\/s\/ \$\{…\} " 를 글자로/ },
+  { name: "모듈이 자기 주소를 글자로 박는다", file: A,
+    code: "export const INDEX = \"/probea\";", expect: /주소 "\/probea" 를 글자로/ },
+  { name: "공용 UI 가 core 주소를 글자로 박는다", file: "packages/ui/__probe.ts",
+    code: "export const href = \"/streamers\";", expect: /주소 "\/streamers" 를 글자로/ },
 ];
 
 const MODULE_NAMES = readdirSync(join(REPO, "packages", "modules"), { withFileTypes: true })

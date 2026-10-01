@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import {
-  championById, championIconPath, POSITION_LABEL, type MatchOutcome, type PublicRosterEntry,
+  championById, championIconPath, POSITION_LABEL, profileHref, type MatchOutcome, type PublicRosterEntry,
 } from "@soop-lol/core/lib/contract";
 import {
   participantKey, participantKda, teamPlayers, type MatchDetailSet,
@@ -104,7 +104,7 @@ function MatchPlayer({ player, streamerId, highlighted }: {
       {/* ★ 사람을 못 붙인 자리는 화면에서 읽은 인게임명으로 선다(0022).
           링크를 걸 곳이 없으므로 이름만 둔다 — 자리를 비우면 5대5 가 4명이 된다. */}
       {player.slug ? (
-        <Link className="match-details-name" href={`/s/${encodeURIComponent(player.slug)}`}
+        <Link className="match-details-name" href={profileHref("lol", player.slug)}
           title={player.display_name ?? ""}>
           {player.display_name}
         </Link>

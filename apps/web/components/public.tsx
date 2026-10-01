@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SiteNav } from "./site-nav";
 import { versusIndexHref } from "@/lib/module-links";
+import { gameHomeHref, profilePrefix, streamersHref } from "@soop-lol/core/lib/site-paths";
 
 import { moduleNavRoutes } from "@soop-lol/modules/registry";
 import type { ReactNode } from "react";
@@ -27,14 +28,14 @@ export function SiteHeader() {
   // core 메뉴와 모듈 메뉴를 navOrder 한 줄로 섞는다. 모듈 순서는 module.json 의 navOrder
   // (상대전적 10 · 대회 15) — 스트리머는 대회 뒤에 오도록 18 이다.
   const routes = [
-    { path: "/", title: versusRoute ? "전적 검색" : "홈", activePaths: versusPath ? [versusPath] : [], navOrder: 0 },
-    { path: "/streamers", title: "스트리머", navOrder: 18 },
+    { path: gameHomeHref("lol"), title: versusRoute ? "전적 검색" : "홈", activePaths: versusPath ? [versusPath] : [], activePrefixes: [profilePrefix("lol")], exact: true, navOrder: 0 },
+    { path: streamersHref(), title: "스트리머", navOrder: 18 },
     ...moduleRoutes.filter((route) => route.path !== versusPath),
   ].sort((a, b) => a.navOrder - b.navOrder);
   return (
     <header className="arena-header">
       <div className="arena-header-inner">
-        <Link href="/" className="arena-brand" aria-label="SOOP LOL 홈"><span className="arena-brandmark">S</span>SOOP<span>LOL</span></Link>
+        <Link href={gameHomeHref("lol")} className="arena-brand" aria-label="SOOP LOL 홈"><span className="arena-brandmark">S</span>SOOP<span>LOL</span></Link>
         <GameSwitcher game="lol" />
         <SiteNav routes={routes} />
         <span className="arena-header-note">LEAGUE OF LEGENDS · 스트리머 기록실</span>
@@ -47,8 +48,8 @@ export function GameSwitcher({ game }: { game: "lol" | "fconline" }) {
   return <details className="game-switcher">
     <summary aria-label="게임 선택">{game === "lol" ? "LOL" : "FC 온라인"}<span aria-hidden="true">⌄</span></summary>
     <div className="game-switcher-menu">
-      <Link href="/" aria-current={game === "lol" ? "page" : undefined}>LOL</Link>
-      <Link href="/fc" aria-current={game === "fconline" ? "page" : undefined}>FC 온라인</Link>
+      <Link href={gameHomeHref("lol")} aria-current={game === "lol" ? "page" : undefined}>LOL</Link>
+      <Link href={gameHomeHref("fconline")} aria-current={game === "fconline" ? "page" : undefined}>FC 온라인</Link>
     </div>
   </details>;
 }

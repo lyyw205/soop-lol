@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { profileHref } from "@soop-lol/core/lib/contract";
 import type { ReactNode } from "react";
 import { RecordAwards, RecordChampions, type RecordAward, type RecordChampion } from "./record-profile-info";
 
@@ -12,7 +13,7 @@ export function RecordSidebar({ name, slug, isPro, portrait, placements, awards,
   return <aside className="arena-rail record-sidebar" aria-label="스트리머 정보">
     <section className="arena-panel">
       <h2>스트리머 정보</h2>
-      <Link className="arena-profile-mini" href={`/s/${slug}`}>{portrait}<span><strong>{name}</strong><small>{isPro ? "前 프로 · " : ""}스트리머 프로필</small></span></Link>
+      <Link className="arena-profile-mini" href={profileHref("lol", slug)}>{portrait}<span><strong>{name}</strong><small>{isPro ? "前 프로 · " : ""}스트리머 프로필</small></span></Link>
       <div className="arena-mini-stats">
         <div><strong>{placements.buckets.find((b)=>b.key==='champion')?.count ?? 0}</strong><small>우승</small></div>
         <div><strong>{placements.buckets.find((b)=>b.key==='runnerup')?.count ?? 0}</strong><small>준우승</small></div>
@@ -22,15 +23,15 @@ export function RecordSidebar({ name, slug, isPro, portrait, placements, awards,
       {placements.exhibition.champion + placements.exhibition.runnerup > 0 && <small className="record-sidebar-note">
         올스타·이벤트전 {[placements.exhibition.champion ? `우승 ${placements.exhibition.champion}` : "", placements.exhibition.runnerup ? `준우승 ${placements.exhibition.runnerup}` : ""].filter(Boolean).join(" · ")} 별도
       </small>}
-      <Link className="arena-panel-link" href={`/s/${slug}?tab=events`}>통산 수상 경력 보기　→</Link>
+      <Link className="arena-panel-link" href={profileHref("lol", slug, { tab: "events" })}>통산 수상 경력 보기　→</Link>
     </section>
     <section className="arena-panel">
       <h2>최근 수상 경력</h2>
-      <RecordAwards awards={awards} href={`/s/${slug}?tab=events`} />
+      <RecordAwards awards={awards} href={profileHref("lol", slug, { tab: "events" })} />
     </section>
     <section className="arena-panel">
       <h2>모스트 챔피언 <small className="record-sidebar-note">통산</small></h2>
-      <RecordChampions champions={champions} href={`/s/${slug}?tab=champions`} />
+      <RecordChampions champions={champions} href={profileHref("lol", slug, { tab: "champions" })} />
     </section>
     {children}
   </aside>;

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { fcMatchHref } from "@soop-lol/core/lib/site-paths";
 import type { FcoGame, FcoPerson } from "@soop-lol/core/lib/db/fconline";
 import { kstDateString } from "@soop-lol/core/lib/time";
 import { rawWinRate } from "@soop-lol/core/lib/metrics/affinity";
@@ -42,7 +43,7 @@ export function FcoOpponentHistory({ rows, people, streamerId, streamerSlug, str
             const day = kstDateString(new Date(game.played_at));
             return <li key={game.id}>
               <time dateTime={day}>{day.replaceAll("-", ".")}</time>
-              <span className="opponent-history-event"><Link href={`/fc/m/${encodeURIComponent(game.provider_id)}`}>{game.event_name ?? "맞대결"}</Link></span>
+              <span className="opponent-history-event"><Link href={fcMatchHref(game.provider_id)}>{game.event_name ?? "맞대결"}</Link></span>
               <strong>{mine.score_display ?? mine.goals ?? "?"} : {other.score_display ?? other.goals ?? "?"}</strong>
               <small>{FCO_MODE_LABEL[game.mode_key ?? ""] ?? "경기"}</small>
               <span data-result={mine.outcome}>{mine.outcome === "win" ? "승" : mine.outcome === "draw" ? "무" : mine.outcome === "loss" ? "패" : "?"}</span>

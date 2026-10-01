@@ -10,7 +10,7 @@ import { FcRecordSearch } from "../../../ui/fc/fco-record-search.tsx";
 import { RecordLayout } from "../../../ui/record-layout.tsx";
 import { FcoVersusDetail } from "./fco-versus-detail.tsx";
 import { FcoVersusSidebar } from "./fco-versus-sidebar.tsx";
-import { VERSUS_PATH } from "./paths.ts";
+import { versusHref } from "./paths.ts";
 
 type Props = {
   searchParams: Record<string, string | string[] | undefined>;
@@ -35,7 +35,7 @@ export default async function FcVersus({ searchParams: sp, roleHref }: Props) {
   if (!a || !b) {
     return <RecordLayout sidebar={<aside className="arena-rail record-sidebar" aria-label="스트리머 정보">
       <section className="arena-panel"><h2>스트리머 정보</h2><p className="text-xs text-ink-400">두 스트리머를 선택하면 프로필과 맞대결 기록을 볼 수 있습니다.</p></section>
-    </aside>}><FcRecordSearch people={people} a={a?.slug} b={b?.slug} mode="versus" versusPath={VERSUS_PATH} /></RecordLayout>;
+    </aside>}><FcRecordSearch people={people} a={a?.slug} b={b?.slug} mode="versus" versusPath={versusHref()} /></RecordLayout>;
   }
   const [games, topPairs] = await Promise.all([listFcoVersus(a.id, b.id), listFcoTopPairs()]);
   const names = tab === "players" && games.length ? (await fcoMetadata()).names : new Map<number, string>();

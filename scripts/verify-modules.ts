@@ -288,6 +288,20 @@ if (modules.length === 0) console.log("  (모듈이 없다 — 규칙만 준비�
 else check(`db/migrations 에서 core 이름을 읽었다 (테이블·뷰 ${CORE.tables.size}개)`, CORE.ok,
   CORE.ok ? "" : "SQL 이름 판정을 할 수 없다");
 
+// ── 주소 글자 금지 ──────────────────────────────────────────────────────
+// 프로필 주소(`/s/${slug}`)가 모듈·공용 UI 에 글자로 박혀 있어서, 롤을 /lol 로 옮기려니 40곳을 고쳐야 했다
+// (docs/PLATFORM-LAYER-PLAN.md). core 화면 주소는 계약의 주소 함수(profileHref …)로,
+// 모듈 자기 주소는 module.json 의 routes 로 만든다. 정적 파일(/images/…)만 글자로 쓴다.
+const ASSET_PATH = /^\/(images|fonts)\//;
+function checkNoSitePaths(file: string, strings: SqlText[]) {
+  for (const s of strings) {
+    if (/^\/[a-z]/i.test(s.text) && !ASSET_PATH.test(s.text)) {
+      check(`${file}:${s.line}: 주소 "${s.text.slice(0, 40)}" 를 글자로 쓴다`, false,
+        "core 화면은 계약의 주소 함수(profileHref 등), 자기 화면은 module.json 의 routes(routeHref)로 만든다");
+    }
+  }
+}
+
 for (const m of modules) {
   console.log(`\n  [${m.name}]`);
   check(`manifest 이름이 디렉터리와 같다`, m.manifest.name === m.name, String(m.manifest.name));
@@ -308,16 +322,18 @@ for (const m of modules) {
         case "other": return `저장소 밖 경계(${z.path})에 닿는다`;
       }
     });
-    for (const s of scan(file).strings) {
+    const { strings } = scan(file);
+    for (const s of strings) {
       if (looksLikeSql(s.text)) checkSql(`${file}:${s.line}`, s.text, m.schema);
     }
+    checkNoSitePaths(file, strings);
   }
   const migDir = join(MODULES_DIR, m.name, "migrations");
   const migrations = existsSync(migDir) ? readdirSync(migDir).filter((f) => f.endsWith(".sql")) : [];
   for (const f of migrations) {
     checkSql(`packages/modules/${m.name}/migrations/${f}`, stripSqlComments(readFileSync(join(migDir, f), "utf8")), m.schema);
   }
-  check(`import·SQL 위반 없음 (소스 ${files.length}개 · 마이그레이션 ${migrations.length}개)`, failures === before);
+  check(`import·SQL·주소 글자 위반 없음 (소스 ${files.length}개 · 마이그레이션 ${migrations.length}개)`, failures === before);
 }
 
 // ── 모듈이 끌어다 쓰는 공용 UI ──────────────────────────────────────────
@@ -348,8 +364,9 @@ console.log("\n  [공용 UI (packages/ui)]");
     for (const s of strings) {
       if (looksLikeSql(s.text)) check(`${file}:${s.line}: SQL 을 쓴다`, false, "공용 UI 는 표시만 한다");
     }
+    checkNoSitePaths(file, strings);
   }
-  check(`공용 UI 가 계약 밖을 보지 않고 DB 에 닿지 않는다 (${files.length}개 파일)`, failures === before);
+  check(`공용 UI 가 계약 밖을 보지 않고 DB 에 닿지 않으며 주소를 박지 않는다 (${files.length}개 파일)`, failures === before);
 }
 
 // ── 4조 — 역방향 의존 ───────────────────────────────────────────────────

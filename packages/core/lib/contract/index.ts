@@ -324,3 +324,8 @@ export type { MatchCategoryFilter } from "../metrics/category.ts";
 
 export { RECORD_PERIODS, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod } from "../metrics/record-period.ts";
 export type { RecordPeriod } from "../metrics/record-period.ts";
+
+// 사이트 주소. core 화면 주소는 이 함수로만 만든다 — 모듈·공용 UI 에 주소 글자를 박지 않는다(verify:modules).
+// 모듈 자기 화면은 module.json 의 routes 를 routeHref 에 넘겨 만든다.
+export { gameHomeHref, profileHref, streamersHref, fcMatchHref, routeHref } from "../site-paths.ts";
+export type { SiteGame, HrefQuery } from "../site-paths.ts";

@@ -4,6 +4,7 @@ import { GameSwitcher, PageShell } from "@/components/public";
 import { SiteNav } from "@/components/site-nav";
 import { moduleNavRoutes } from "@soop-lol/modules/registry";
 import { fcVersusIndexHref } from "@/lib/module-links";
+import { gameHomeHref, profilePrefix } from "@soop-lol/core/lib/site-paths";
 
 export const metadata: Metadata = {
   title: { default: "SOOP FC 온라인", template: "%s · SOOP FC 온라인" },
@@ -15,13 +16,13 @@ export default function FcLayout({ children }: { children: React.ReactNode }) {
   // FC 상대전적은 '전적 검색' 안에 들어간다(그 화면에 있을 때 전적 검색이 켜진다).
   const versusPath = fcVersusIndexHref();
   const routes = [
-    { path: "/fc", title: "전적 검색", activePaths: versusPath ? [versusPath] : [], navOrder: 0 },
+    { path: gameHomeHref("fconline"), title: "전적 검색", activePaths: versusPath ? [versusPath] : [], activePrefixes: [profilePrefix("fconline")], exact: true, navOrder: 0 },
     ...moduleNavRoutes("fconline").filter((route) => route.path !== versusPath),
   ].sort((a, b) => a.navOrder - b.navOrder);
   return <div className="fc-site">
     <header className="arena-header fc-header">
       <div className="arena-header-inner">
-        <Link className="arena-brand" href="/fc" aria-label="SOOP FC 온라인 홈"><span className="arena-brandmark">S</span>SOOP<span>FC 온라인</span></Link>
+        <Link className="arena-brand" href={gameHomeHref("fconline")} aria-label="SOOP FC 온라인 홈"><span className="arena-brandmark">S</span>SOOP<span>FC 온라인</span></Link>
         <GameSwitcher game="fconline" />
         <SiteNav routes={routes} />
         <span className="arena-header-note">FC ONLINE · 스트리머 기록실</span>

@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { profileHref as personHref } from "@soop-lol/core/lib/contract";
+
 import { Avatar } from "../../../ui/avatar.tsx";
 
 export interface FixturePerson { slug: string; display_name: string; profile_image_url?: string | null; channel_id?: string | null }
@@ -17,6 +19,6 @@ export function Portrait({ person }: { person: FixturePerson }) {
 export function FixturePersonView({ person, badge, linked = false, profileHref }: { person: FixturePerson; badge?: string; linked?: boolean; profileHref?: string }) {
   return <div className="arena-person">
     <span className="arena-disc">{badge && <em className="arena-person-badge">{badge}</em>}<Portrait person={person} /></span>
-    {linked ? <Link className="arena-person-name" href={profileHref ?? `/s/${person.slug}`}>{person.display_name}</Link> : <span className="arena-person-name">{person.display_name}</span>}
+    {linked ? <Link className="arena-person-name" href={profileHref ?? personHref("lol", person.slug)}>{person.display_name}</Link> : <span className="arena-person-name">{person.display_name}</span>}
   </div>;
 }

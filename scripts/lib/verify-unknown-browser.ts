@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type {BrowserContext, Locator} from 'playwright';
 import * as ck from '../../packages/core/lib/db/ck.ts';
 import {db} from '../../packages/core/lib/db/client.ts';
+import {profileHref} from '../../packages/core/lib/site-paths.ts';
 
 export async function verifyUnknownBrowser(context: BrowserContext, base: string, a: string, b: string) {
   const fixture=(id:string,series:string):ck.CkMatchInput=>({ played_at_precision: "datetime",match_id:id,series_id:series,series_game_no:Number(id.split(':').at(-1))||1,
@@ -72,7 +73,7 @@ export async function verifyUnknownBrowser(context: BrowserContext, base: string
     {participant_id:2,team_id:100,observed_name:'동명 미확인',champion_id:0},{participant_id:3,team_id:200,streamer_id:b,champion_id:143}];
   await ck.upsertMatchFromScan(dup);
   await publicPage.setViewportSize({width:390,height:844});
-  await publicPage.goto(base+'/s/ck-browser-b?tab=games');
+  await publicPage.goto(base+profileHref('lol','ck-browser-b',{tab:'games'}));
   const duplicate=publicPage.locator('.match-details[data-match-id="unknown-browser:duplicate"]');
   await duplicate.locator('..').locator('summary').click();
   assert.equal(await duplicate.locator('.match-details-unidentified').count(),2);

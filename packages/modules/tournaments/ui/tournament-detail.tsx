@@ -20,7 +20,9 @@ import {
   championIconPath,
   kstPlayedAt,
   placementRank,
+  profileHref,
 } from "@soop-lol/core/lib/contract";
+import { tournamentsIndexHref } from "./paths.ts";
 import { Avatar } from "../../../ui/avatar.tsx";
 import { MatchDetails } from "../../../ui/match-details.tsx";
 import {
@@ -137,7 +139,7 @@ export function TournamentDetailView({
   return (
     <>
       <div className="tp-breadcrumb">
-        <Link href="/tournaments">대회</Link>
+        <Link href={tournamentsIndexHref()}>대회</Link>
         <ChevronRight size={12} />
         <span>{data.event.name}</span>
       </div>
@@ -382,7 +384,7 @@ function FinalCard({
                 {captain ? (
                   <>
                     <span className="tp-final-captain-label">주장</span>{" "}
-                    <Link href={`/s/${captain.slug}`}>{captain.name}</Link>
+                    <Link href={profileHref("lol", captain.slug)}>{captain.name}</Link>
                   </>
                 ) : (
                   "주장 미수집"
@@ -520,7 +522,7 @@ function Overview({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
                   )
                   .map((m) => (
                     <Link
-                      href={`/s/${m.slug}`}
+                      href={profileHref("lol", m.slug)}
                       key={m.id}
                       className={m.id === mvp?.id ? "tp-champion-mvp" : undefined}
                     >
@@ -855,7 +857,7 @@ function Teams({ data }: { data: TournamentDetail }) {
                           const rating = m.rating;
                           return (
                             <div className="tp-roster-person" key={m.id}>
-                              <Link href={`/s/${m.slug}`}>
+                              <Link href={profileHref("lol", m.slug)}>
                                 <span className="tp-roster-person-photo">
                                   <Avatar
                                     name={m.name}
@@ -911,7 +913,7 @@ function Teams({ data }: { data: TournamentDetail }) {
               .filter((m) => !m.position)
               .map((m) => (
                 <p key={`${t.id}:${m.id}`}>
-                  {t.name} · <Link href={`/s/${m.slug}`}>{m.name}</Link>
+                  {t.name} · <Link href={profileHref("lol", m.slug)}>{m.name}</Link>
                 </p>
               )),
           )}
@@ -955,7 +957,7 @@ function Records({ data }: { data: TournamentDetail }) {
                   <tr key={p.id}>
                     <td>
                       {p.slug ? (
-                        <Link href={`/s/${p.slug}`}>{p.name}</Link>
+                        <Link href={profileHref("lol", p.slug)}>{p.name}</Link>
                       ) : (
                         p.name
                       )}
@@ -1049,7 +1051,7 @@ function Info({ data }: { data: TournamentDetail }) {
         {awards.length > 0 && (
           <Panel title="개인상">
             <Facts
-              rows={awards.map((m) => [m.award, <>{<Link href={`/s/${m.slug}`}>{m.name}</Link>} · {m.team}</>])}
+              rows={awards.map((m) => [m.award, <>{<Link href={profileHref("lol", m.slug)}>{m.name}</Link>} · {m.team}</>])}
             />
           </Panel>
         )}

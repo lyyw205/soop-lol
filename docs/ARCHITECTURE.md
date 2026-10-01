@@ -188,6 +188,11 @@ mkdir -p packages/modules/<name>/{migrations,server,ui}
 - nav 에는 파라미터 없는 경로만 뜬다. core 메뉴와 `navOrder` 한 줄로 섞여 정렬된다
 - `"game": "fconline"` 이면 FC 사이트 메뉴에 뜨고, FC 레이아웃 안의 마운트(`app/fc/[...path]`)가 띄운다.
   안 적으면 `lol`
+- **주소를 글자로 쓰지 않는다** — core 화면(프로필·스트리머 목록·게임 홈·FC 경기)은 계약의 주소 함수
+  (`profileHref(game, slug)` 등, 정본 `core/lib/site-paths.ts`)로, 자기 화면은 `module.json` 의 `routes` 를
+  `routeHref(manifest.routes, 파라미터)` 에 넘겨 만든다(`ui/paths.ts`). 모듈·공용 UI 에 `/` 로 시작하는 문자열이
+  있으면 `verify:modules` 가 실패한다(정적 파일 `/images/…` 만 예외). 롤 주소를 `/lol` 로 옮길 때 40곳을 고쳐야 했던
+  것을 다시 겪지 않으려는 규칙이다([PLATFORM-LAYER-PLAN](PLATFORM-LAYER-PLAN.md))
 - **다른 모듈 화면으로 가는 링크는 역할로 묻는다** — host 가 `roleHref(역할, 파라미터)` 를 화면에 넘기고,
   그 역할의 모듈이 없으면 null 이다. 모듈은 서로의 이름도, 등록부도 모른다(3조). core 화면도 같은 함수를
   쓴다(`apps/web/lib/module-links.ts`)

@@ -10,6 +10,7 @@ import {
   categoryLabel,
   period,
 } from "./tournament-shared.tsx";
+import { tournamentsIndexHref } from "./paths.ts";
 export function TournamentIndex({ events }: { events: TournamentSummary[] }) {
   const params = useSearchParams(),
     router = useRouter();
@@ -48,7 +49,7 @@ export function TournamentIndex({ events }: { events: TournamentSummary[] }) {
     const next = new URLSearchParams(params);
     if (value === "all" || !value) next.delete(key);
     else next.set(key, value);
-    return `/tournaments${next.size ? "?" + next.toString() : ""}`;
+    return tournamentsIndexHref(next);
   }
   return (
     <>
@@ -79,7 +80,7 @@ export function TournamentIndex({ events }: { events: TournamentSummary[] }) {
             </Link>
           ))}
         </nav>
-        <form className="tp-search-form" action="/tournaments">
+        <form className="tp-search-form" action={tournamentsIndexHref()}>
           <input type="hidden" name="category" value={category} />
           <input type="hidden" name="year" value={year} />
           <label>
@@ -185,7 +186,7 @@ export function TournamentIndex({ events }: { events: TournamentSummary[] }) {
           <Search />
           <h2>조건에 맞는 대회가 없어요</h2>
           <p>다른 이름이나 연도로 찾아보세요.</p>
-          <Link href="/tournaments">필터 초기화</Link>
+          <Link href={tournamentsIndexHref()}>필터 초기화</Link>
         </div>
       )}
       <p className="tp-footnote">

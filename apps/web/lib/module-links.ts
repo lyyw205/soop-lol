@@ -7,39 +7,27 @@
  *   core 코드는 한 줄도 안 고친다(계약 4조: core 는 모듈을 import 하지 않는다).
  */
 
+import { routeHref, type HrefQuery } from "@soop-lol/core/lib/site-paths";
 import { moduleProviding } from "@soop-lol/modules/registry";
 
 /** 두 스트리머의 상대전적 화면. 그 역할을 채우는 모듈이 없으면 null. */
 export function versusHref(aSlug: string, bSlug: string, scope: { category?: string; year?: number; relation?: "ally" | "lane"; from?: string; to?: string } = {}): string | null {
-  const mod = moduleProviding("versus");
-  const base = mod?.routes[0]?.path;
-  if (!base) return null;
-  const query = new URLSearchParams({a:aSlug, b:bSlug});
-  if (scope.category && scope.category !== "all") query.set("category",scope.category);
-  if (scope.year) query.set("year",String(scope.year));
-  if (scope.relation) query.set("relation",scope.relation);
-  if (scope.from) query.set("from",scope.from);
-  if (scope.to) query.set("to",scope.to);
-  return `${base}?${query}`;
+  return roleHref("versus", {}, {
+    a: aSlug, b: bSlug, category: scope.category === "all" ? undefined : scope.category,
+    year: scope.year, relation: scope.relation, from: scope.from, to: scope.to,
+  });
 }
 
 /** 상대전적 첫 화면(선택기). 없으면 null. */
-export function versusIndexHref(): string | null {
-  return moduleProviding("versus")?.routes[0]?.path ?? null;
-}
+export const versusIndexHref = (): string | null => roleHref("versus");
 
 /**
  * 그 역할을 채우는 모듈의 경로. `params` 의 키와 경로의 [칸]이 딱 맞는 경로를 고른다
  * (`/fc/tournaments` 와 `/fc/tournaments/[slug]` 중에서). 모듈이 없으면 null — 링크를 안 그리면 된다.
  */
-export function roleHref(role: string, params: Record<string, string> = {}, query?: Record<string, string>): string | null {
+export function roleHref(role: string, params: Record<string, string> = {}, query?: HrefQuery): string | null {
   const mod = moduleProviding(role);
-  const want = Object.keys(params).sort().join(",");
-  const route = mod?.routes.find((r) => [...r.path.matchAll(/\[(\w+)\]/g)].map((m) => m[1]).sort().join(",") === want);
-  if (!route) return null;
-  const path = route.path.replace(/\[(\w+)\]/g, (_, key: string) => encodeURIComponent(params[key]));
-  const qs = query ? new URLSearchParams(query).toString() : "";
-  return qs ? `${path}?${qs}` : path;
+  return mod ? routeHref(mod.routes, params, query) : null;
 }
 
 /** FC 상대전적·대회 화면. 그 모듈이 없으면 null. */
