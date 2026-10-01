@@ -1,0 +1,73 @@
+"""화면 종류 라벨 판별기(여러 종류) — Claude 에게 넘길 "구간 지도"용. 결과창 후보는 기존 판별기(train.py)가 그대로 낸다.
+
+    $PY scripts/ck-local/detector/multi.py eval   # 스트리머 하나씩 빼고 종류별 정확도
+    $PY scripts/ck-local/detector/multi.py fit    # 전부로 학습 → out/ck-detector/model/siglip/multi.npz
+
+라벨(검수만 쓴다 — DB 초벌 notresult 는 종류를 모른다):
+  result(점수판) · graph(결과창 다른 탭) · banpick · lobby(사용자 설정 게임 방) · client(그 밖 클라이언트) · ingame · end · other
+  loading 은 예시가 2칸뿐이라 뺐다 — 썸네일에서 로딩 화면이 드물다(2026-10-01).
+판단은 하지 않는다. 확률이 낮은 칸은 "모름"으로 둔다. docs/CK-LOCAL-DETECTOR.md §12
+"""
+import argparse, sys
+from collections import Counter, defaultdict
+from pathlib import Path
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+sys.path.insert(0, str(Path(__file__).parent)); _a = sys.argv; sys.argv = [_a[0]]
+import train as T  # noqa: E402
+sys.argv = _a
+
+CLASSES = ["result", "graph", "banpick", "lobby", "client", "ingame", "end", "other"]
+
+def data(model):
+    metas = T.load_meta(); E = T.load_emb(model, metas); L = T.load_labels(E, metas)
+    X, Y, C = [], [], []
+    for (v, i), (lab, src) in L.items():
+        if lab not in CLASSES: continue
+        if lab == "result" and not (src.startswith("review") or src.startswith("ck-local") or src == "db:result"): continue
+        X.append(E[v][1][i]); Y.append(CLASSES.index(lab)); C.append(metas[v]["channel"])
+    z = np.load(T.OUT / "aug" / f"{model}.npz")
+    keep = np.array([str(l) in CLASSES for l in z["label"]])
+    XA = z["emb"][keep].astype(np.float32); YA = np.array([CLASSES.index(str(l)) for l in z["label"][keep]])
+    CA = np.array([metas[int(v)]["channel"] for v in z["vod"][keep]])
+    return np.array(X), np.array(Y), np.array(C), XA, YA, CA
+
+def make(C=3):
+    return LogisticRegression(C=C, class_weight="balanced", max_iter=5000)
+
+def evaluate(a):
+    X, Y, C, XA, YA, CA = data(a.model)
+    print("종류별 칸:", {CLASSES[k]: n for k, n in sorted(Counter(Y).items())})
+    hit = defaultdict(int); tot = defaultdict(int); pred_n = defaultdict(int); pred_ok = defaultdict(int)
+    for ch in sorted(set(C)):
+        te = C == ch
+        if te.sum() < 10: continue
+        clf = make(a.C).fit(np.concatenate([X[~te], XA[CA != ch]]), np.concatenate([Y[~te], YA[CA != ch]]))
+        p = clf.predict_proba(X[te]); pr = p.argmax(1); conf = p.max(1)
+        for y, q, c in zip(Y[te], pr, conf):
+            if c < a.min_conf: continue   # 확신 낮으면 "모름" — 라벨을 안 붙인다
+            tot[y] += 1; pred_n[q] += 1
+            if y == q: hit[y] += 1; pred_ok[q] += 1
+        tot["모름"] = tot.get("모름", 0) + int((conf < a.min_conf).sum())
+    print(f"(스트리머 하나씩 빼고 시험 · 확신 {a.min_conf} 미만은 라벨 안 붙임 → 모름 {tot.get('모름', 0)}칸)")
+    print(f"{'종류':8} {'맞게 붙임':>10} {'붙인 것 중 맞음':>14}")
+    for k, name in enumerate(CLASSES):
+        if not tot[k] and not pred_n[k]: continue
+        print(f"{name:8} {hit[k]:4}/{tot[k]:<4} {hit[k] / max(tot[k], 1):5.0%}   {pred_ok[k]:4}/{pred_n[k]:<4} {pred_ok[k] / max(pred_n[k], 1):5.0%}")
+
+def fit(a):
+    X, Y, C, XA, YA, CA = data(a.model)
+    clf = make(a.C).fit(np.concatenate([X, XA]), np.concatenate([Y, YA]))
+    dst = T.OUT / "model" / a.model; dst.mkdir(parents=True, exist_ok=True)
+    np.savez(dst / "multi.tmp.npz", coef=clf.coef_, intercept=clf.intercept_, classes=np.array(CLASSES), min_conf=a.min_conf)
+    (dst / "multi.tmp.npz").replace(dst / "multi.npz")
+    print("저장", dst / "multi.npz", {CLASSES[k]: n for k, n in sorted(Counter(Y).items())})
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cmd", choices=["eval", "fit"])
+    ap.add_argument("--model", default="siglip")
+    ap.add_argument("--C", type=float, default=3)
+    ap.add_argument("--min-conf", type=float, default=0.6)
+    a = ap.parse_args()
+    {"eval": evaluate, "fit": fit}[a.cmd](a)

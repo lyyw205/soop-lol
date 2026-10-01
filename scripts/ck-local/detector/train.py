@@ -92,6 +92,18 @@ def fit(a):
     for (vod, i), (lab, _) in L.items():
         s = split_of(metas[vod]["channel"], vod)
         X[s].append(E[vod][1][i]); Y[s].append(binary(lab))
+    # 늘려 보기 학습 재료(augment.py) — 학습 칸의 변형만 학습에 더한다. dev·시험은 원본 칸으로만 잰다.
+    aug = OUT / "aug" / f"{a.model}.npz"
+    XA_dev, YA_dev = [], []   # dev 채널 변형 — 선택(dev 채점)엔 안 쓰고 최종 판별기에만 더한다
+    if aug.exists() and not a.no_aug:
+        z = np.load(aug); n = 0
+        for e, v, lab in zip(z["emb"], z["vod"], z["label"]):
+            v = int(v)
+            if v not in metas: continue
+            sp = split_of(metas[v]["channel"], v)
+            if sp == "train": X["train"].append(e.astype(np.float32)); Y["train"].append(binary(str(lab))); n += 1
+            elif sp == "dev": XA_dev.append(e.astype(np.float32)); YA_dev.append(binary(str(lab)))
+        print(f"  늘려 보기 변형 {n}칸 추가")
     for k in X:
         X[k] = np.array(X[k]); Y[k] = np.array(Y[k])
         print(f"  {k}: 칸 {len(Y[k])} · 결과창 {int(Y[k].sum()) if len(Y[k]) else 0}")
@@ -103,10 +115,11 @@ def fit(a):
         if best is None or ap > best[0]: best = (ap, C, clf)
     ap, C, clf = best
     # 학습에 dev 까지 넣은 최종 판별기(시험 채널은 끝까지 안 본다)
-    Xa = np.concatenate([X["train"], X["dev"]]); Ya = np.concatenate([Y["train"], Y["dev"]])
+    Xa = np.concatenate([X["train"], X["dev"]] + ([np.array(XA_dev)] if XA_dev else [])); Ya = np.concatenate([Y["train"], Y["dev"]] + ([np.array(YA_dev)] if YA_dev else []))
     final = LogisticRegression(C=C, class_weight="balanced", max_iter=3000).fit(Xa, Ya)
     dst = OUT / "model" / (a.model if TARGET == "result" else f"{a.model}-{TARGET}"); dst.mkdir(parents=True, exist_ok=True)
-    np.savez(dst / "clf.npz", coef=final.coef_[0], intercept=final.intercept_, C=C)
+    # ★ 백필이 도는 중에 읽을 수 있다 — 임시 파일에 쓰고 이름을 바꾼다(반쯤 쓴 파일을 읽지 않게)
+    np.savez(dst / "clf.tmp.npz", coef=final.coef_[0], intercept=final.intercept_, C=C); (dst / "clf.tmp.npz").replace(dst / "clf.npz")
     np.savez(dst / "clf-train-only.npz", coef=clf.coef_[0], intercept=clf.intercept_, C=C)
     # 모든 칸 점수 — 검수 뽑기(학습에만 쓴 판별기)와 판 단위 평가에 쓴다
     sd = OUT / "scores" / (a.model if TARGET == "result" else f"{a.model}-{TARGET}"); sd.mkdir(parents=True, exist_ok=True)
@@ -223,6 +236,7 @@ if __name__ == "__main__":
     ap.add_argument("--round", type=int, default=1)
     ap.add_argument("--limit", type=int, default=400)
     ap.add_argument("--target", default="result", choices=["result", "end"])
+    ap.add_argument("--no-aug", action="store_true")
     a = ap.parse_args()
     TARGET = a.target
     {"fit": fit, "review": review, "games": games}[a.cmd](a)

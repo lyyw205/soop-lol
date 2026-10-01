@@ -51,6 +51,17 @@ if (args.includes("--review")) {
   }
   const entry = { at: new Date().toISOString(), run_id: run, note: flag("--note") };
   if (flag("--opened")) entry.opened = flag("--opened").split(",").map((s) => s.trim()).filter(Boolean);
+  if (flag("--verdicts")) {
+    // 한 번에: --verdicts 1:result,2:other,3:ingame — 후보마다 명령을 따로 부르면 턴이 늘어 토큰이 는다
+    const out = [];
+    for (const tok of flag("--verdicts").split(",").map((x) => x.trim()).filter(Boolean)) {
+      const [n, is] = tok.split(":"); const c = state.candidates?.find((x) => x.n === Number(n));
+      if (!c || !["result", "graph", "ingame", "client", "other"].includes(is)) { console.error(`판정이 이상하다: ${tok} (번호:result|graph|ingame|client|other)`); process.exit(1); }
+      appendFileSync("out/ck-detector/review-labels.jsonl", `${JSON.stringify({ vod: Number(vodId), at: c.peak, label: is, source: `ck-local:${run}` })}\n`);
+      out.push({ cand: c.n, is });
+    }
+    entry.verdicts = out;
+  }
   if (flag("--cand")) {
     const n = Number(flag("--cand")), is = flag("--is");
     const c = state.candidates?.find((x) => x.n === n);
@@ -70,6 +81,40 @@ if (args.includes("--review")) {
   review.entries.push(entry);
   writeJson(reviewPath, review);
   console.log("기록했다:", JSON.stringify(entry));
+  process.exit(0);
+}
+
+// ── 기록 초안 조립 — Claude 는 읽은 결과만 넘기고, 기계적인 칸은 도구가 채운다 ────────────────
+//   npm run ck:local -- --finish --vod N --run R --opened 5112,13341 [--result-frames 5112] [--status done|running]
+//                      [--games out/ck/N/local/games.json] [--note "본 것"]
+//   games.json(선택): { "candidates": [ck:merge 후보…], "results": [match·identify 결과…] } — 경기가 없으면 안 쓴다
+//   출력: out/ck/N/local/final.json → npm run ck:merge -- --result 그 파일
+if (args.includes("--finish")) {
+  const run = flag("--run");
+  const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : null;
+  if (!state || state.run_id !== run) { console.error(`run_id 가 현재 산출물과 다르다 (현재 ${state?.run_id ?? "없음"}).`); process.exit(1); }
+  const nums = (f) => (flag(f) ?? "").split(",").map((x) => Number(x.trim())).filter((x) => Number.isFinite(x) && x >= 0);
+  const opened = nums("--opened"), resultFrames = new Set(nums("--result-frames"));
+  if (!opened.length) { console.error("--opened 가 필요하다 — 실제로 연 원본 시각(초). 이 실험에서 opened 는 원본만이다."); process.exit(1); }
+  const status = flag("--status", "done");
+  if (!["done", "running", "failed"].includes(status)) { console.error("--status 는 done|running|failed"); process.exit(1); }
+  const draft = JSON.parse(readFileSync(join(dir, "scan-draft.json"), "utf8"));
+  const pad = (t) => `out/ck/${vodId}/g${String(t).padStart(7, "0")}.jpg`;
+  const missing = opened.filter((t) => !existsSync(pad(t)));
+  if (missing.length) { console.error(`원본 파일이 없다: ${missing.join(",")} — ck:probe 로 받은 시각만 적는다`); process.exit(1); }
+  draft.scan.opened = opened.sort((x, y) => x - y);
+  draft.scan.status = status;
+  if (flag("--note")) draft.scan.note = `${draft.scan.note}\n${flag("--note")}`;
+  draft.frames = draft.scan.opened.map((t) => ({ frame_path: pad(t), at_sec: t, kind: resultFrames.has(t) ? "result" : "other", read: true }));
+  const out = [draft];
+  if (flag("--games")) {
+    const g = JSON.parse(readFileSync(flag("--games"), "utf8"));
+    draft.candidates = g.candidates ?? [];
+    out.push(...(g.results ?? []));
+  }
+  writeJson(join(dir, "final.json"), out.length === 1 ? draft : out);
+  console.log(`초안: out/ck/${vodId}/local/final.json (원본 ${opened.length}장 · 결과창 ${resultFrames.size} · 후보 ${draft.candidates.length} · 경기 등 ${out.length - 1})`);
+  console.log(`다음: npm run ck:merge -- --result out/ck/${vodId}/local/final.json`);
   process.exit(0);
 }
 
@@ -161,6 +206,34 @@ try {
   process.exit(2);
 }
 const candidates = det.candidates.map((c, i) => ({ n: i + 1, ...c }));
+/**
+ * 구간 지도 — 화면 종류 라벨(multi.py)을 구간으로 묶은 것. **판단이 아니라 위치 안내다.**
+ * 짧게 남긴다: 밴픽·게임 중(2분 이상)·종료·결과창·그래프·게임 방(1분 이상)만, 결과창 구간에는 후보 번호를 붙인다.
+ * 모름·롤 아님·짧은 구간은 뺀다 — 개요 몽타주가 그 자리를 보여준다.
+ */
+const KO = { banpick: "밴픽", ingame: "게임 중", end: "종료 화면", result: "결과창", graph: "결과창(그래프)", lobby: "게임 방" };
+const keepSeg = (x) => ({ banpick: 1, end: 1, result: 1, graph: 1 })[x.label] || (x.label === "ingame" && x.to - x.from >= 120) || (x.label === "lobby" && x.to - x.from >= 60);
+const mapSegs = [];
+for (const x of (det.timeline ?? []).filter(keepSeg)) {
+  const last = mapSegs.at(-1);
+  // 긴 화면(밴픽·게임 중·게임 방)만 3분 안의 끊김을 잇는다. 종료·결과창은 15초 — 따로 뜬 것을 한 구간으로 부풀리지 않게.
+  const gap = ["banpick", "ingame", "lobby"].includes(x.label) ? 180 : 15;
+  if (last && last.label === x.label && x.from - last.to <= gap) { last.to = x.to; continue; }
+  mapSegs.push({ ...x });
+}
+// 1칸짜리 종료 화면 라벨은 로딩 화면을 잘못 본 경우가 많았다(실측: 207588653 의 밴픽~게임 사이 4개). 뒤 90초 안에 결과창 라벨이 없으면 지도에서 뺀다.
+for (let i = mapSegs.length - 1; i >= 0; i--) {
+  const m = mapSegs[i];
+  if (m.label === "end" && m.to === m.from && !mapSegs.some((x) => ["result", "graph"].includes(x.label) && x.from >= m.from && x.from - m.to <= 90)) mapSegs.splice(i, 1);
+}
+for (const m of mapSegs) {
+  // 후보 번호는 결과창 구간에만 단다 — 후보는 결과창 판별기가, 구간은 종류 판별기가 내서 둘이 겹치는지를 보여준다.
+  const ns = ["result", "graph"].includes(m.label) ? candidates.filter((c) => c.to >= m.from - 6 && c.from <= m.to + 6).map((c) => `#${c.n}`) : [];
+  m.cands = ns;
+}
+for (const c of candidates) if (!mapSegs.some((m) => m.cands.includes(`#${c.n}`))) mapSegs.push({ label: "result", from: c.from, to: c.to, cands: [`#${c.n}`], note: "후보만" });
+mapSegs.sort((x, y) => x.from - y.from);
+const mapText = mapSegs.map((m) => `${hms(m.from)}${m.to > m.from ? `~${hms(m.to)}` : ""} ${m.note ? "결과창 후보" : KO[m.label]}${m.cands.length ? ` (후보 ${m.cands.join(",")})` : ""}`);
 console.log(`  판별 ${det.cells}칸 → 결과창 후보 ${candidates.length}개 (문턱 ${det.threshold} · ${det.min_len}칸 이상)`);
 
 // ③ 원본 — 후보마다 가장 높은 칸 + 파일마다 끝 지점. ck:probe 가 out/ck/<vod>/g<초>.jpg 로 받는다(이미 있으면 건너뛴다).
@@ -200,7 +273,7 @@ const summary = { run_id: runId, started_at: new Date(started).toISOString(), fi
 writeJson(statePath, {
   vod_id: Number(vodId), title: detail.title ?? null, total_sec: Math.round(total), ...summary,
   failed: failedMerged, file_tails: fileTails.map((t) => ({ at: t, frame: frameOf(t) })),
-  candidates, candidate_pages: candidatePages, overview_pages: overviewPages,
+  candidates, candidate_pages: candidatePages, overview_pages: overviewPages, map: mapSegs,
   runs: [...(prev?.runs ?? []), summary],
 });
 const broadcast = vodBroadcastTimes(detail);
@@ -219,6 +292,9 @@ writeJson(join(dir, "scan-draft.json"), {
 });
 ledger({ kind: "scan", run_id: runId, detector: summary.detector, candidates: candidates.length, failed: failedMerged, dir, elapsed_sec: elapsedSec });
 
+writeFileSync(join(dir, "map.txt"), `${mapText.join("\n")}\n`);
+console.log(`\n구간 지도 (out/ck/${vodId}/local/map.txt — 화면 종류 라벨, 위치 안내일 뿐)`);
+for (const l of mapText) console.log(`  ${l}`);
 console.log(`\n결과창 후보 ${candidates.length}개   (전체 ${hms(elapsedSec)})`);
 for (const c of candidates) console.log(`  #${c.n} ${hms(c.from)}~${hms(c.to)} · ${c.len}칸 · 원본 ${c.frame ?? "못 받음"}`);
 if (failedMerged.length) console.log(`  ⚠ 썸네일로 못 본 범위(원본으로 볼 것): ${failedMerged.map(([a, b]) => `${hms(a)}~${hms(b)}`).join(", ")}`);
