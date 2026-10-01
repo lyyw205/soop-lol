@@ -21,7 +21,7 @@
         }
       },
       {
-        "puuid": "키가 없으면 riot_id 대신 78자 puuid 를 직접 적어도 된다",
+        "puuid": "키가 없을 때만 — riot_id 가 있으면 쓰지 않는다(키마다 값이 달라 파일에 적으면 다른 키에서 깨진다)",
         "label": "부계",
         "confidence": "likely",
         "evidence": {

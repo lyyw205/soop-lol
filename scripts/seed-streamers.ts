@@ -32,9 +32,13 @@ import type { AccountEvidence, Confidence, Platform } from "@soop-lol/core/lib/d
 import { RiotApiError, RiotClient } from "@soop-lol/core/lib/riot/client";
 
 interface SeedAccount {
-  /** `닉네임#태그`. RIOT_API_KEY 가 있으면 이걸로 puuid 를 찾는다. */
+  /** `닉네임#태그`. RIOT_API_KEY 가 있으면 **항상** 이걸로 puuid 를 찾는다. */
   riot_id?: string;
-  /** riot_id 대신 puuid 를 직접 적어도 된다 (키가 없을 때). */
+  /**
+   * 키가 없을 때만 쓰는 대체값. ★ 시드 파일에 적지 않는다.
+   * puuid 는 API 키(앱)마다 다르게 암호화된다 — 다른 키로 받아 둔 값은 지금 키로 `400 Exception decrypting` 이다.
+   * 2026-09-22 DB 를 새로 채울 때 파일에 박혀 있던 예전 키의 puuid 44개가 그대로 들어가, 그 계정들의 수집이 전부 막혔다.
+   */
   puuid?: string;
   label?: string;
   is_main?: boolean;
@@ -114,7 +118,7 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-const needsLookup = list.some((s) => (s.accounts ?? []).some((a) => a.riot_id && !a.puuid));
+const needsLookup = list.some((s) => (s.accounts ?? []).some((a) => a.riot_id));
 const apiKey = process.env.RIOT_API_KEY;
 if (needsLookup && !apiKey) {
   console.error("riot_id 로 puuid 를 찾으려면 RIOT_API_KEY 가 필요하다. 키 없이 가려면 puuid 를 직접 적을 것.");
@@ -180,7 +184,8 @@ try {
     }
 
     for (const a of s.accounts ?? []) {
-      let puuid = a.puuid;
+      // ★ riot_id 가 있고 키가 있으면 파일의 puuid 를 믿지 않는다 — 키마다 값이 다르다(SeedAccount.puuid 주석).
+      let puuid = a.riot_id && riot ? undefined : a.puuid;
       let gameName: string | null = null;
       let tagLine: string | null = null;
 
