@@ -147,6 +147,21 @@ if (args.includes("--finish")) {
     out.push(...(g.results ?? []));
   }
   writeJson(join(dir, "final.json"), out.length === 1 ? draft : out);
+  // ★ 경고만 한다(막지 않는다 — 합격선 금지). 10분 넘는 "게임 중" 라벨 구간인데 이 초안에 후보 결론도 연 원본도 근처에 없는 곳.
+  //   ck-research: 롤 게임 구간은 대상이든 아니든 근거와 함께 닫는다. 클리드1 백필에서 솔랭·LCK 시청 구간 10곳이
+  //   결론 없이 넘어간 것을 보고 넣었다(2026-10-01). 이 초안만 보고, DB 에 이미 저장된 이전 기록은 보지 않는다.
+  const marks = [...draft.scan.opened, ...(draft.candidates ?? []).flatMap((c) => c.at ?? [])];
+  const blocks = [];
+  for (const m of (state.map ?? []).filter((x) => x.label === "ingame")) {
+    const b = blocks.at(-1);
+    if (b && m.from - b.to <= 180) b.to = m.to; else blocks.push({ from: m.from, to: m.to });
+  }
+  const open = blocks.filter((b) => b.to - b.from >= 600 && !marks.some((t) => t >= b.from - 60 && t <= b.to + 600));
+  if (open.length) {
+    console.log(`\n⚠ 결론 없는 롤 게임 구간 ${open.length}곳 (지도의 "게임 중" 10분+, 근처에 후보 결론·연 원본 없음):`);
+    for (const b of open) console.log(`   ${hms(b.from)}~${hms(b.to)}`);
+    console.log("   대상 경기면 기록하고, 아니면(솔랭·시청 등) 본 근거와 함께 not_target 후보로 닫는다. 라벨이 틀렸으면 --review --label 로 남긴다.");
+  }
   console.log(`초안: out/ck/${vodId}/local/final.json (원본 ${opened.length}장 · 결과창 ${resultFrames.size} · 후보 ${draft.candidates.length} · 경기 등 ${out.length - 1})`);
   console.log(`다음: npm run ck:merge -- --result out/ck/${vodId}/local/final.json`);
   process.exit(0);
