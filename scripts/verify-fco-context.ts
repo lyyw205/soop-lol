@@ -392,6 +392,31 @@ try {
   const refetch = await syncFcoMatches(nextDay, "ouid-p", { types: [40], refetchKnown: true });
   check("--refetch 는 커서를 무시하고 끝까지 간다", refetch.coverage["40"] === "end" && refetch.listed["40"] === 255);
 
+  console.log("\n▸ 모드를 추가해도 과거 경기를 건너뛰지 않는다 (커서는 읽은 모드의 것이다, 0051)");
+  const typesOf = async () => (await sql<{ t: number[] | null }[]>`SELECT list_synced_types AS t FROM fco_account WHERE ouid = 'ouid-p'`)[0].t;
+  check("기록된 모드가 커서와 함께 저장된다", JSON.stringify(await typesOf()) === JSON.stringify([40]), JSON.stringify(await typesOf()));
+  // 50 모드는 커서보다 **오래된** 경기만 가지고 있다 — 커서를 물려받으면 첫 줄에서 멈춰 하나도 못 받는다.
+  const old50 = Array.from({ length: 30 }, (_, i) => `${(T0 - (2000 + i) * 600).toString(16)}${"0".repeat(16)}`);
+  const withMode50 = {
+    async matchIds(_o: string, type: number, offset: number, limit: number) {
+      const all = type === 50 ? old50 : [...Array.from({ length: 5 }, (_, i) => idNew(4 - i)), ...Array.from({ length: total }, (_, i) => idAt(i))];
+      return all.slice(offset, offset + limit);
+    },
+    async matchDetail() { return null; },
+  };
+  const added = await syncFcoMatches(withMode50, "ouid-p", { types: [40, 50] });
+  check("★★ 새 모드(50)는 커서에서 멈추지 않고 끝까지 읽는다 — 과거 30일 경기를 받는다",
+    added.coverage["50"] === "end" && added.listed["50"] === 30 && added.coverage["40"] === "caught_up", JSON.stringify(added.coverage) + JSON.stringify(added.listed));
+  check("읽은 모드가 기록에 더해진다", JSON.stringify(await typesOf()) === JSON.stringify([40, 50]), JSON.stringify(await typesOf()));
+  const twoModes = await syncFcoMatches(withMode50, "ouid-p", { types: [40, 50] });
+  check("다음 수집부터는 두 모드 모두 커서에서 멈춘다", twoModes.coverage["50"] === "caught_up" && twoModes.coverage["40"] === "caught_up", JSON.stringify(twoModes.coverage));
+  // 일부 모드만 읽은 실행(수동 --matchtypes=50)은 커서를 옮기지 않는다 — 40 의 못 읽은 최신 구간을 건너뛰게 된다.
+  const cursorOf = async () => (await sql<{ c: Date | null }[]>`SELECT list_synced_until AS c FROM fco_account WHERE ouid = 'ouid-p'`)[0].c?.getTime();
+  const c0 = await cursorOf();
+  const newer50 = { async matchIds(_o: string, type: number) { return type === 50 ? [`${(T0 + 99999).toString(16)}${"0".repeat(16)}`] : []; }, async matchDetail() { return null; } };
+  const subset = await syncFcoMatches(newer50, "ouid-p", { types: [50] });
+  check("★★ 일부 모드만 읽은 실행은 커서를 옮기지 않는다", subset.cursorAdvanced === false && (await cursorOf()) === c0, `${c0} → ${await cursorOf()}`);
+
   queue = await listFcoContextQueue({});
   check("새로 수집된 경기는 미조사로 큐에 선다",
     queue.find((r) => r.provider_match_id === "fm-new")?.status === "uninvestigated");

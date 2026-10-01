@@ -54,6 +54,9 @@ const CURSOR_SLACK_MS = 2 * 3600_000;
  * ★ 「이미 저장된 경기」에서 멈추지 않는다 — 상대 스트리머 목록으로 들어온 경기일 수 있어서,
  *   새 계정이 첫 페이지에서 멈춰 버린다. 저장된 경기는 상세 조회만 건너뛴다.
  * 커서는 모든 타입을 빈틈없이 읽었을 때만 옮긴다. 실패·상한이 하나라도 있으면 그대로 둔다.
+ * ★ 커서는 계정당 하나지만 경기 모드는 여럿이다(0051). 커서에서 멈추는 것은 **그 커서를 만든 때 읽은 모드(list_synced_types)뿐**이다.
+ *   새로 추가한 모드는 끝까지(30일) 읽는다 — 다른 모드의 커서를 물려받으면 그 모드의 과거 경기를 영구히 못 받는다.
+ *   커서는 읽은 모드가 기록된 모드를 **모두** 포함할 때만 옮긴다 — 일부 모드만 읽은 실행(예: 수동 --matchtypes=50)이 다른 모드의 못 읽은 구간을 건너뛰지 않게.
  * refetchKnown 이면 커서를 무시하고 끝까지 가며 저장된 경기의 상세도 다시 받는다(수동 재수집).
  */
 export async function syncFcoMatches(
@@ -66,11 +69,14 @@ export async function syncFcoMatches(
   };
   const maxPages = opts.maxPages ?? 20;
   const sql = db();
-  const [account] = await sql<{ list_synced_until: Date | null }[]>`
-    SELECT list_synced_until FROM fco_account WHERE ouid = ${ouid}
+  const [account] = await sql<{ list_synced_until: Date | null; list_synced_types: number[] | null }[]>`
+    SELECT list_synced_until, list_synced_types FROM fco_account WHERE ouid = ${ouid}
   `;
   const cursorMs = account?.list_synced_until ? new Date(account.list_synced_until).getTime() : null;
-  const stopBeforeMs = opts.refetchKnown || cursorMs == null ? null : cursorMs - CURSOR_SLACK_MS;
+  const syncedTypes = new Set<number>(account?.list_synced_types ?? []);
+  /** 모드별로 멈출 지점 — 커서를 만든 때 읽은 모드만 커서에서 멈추고, 아니면(NULL 포함) 끝까지 읽는다. */
+  const stopBeforeFor = (type: number) =>
+    opts.refetchKnown || cursorMs == null || !syncedTypes.has(type) ? null : cursorMs - CURSOR_SLACK_MS;
 
   const fetchList: string[] = [];
   const seen = new Set<string>();
@@ -95,6 +101,7 @@ export async function syncFcoMatches(
       const knownIds = new Set(existing.map((r) => r.provider_match_id));
       for (const id of ids) {
         const startMs = fcoMatchStartMs(id);
+        const stopBeforeMs = stopBeforeFor(type);
         if (stopBeforeMs != null && startMs != null && startMs < stopBeforeMs) {
           coverage = "caught_up";
           break pages;
@@ -127,12 +134,16 @@ export async function syncFcoMatches(
   }
 
   // 커서는 목록을 빈틈없이 읽고 상세까지 전부 받았을 때만 옮긴다 — 실패가 섞이면 다음에 다시 본다.
+  // 그리고 기록된 모드를 **전부** 읽었을 때만 옮긴다(일부 모드만 읽은 실행이 다른 모드의 못 읽은 구간을 건너뛰지 않게).
   const complete = Object.values(result.coverage).every((c) => c === "end" || c === "caught_up")
     && result.errors.length === 0;
-  if (complete) {
+  const coversRecorded = [...syncedTypes].every((t) => opts.types.includes(t));
+  if (complete && coversRecorded) {
     const next = Math.max(newestMs ?? 0, cursorMs ?? 0);
     if (next > 0) {
-      await sql`UPDATE fco_account SET list_synced_until = ${new Date(next)} WHERE ouid = ${ouid}`;
+      const types = [...new Set([...syncedTypes, ...opts.types])].sort((a, b) => a - b);
+      await sql`UPDATE fco_account SET list_synced_until = ${new Date(next)}, list_synced_types = ${types}::integer[]
+                 WHERE ouid = ${ouid}`;
       result.cursorAdvanced = true;
     }
   }
