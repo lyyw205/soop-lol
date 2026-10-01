@@ -20,27 +20,35 @@ description: (실험) 학습한 판별기가 썸네일 전체에 화면 종류 �
 
 **1. 이전 기록** — `ck:record --lead vod:<번호>`, `ck:merge --find-match --vod <번호>` (예측 위치가 있으면 그 경기는 그 위치도 본다).
 
-**2. 구간 지도 읽기** — `out/ck/<번호>/local/map.txt` (준비 출력에도 있다). 예:
-```
-0:06:09~0:13:24 밴픽
-0:14:39~0:44:27 게임 중
-0:44:30~0:44:33 종료 화면
-0:44:36~0:45:21 결과창 (후보 #3,#4)
-```
-**지도에 롤(밴픽·게임 중·결과창)이 하나도 없으면** → 4단계의 "롤 없음"으로.
+**2. 구간 지도 + 개요 몽타주 — 둘 다 항상 본다.**
+- 지도: `out/ck/<번호>/local/map.txt` (준비 출력에도 있다). 예:
+  ```
+  0:06:09~0:13:24 밴픽
+  0:14:39~0:44:27 게임 중
+  0:44:30~0:44:33 종료 화면
+  0:44:36~0:45:21 결과창 (후보 #3,#4)
+  ```
+- 개요: `overview-*.jpg`(2분 칸 전체, 결과창 후보 근처는 분홍 테두리)를 **전부** 연다.
+  **지도는 요약본이다** — "모름"·"롤 아님"·2분 미만 게임 구간은 빠져 있다. 지도만 보고 넘어가지 않는다.
+- 둘을 맞춰 **확인할 곳 목록**을 만든다:
+  ① 결과창 후보(번호 있음) ② 지도의 결과창·그래프 구간인데 후보 번호가 없는 곳
+  ③ 지도의 "게임 중" 구간인데 뒤에 결과창 후보가 없는 곳 ④ **개요에서 롤로 보이는데 지도·후보에 없는 구간**
+- 목록이 비고 개요에도 롤이 없으면 → 4단계. 하나라도 있으면 → 3단계.
 
 **3. 롤이 있으면 — 이때 ck-research 의 「경기 추적」「입력 창구」「결과 화면을 찾는 기본 방법」「같은 경기의 다른 시점」을 읽는다.**
 1. `candidates-*.jpg`(후보 몽타주, `#번호 시각`)를 열어 결과창으로 보이는 후보를 고른다. 같은 판을 다시 연 후보끼리 묶는다.
 2. 고른 후보의 원본(`scan.json` 의 `candidates[].frame`, 이미 받아 둠)을 열어 판독한다.
    가렸으면 ck-research 「가려진 결과창의 앞쪽 보완 탐색」(`ck:probe --between`).
-3. **챔피언·이름·KDA 는 결과창 원본 한 장에서 읽는 게 기본이다.** 밴픽 구간 원본(`ck:probe --at <밴픽 끝 무렵 초>`)은
-   결과창에서 **못 읽은 칸이 있을 때만** 받는다 — 챔피언 아이콘이 작거나 가렸을 때, 포지션(결과창에 없다)이 필요할 때.
-4. **결과창 후보가 붙지 않은 "게임 중" 구간**은 그 끝을 띠로 본다: `npm run ck:local -- --vod <번호> --strip <끝-1분>~<끝+4분>`.
-   결과창이 있으면 2처럼 읽고, 없으면 ck-research 결과창 탐색(원본 5분할)으로 간다. 남의 방송·리플레이를 본 구간이면 그렇게 적고 닫는다.
+3. **결과창에서 먼저 읽는다.** 필요한 값이 안 보이거나 **대상 여부(CK·솔랭 등)·경기 경계·같은 경기인지가 불명확하면**
+   지도의 밴픽 구간·로비·인게임 원본으로 보충한다(`ck:probe --at <초>`). 포지션은 결과창에 없다.
+4. 목록의 ②③④는 띠로 본다: `npm run ck:local -- --vod <번호> --strip <시작>~<끝>` (모델 없음, 몇 초).
+   결과창이 있으면 2처럼 읽고, 없으면 ck-research 결과창 탐색(원본 5분할)으로 간다.
+   **재송출·리플레이·남의 방송 화면도 ck-research 대로 수집 대상 여부를 판단한 뒤 처리한다** — 시청 화면이라는 이유만으로 닫지 않는다.
 
-**4. 롤이 없으면** — `overview-*.jpg`(2분 칸) 를 열어 롤이 정말 없는지 그림으로 확인하고, 파일 끝 원본(`scan.json` 의 `file_tails[].frame`)을 연다.
-`scan.json` 의 `failed`(썸네일을 못 받은 범위)가 있으면 롤 유무와 상관없이 ck-research 훑기로 원본을 본다.
+**4. 롤이 없으면** — 파일 끝 원본(`scan.json` 의 `file_tails[].frame`)을 연다(개요는 2단계에서 이미 봤다).
 실제로 연 FC 화면이 있으면 ck-research 대로 한 번: `npm run fco:context -- clue --vod <번호> --at <초> --observed "본 것" --channel <채널>`.
+
+**롤 유무와 상관없이** `scan.json` 의 `failed`(썸네일을 못 받은 범위)는 ck-research 훑기로 원본을 본다.
 
 **5. 후보 판정 — 판별기가 배우는 자료다. 한 줄로:**
 `npm run ck:local -- --review --vod <번호> --run <run_id> --verdicts 3:result,4:result,5:other,6:graph`
@@ -49,12 +57,13 @@ description: (실험) 학습한 판별기가 썸네일 전체에 화면 종류 �
 **6. 기록 — 초안은 도구가 조립한다.**
 ```bash
 npm run ck:local -- --finish --vod <번호> --run <run_id> --opened <연 원본 초,…> \
-  [--result-frames <결과창 원본 초,…>] [--status done|running] [--games out/ck/<번호>/local/games.json] [--note "본 것·라벨이 틀린 곳"]
+  [--result-frames <결과창 원본 초,…>] [--resolved <시작-끝,…>] [--status done|running] [--games out/ck/<번호>/local/games.json] [--note "본 것·라벨이 틀린 곳"]
 npm run ck:merge -- --result out/ck/<번호>/local/final.json
 ```
 - 경기가 있으면 `games.json` 에 **읽은 결과만** 쓴다: `{"candidates":[ck-research 후보…], "results":[match·identify…]}` (형식은 ck-research 「입력 창구」).
 - `opened` 는 원본을 연 시각만이다(이 실험의 정책). `status: done` 조건은 ck-research 그대로.
-- 실패 범위를 원본으로 메웠으면 `final.json` 의 `scan.failed` 에서 빼거나 `scan.resolved_failed` 로 닫는다.
+- 썸네일을 못 받은 범위(`failed`)를 원본으로 메웠으면 `--finish ... --resolved <시작-끝,…>` (VOD 전체 초)로 넘긴다.
+  도구가 이번 `scan.failed` 에서 빼고 `scan.resolved_failed` 에도 넣는다 — 이미 DB 에 저장된 실패까지 닫으려면 둘 다 필요하다.
 - 마지막에 `npm run ck:local -- --review --vod <번호> --run <run_id> --merged done|running|failed --note "…"` (실험 장부).
 
 **하지 않는 것**: `npm test` (코드를 안 바꾼 조사다), 롤이 없는 VOD 에서 ck-research 전체 읽기, 초안 JSON 손 조립.

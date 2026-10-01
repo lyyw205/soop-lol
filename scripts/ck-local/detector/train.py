@@ -84,6 +84,9 @@ def load_labels(E, metas):
 
 TARGET = "result"   # fit --target end 로 종료 화면(넥서스 폭발·승리/패배 문구) 판별기를 따로 학습한다
 def binary(label):
+    # 결과창 판별기는 그래프 등 결과창의 다른 탭도 결과창으로 본다 — 후보 대상이다.
+    # (그래프 라벨을 따로 만들면서 한동안 음성으로 학습했다 — Codex 검토, 2026-10-01)
+    if TARGET == "result": return 1 if label in ("result", "graph") else 0
     return 1 if label == TARGET else 0
 
 def fit(a):

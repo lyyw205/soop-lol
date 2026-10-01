@@ -93,7 +93,13 @@ if (args.includes("--finish")) {
   const run = flag("--run");
   const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : null;
   if (!state || state.run_id !== run) { console.error(`run_id 가 현재 산출물과 다르다 (현재 ${state?.run_id ?? "없음"}).`); process.exit(1); }
-  const nums = (f) => (flag(f) ?? "").split(",").map((x) => Number(x.trim())).filter((x) => Number.isFinite(x) && x >= 0);
+  // ★ 빈 칸을 거른 뒤 숫자로 — Number("") 가 0 이라 "120," 이나 빈 값이 0초로 섞였다(Codex 검토, 2026-10-01)
+  const nums = (f) => {
+    const raw = (flag(f) ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+    const bad = raw.filter((x) => !/^\d+$/.test(x));
+    if (bad.length) { console.error(`${f} 값이 이상하다: ${bad.join(",")} (VOD 전체 초, 정수)`); process.exit(1); }
+    return raw.map(Number);
+  };
   const opened = nums("--opened"), resultFrames = new Set(nums("--result-frames"));
   if (!opened.length) { console.error("--opened 가 필요하다 — 실제로 연 원본 시각(초). 이 실험에서 opened 는 원본만이다."); process.exit(1); }
   const status = flag("--status", "done");
@@ -105,6 +111,17 @@ if (args.includes("--finish")) {
   draft.scan.opened = opened.sort((x, y) => x - y);
   draft.scan.status = status;
   if (flag("--note")) draft.scan.note = `${draft.scan.note}\n${flag("--note")}`;
+  // 메운 실패 범위 — 이번 failed 에서 빼고 resolved_failed 에도 넣는다. 병합(mergeScan)은 resolved_failed 를 이전 DB 실패에만
+  // 적용하고 이번 failed 는 그대로 더하므로, 한쪽만 하면 안 닫힌다.
+  const resolved = (flag("--resolved") ?? "").split(",").map((x) => x.trim()).filter(Boolean).map((x) => {
+    const m = /^(\d+)-(\d+)$/.exec(x);
+    if (!m || Number(m[2]) < Number(m[1])) { console.error(`--resolved 값이 이상하다: ${x} (시작-끝, VOD 전체 초)`); process.exit(1); }
+    return [Number(m[1]), Number(m[2])];
+  });
+  if (resolved.length) {
+    draft.scan.failed = subtractRanges(draft.scan.failed ?? [], resolved);
+    draft.scan.resolved_failed = mergeRanges([...(draft.scan.resolved_failed ?? []), ...resolved]);
+  }
   draft.frames = draft.scan.opened.map((t) => ({ frame_path: pad(t), at_sec: t, kind: resultFrames.has(t) ? "result" : "other", read: true }));
   const out = [draft];
   if (flag("--games")) {
