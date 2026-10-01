@@ -172,7 +172,7 @@ async function resolveTargets(): Promise<FcoTarget[]> {
 
 /** VOD 의 시간축 — broad_start 그대로(등록시각−길이로 추정하지 않는다). */
 async function vodSpan(vod: number): Promise<FcoVodSpan & { channel: string | null }> {
-  const { vodDetail } = await import("./lib/soop-vod.mjs");
+  const { vodDetail, vodBroadcastTimes } = await import("./lib/soop-vod.mjs");
   const detail = await vodDetail(vod);
   if (!detail?.broad_start) throw new Error(`VOD ${vod}: broad_start 를 못 읽었다 — 시간축을 세울 수 없다`);
   const startMs = Date.parse(`${String(detail.broad_start).replace(" ", "T")}+09:00`);
@@ -366,14 +366,17 @@ async function clueCommand() {
   if (!Number.isInteger(vod) || !Number.isInteger(at) || !observed) {
     throw new Error("사용법: npm run fco:context -- clue --vod 207643193 --at 2400 --observed '본 것' [--channel id]");
   }
-  const { vodDetail } = await import("./lib/soop-vod.mjs");
+  const { vodDetail, vodBroadcastTimes } = await import("./lib/soop-vod.mjs");
   const detail = await vodDetail(vod);
   if (!channel) channel = detail?.copyright_user_id ?? detail?.bj_id ?? detail?.user_id;
   if (!channel) throw new Error("채널을 알 수 없다 — --channel 로 지정한다");
   const fresh = await addFcoCrossClue({
     vod_title_no: vod, channel_id: channel, at_sec: at, observed,
     title: detail?.title ?? undefined,
-    observed_at: option("observed-at") ?? detail?.reg_date ?? (() => { throw new Error("방송 시각을 알 수 없다 — --observed-at 로 지정한다"); })(),
+    // ★ 상세 응답엔 reg_date 가 없다(목록 응답에만 있다) — 그래서 매번 "방송 시각을 알 수 없다"로 실패해 재시도가 필요했다.
+    //   방송 시각은 공용 vodBroadcastTimes(write_tm·broad_start)로 읽는다. 종료 시각이 단서 시각의 정본이다(ck-probe·ck-merge 와 같다).
+    observed_at: option("observed-at") ?? vodBroadcastTimes(detail).end ?? vodBroadcastTimes(detail).start
+      ?? (() => { throw new Error("방송 시각을 알 수 없다 — --observed-at 로 지정한다"); })(),
   });
   console.log(fresh ? `교차 단서 저장 — fc:${vod}:${at}` : `이미 있는 단서다 — fc:${vod}:${at} (중복 저장 안 함)`);
 }

@@ -261,7 +261,9 @@ const candidates = det.candidates.map((c, i) => ({ n: i + 1, ...c }));
  * 모름·롤 아님·짧은 구간은 뺀다 — 개요 몽타주가 그 자리를 보여준다.
  */
 const KO = { banpick: "밴픽", ingame: "게임 중", end: "종료 화면", result: "결과창", graph: "결과창(그래프)", lobby: "게임 방" };
-const keepSeg = (x) => ({ banpick: 1, end: 1, result: 1, graph: 1 })[x.label] || (x.label === "ingame" && x.to - x.from >= 120) || (x.label === "lobby" && x.to - x.from >= 60);
+// ★ 종료 화면(end)은 지도에서 뺐다 — 예시가 41칸뿐이라 FC 화면에 수십 줄씩 붙었다(205893329, 2026-10-01).
+//   판별기는 계속 계산한다(scan.json 의 timeline 이 아니라 map 에서만 뺀다). 데이터를 몰아서 검수한 뒤 다시 넣는다.
+const keepSeg = (x) => ({ banpick: 1, result: 1, graph: 1 })[x.label] || (x.label === "ingame" && x.to - x.from >= 120) || (x.label === "lobby" && x.to - x.from >= 60);
 const mapSegs = [];
 for (const x of (det.timeline ?? []).filter(keepSeg)) {
   const last = mapSegs.at(-1);
