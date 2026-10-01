@@ -67,9 +67,11 @@ fco:context list --vods        미조사 경기 + 후보 VOD 시간창
 
 API 경기 목록이 아니라 **VOD 를 받아** 그 안의 FC 경기를 찾는 흐름이다(과거 백필·대회 VOD). 설계: docs/FCO-SCREEN-MATCH-DESIGN.md.
 
-1. **지도** — `npm run ck:local -- --vod <번호>`(롤·FC 공용 준비, 6시간 VOD 약 1분). `out/ck/<번호>/local/map.txt` 의
-   `FC 경기` 구간과 `결과 화면 …s` 가 찾을 곳이다. 지도는 위치 안내다 — 결과 화면 검출은 처음 보는 방송에서 놓치는 게 많다
-   (재현율 약 26%). **구간마다 결과 화면을 직접 찾는다**(아래 「결과 화면을 찾는 기본 방법」, 구간 끝에서 시작).
+1. **지도** — `npm run ck:local -- --vod <번호>`(롤·FC 공용 준비, 6시간 VOD 약 1분) 다음
+   `out/ck-detector/venv/bin/python scripts/fco-local/fc_detect.py --vod <번호>`(FC 전용 판별기, 약 1분).
+   `out/ck/<번호>/local/fc.json` 의 `results`(결과 화면 후보 초)와 `blocks`(FC 구간)가 찾을 곳이다 — `locate` 도 이걸 보여 준다.
+   처음 보는 채널에서 경기 단위로 약 91% 를 짚지만 **위치 안내일 뿐이다** — 후보가 없는 FC 구간은 결과 화면을 직접 찾는다
+   (아래 「결과 화면을 찾는 기본 방법」, 구간 끝에서 시작). 후보 원본을 열어 결과 화면이 아니면 버린다.
 2. **읽기** — 결과 화면 원본에서 두 닉네임·스코어(·보이면 모드·승부차기)를 읽는다. 보이는 것만 적는다 — 스쿼드·통계는 비운다.
    같은 점수(승부차기 가능)·못 읽은 점수는 적지 않으면 도구가 `unknown` 으로 둔다. 승부차기 승자를 봤으면 `outcome` 으로 적는다.
 3. **저장** — `npm run fco:context -- screen --file out/fco/<이름>.json [--dry-run]`

@@ -204,6 +204,16 @@ async function locateCommand() {
   // null = 쓸 지도 없음(없거나 FC 를 모르는 옛 지도) — "결과 화면 없음"과 다르다. 그때는 기존 5분할.
   const fcMap = new Map<number, number[] | null>();
   for (const vod of vods) {
+    // FC 전용 판별기 결과(fc.json, scripts/fco-local/fc_detect.py)가 있으면 그걸 먼저 쓴다 — 롤 공용 지도보다 FC 결과 화면을 잘 찾는다.
+    const fcp = `out/ck/${vod}/local/fc.json`;
+    if (existsSync(fcp)) {
+      const f = JSON.parse(readFileSync(fcp, "utf8"));
+      const sj = existsSync(`out/ck/${vod}/local/scan.json`) ? JSON.parse(readFileSync(`out/ck/${vod}/local/scan.json`, "utf8")) : null;
+      const ok = !(sj?.failed ?? []).length;
+      fcMap.set(vod, ok ? f.results : null);
+      console.log(`지도 VOD ${vod}: ${ok ? `FC 결과 화면 ${f.results.length}곳 (FC 판별기 ${f.version})` : "썸네일 실패 구간이 있어 쓰지 않음"}`);
+      continue;
+    }
     const p = `out/ck/${vod}/local/scan.json`;
     const j = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
     const ok = j?.fc?.supported === true && !(j.failed ?? []).length;

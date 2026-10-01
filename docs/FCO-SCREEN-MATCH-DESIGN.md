@@ -91,7 +91,7 @@ API 저장 경로(`saveFcoMatch`)에서는 부르지 않는다 — API 경로를
 | 1 | 화면 경기 단계 2 — 사람 기준 대진 비교 | 위 §4 | **완료** |
 | 2 | FC 완료 도장 `event_lead.raw.fco_scan` 분리. 확인: `raw` 쓰기는 전부 최상위 키 병합(`raw \|\| {...}`)이라 `ck:merge` 가 FC 도장을 안 지운다. `vodWork(raw, 길이, 'fco_scan')`·`markLeadScan(..., {key:'fco_scan'})` | §4 「도장 분리」 | **완료**(도구만 — 쓰는 곳은 3·6단계) |
 | 3 | FC 스킬에 **VOD 출발 흐름**: 지도 → 결과 화면 읽기 → `fco:context screen`(관측 보존·연결·검수 대기) → `fco:context scan`(FC 도장). 이름은 `fco-match-context` 유지(롤 스킬 합칠 때 정리) | `.claude/skills/fco-match-context` | **완료**(2026-10-01, 실제 조사 미실행) |
-| 4 | FC 결과 화면 라벨 보강(처음 보는 방송 재현율 26%) — 다른 채널 라벨 수집 → 재학습. ★ 판별기를 바꾸면 ck-local 기준선(`ck-local-v1`)과 다시 비교한다 | docs/CK-LOCAL-FC-PLAN.md | |
+| 4 | **FC 전용 판별기**(A안 — ck-local 판별기는 그대로): `scripts/fco-local/`(harvest → fc_review → fc_train → fc_detect), 모델 `out/fco-detector/model/siglip/fc.npz`. API 경기 종료 시각으로 12채널 VOD 24개에서 96경기 구간(1,258칸)을 모아 검수 → 라벨 1,150칸(결과 화면 144). 처음 보는 채널 기준 **결과 화면 칸 재현율 38%→90%·정확도 89%, 경기 단위 91%**(문턱 0.5, 결과 화면 없던 경기 헛짚음 3). VOD 전체에 돌리면 후보 28 중 27이 API 경기 종료 근처. `locate` 는 `out/ck/<vod>/local/fc.json` 을 먼저 쓴다. ck-local 무변경 확인(git diff·판별기 지문) | `scripts/fco-local/` | **완료**(2026-10-01) |
 | 5 | 검증 — 이미 결론 난 FC 경기로 dry-run(지도 도달률·첫 추천 적중·원본 수·비용), 학습에 안 쓴 VOD | docs/CK-LOCAL-FC-PLAN.md 6단계 | |
 | 6 | 백필 `--game fconline` → 과거 FC 백필 시작 | `ck-backfill.sh`·`ck-backfill.ts` | |
 | 7 | 검수 화면(단계 3) → 공개 표시(단계 4) | 위 §4 | |
