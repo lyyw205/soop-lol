@@ -110,6 +110,13 @@ try {
  const stuck=await cli('after','--current',current);
  assert.equal(stuck.code,4);assert.match(stuck.out,/진척 없음/);
  await ck.markLeadScan(await leadId(303),full(3600));
+ // ★ FC 도장(fco_scan)은 롤 도장(scan)과 따로 쓰이고 서로 지우지 않는다(같은 VOD 를 두 게임이 따로 끝낸다).
+ await ck.markLeadScan(await leadId(303),{status:'running',requested:[[0,500]]},{key:'fco_scan'});
+ { const r=(await db()`SELECT raw FROM event_lead WHERE id=${await leadId(303)}::uuid`)[0].raw;
+   assert.equal(r.scan.status,'done','FC 도장을 써도 롤 도장이 그대로다'); assert.equal(r.fco_scan.status,'running'); }
+ await ck.markLeadScan(await leadId(303),full(3600));
+ { const r=(await db()`SELECT raw FROM event_lead WHERE id=${await leadId(303)}::uuid`)[0].raw;
+   assert.equal(r.fco_scan?.status,'running','롤 도장을 다시 써도 FC 도장이 그대로다'); }
  assert.match((await cli('next','--queue',queue,'--current',current)).out,/다음 VOD 304/,'시작 직전에 DB 를 다시 읽는다');
  assert.equal((await cli('access','--vod','304','--status','unavailable','--reason','비공개 안내 확인')).code,0);
  assert.equal((await cli('after','--current',current)).code,0,'접근 불가 확인도 진척');

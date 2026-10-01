@@ -13,6 +13,7 @@
  *   4. **원본 수정과 파생 갱신은 한 트랜잭션이다.** 중간에 실패하면 승패가 어긋난 채 남는다.
  */
 
+import type { ScanKey } from "../metrics/ck-vod-status.ts";
 import type postgres from "postgres";
 
 import { db } from "./client.ts";
@@ -215,7 +216,7 @@ export async function upsertEventLeadInTx(tx: Tx, input: EventLeadInput): Promis
 export async function markLeadScan(
   leadId: string,
   scan: LeadScanState,
-  opts: { mode?: "merge" | "replace"; resolved_failed?: TimeRange[] } = {},
+  opts: { mode?: "merge" | "replace"; resolved_failed?: TimeRange[]; key?: ScanKey } = {},
 ): Promise<LeadScanState> {
   return db().begin((tx) => markLeadScanInTx(tx, leadId, scan, opts)) as Promise<LeadScanState>;
 }
@@ -224,7 +225,8 @@ export async function markLeadScanInTx(
   tx: Tx,
   leadId: string,
   scan: LeadScanState,
-  opts: { mode?: "merge" | "replace"; resolved_failed?: TimeRange[] } = {},
+  /** key: 어느 게임의 조사 도장인가 — 롤 `scan`(기본) · FC `fco_scan`. 서로 다른 키라 덮지 않는다. */
+  opts: { mode?: "merge" | "replace"; resolved_failed?: TimeRange[]; key?: ScanKey } = {},
 ): Promise<LeadScanState> {
   const resolved = (opts.resolved_failed ?? []).map((r): TimeRange => {
     if (!Array.isArray(r) || r.length !== 2 || !r.every(Number.isFinite) || r[0] < 0 || r[1] < r[0]) {
@@ -234,16 +236,17 @@ export async function markLeadScanInTx(
   }).filter(([a, b]) => b >= a);
   // 해소는 입력 명령이다. raw.scan 에 남겨 다음 실행에서 재적용하지 않는다.
   const { resolved_failed: _ignored, ...state } = scan as LeadScanState & { resolved_failed?: unknown };
-  const rows = await tx<{ raw: { scan?: LeadScanState } }[]>`
+  const key: ScanKey = opts.key ?? "scan";
+  const rows = await tx<{ raw: Record<string, LeadScanState | undefined> }[]>`
     SELECT raw FROM event_lead WHERE id = ${leadId}::uuid FOR UPDATE
   `;
   if (rows.length === 0) throw new Error(`event_lead 를 찾지 못했다: ${leadId}`);
 
-  const prev = rows[0].raw.scan;
+  const prev = rows[0].raw[key];
   const next = opts.mode === "replace" || !prev ? state : mergeScan(prev, state, resolved);
 
   await tx`
-    UPDATE event_lead SET raw = raw || ${tx.json({ scan: next } as never)}
+    UPDATE event_lead SET raw = raw || ${tx.json({ [key]: next } as never)}
      WHERE id = ${leadId}::uuid
   `;
   return next;

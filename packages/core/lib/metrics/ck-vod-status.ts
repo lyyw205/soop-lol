@@ -50,6 +50,12 @@ export function titleExclusion(title: string): string | null {
 }
 
 export type ScanRaw = Record<string, any>;
+/**
+ * 게임별 조사 도장 키. 같은 VOD 의 롤 조사(`scan`)와 FC 조사(`fco_scan`)는 따로 끝난다 —
+ * 롤 조사가 끝났다고 FC 조사가 끝난 게 아니다(같은 키를 쓰면 FC 백필이 롤 완료 VOD 를 건너뛴다).
+ * `raw` 에 쓰는 곳은 전부 최상위 키 병합(`raw || {...}`)이라 서로의 도장을 지우지 않는다(ck.ts).
+ */
+export type ScanKey = 'scan' | 'fco_scan';
 /** 다시 봐야 하는 이유. null 이면 완료 또는 확인된 접근 불가. */
 export type VodReason = 'new' | 'lead_only' | 'running' | 'failed_left' | 'partial';
 export interface VodWork {
@@ -70,8 +76,8 @@ export function isUnavailable(raw?: ScanRaw): boolean {
  * VOD 한 개의 남은 일.
  * `apiSeconds` 는 목록 API 가 준 길이다. 조사 때 기록한 `raw.vod_total_sec` 가 있으면 그게 우선이다.
  */
-export function vodWork(raw: ScanRaw | undefined, apiSeconds: number | null): VodWork {
-  const scan = raw?.scan;
+export function vodWork(raw: ScanRaw | undefined, apiSeconds: number | null, key: ScanKey = 'scan'): VodWork {
+  const scan = raw?.[key];
   const known = Number(raw?.vod_total_sec ?? apiSeconds);
   const total = Number.isFinite(known) && known > 0 ? Math.round(known) : null;
   // requested(이번 실행이 훑기로 한 범위)가 정본이지만, ck-research 는 그 칸을 채우라는
@@ -81,7 +87,8 @@ export function vodWork(raw: ScanRaw | undefined, apiSeconds: number | null): Vo
   // 예전 기록은 5~15분이었다. 이 대체 규칙은 requested 가 없던 예전 기록과의 호환용이라 지우지 않는다).
   const requested = mergeRanges(scan?.requested?.length ? scan.requested : (scan?.sampled ?? []));
   const failed = coveredSeconds(scan?.failed ?? []);
-  const unresolved = Array.isArray(raw?.candidates)
+  // 미해결 후보(raw.candidates)는 롤 조사의 것이다. FC 조사는 미해결을 경기 맥락(fco_match_context)에 남긴다.
+  const unresolved = key === 'scan' && Array.isArray(raw?.candidates)
     ? raw!.candidates.filter((c: any) => c?.conclusion === 'unresolved').length : 0;
   // 끝 오차만 허용: [0, total - 허용] 을 요청 범위에서 빼고 남는 게 있으면 덜 본 것이다.
   // 구간은 양끝 포함 정수 초라 [5,5] 도 1초다(coveredSeconds 는 길이라 0 으로 센다).

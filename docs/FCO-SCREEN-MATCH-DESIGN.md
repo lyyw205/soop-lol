@@ -80,7 +80,7 @@ API 저장 경로(`saveFcoMatch`)에서는 부르지 않는다 — API 경로를
 | 2. 내부 안전 | 시리즈 대진 비교(`context.ts`)·세트 승수 합산(`series.ts`)을 사람 기준 키로. 키 순서를 **스트리머 → 계정 → 화면 이름**으로 바꿨다(0054) — ouid 먼저면 같은 사람이 API·화면 경기에서 다른 사람이 된다 | **완료**(2026-10-01) |
 | 3. 검수 표시 | `/admin/fco` 에 화면 경기·검수 대기. 사람이 근거 프레임으로 승인 | 안 함 |
 | 4. 공개 표시 | 검수된 화면 경기를 "수기" 뱃지와 함께. 공개 여부 관문을 한 곳으로 모으는 것이 이 단계의 설계 과제 | 안 함 — 시작 전 별도 설계 |
-| 도장 분리 | `event_lead.raw.fco_scan` (롤 `scan` 과 별개). ⚠ 먼저 `ck:merge` 가 `raw` 를 통째로 덮는지 확인 | 안 함 |
+| 도장 분리 | `event_lead.raw.fco_scan` (롤 `scan` 과 별개). `ck:merge` 는 덮지 않는다(최상위 키 병합) | **완료**(도구) |
 
 ## 4.1 FC 전체 순서표 (2026-10-01)
 
@@ -89,7 +89,7 @@ API 저장 경로(`saveFcoMatch`)에서는 부르지 않는다 — API 경로를
 | # | 일 | 문서·위치 | 상태 |
 |---|---|---|---|
 | 1 | 화면 경기 단계 2 — 사람 기준 대진 비교 | 위 §4 | **완료** |
-| 2 | FC 완료 도장 `event_lead.raw.fco_scan` 분리 — 먼저 `ck:merge` 가 `raw` 를 통째로 덮는지 확인 | §4 「도장 분리」 | |
+| 2 | FC 완료 도장 `event_lead.raw.fco_scan` 분리. 확인: `raw` 쓰기는 전부 최상위 키 병합(`raw \|\| {...}`)이라 `ck:merge` 가 FC 도장을 안 지운다. `vodWork(raw, 길이, 'fco_scan')`·`markLeadScan(..., {key:'fco_scan'})` | §4 「도장 분리」 | **완료**(도구만 — 쓰는 곳은 3·6단계) |
 | 3 | `fco-match-context` → **fco-research**: API 경기 맥락 + API 에 없는 경기를 화면으로 찾아 `saveFcoScreenMatch` 로 기록 | 스킬 | |
 | 4 | FC 결과 화면 라벨 보강(처음 보는 방송 재현율 26%) — 다른 채널 라벨 수집 → 재학습. ★ 판별기를 바꾸면 ck-local 기준선(`ck-local-v1`)과 다시 비교한다 | docs/CK-LOCAL-FC-PLAN.md | |
 | 5 | 검증 — 이미 결론 난 FC 경기로 dry-run(지도 도달률·첫 추천 적중·원본 수·비용), 학습에 안 쓴 VOD | docs/CK-LOCAL-FC-PLAN.md 6단계 | |

@@ -70,3 +70,15 @@ test('LCK Watch Party 태그 방송은 제목만으로 뺀다',()=>{
  assert.equal(titleExclusion('김민교 롤 상어녀CK'),null);
  assert.equal(titleExclusion('김민교 LCK 결승 보고 내전'),null,'태그 없이 LCK 만 적힌 제목은 빼지 않는다');
 });
+
+test('게임별 도장은 따로 센다 — 롤 완료가 FC 완료가 아니다(fco_scan)', () => {
+  const lolDone = { status: 'done', requested: [[0, 100]], opened: [10] };
+  const raw = { scan: lolDone, candidates: [{ conclusion: 'unresolved' }] };
+  assert.equal(vodWork(raw, 100).reason, null);
+  assert.equal(vodWork(raw, 100, 'fco_scan').reason, 'lead_only', '롤만 끝난 VOD 는 FC 로는 아직 안 본 VOD 다');
+  assert.equal(vodWork(raw, 100).unresolved, 1);
+  assert.equal(vodWork(raw, 100, 'fco_scan').unresolved, 0, '롤 미해결 후보를 FC 일로 세지 않는다');
+  const both = { ...raw, fco_scan: { status: 'running', requested: [[0, 50]] } };
+  assert.equal(vodWork(both, 100, 'fco_scan').reason, 'running');
+  assert.equal(vodWork(both, 100).reason, null, 'FC 도장이 롤 판정을 바꾸지 않는다');
+});
