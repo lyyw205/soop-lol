@@ -38,6 +38,7 @@ const EMPTY: Record<string, string> = {
   todo: "조사가 필요한 경기가 없습니다.",
   all: "공개 스트리머 간 FC 경기가 없습니다. 수집은 `npm run worker -- fco` 가 합니다.",
   clues: "LoL 조사가 남긴 FC 화면 단서가 없습니다.",
+  casual: "일반 유저와 한 경기가 없습니다.",
 };
 
 export default async function FcoReviewListPage({
@@ -58,11 +59,17 @@ export default async function FcoReviewListPage({
 
   const unitRows = (list: FcoReviewUnit[]): Row[] => list.map((unit) => ({ type: "unit", unit }));
   const sessionRows = (list: FcoSession[]): Row[] => list.map((x) => ({ type: "session", s: x }));
+  // ★ 맥락(친선·CK·대회)을 가르는 검수는 스트리머 vs 스트리머 대전만 한다. 일반 유저전(스트리머 vs 일반 유저, 닉네임끼리)은
+  //   CK·대회일 일이 없어 값(스코어·결과 화면)만 보고 완료하면 된다 — 기본 탭에서 빼고 「일반 유저전」 탭에 따로 모은다.
+  const versus = shown.filter((x) => x.kind === "pair");
+  const casual = shown.filter((x) => x.kind !== "pair");
   const groups: Record<string, Row[]> = {
-    pending: [...unitRows(events.filter((u) => u.pending)), ...sessionRows(shown.filter((x) => x.investigated && x.completed < x.total))],
-    confirmed: [...unitRows(events.filter((u) => u.confirmed)), ...sessionRows(shown.filter((x) => x.completed === x.total))],
-    todo: sessionRows(shown.filter((x) => !x.investigated && x.completed < x.total)),
-    all: [...unitRows(events), ...sessionRows(shown)],
+    pending: [...unitRows(events.filter((u) => u.pending)), ...sessionRows(versus.filter((x) => x.investigated && x.completed < x.total))],
+    confirmed: [...unitRows(events.filter((u) => u.confirmed)), ...sessionRows(versus.filter((x) => x.completed === x.total))],
+    todo: sessionRows(versus.filter((x) => !x.investigated && x.completed < x.total)),
+    all: [...unitRows(events), ...sessionRows(versus)],
+    // 일반 유저전 — 남은 것 먼저, 그다음 완료한 것
+    casual: sessionRows([...casual.filter((x) => x.completed < x.total), ...casual.filter((x) => x.completed === x.total)]),
   };
   const qs = (patch: Record<string, string | undefined>) => {
     const q = new URLSearchParams();
@@ -74,6 +81,7 @@ export default async function FcoReviewListPage({
     { key: "confirmed", label: "확인됨" },
     { key: "todo", label: "조사 필요" },
     { key: "all", label: "전체" },
+    { key: "casual", label: "일반 유저전" },
   ] as const;
   const current = view === "clues" && clues.length ? "clues" : (groups[view] ? view : "pending");
   const visible = groups[current] ?? [];

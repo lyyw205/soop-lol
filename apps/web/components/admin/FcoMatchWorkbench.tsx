@@ -112,6 +112,8 @@ export interface WorkbenchEvent {
 
 /** 대전 단위면 준다 — 오른쪽에 [대전]/[경기] 탭, 대전 전체에 맥락 한 번에 적용 */
 export interface WorkbenchSession {
+  /** pair = 스트리머 vs 스트리머(맥락을 가른다) · 그 밖은 일반 유저전(값만 확인) */
+  kind: "pair" | "solo" | "names";
   title: string;
   people: { slug: string; name: string }[];
   vods: string[];
@@ -556,12 +558,19 @@ function SessionTab({ session, matches, eventOptions, onPick }: {
         {session.vods.length > 0 && <p className="text-[11px] text-ink-400">본 방송: {session.vods.length}개 — 경기마다 위 시점 칩으로 바꿔 봅니다</p>}
         {firstTodo && <button type="button" onClick={() => onPick(firstTodo.match_id)} className="justify-self-start rounded border border-ink-700 px-2 py-1 text-xs text-ink-200 hover:border-accent-400">미검수 첫 판 보기 →</button>}
       </section>
+      {session.kind !== "pair" ? (
+        <section className="ck-review-panel grid gap-1 p-3 text-[11px] text-ink-400">
+          <p className="font-semibold text-ink-200">일반 유저전 — 맥락을 가르지 않습니다</p>
+          <p>일반 유저와는 CK·대회가 없습니다. 판마다 스코어·결과 화면만 보고 값이 맞으면 「검수 완료」를 누르세요.</p>
+        </section>
+      ) : (
       <section className="ck-review-panel grid gap-2 p-3">
         <p className="text-[11px] font-semibold text-ink-200">맥락 — 이 대전 전체({matches.length}판)에 한 번에</p>
         <p className="text-[11px] text-ink-400">지금: {[...ctxCount].map(([k, n]) => `${k} ${n}`).join(" · ")}</p>
         <FcoReviewControls compact unit={unit} eventOptions={eventOptions} activeMatch={unit.matches[0] ?? null} targets={matches.map((m) => m.match_id)} />
         <p className="text-[11px] text-ink-500">한 판만 다르면 그 판의 [경기] 탭에서 따로 바꾸세요. 값 확인과 검수 완료는 판마다 합니다.</p>
       </section>
+      )}
     </div>
   );
 }

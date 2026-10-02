@@ -40,7 +40,7 @@ export default async function FcoSessionPage({ params, searchParams }: { params:
         </div>
       </header>
       <FcoMatchWorkbench matches={matches} streamers={streamers} vods={vods} eventOptions={eventOptions} initialMatchId={match}
-        session={{ title: session.title, people: session.people, vods: session.vods }} queueTitle="이 대전의 경기" />
+        session={{ kind: session.kind, title: session.title, people: session.people, vods: session.vods }} queueTitle="이 대전의 경기" />
     </div>
   );
 }
