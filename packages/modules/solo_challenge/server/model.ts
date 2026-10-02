@@ -49,21 +49,11 @@ export interface GameRow {
   tags: string[];
 }
 export interface FlowPoint { i: number; net: number; win: boolean; day: string }
-export interface DayLog {
-  day: string; games: number; wins: number; losses: number;
-  topChamps: (string | null)[];
-  best: { matchId: string; who: string; text: string } | null;
-}
+/** 연속 결과 한 덩어리 — 3연승·2연패 */
+export interface Run { win: boolean; n: number; firstMatchId: string }
+export interface DayLog { day: string; games: number; wins: number; losses: number; runs: Run[] }
 export interface ChampRow { id: number; name: string; games: number; wins: number; losses: number; shrunk: number; kda: number; csPerMin: number; dmgPerMin: number; kills: number; deaths: number; assists: number }
 export interface MemberStat { games: number; wins: number; champs: ChampRow[] }
-export interface Chemistry {
-  together: number; togetherWins: number;
-  bothGood: { games: number; wins: number };
-  bothBad: { games: number; wins: number };
-  oneCarry: { games: number; wins: number };
-  roam: number[]; saves: number[]; pickWithAlly: number[];
-  combos: { champs: string[]; games: number; wins: number; shrunk: number }[];
-}
 export interface RecordRow { key: string; label: string; value: string; who: string | null; champ: string | null; matchId: string | null; at: string | null; note?: string }
 export interface CoPlayer { slug: string; name: string; ally: number; enemy: number }
 
@@ -76,9 +66,8 @@ export interface ChallengeView {
   games: GameRow[];
   flow: FlowPoint[];
   days: DayLog[];
-  chemistry: Chemistry | null;
   records: RecordRow[];
-  record: { games: number; wins: number; bestWinStreak: number; worstLoseStreak: number; remakes: number };
+  record: { games: number; wins: number; bestWinStreak: number; worstLoseStreak: number; remakes: number; current: Run | null };
   coPlayers: CoPlayer[];
   /** 랭크 스냅샷 기준 시즌 판 수(Riot) — 수집한 판 수와 다르면 수집이 밀린 것 */
   riotGames: number | null;
@@ -164,20 +153,18 @@ export function buildChallenge(
   // ── 방송 일지(KST 날짜)
   const dayMap = new Map<string, GameRow[]>();
   for (const g of games) (dayMap.get(g.day) ?? dayMap.set(g.day, []).get(g.day)!).push(g);
-  const days: DayLog[] = [...dayMap.entries()].map(([day, gs]) => {
-    const topChamps = def.members.map((_, i) => {
-      const c = new Map<string, number>();
-      for (const g of gs) { const l = g.lines[i]; if (l) c.set(l.champName, (c.get(l.champName) ?? 0) + 1); }
-      return [...c].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-    });
-    let bestPick: DayLog["best"] = null, bestScore = -1;
-    for (const g of gs) g.lines.forEach((l, i) => {
-      if (!l || !g.win) return;
-      const score = kdaOf(l.kills, l.deaths, l.assists) + l.soloKills;
-      if (score > bestScore) { bestScore = score; bestPick = { matchId: g.matchId, who: def.members[i].name, text: `${l.champName} ${l.kills}/${l.deaths}/${l.assists}` }; }
-    });
-    return { day, games: gs.length, wins: gs.filter((g) => g.win).length, losses: gs.filter((g) => !g.win).length, topChamps, best: bestPick };
-  });
+  const runsOf = (gs: GameRow[]): Run[] => {
+    const out: Run[] = [];
+    for (const g of gs) {
+      const last = out.at(-1);
+      if (last && last.win === g.win) last.n++;
+      else out.push({ win: g.win, n: 1, firstMatchId: g.matchId });
+    }
+    return out;
+  };
+  const days: DayLog[] = [...dayMap.entries()].map(([day, gs]) => ({
+    day, games: gs.length, wins: gs.filter((g) => g.win).length, losses: gs.filter((g) => !g.win).length, runs: runsOf(gs),
+  }));
 
   // ── 멤버별 챔피언 표(전적 사이트 형식)
   const stats: MemberStat[] = def.members.map((m) => {
@@ -201,34 +188,6 @@ export function buildChallenge(
     };
   });
 
-  // ── 케미(멤버가 둘일 때)
-  let chemistry: Chemistry | null = null;
-  if (def.members.length === 2) {
-    const tg = games.filter((g) => g.together && g.lines.every(Boolean));
-    const good = (l: Line) => kdaOf(l.kills, l.deaths, l.assists) >= 3;
-    const bad = (l: Line) => kdaOf(l.kills, l.deaths, l.assists) < 1.5;
-    const count = (gs: GameRow[]) => ({ games: gs.length, wins: gs.filter((g) => g.win).length });
-    const sumBy = (k: "killsOnOtherLanesEarlyJungleAsLaner" | "saveAllyFromDeath" | "pickKillWithAlly") =>
-      def.members.map((m) => rows.filter((r) => r.puuid === m.puuid && byMatch.get(r.match_id)!.length >= 2).reduce((a, r) => a + (r.challenges[k] ?? 0), 0));
-    const comboMap = new Map<string, { champs: string[]; games: number; wins: number }>();
-    for (const g of tg) {
-      const champs = g.lines.map((l) => l!.champName);
-      const key = champs.join("+");
-      const c = comboMap.get(key) ?? comboMap.set(key, { champs, games: 0, wins: 0 }).get(key)!;
-      c.games++; if (g.win) c.wins++;
-    }
-    chemistry = {
-      together: tg.length, togetherWins: tg.filter((g) => g.win).length,
-      bothGood: count(tg.filter((g) => g.lines.every((l) => good(l!)))),
-      bothBad: count(tg.filter((g) => g.lines.every((l) => bad(l!)))),
-      oneCarry: count(tg.filter((g) => g.lines.filter((l) => good(l!)).length === 1)),
-      roam: sumBy("killsOnOtherLanesEarlyJungleAsLaner"), saves: sumBy("saveAllyFromDeath"),
-      pickWithAlly: sumBy("pickKillWithAlly").map((v) => v / Math.max(1, tg.length)),
-      combos: [...comboMap.values()].map((c) => ({ ...c, shrunk: affinity({ wins: c.wins, losses: c.games - c.wins }) }))
-        .sort((a, b) => b.games - a.games || b.shrunk - a.shrunk),
-    };
-  }
-
   // ── 같은 판의 다른 스트리머
   const coMap = new Map<string, CoPlayer>();
   for (const g of games) for (const s of g.lineup) {
@@ -239,9 +198,9 @@ export function buildChallenge(
 
   const riot = members.map((m) => (m.rank?.wins ?? 0) + (m.rank?.losses ?? 0));
   return {
-    def, goalAbs, floorAbs, members, stats, games, flow, days, chemistry,
+    def, goalAbs, floorAbs, members, stats, games, flow, days,
     records: buildRecords(def, games, rows, best, worst),
-    record: { games: games.length, wins: games.filter((g) => g.win).length, bestWinStreak: best, worstLoseStreak: -worst, remakes: remakes.size },
+    record: { games: games.length, wins: games.filter((g) => g.win).length, bestWinStreak: best, worstLoseStreak: -worst, remakes: remakes.size, current: runsOf(games).at(-1) ?? null },
     coPlayers: [...coMap.values()].sort((a, b) => b.ally + b.enemy - (a.ally + a.enemy)),
     riotGames: riot.some((n) => n > 0) ? Math.max(...riot) : null,
   };

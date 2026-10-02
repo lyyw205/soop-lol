@@ -61,26 +61,23 @@
 .sc-ptext { display: grid; gap: 2px; }
 .sc-ptext > b { font-size: 18px; }
 
-/* 승패 흐름 */
-.sc-flow svg { width: 100%; height: auto; display: block; }
-.sc-flow .grid { stroke: var(--sc-line); stroke-width: 1; }
-.sc-flow .zero { stroke: var(--sc-faint); stroke-width: 1; stroke-dasharray: 3 3; }
-.sc-flow .day { stroke: var(--sc-line); stroke-width: 1; }
-.sc-flow .tick { fill: var(--sc-faint); font-size: 11px; }
-.sc-flow .line { fill: none; stroke: var(--sc-fg); stroke-width: 1.6; opacity: .8; }
-.sc-flow circle.w { fill: var(--sc-win); }
-.sc-flow circle.l { fill: var(--sc-loss); }
-.sc-flow circle.end { fill: var(--sc-hot); stroke: var(--sc-panel); stroke-width: 2; }
-
-/* 케미 */
-.sc-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-.sc-tile { display: grid; gap: 4px; background: var(--sc-panel); border: 1px solid var(--sc-line); border-radius: 10px; padding: 14px 16px; }
-.sc-tile b { font-size: 20px; }
+/* 승패 흐름 — 날짜마다 연승·연패 덩어리 */
 .sc-label { font-size: 12px; color: var(--sc-muted); font-weight: 700; letter-spacing: .02em; }
-.sc-chemlist { display: grid; gap: 8px; align-content: start; }
-.sc-chemrow { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; flex-wrap: wrap; }
 .sc-w { color: var(--sc-win); }
 .sc-l { color: var(--sc-loss); }
+.sc-streaks { display: grid; gap: 12px; }
+.sc-ssum { display: flex; flex-wrap: wrap; gap: 10px 28px; }
+.sc-ssum > span { display: grid; gap: 2px; }
+.sc-ssum b { font-size: 20px; }
+.sc-sdays { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sc-sdays li { display: grid; grid-template-columns: 48px 76px minmax(0, 1fr); gap: 10px; align-items: center; }
+.sc-sday { color: var(--sc-muted); font-size: 13px; }
+.sc-srec { font-size: 13px; font-weight: 700; }
+.sc-sruns { display: flex; gap: 2px; height: 22px; min-width: 0; }
+.sc-run { display: flex; align-items: center; justify-content: center; min-width: 8px; border-radius: 3px; font-size: 11px; font-weight: 700; color: #0e141d; white-space: nowrap; overflow: hidden; }
+.sc-run.w { background: var(--sc-win); }
+.sc-run.l { background: var(--sc-loss); }
+.sc-run:hover { filter: brightness(1.15); }
 
 /* 기록실 */
 .sc-records { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
@@ -106,14 +103,24 @@
 .sc-champcell { display: inline-flex; gap: 8px; align-items: center; }
 .sc-champcell img { border-radius: 4px; }
 
-/* 판 카드(전적 사이트 형식) */
-.sc-games { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.sc-game { display: grid; grid-template-columns: 96px minmax(0, 1fr) 220px; gap: 14px; align-items: center; padding: 10px 14px; border-radius: 8px; border-left: 6px solid; background: var(--sc-panel); scroll-margin-top: 80px; }
+/* 판 카드(전적 사이트 형식) — 기본은 접힌 요약 한 줄, 눌러서 펼친다 */
+.sc-games { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sc-game { border-radius: 8px; border-left: 6px solid; background: var(--sc-panel); scroll-margin-top: 80px; }
 .sc-game.win { border-left-color: var(--sc-win); background: color-mix(in srgb, var(--sc-win) 9%, var(--sc-panel)); }
 .sc-game.loss { border-left-color: var(--sc-loss); background: color-mix(in srgb, var(--sc-loss) 8%, var(--sc-panel)); }
 .sc-game:target { outline: 2px solid var(--sc-hot); }
-.sc-gmeta { display: grid; gap: 2px; }
-.sc-glines { display: grid; gap: 8px; min-width: 0; }
+.sc-game summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 96px minmax(0, 1fr) auto 20px; gap: 14px; align-items: center; padding: 8px 12px; }
+.sc-game summary::-webkit-details-marker { display: none; }
+.sc-game summary:focus-visible { outline: 2px solid var(--sc-hot); outline-offset: -2px; border-radius: 6px; }
+.sc-caret { color: var(--sc-muted); transition: transform .15s; }
+.sc-game details[open] .sc-caret { transform: rotate(180deg); }
+.sc-gmeta { display: grid; gap: 1px; }
+.sc-gsum { display: flex; flex-wrap: wrap; gap: 6px 22px; min-width: 0; }
+.sc-sline { display: inline-flex; align-items: center; gap: 8px; }
+.sc-schamp { border-radius: 50%; }
+.sc-gtags { justify-content: flex-end; }
+.sc-gdetail { display: grid; gap: 12px; padding: 4px 14px 14px; border-top: 1px solid var(--sc-line); }
+.sc-glines { display: grid; gap: 8px; min-width: 0; padding-top: 10px; }
 .sc-pline { display: grid; grid-template-columns: 64px auto 96px 150px auto; gap: 12px; align-items: center; }
 .sc-pname { font-size: 12px; font-weight: 700; }
 .sc-build { display: flex; gap: 3px; align-items: center; }
@@ -128,15 +135,20 @@
 .sc-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .sc-tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--sc-line); color: var(--sc-muted); }
 .sc-tag.hot { border-color: var(--sc-hot); color: var(--sc-hot); }
-.sc-lineup { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; }
-.sc-lineup ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.sc-lineup li { display: flex; gap: 4px; align-items: center; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sc-lineup li.me { font-weight: 700; color: var(--sc-fg); }
-.sc-lineup img { border-radius: 3px; flex: none; }
+.sc-lineup { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 12px; }
+.sc-lineup ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 3px; }
+.sc-lineup li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.sc-lineup li.me { font-weight: 700; }
+.sc-lname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-lineup img { border-radius: 3px; }
 .sc-lineup a { color: var(--sc-fg); }
+.sc-more-btn { justify-self: stretch; width: 100%; margin-top: 4px; padding: 10px; border-radius: 8px; border: 1px solid var(--sc-line); background: var(--sc-panel); color: var(--sc-fg); font: inherit; font-size: 14px; cursor: pointer; }
+.sc-more-btn:hover { border-color: var(--sc-hot); }
+.sc-more-btn:focus-visible { outline: 2px solid var(--sc-hot); outline-offset: 2px; }
 
 @media (max-width: 900px) {
-  .sc-game { grid-template-columns: 1fr; }
+  .sc-game summary { grid-template-columns: 78px minmax(0, 1fr) 16px; }
+  .sc-gtags { display: none; }
   .sc-pline { grid-template-columns: 56px auto 1fr; }
   .sc-sub, .sc-items { grid-column: 1 / -1; }
   .sc-sub { display: flex; gap: 10px; flex-wrap: wrap; }

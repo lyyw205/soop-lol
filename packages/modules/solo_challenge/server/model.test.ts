@@ -42,7 +42,8 @@ test("같은 판의 두 멤버는 한 판 · 같이 한 판에서 딜을 더 넣
     row("m2", "pa", false, { teamDamagePercentage: 0.1 }, "2026-09-10T13:00:00Z"), row("m2", "pb", false, { teamDamagePercentage: 0.25 }, "2026-09-10T13:00:00Z"),
   ], [], []);
   assert.equal(v.games.length, 2);
-  assert.deepEqual([v.chemistry?.together, v.chemistry?.togetherWins], [2, 1]);
+  assert.deepEqual(v.days[0].runs.map((r) => [r.win, r.n]), [[true, 1], [false, 1]], "그날의 연승·연패 덩어리");
+  assert.deepEqual([v.record.current?.win, v.record.current?.n], [false, 1], "지금 1연패");
   assert.deepEqual(v.flow.map((p) => p.net), [1, 0], "누적 승−패");
   assert.ok(v.games[0].tags.includes("가 솔킬 4") && v.games[0].tags.includes("가 딜 30%"));
   assert.equal(v.records.find((r) => r.key === "solo")?.value, "솔킬 4");
