@@ -49,6 +49,13 @@ const VERDICT_LABEL: Record<ScreenCandidate["verdict"], string> = { same: "일�
 
 const scoreText = (m: ScreenMatchView) => m.sides.map((s) => s.score ?? "?").join(" : ");
 const sideName = (s: ScreenMatchView["sides"][number]) => s.streamer_name ?? s.nickname;
+const BASIS_LABEL: Record<string, string> = { vod_owner: "방송 주인", nickname_match: "닉네임 일치", manual: "사람이 지정" };
+/** 저장된 결과를 편집 선택지로. 점수로 정해지는 결과와 같으면 auto, 아니면 직접 본 결과. */
+function outcomeEditOf(scoreA: number | null, scoreB: number | null, outcomeA: string | null): "auto" | "first_win" | "second_win" | "draw" {
+  const byScore = scoreA == null || scoreB == null || scoreA === scoreB ? "unknown" : scoreA > scoreB ? "win" : "loss";
+  if (outcomeA == null || outcomeA === byScore) return "auto";
+  return outcomeA === "win" ? "first_win" : outcomeA === "loss" ? "second_win" : outcomeA === "draw" ? "draw" : "auto";
+}
 
 /** 이동 간격(초). 3초가 시트 한 칸이다. 큰 간격으로 맥락을 훑고 작은 간격으로 정확한 순간을 잡는다. */
 /** 0 = 원본 프레임만(미리 뽑아 둔 앞뒤 원본 — npm run fco:frames). 나머지는 시간 간격(썸네일 칸, 원본이 있으면 원본). */
@@ -294,7 +301,9 @@ function MatchPanel({ m, ws, eventOptions }: { m: ScreenMatchView; ws: ScreenWor
   const completed = m.review_completed_at != null;
   const locked = m.link != null;
   const [a, b] = m.sides;
-  const outcomeDefault = "auto";
+  // 결과 기본값은 **지금 저장된 결과**다. 승부차기처럼 화면에서 직접 본 결과를 "점수로 정함"으로 두면 저장할 때 지워진다
+  // (화면 경기 30칸이 점수가 같은데 승패가 정해져 있다).
+  const outcomeDefault = outcomeEditOf(a?.score ?? null, b?.score ?? null, a?.outcome ?? null);
 
   return (
     <div className="grid gap-3">
@@ -318,9 +327,16 @@ function MatchPanel({ m, ws, eventOptions }: { m: ScreenMatchView; ws: ScreenWor
               <input name={`nickname${i + 1}`} defaultValue={s.nickname} className={inputClass} placeholder="화면 닉네임" aria-label={`${i + 1}팀 닉네임`} />
               <input name={`score${i + 1}`} defaultValue={s.score ?? ""} inputMode="numeric" className={`${inputClass} text-center font-mono`} placeholder="점수" aria-label={`${i + 1}팀 점수`} />
             </div>
-            <select name={`streamer${i + 1}`} defaultValue={s.identity_basis === "manual" ? (s.streamer_slug ?? "") : ""} className={inputClass} aria-label={`${i + 1}팀 사람`}>
-              <option value="">{s.streamer_name ? `자동 — ${s.streamer_name} (${s.identity_basis === "vod_owner" ? "방송 주인" : "닉네임 일치"})` : "자동 — 사람 없음"}</option>
-              {ws.streamers.map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
+            <select name={`streamer${i + 1}`} defaultValue="" className={inputClass} aria-label={`${i + 1}팀 사람`}>
+              <option value="">{s.streamer_name ? `그대로 — ${s.streamer_name} (${BASIS_LABEL[s.identity_basis ?? ""] ?? "근거 없음"})` : "그대로 — 사람 없음"}</option>
+              <option value="__auto">닉네임으로 다시 판정 (등록 계정과 하나만 일치할 때)</option>
+              {s.streamer_id && <option value="__none">사람 떼기</option>}
+              <optgroup label="FC 계정 등록됨">
+                {ws.streamers.filter((st) => st.has_fc).map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
+              </optgroup>
+              <optgroup label="그 밖의 공개 스트리머">
+                {ws.streamers.filter((st) => !st.has_fc).map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
+              </optgroup>
             </select>
           </fieldset>
         ))}

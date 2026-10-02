@@ -313,7 +313,12 @@ export async function reconcileFcoScreenMatches(): Promise<{ linked: { screen: s
     const screens = await loadScreenRows(tx, "all");
     const linked: { screen: string; api: string }[] = [];
     let suspects = 0;
+    // ★ 사람이 연결을 푼 화면 경기는 자동으로 다시 잇지 않는다 — 그 판단을 다음 수집이 조용히 뒤집으면 안 된다.
+    //   (연결 풀기는 review_change 에 screen_link → null 로 남는다. screen-review.ts unlinkScreenByAdmin)
+    const unlinkedByHuman = new Set((await tx<{ match_id: string }[]>`
+      SELECT DISTINCT match_id FROM review_change WHERE field = 'screen_link' AND "after" IS NULL AND match_id IS NOT NULL`).map((r) => r.match_id));
     for (const s of screens) {
+      if (unlinkedByHuman.has(s.match_id)) continue;
       const sig = rowSig(s);
       const apis = await tx<ScreenRow[]>`
         SELECT m.match_id, m.game_creation,

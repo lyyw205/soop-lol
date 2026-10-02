@@ -15,7 +15,9 @@ import type postgres from "postgres";
 
 import { db } from "../../db/client.ts";
 import { stampFcoReview, type FcoContextStatus } from "./context.ts";
-import { compareMatches, linkScreenTo, resolveSide, screenOutcomes, type MatchSig } from "./screen.ts";
+import { compareMatches, linkScreenTo, resolveSide, screenOutcomes, type MatchSig, type ResolvedSide } from "./screen.ts";
+
+type ResolvedSideBasis = ResolvedSide["basis"];
 
 // ── 읽기 ────────────────────────────────────────────────────────────
 
@@ -100,7 +102,7 @@ export interface ScreenWorkspace {
   streamer: string | null;
   url: string;
   matches: ScreenMatchView[];
-  streamers: { slug: string; display_name: string }[];
+  streamers: { slug: string; display_name: string; has_fc: boolean }[];
 }
 
 const NEARBY_SEC = 30 * 60;
@@ -143,6 +145,19 @@ export async function getScreenReviewWorkspace(vod: string): Promise<ScreenWorks
     SELECT e.title, e.channel_id, st.display_name AS streamer
       FROM event_lead e LEFT JOIN streamer st ON st.id = e.streamer_id WHERE e.url LIKE ${`%/player/${vod}`} LIMIT 1`;
 
+  // 후보 재료 — 이 VOD 경기들의 시각 범위(±30분) 안 FC 경기를 참가자와 함께 **한 번에** 읽는다.
+  // (경기마다 따로 물으면 17경기 VOD 에서 200번 넘게 왕복해 화면이 3초씩 걸렸다.)
+  const times = rows.map((r) => r.game_creation.getTime());
+  const pool = await sql<{ match_id: string; source: string; game_creation: Date; parts: { nickname: string; score: number | null; streamer_id: string | null; streamer_name: string | null }[] | null }[]>`
+    SELECT m.match_id, m.source, m.game_creation,
+           (SELECT json_agg(json_build_object('nickname', p.nickname, 'score', coalesce(p.score_display, p.goals),
+                                              'streamer_id', p.streamer_id, 'streamer_name', s.display_name) ORDER BY p.side_no)
+              FROM fco_match_participant p LEFT JOIN streamer s ON s.id = p.streamer_id WHERE p.match_id = m.match_id) AS parts
+      FROM match m
+     WHERE m.game_code = 'fconline'
+       AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
+       AND m.game_creation BETWEEN ${new Date(Math.min(...times) - NEARBY_SEC * 1000)} AND ${new Date(Math.max(...times) + NEARBY_SEC * 1000)}`;
+
   const out: ScreenMatchView[] = [];
   for (const r of rows) {
     const mySides = sides.filter((x) => x.match_id === r.match_id);
@@ -152,16 +167,12 @@ export async function getScreenReviewWorkspace(vod: string): Promise<ScreenWorks
     let candidates: ScreenCandidate[] = [];
     if (!r.api_match_id && mine) {
       // 같은 경기일 수 있는 것 + 같은 사람이 낀 가까운 경기. 판정은 자동 연결과 같은 함수를 쓴다.
-      const near = await sql<{ match_id: string; source: string; game_creation: Date }[]>`
-        SELECT m.match_id, m.source, m.game_creation FROM match m
-         WHERE m.game_code = 'fconline' AND m.match_id <> ${r.match_id}
-           AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
-           AND m.game_creation BETWEEN ${new Date(atMs - NEARBY_SEC * 1000)} AND ${new Date(atMs + NEARBY_SEC * 1000)}
-         ORDER BY abs(extract(epoch FROM m.game_creation - ${new Date(atMs)}::timestamptz)) LIMIT 12`;
+      const near = pool
+        .filter((n) => n.match_id !== r.match_id && Math.abs(n.game_creation.getTime() - atMs) <= NEARBY_SEC * 1000)
+        .sort((a, b) => Math.abs(a.game_creation.getTime() - atMs) - Math.abs(b.game_creation.getTime() - atMs))
+        .slice(0, 12);
       for (const n of near) {
-        const parts = await sql<{ nickname: string; score: number | null; streamer_id: string | null; streamer_name: string | null }[]>`
-          SELECT p.nickname, coalesce(p.score_display, p.goals) AS score, p.streamer_id, s.display_name AS streamer_name
-            FROM fco_match_participant p LEFT JOIN streamer s ON s.id = p.streamer_id WHERE p.match_id = ${n.match_id} ORDER BY p.side_no`;
+        const parts = n.parts ?? [];
         if (parts.length !== 2) continue;
         const sig: MatchSig = { at: n.game_creation.getTime(), sides: [candSide(parts[0]), candSide(parts[1])] };
         const verdict = compareMatches({ at: atMs, sides: mine }, sig);
@@ -200,9 +211,14 @@ export async function getScreenReviewWorkspace(vod: string): Promise<ScreenWorks
     });
   }
 
-  const streamers = await sql<{ slug: string; display_name: string }[]>`
-    SELECT DISTINCT s.slug, s.display_name FROM streamer s
-      JOIN streamer_fco_account a ON a.streamer_id = s.id WHERE a.visibility = 'public' ORDER BY s.display_name`;
+  // 사람 선택 목록 — 공개 스트리머 전부. FC 계정이 등록된 사람이 먼저 온다.
+  // ★ FC 계정이 있는 사람만 고를 수 있게 했더니 820명 중 16명만 나왔다 — 화면 경기의 상대는 계정이 없는 경우가 흔하다
+  //   (그래서 API 에 없는 경기다). 사람을 붙이는 근거는 'manual'(사람이 지정)로 남는다.
+  const streamers = await sql<{ slug: string; display_name: string; has_fc: boolean }[]>`
+    SELECT s.slug, s.display_name,
+           EXISTS (SELECT 1 FROM streamer_fco_account a WHERE a.streamer_id = s.id AND a.visibility = 'public') AS has_fc
+      FROM streamer s WHERE s.visibility = 'public'
+     ORDER BY has_fc DESC, s.display_name`;
 
   return {
     vod, title: lead[0]?.title ?? null, channel_id: lead[0]?.channel_id ?? null, streamer: lead[0]?.streamer ?? null,
@@ -236,11 +252,19 @@ async function log(tx: Sql, matchId: string, entity: "match" | "participant", ke
            VALUES (${matchId}, ${entity}, ${key}, ${field}, ${before == null ? null : tx.json(before as postgres.JSONValue)}, ${after == null ? null : tx.json(after as postgres.JSONValue)})`;
 }
 
+/**
+ * 이 칸의 사람을 어떻게 할지.
+ *   keep  지금 붙은 사람·근거를 그대로 둔다 (기본). ★ 방송 주인(vod_owner) 근거는 닉네임으로 다시 판정하면 사라진다 —
+ *         화면 경기 169칸 중 56칸이 그랬다. 그래서 "건드리지 않으면 그대로"가 기본이어야 한다.
+ *   auto  닉네임으로 다시 판정한다 (등록 계정과 정확히 하나만 일치할 때만 붙는다)
+ *   none  사람을 뗀다
+ *   { slug }  사람이 직접 지정한다 (근거 manual)
+ */
+export type ScreenPersonEdit = "keep" | "auto" | "none" | { slug: string };
 export interface ScreenSideEdit {
   nickname: string;
   score: number | null;
-  /** 사람을 직접 정했다. 비우면 닉네임이 등록 계정 하나와 일치할 때만 도구가 붙인다. */
-  streamerSlug: string | null;
+  person: ScreenPersonEdit;
 }
 export type ScreenOutcomeEdit = "auto" | "first_win" | "second_win" | "draw";
 
@@ -259,10 +283,14 @@ export async function updateScreenSides(matchId: string, expectedVersion: number
       SELECT side_no, nickname, score_display, streamer_id, identity_basis FROM fco_match_participant WHERE match_id = ${matchId} ORDER BY side_no`;
     if (before.length !== 2) throw new Error("참가자 두 칸이 없는 경기입니다.");
 
-    const resolved = [
-      await resolveSide(tx, edits[0].streamerSlug ? { nickname: edits[0].nickname, score: edits[0].score, streamerSlug: edits[0].streamerSlug, basis: "manual" } : { nickname: edits[0].nickname, score: edits[0].score }),
-      await resolveSide(tx, edits[1].streamerSlug ? { nickname: edits[1].nickname, score: edits[1].score, streamerSlug: edits[1].streamerSlug, basis: "manual" } : { nickname: edits[1].nickname, score: edits[1].score }),
-    ] as const;
+    const resolveEdit = async (e: ScreenSideEdit, b: (typeof before)[number]) => {
+      const nickname = e.nickname.trim();
+      if (e.person === "keep") return { nickname, streamerId: b.streamer_id, basis: b.identity_basis as ResolvedSideBasis, key: b.streamer_id ?? `name:${norm(nickname)}`, score: e.score };
+      if (e.person === "none") return { nickname, streamerId: null, basis: null, key: `name:${norm(nickname)}`, score: e.score };
+      if (e.person === "auto") return resolveSide(tx, { nickname, score: e.score });
+      return resolveSide(tx, { nickname, score: e.score, streamerSlug: e.person.slug, basis: "manual" });
+    };
+    const resolved = [await resolveEdit(edits[0], before[0]), await resolveEdit(edits[1], before[1])] as const;
     if (resolved[0].key === resolved[1].key) throw new Error("두 칸이 같은 사람입니다. 닉네임·사람을 확인하세요.");
 
     const direct = outcome === "first_win" ? ["win", "loss"] as const : outcome === "second_win" ? ["loss", "win"] as const : outcome === "draw" ? ["draw", "draw"] as const : null;
@@ -280,6 +308,7 @@ export async function updateScreenSides(matchId: string, expectedVersion: number
       await log(tx, matchId, "participant", key, "nickname", b.nickname, r.nickname);
       await log(tx, matchId, "participant", key, "score", b.score_display, r.score);
       await log(tx, matchId, "participant", key, "streamer_id", b.streamer_id, r.streamerId);
+      await log(tx, matchId, "participant", key, "identity_basis", b.identity_basis, r.basis);
     }
     // 값이 달라졌으니 완료를 푼다(참가자 트리거가 없는 FC 표라 여기서 직접). 사람이 고친 경기는 자동 조사가 덮지 못하게 보호한다.
     await tx`UPDATE match SET review_completed_at = NULL, review_version = review_version + 1, reviewed_at = COALESCE(reviewed_at, now())
@@ -291,7 +320,7 @@ export async function updateScreenSides(matchId: string, expectedVersion: number
 /** 같은 경기라고 사람이 판단해 다른 기록(API 또는 다른 화면 경기)에 잇는다. */
 export async function linkScreenByAdmin(matchId: string, expectedVersion: number, targetId: string): Promise<void> {
   await db().begin(async (tx) => {
-    const cur = await lockScreen(tx, matchId, expectedVersion);
+    await lockScreen(tx, matchId, expectedVersion);
     if (matchId === targetId) throw new Error("자기 자신에게는 연결할 수 없습니다.");
     const [target] = await tx<{ match_id: string }[]>`SELECT match_id FROM match WHERE match_id = ${targetId} AND game_code = 'fconline' FOR UPDATE`;
     if (!target) throw new Error("연결할 경기를 찾지 못했습니다.");
@@ -300,7 +329,6 @@ export async function linkScreenByAdmin(matchId: string, expectedVersion: number
     await linkScreenTo(tx, matchId, targetId, { participants: "admin", score: "admin" }, "admin");
     await tx`UPDATE match SET review_version = review_version + 1, reviewed_at = COALESCE(reviewed_at, now()) WHERE match_id = ${matchId}`;
     await log(tx, matchId, "match", matchId, "screen_link", null, targetId);
-    if (cur.review_completed_at) await log(tx, matchId, "match", matchId, "review_completed", true, true);
   });
 }
 

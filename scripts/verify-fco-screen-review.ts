@@ -80,7 +80,7 @@ try {
   await rejects("화면 경기가 아닌 것", () => V.setScreenReviewCompleted(API, true, 0), "화면 경기를 찾지 못했습니다");
 
   // 3) 값 고치기 — 완료가 풀리고 변경 번호가 오르고, 로그가 남고, 다음 자동 조사가 덮지 못한다
-  await V.updateScreenSides(S1, done1.v, [{ nickname: "알파감독", score: 2, streamerSlug: null }, { nickname: "일반감독2", score: 2, streamerSlug: null }], "first_win");
+  await V.updateScreenSides(S1, done1.v, [{ nickname: "알파감독", score: 2, person: "auto" }, { nickname: "일반감독2", score: 2, person: "auto" }], "first_win");
   const after = await ver(S1);
   assert.equal(after.c, null, "값이 바뀌면 완료가 풀린다");
   assert.equal(after.v, done1.v + 1);
@@ -91,14 +91,31 @@ try {
   assert.ok(logs.some((l) => l.field === "nickname") && logs.some((l) => l.field === "review_completed"), "닉네임 변경과 완료 해제가 기록된다");
   const again = await save(10, t1, side("알파감독", 9, "alpha-fc"), side("일반감독", 9));
   assert.equal(again.status, "protected", "사람이 고친 경기는 자동 조사가 덮지 않는다");
-  await rejects("오래된 화면", () => V.updateScreenSides(S1, done1.v, [{ nickname: "가", score: 1, streamerSlug: null }, { nickname: "나", score: 0, streamerSlug: null }], "auto"), "바뀌었습니다");
-  await rejects("빈 닉네임", () => V.updateScreenSides(S1, after.v, [{ nickname: " ", score: 1, streamerSlug: null }, { nickname: "나", score: 0, streamerSlug: null }], "auto"), "닉네임이 비었습니다");
-  await rejects("범위 밖 점수", () => V.updateScreenSides(S1, after.v, [{ nickname: "가", score: 120, streamerSlug: null }, { nickname: "나", score: 0, streamerSlug: null }], "auto"), "점수는");
-  await rejects("같은 사람 두 칸", () => V.updateScreenSides(S1, after.v, [{ nickname: "가", score: 1, streamerSlug: "alpha-fc" }, { nickname: "나", score: 0, streamerSlug: "alpha-fc" }], "auto"), "같은 사람");
-  await rejects("없는 스트리머", () => V.updateScreenSides(S1, after.v, [{ nickname: "가", score: 1, streamerSlug: "nobody" }, { nickname: "나", score: 0, streamerSlug: null }], "auto"), "없는 스트리머");
-  await V.updateScreenSides(S1, after.v, [{ nickname: "알파감독", score: 2, streamerSlug: "alpha-fc" }, { nickname: "일반감독", score: 1, streamerSlug: null }], "auto");
+  await rejects("오래된 화면", () => V.updateScreenSides(S1, done1.v, [{ nickname: "가", score: 1, person: "auto" }, { nickname: "나", score: 0, person: "auto" }], "auto"), "바뀌었습니다");
+  await rejects("빈 닉네임", () => V.updateScreenSides(S1, after.v, [{ nickname: " ", score: 1, person: "auto" }, { nickname: "나", score: 0, person: "auto" }], "auto"), "닉네임이 비었습니다");
+  await rejects("범위 밖 점수", () => V.updateScreenSides(S1, after.v, [{ nickname: "가", score: 120, person: "auto" }, { nickname: "나", score: 0, person: "auto" }], "auto"), "점수는");
+  await rejects("같은 사람 두 칸", () => V.updateScreenSides(S1, after.v, [{ nickname: "가", score: 1, person: { slug: "alpha-fc" } }, { nickname: "나", score: 0, person: { slug: "alpha-fc" } }], "auto"), "같은 사람");
+  await rejects("없는 스트리머", () => V.updateScreenSides(S1, after.v, [{ nickname: "가", score: 1, person: { slug: "nobody" } }, { nickname: "나", score: 0, person: "auto" }], "auto"), "없는 스트리머");
+  await V.updateScreenSides(S1, after.v, [{ nickname: "알파감독", score: 2, person: { slug: "alpha-fc" } }, { nickname: "일반감독", score: 1, person: "auto" }], "auto");
   const manual = (await sql<{ identity_basis: string | null; outcome: string }[]>`SELECT identity_basis, outcome FROM fco_match_participant WHERE match_id = ${S1} AND side_no = 1`)[0];
   assert.deepEqual([manual.identity_basis, manual.outcome], ["manual", "win"], "사람이 정한 칸은 근거 manual, 결과는 점수로");
+
+  // 3-2) ★ 사람 지정은 "그대로"가 기본 — 방송 주인(vod_owner) 근거가 저장만으로 사라지면 안 된다(실데이터 56칸이 그 상태였다)
+  const S4 = "fcs:900100@1500";
+  await save(1500, new Date(t1.getTime() + 7_200_000), side("본캐아님", 1, "alpha-fc"), side("상대", 0));
+  const v4 = await ver(S4);
+  await V.updateScreenSides(S4, v4.v, [{ nickname: "본캐아님", score: 2, person: "keep" }, { nickname: "상대", score: 0, person: "keep" }], "auto");
+  const kept = (await sql<{ streamer_id: string | null; identity_basis: string | null; score_display: number }[]>`SELECT streamer_id, identity_basis, score_display FROM fco_match_participant WHERE match_id = ${S4} AND side_no = 1`)[0];
+  assert.deepEqual([kept.identity_basis, kept.score_display], ["vod_owner", 2], "점수만 고치면 방송 주인 근거가 그대로");
+  assert.ok(kept.streamer_id, "사람이 그대로 붙어 있다");
+  const v4b = await ver(S4);
+  await V.updateScreenSides(S4, v4b.v, [{ nickname: "본캐아님", score: 2, person: "auto" }, { nickname: "상대", score: 0, person: "keep" }], "auto");
+  const redo = (await sql<{ streamer_id: string | null }[]>`SELECT streamer_id FROM fco_match_participant WHERE match_id = ${S4} AND side_no = 1`)[0];
+  assert.equal(redo.streamer_id, null, "닉네임으로 다시 판정을 고르면 등록 닉네임이 아니라 사람이 떨어진다(의도한 선택일 때만)");
+  const v4c = await ver(S4);
+  await V.updateScreenSides(S4, v4c.v, [{ nickname: "본캐아님", score: 2, person: { slug: "alpha-fc" } }, { nickname: "상대", score: 0, person: "none" }], "auto");
+  const manual2 = (await sql<{ identity_basis: string | null }[]>`SELECT identity_basis FROM fco_match_participant WHERE match_id = ${S4} AND side_no = 1`)[0];
+  assert.equal(manual2.identity_basis, "manual", "직접 지정은 근거 manual");
 
   // 4) 같은 경기로 잇기 — 숨김·근거 복사·값 잠금, 풀면 복사한 근거만 거둔다
   const v3 = await ver(S3);
@@ -109,7 +126,7 @@ try {
   assert.deepEqual([link.api_match_id, link.decided_by], [API, "admin"]);
   assert.equal((await sql`SELECT count(*)::int n FROM fco_context_evidence WHERE match_id = ${API} AND frame_path IS NOT NULL`)[0].n, 1, "근거 프레임이 API 경기로 복사된다");
   const v3b = await ver(S3);
-  await rejects("연결된 경기 값 고치기", () => V.updateScreenSides(S3, v3b.v, [{ nickname: "가", score: 1, streamerSlug: null }, { nickname: "나", score: 0, streamerSlug: null }], "auto"), "연결된 화면 경기");
+  await rejects("연결된 경기 값 고치기", () => V.updateScreenSides(S3, v3b.v, [{ nickname: "가", score: 1, person: "auto" }, { nickname: "나", score: 0, person: "auto" }], "auto"), "연결된 화면 경기");
   await rejects("이미 연결됨", () => V.linkScreenByAdmin(S3, v3b.v, API), "이미 연결");
   const v2 = await ver(S2);
   await rejects("이미 연결된 화면 경기를 대상으로", () => V.linkScreenByAdmin(S2, v2.v, S3), "이미 다른 경기에 연결");
@@ -159,6 +176,14 @@ try {
   await V.setScreenReviewCompleted(S2, true, vNow.v);
   const viaScreen = await stamps(S2);
   assert.ok(viaScreen.r && viaScreen.c, "화면 경기 완료도 같은 두 칸");
+
+  // 4-4) ★ 사람이 푼 연결은 자동 합침(reconcile)이 다시 잇지 않는다
+  //   S3 은 위에서 사람이 풀었다. API 경기와 닉네임까지 맞게 고쳐 두면 원래 자동 합침 대상이다.
+  const v3d = await ver(S3);
+  await V.updateScreenSides(S3, v3d.v, [{ nickname: "알파감독", score: 2, person: "auto" }, { nickname: "베타감독", score: 1, person: "auto" }], "auto");
+  const rec = await S.reconcileFcoScreenMatches();
+  assert.ok(!rec.linked.some((x) => x.screen === S3), "사람이 푼 연결을 자동으로 되살리지 않는다");
+  assert.equal((await sql`SELECT count(*)::int n FROM fco_screen_link WHERE screen_match_id = ${S3}`)[0].n, 0);
 
   // 5) 검수해도 공개 조회는 그대로 — 화면 경기가 공개 쪽에 새지 않는다
   const dump = JSON.stringify([await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoLeaderboard(), await R.listFcoEvents()]);

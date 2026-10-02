@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import {
   linkScreenByAdmin, setScreenReviewCompleted, unlinkScreenByAdmin, updateScreenSides,
-  type ScreenOutcomeEdit,
+  type ScreenOutcomeEdit, type ScreenPersonEdit,
 } from "@soop-lol/core/lib/games/fconline/screen-review";
 
 import type { ActionState } from "@/lib/action-state";
@@ -32,14 +32,23 @@ function score(form: FormData, key: string): number | null {
   return Number(raw);
 }
 
+/** 사람 선택 칸 — 비우면(기본) 지금 사람을 그대로 둔다. */
+function person(form: FormData, key: string): ScreenPersonEdit {
+  const v = text(form, key);
+  if (v === "" || v === "__keep") return "keep";
+  if (v === "__auto") return "auto";
+  if (v === "__none") return "none";
+  return { slug: v };
+}
+
 export async function saveScreenSidesAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   await requireAdmin();
   try {
     const outcome = text(form, "outcome") as ScreenOutcomeEdit;
     if (!["auto", "first_win", "second_win", "draw"].includes(outcome)) throw new Error("결과 값이 올바르지 않습니다.");
     await updateScreenSides(text(form, "match_id"), version(form), [
-      { nickname: text(form, "nickname1"), score: score(form, "score1"), streamerSlug: text(form, "streamer1") || null },
-      { nickname: text(form, "nickname2"), score: score(form, "score2"), streamerSlug: text(form, "streamer2") || null },
+      { nickname: text(form, "nickname1"), score: score(form, "score1"), person: person(form, "streamer1") },
+      { nickname: text(form, "nickname2"), score: score(form, "score2"), person: person(form, "streamer2") },
     ], outcome);
     refresh();
     return { ok: true, message: "저장했습니다. 값이 바뀌어 검수 완료는 풀렸습니다." };

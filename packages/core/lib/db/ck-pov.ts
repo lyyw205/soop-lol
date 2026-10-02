@@ -213,6 +213,10 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
   if (current.review_completed_at != null && summary.mismatch_open > 0) {
     await tx`UPDATE match SET review_completed_at = NULL, review_version = review_version + 1
               WHERE match_id = ${input.match_id}`;
+    // ★ 완료가 풀린 사실을 남긴다. 안 남기면 "완료가 왜 풀렸나"를 기록으로 가릴 수 없다 —
+    //   2026-10-02 에 puuid 교체로 풀린 442경기를 기록으로 복구할 때, 이 경로로 정당하게 풀린 1경기까지 되살렸다.
+    await tx`INSERT INTO review_change (match_id, lead_id, entity, entity_key, field, before, after)
+             VALUES (${input.match_id}, ${input.lead_id}, 'match', ${input.match_id}, 'review_completed', ${tx.json(true)}, ${tx.json(false)})`;
     reopened = true;
   }
   // ★ 검수 화면을 열어 둔 사이에 새 관측·새 사진이 들어오면 완료 클릭이 거부돼야 한다(setMatchReviewCompleted 가 review_version 을 본다).

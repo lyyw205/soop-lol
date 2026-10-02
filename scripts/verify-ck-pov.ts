@@ -184,6 +184,8 @@ try {
       participants: [{ streamer_slug: "pov-h", kills: 9 }], evidence_frames: [framePath(VODS.g, 800)] },
   ]);
   const [reopen] = await sql()<{ review_completed_at: Date | null }[]>`SELECT review_completed_at FROM match WHERE match_id = 'pov:m1'`;
+  const reopenLog = await sql()<{ n: number }[]>`SELECT count(*)::int n FROM review_change WHERE match_id = 'pov:m1' AND field = 'review_completed' AND "after" = 'false'::jsonb`;
+  check("완료가 풀린 사실이 review_change 에 남는다(기록으로 복구할 때 가려낼 수 있게)", reopenLog[0].n >= 1, String(reopenLog[0].n));
   check("검수 완료가 풀려 미검수 목록에 다시 뜬다", r.code === 0 && reopen.review_completed_at === null && r.out.includes("검수 완료를 풀었다"),
     r.code ? r.out : JSON.stringify(reopen));
 
