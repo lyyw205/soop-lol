@@ -261,7 +261,7 @@ export async function listMatchRosters(matchIds: string[]): Promise<PublicRoster
  * 많이 붙은 쌍. 정렬은 **맞대결 세트** 다 — 총 조우로 정렬하면 같은 팀으로만
  * 만난 쌍이 위에 올라와서, 이 사이트가 무엇을 세는 곳인지 첫 화면부터 어긋난다.
  */
-export async function listPublicPairs(limit = 20): Promise<PublicPair[]> {
+export async function listPublicPairs(limit = 20, laneOnly = false): Promise<PublicPair[]> {
   return db()<PublicPair[]>`
     SELECT a.slug AS a_slug, a.display_name AS a_name,
            b.slug AS b_slug, b.display_name AS b_name,
@@ -272,6 +272,7 @@ export async function listPublicPairs(limit = 20): Promise<PublicPair[]> {
       FROM core_public.streamer_encounter e
       JOIN core_public.streamer a ON a.streamer_id = e.streamer_a_id
       JOIN core_public.streamer b ON b.streamer_id = e.streamer_b_id
+     WHERE (NOT ${laneOnly} OR (e.relation = 'opponent' AND e.is_lane_matchup))
      GROUP BY 1, 2, 3, 4
     HAVING count(*) FILTER (WHERE e.relation = 'opponent') > 0
      ORDER BY vs_sets DESC, sets DESC
@@ -335,7 +336,7 @@ export { getPublicScheduleEntry, listPublicSchedule, listPublicScheduleChanges, 
 export type { PublicScheduleChange, PublicScheduleEntry, PublicScheduleSlot, PublicScheduleQuery } from "../db/schedule-public.ts";
 export {
   addDays, daysBetween, entryPeriod, entryState, kstClock, kstDayStart, slotPhase, slotTimeLabel,
-  ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL, SCHEDULE_SCALE_LABEL,
-  SCHEDULE_GAMES, SCHEDULE_SCALES, describeChange,
+  ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL,
+  SCHEDULE_GAMES, describeChange,
 } from "../metrics/schedule.ts";
-export type { EntryState, ScheduleGame, ScheduleScale, SlotPhase } from "../metrics/schedule.ts";
+export type { EntryState, ScheduleGame, SlotPhase } from "../metrics/schedule.ts";

@@ -14,7 +14,7 @@ import { kstDateString } from "../time.ts";
 import {
   entryPeriod, entryState, scheduleChanges, slotSummary, validateScheduleInput,
   type EntryState, type ScheduleChangeField, type ScheduleGame, type ScheduleInput, type SchedulePlannedKind, type ScheduleRole,
-  type ScheduleScale, type ScheduleStatus,
+  type ScheduleStatus,
 } from "../metrics/schedule.ts";
 
 /** 저장 거부. reasons 를 그대로 폼에 보여준다. */
@@ -63,7 +63,7 @@ export async function saveScheduleEntry(
     }
 
     const body = {
-      game_code: input.game_code, title: input.title.trim(), scale: input.scale, planned_kind: input.planned_kind,
+      game_code: input.game_code, title: input.title.trim(), planned_kind: input.planned_kind,
       sponsor: input.sponsor, description: input.description, admin_note: input.admin_note,
       status: input.status, event_id: input.event_id, visibility: input.visibility,
     };
@@ -118,7 +118,6 @@ export interface AdminScheduleRow {
   id: string;
   game_code: ScheduleGame;
   title: string;
-  scale: ScheduleScale;
   planned_kind: SchedulePlannedKind;
   status: ScheduleStatus;
   visibility: "public" | "hidden";
@@ -135,7 +134,7 @@ export interface AdminScheduleRow {
  */
 export async function listScheduleForAdmin(now = new Date()): Promise<AdminScheduleRow[]> {
   const rows = await db()<Omit<AdminScheduleRow, "state" | "period">[]>`
-    SELECT e.id, e.game_code, e.title, e.scale, e.planned_kind, e.status, e.visibility, e.event_id,
+    SELECT e.id, e.game_code, e.title, e.planned_kind, e.status, e.visibility, e.event_id,
            (SELECT count(*)::int FROM schedule_source s WHERE s.entry_id = e.id) AS source_count,
            COALESCE((SELECT jsonb_agg(jsonb_build_object('on_date', sl.on_date, 'starts_at', sl.starts_at, 'ends_at', sl.ends_at)
                                       ORDER BY sl.on_date, sl.starts_at NULLS LAST)
@@ -148,9 +147,9 @@ export async function listScheduleForAdmin(now = new Date()): Promise<AdminSched
       starts_at: s.starts_at ? new Date(s.starts_at) : null,
       ends_at: s.ends_at ? new Date(s.ends_at) : null,
     }));
-    return { ...r, slots, state: entryState(r.status, slots, now), period: entryPeriod(slots) };
+    return { ...r, slots, state: entryState(r.status), period: entryPeriod(slots) };
   });
-  const rank = (r: AdminScheduleRow) => r.state === "past_unconfirmed" ? 0
+  const rank = (r: AdminScheduleRow) => (r.state === "upcoming" || r.state === "in_progress") && r.period !== null && r.period.to < kstDateString(now) ? 0
     : r.state === "held" || r.state === "cancelled" ? (r.period && r.period.to < kstDateString(now) ? 2 : 1) : 1;
   return out.sort((a, b) => rank(a) - rank(b)
     || (rank(a) === 2 ? (b.period?.to ?? "").localeCompare(a.period?.to ?? "") : (a.period?.from ?? "").localeCompare(b.period?.from ?? "")));
@@ -166,7 +165,7 @@ export interface AdminScheduleDetail {
 export async function getScheduleForAdmin(id: string): Promise<AdminScheduleDetail | null> {
   const sql = db();
   const [e] = await sql<(Omit<ScheduleInput, "slots" | "participants" | "sources"> & { id: string; version: string })[]>`
-    SELECT id, updated_at::text AS version, game_code, title, scale, planned_kind, sponsor, description, admin_note,
+    SELECT id, updated_at::text AS version, game_code, title, planned_kind, sponsor, description, admin_note,
            status, event_id, visibility
       FROM schedule_entry WHERE id = ${id}::uuid`;
   if (!e) return null;

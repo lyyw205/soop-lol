@@ -24,7 +24,7 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
   const [fcEv] = await sql<{ id: string }[]>`INSERT INTO event (slug, name, kind, game_code) VALUES ('sched-fc', '편성 FC 대회', 'tournament', 'fconline') RETURNING id`;
 
   const base = () => ({
-    game_code: "lol" as const, title: "검증 CK", scale: "minor" as const, planned_kind: "ck" as const,
+    game_code: "lol" as const, title: "검증 CK", planned_kind: "ck" as const,
     sponsor: null, description: "공개 설명", admin_note: "관리자만", status: "scheduled" as const,
     event_id: null as string | null, visibility: "public" as const,
     slots: [{ label: null, on_date: "2026-10-03", starts_at: kst("2026-10-03T20:00"), ends_at: kst("2026-10-03T23:00"), channel_id: null }],
@@ -67,8 +67,8 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
     () => schedule.saveScheduleEntry({ ...base(), title: "덮어쓰기" }, { id: saved.id, version: saved.version }),
     "다른 수정이 먼저");
 
-  await expectReject("결과 연결은 개최 확인(held)일 때만",
-    () => schedule.saveScheduleEntry({ ...base(), event_id: lolCk.id }, { id: saved.id, version: v2.version }), "개최 확인");
+  await expectReject("결과 연결은 완료(held)일 때만",
+    () => schedule.saveScheduleEntry({ ...base(), event_id: lolCk.id }, { id: saved.id, version: v2.version }), "완료");
   await expectReject("★ 다른 게임의 event 에는 연결할 수 없다",
     () => schedule.saveScheduleEntry({ ...base(), status: "held", event_id: fcEv.id }, { id: saved.id, version: v2.version }), "게임");
   const v3 = await schedule.saveScheduleEntry({ ...base(), status: "held", event_id: lolCk.id }, { id: saved.id, version: v2.version });
@@ -87,7 +87,7 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
 
   // 출처 없는 공개 일정을 접근자를 우회해 직접 넣어도 뷰가 내보내지 않는다.
   const [raw] = await sql<{ id: string }[]>`
-    INSERT INTO schedule_entry (game_code, title, scale, planned_kind) VALUES ('lol', '출처 없음', 'minor', 'ck') RETURNING id`;
+    INSERT INTO schedule_entry (game_code, title, planned_kind) VALUES ('lol', '출처 없음', 'ck') RETURNING id`;
   await sql`INSERT INTO schedule_slot (entry_id, on_date) VALUES (${raw.id}, '2026-10-03')`;
   check("★ 출처 없는 일정은(직접 넣어도) 공개 뷰에 없다",
     (await sql`SELECT 1 FROM core_public.schedule_entry WHERE schedule_id = ${raw.id}`).length === 0
@@ -102,7 +102,7 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
 
   console.log("\n▸ 편성표 — 공개 조회");
   const major = await schedule.saveScheduleEntry({
-    ...base(), title: "여러 날 FC 대회", game_code: "fconline", scale: "major", planned_kind: "tournament", status: "held", event_id: fcEv.id,
+    ...base(), title: "여러 날 FC 대회", game_code: "fconline", planned_kind: "tournament", status: "held", event_id: fcEv.id,
     participants: [{ streamer_id: host.id, role: "host", team: null }],
     slots: [
       { label: "개막", on_date: "2026-09-28", starts_at: kst("2026-09-28T19:00"), ends_at: null, channel_id: null },
@@ -116,7 +116,7 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
   check("방송 채널 — 명시값은 그대로, 없으면 주최 한 명·채널 하나일 때 그 채널",
     majorRow?.slots[0].channel_id === "schedhost" && majorRow?.slots[1].channel_id === "final-ch",
     JSON.stringify(majorRow?.slots.map((s) => s.channel_id)));
-  check("FC 대회 목록에 있는 event 와 연결된 개최 확인 일정은 결과 링크를 갖는다",
+  check("FC 대회 목록에 있는 event 와 연결된 완료 일정은 결과 링크를 갖는다",
     majorRow?.result?.page === "fc_event" && majorRow.result.slug === "sched-fc", JSON.stringify(majorRow?.result));
   const ckRow = win.find((e) => e.schedule_id === saved.id);
   check("★ 롤 CK event 와 연결돼도 결과 링크가 없다 — 롤 대회 상세는 kind='tournament' 만 연다(404 방지)",
@@ -156,11 +156,11 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
     () => schedule.saveScheduleEntry({ ...base(), status: "cancelled",
       participants: [{ streamer_id: "00000000-0000-4000-8000-0000000000bb", role: "player", team: null }] }, { id: hist.id, version: h4.version }),
     "foreign key");
-  check("  └ 실패한 저장의 '무산' 이력이 없다", (await histCount()) === 1);
+  check("  └ 실패한 저장의 '취소' 이력이 없다", (await histCount()) === 1);
   const h5 = await schedule.saveScheduleEntry({ ...base(), title: "이력 시험 (오타 고침)", status: "cancelled",
     slots: [{ label: null, on_date: "2026-10-04", starts_at: kst("2026-10-04T19:00"), ends_at: null, channel_id: null }] }, { id: hist.id, version: h4.version });
   const pubChanges = await pub.listPublicScheduleChanges(hist.id);
-  check("공개 이력은 최근 것부터 — 무산 처리 → 일정 변경", pubChanges.map(describeChange).join(" | ") === "예정 → 무산 | 일정 변경: 10/3 20:00–23:00 → 10/4 19:00 시작",
+  check("공개 이력은 최근 것부터 — 취소 처리 → 일정 변경", pubChanges.map(describeChange).join(" | ") === "예정 → 취소 | 일정 변경: 10/3 20:00–23:00 → 10/4 19:00 시작",
     pubChanges.map(describeChange).join(" | "));
   const one = await pub.getPublicScheduleEntry(hist.id);
   check("상세: 공개 일정 하나를 읽는다(일정 변경 시각 포함)", one?.title === "이력 시험 (오타 고침)" && one.slots_changed_at !== null);
@@ -171,9 +171,19 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
   check("상세: 없는 id·형식이 아닌 id 는 null", (await pub.getPublicScheduleEntry("00000000-0000-4000-8000-000000000000")) === null
     && (await pub.getPublicScheduleEntry("not-a-uuid")) === null);
 
+  // 상태는 관리자가 정한다(0058) — 완료(held)는 다가오는 일정이 아니다. 이미 시작한 대회는 '진행중' 으로 둔다.
+  const ongoing = await schedule.saveScheduleEntry({
+    ...base(), title: "진행중 대회", planned_kind: "tournament", status: "in_progress",
+    participants: [{ streamer_id: host.id, role: "host", team: null }],
+    slots: [
+      { label: "개막", on_date: "2026-10-01", starts_at: kst("2026-10-01T19:00"), ends_at: kst("2026-10-01T22:00"), channel_id: null },
+      { label: "결승", on_date: "2026-10-12", starts_at: null, ends_at: null, channel_id: null },
+    ],
+  });
   const upcoming = await pub.listUpcomingScheduleFor("sched-host", kst("2026-10-02T12:00"));
-  check("★ 다가오는 일정: 무산·지난 일정은 빼고, 이미 시작한 대회는 다음 칸 기준",
-    upcoming.length > 0 && upcoming.every((e) => e.status !== "cancelled") && upcoming.some((e) => e.schedule_id === major.id && e.next.label === "결승"),
+  check("★ 다가오는 일정: 취소·완료·지난 일정은 빼고, 진행중 대회는 다음 칸 기준",
+    upcoming.length > 0 && upcoming.every((e) => e.status !== "cancelled" && e.status !== "held")
+      && upcoming.some((e) => e.schedule_id === ongoing.id && e.next.label === "결승") && !upcoming.some((e) => e.schedule_id === major.id),
     JSON.stringify(upcoming.map((e) => [e.title, e.next.on_date])));
   check("다가오는 일정: 가장 가까운 다음 칸 순", upcoming.every((e, i) => i === 0 || upcoming[i - 1].next.on_date <= e.next.on_date));
   check("다가오는 일정: 숨긴 참가자 slug 로는 비어 있다", (await pub.listUpcomingScheduleFor("sched-hidden", kst("2026-10-02T12:00"))).length === 0);

@@ -1,4 +1,4 @@
-import { routeHref, type HrefQuery } from "@soop-lol/core/lib/contract";
+import { routeHref, type HrefQuery } from "@soop-lol/core/lib/contract/schedule";
 
 import manifest from "../module.json" with { type: "json" };
 

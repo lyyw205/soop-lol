@@ -11,7 +11,7 @@
 import { useActionState, useState } from "react";
 
 import {
-  SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL, SCHEDULE_SCALE_LABEL,
+  SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL,
   addDays, type ScheduleGame,
 } from "@soop-lol/core/lib/metrics/schedule";
 
@@ -64,10 +64,6 @@ export function ScheduleForm({ initial, streamers, events }: {
           <select className={input} value={v.game_code} onChange={(e) => setV((p) => ({ ...p, game_code: e.target.value, event_id: "" }))}>
             {Object.entries(SCHEDULE_GAME_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select></label>
-        <label><span className={label}>규모</span>
-          <select className={input} value={v.scale} onChange={(e) => set("scale", e.target.value)}>
-            {Object.entries(SCHEDULE_SCALE_LABEL).map(([k, l]) => <option key={k} value={k}>{l} {k === "major" ? "(여러 날·확정 편성)" : "(하루·예고)"}</option>)}
-          </select></label>
         <label><span className={label}>분류(공지 기준)</span>
           <select className={input} value={v.planned_kind} onChange={(e) => set("planned_kind", e.target.value)}>
             {Object.entries(SCHEDULE_KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -80,13 +76,13 @@ export function ScheduleForm({ initial, streamers, events }: {
           </select></label>
         <label><span className={label}>상태</span>
           <select className={input} value={v.status} onChange={(e) => setV((p) => ({ ...p, status: e.target.value, event_id: e.target.value === "held" ? p.event_id : "" }))}>
-            <option value="scheduled">예정 (개최 미확인)</option><option value="held">개최 확인</option><option value="cancelled">무산</option>
+            <option value="scheduled">예정</option><option value="in_progress">진행중</option><option value="cancelled">취소</option><option value="postponed">연기</option><option value="held">완료</option>
           </select></label>
         <label className="sm:col-span-2"><span className={label}>공개 설명</span>
           <textarea className={input} rows={2} value={v.description} onChange={(e) => set("description", e.target.value)} placeholder="미등록 참가자도 여기 적습니다" /></label>
         <label className="sm:col-span-2"><span className={label}>관리자 메모 (공개 안 됨)</span>
           <textarea className={input} rows={2} value={v.admin_note} onChange={(e) => set("admin_note", e.target.value)} /></label>
-        <label className="sm:col-span-4"><span className={label}>결과 경기 연결 (개최 확인일 때만 · 같은 게임의 대회만)</span>
+        <label className="sm:col-span-4"><span className={label}>결과 경기 연결 (완료일 때만 · 같은 게임의 대회만)</span>
           <select className={input} value={v.event_id} disabled={v.status !== "held"} onChange={(e) => set("event_id", e.target.value)}>
             <option value="">연결 안 함</option>
             {gameEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.date ?? "날짜 없음"} · {ev.name} ({ev.kind})</option>)}

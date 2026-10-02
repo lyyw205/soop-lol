@@ -19,7 +19,6 @@ export interface ScheduleFormPayload {
   typo: boolean;
   game_code: string;
   title: string;
-  scale: string;
   planned_kind: string;
   sponsor: string;
   description: string;
@@ -59,7 +58,7 @@ async function toInput(p: ScheduleFormPayload): Promise<{ input: ScheduleInput }
   if (errors.length) return { errors };
   return {
     input: {
-      game_code: p.game_code as ScheduleInput["game_code"], title: p.title, scale: p.scale as ScheduleInput["scale"],
+      game_code: p.game_code as ScheduleInput["game_code"], title: p.title,
       planned_kind: p.planned_kind as ScheduleInput["planned_kind"], sponsor: blank(p.sponsor), description: blank(p.description),
       admin_note: blank(p.admin_note), status: p.status as ScheduleInput["status"], event_id: blank(p.event_id),
       visibility: p.visibility === "hidden" ? "hidden" : "public", slots,

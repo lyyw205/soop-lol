@@ -1,27 +1,17 @@
-/**
- * 편성표의 시간 규칙 — 공개 화면·관리자·(나중의) ICS 가 같은 함수를 쓴다(원칙 6). docs/SCHEDULE-PLAN.md §1·§2
- *
- * ★ 시간이 지난 것과 실제로 열린 것은 다르다
- *   "지난 일정" 은 시각으로 계산하고, "개최 확인" 은 사람이 status='held' 로 확인한 것만이다.
- *   실제 방송 상태를 보지 않으므로 LIVE 라고 쓰지 않는다 — "공지상 진행 시간" 이다.
- * ★ 시각 미정(날짜만 앎)은 진행 판정을 하지 않는다. 종료 미정은 "진행 시간" 을 말하지 않는다.
- */
+/** 편성표 상태는 관리자 지정값, 날짜·시각은 별도 표시 정보다. */
 
 import { fromKstInputValue, KST_OFFSET_MS, kstDateString } from "../time.ts";
 
-export type ScheduleStatus = "scheduled" | "held" | "cancelled";
-export type ScheduleScale = "major" | "minor";
+export type ScheduleStatus = "scheduled" | "in_progress" | "cancelled" | "postponed" | "held";
 export type SchedulePlannedKind = "tournament" | "showmatch" | "ck" | "other";
 export type ScheduleRole = "host" | "player" | "caster";
 export type ScheduleGame = "lol" | "fconline";
 
 export const SCHEDULE_GAMES: readonly ScheduleGame[] = ["lol", "fconline"];
-export const SCHEDULE_SCALES: readonly ScheduleScale[] = ["major", "minor"];
 export const SCHEDULE_KINDS: readonly SchedulePlannedKind[] = ["tournament", "showmatch", "ck", "other"];
-export const SCHEDULE_STATUSES: readonly ScheduleStatus[] = ["scheduled", "held", "cancelled"];
+export const SCHEDULE_STATUSES: readonly ScheduleStatus[] = ["scheduled", "in_progress", "cancelled", "postponed", "held"];
 export const SCHEDULE_ROLES: readonly ScheduleRole[] = ["host", "player", "caster"];
 
-export const SCHEDULE_SCALE_LABEL: Record<ScheduleScale, string> = { major: "대형", minor: "소형" };
 export const SCHEDULE_KIND_LABEL: Record<SchedulePlannedKind, string> = { tournament: "대회", showmatch: "이벤트전", ck: "CK", other: "기타" };
 export const SCHEDULE_ROLE_LABEL: Record<ScheduleRole, string> = { host: "주최", player: "선수", caster: "해설" };
 export const SCHEDULE_GAME_LABEL: Record<ScheduleGame, string> = { lol: "LOL", fconline: "FC 온라인" };
@@ -79,28 +69,15 @@ export function slotPhase(slot: SlotTime, now: Date): SlotPhase {
 
 // ── 일정 하나의 상태 ─────────────────────────────────────────────────
 
-export type EntryState = "cancelled" | "upcoming" | "in_window" | "started" | "past_unconfirmed" | "held";
+export type EntryState = "upcoming" | "in_progress" | "cancelled" | "postponed" | "held";
 
 export const ENTRY_STATE_LABEL: Record<EntryState, string> = {
-  cancelled: "무산",
-  upcoming: "예정",
-  in_window: "공지상 진행 시간",
-  started: "공지상 시작",
-  past_unconfirmed: "지난 일정 · 개최 미확인",
-  held: "개최 확인",
+  upcoming: "예정", in_progress: "진행중", cancelled: "취소", postponed: "연기", held: "완료",
 };
 
-/**
- * 표시 상태. 저장된 status 와 지금 시각에서 계산한다 — "진행 중"·"지난 일정" 을 저장하면 매일 누가 바꿔야 한다.
- * ★ 지난 일정이어도 사람이 held 로 확인하기 전에는 "개최 확인" 이 아니다(대형도 마찬가지).
- */
-export function entryState(status: ScheduleStatus, slots: SlotTime[], now: Date): EntryState {
-  if (status === "cancelled") return "cancelled";
-  const phases = slots.map((s) => slotPhase(s, now));
-  if (phases.includes("in_window")) return "in_window";
-  if (phases.includes("started")) return "started";
-  if (phases.length > 0 && phases.every((p) => p === "past")) return status === "held" ? "held" : "past_unconfirmed";
-  return "upcoming";
+/** 시간 경과로 진행·완료를 추정하지 않는다. held 는 기존 완료 데이터의 저장값이다. */
+export function entryState(status: ScheduleStatus): EntryState {
+  return status === "scheduled" ? "upcoming" : status;
 }
 
 /** 칸 하나의 시각 문구. "20:00–23:00" · "20:00 시작" · "시각 미정". */
@@ -110,7 +87,7 @@ export function slotTimeLabel(slot: SlotTime): string {
   return `${kstClock(slot.starts_at)}–${kstClock(slot.ends_at)}`;
 }
 
-/** 행사 기간(대형 막대). 저장하지 않고 칸 날짜의 최소~최대로 계산한다. */
+/** 행사 기간. 저장하지 않고 칸 날짜의 최소~최대로 계산한다. 여러 날이면 간트에서 막대로 그린다. */
 export function entryPeriod(slots: { on_date: string }[]): { from: string; to: string } | null {
   if (slots.length === 0) return null;
   const dates = slots.map((s) => s.on_date).sort();
@@ -157,7 +134,6 @@ export interface ScheduleSlotInput extends SlotTime {
 export interface ScheduleInput {
   game_code: ScheduleGame;
   title: string;
-  scale: ScheduleScale;
   planned_kind: SchedulePlannedKind;
   sponsor: string | null;
   description: string | null;
@@ -178,7 +154,6 @@ export function validateScheduleInput(input: ScheduleInput): string[] {
   const errors: string[] = [];
   if (!SCHEDULE_GAMES.includes(input.game_code)) errors.push("게임은 LOL·FC 온라인 중 하나입니다.");
   if (!input.title.trim()) errors.push("제목이 비어 있습니다.");
-  if (!SCHEDULE_SCALES.includes(input.scale)) errors.push("규모는 대형·소형 중 하나입니다.");
   if (!SCHEDULE_KINDS.includes(input.planned_kind)) errors.push("분류가 올바르지 않습니다.");
   if (!SCHEDULE_STATUSES.includes(input.status)) errors.push("상태가 올바르지 않습니다.");
   if (input.slots.length === 0) errors.push("방송 칸이 하나 이상 있어야 합니다.");
@@ -194,7 +169,7 @@ export function validateScheduleInput(input: ScheduleInput): string[] {
   const roles = input.participants.map((p) => `${p.streamer_id}:${p.role}`);
   if (new Set(roles).size !== roles.length) errors.push("같은 스트리머가 같은 역할로 두 번 있습니다.");
   if (input.participants.some((p) => !SCHEDULE_ROLES.includes(p.role))) errors.push("참가자 역할이 올바르지 않습니다.");
-  if (input.event_id && input.status !== "held") errors.push("결과 경기를 연결하려면 상태가 '개최 확인' 이어야 합니다.");
+  if (input.event_id && input.status !== "held") errors.push("결과 경기를 연결하려면 상태가 '완료' 이어야 합니다.");
   return errors;
 }
 
@@ -208,7 +183,7 @@ export type ScheduleChangeField = "title" | "status" | "slots";
 export interface SlotSummary { on_date: string; start: string | null; end: string | null; label: string | null }
 export interface ScheduleChange { field: ScheduleChangeField; before: unknown; after: unknown }
 
-export const STATUS_CHANGE_LABEL: Record<ScheduleStatus, string> = { scheduled: "예정", held: "개최 확인", cancelled: "무산" };
+export const STATUS_CHANGE_LABEL: Record<ScheduleStatus, string> = { scheduled: "예정", in_progress: "진행중", cancelled: "취소", postponed: "연기", held: "완료" };
 
 /** 칸 목록의 비교용 요약. 순서는 날짜·시각순으로 맞춘다(입력 순서가 달라도 같은 일정이면 같다). */
 export function slotSummary(slots: (SlotTime & { label: string | null })[]): SlotSummary[] {

@@ -15,7 +15,7 @@ import { listPublicTournamentEvents } from "./public-tournaments.ts";
 import { kstDateString } from "../time.ts";
 import {
   addDays, daysBetween, entryState, pickBroadcastChannel, slotPhase,
-  type ScheduleChangeField, type ScheduleGame, type SchedulePlannedKind, type ScheduleRole, type ScheduleScale, type ScheduleStatus,
+  type ScheduleChangeField, type ScheduleGame, type SchedulePlannedKind, type ScheduleRole, type ScheduleStatus,
 } from "../metrics/schedule.ts";
 
 /** 한 번에 볼 수 있는 최대 기간(일). 조회 범위 상한. */
@@ -34,7 +34,6 @@ export interface PublicScheduleEntry {
   schedule_id: string;
   game_code: ScheduleGame;
   title: string;
-  scale: ScheduleScale;
   planned_kind: SchedulePlannedKind;
   sponsor: string | null;
   description: string | null;
@@ -55,7 +54,6 @@ export interface PublicScheduleQuery {
   from: string;
   to: string;
   game?: ScheduleGame | null;
-  scale?: ScheduleScale | null;
   /** 스트리머 slug — 어떤 역할로든 참가한 일정. */
   streamer?: string | null;
 }
@@ -71,7 +69,6 @@ export async function listPublicSchedule(q: PublicScheduleQuery): Promise<Public
               FROM core_public.schedule_slot GROUP BY schedule_id) r ON r.schedule_id = e.schedule_id
      WHERE r.first_day <= ${to}::date AND r.last_day >= ${q.from}::date
        AND (${q.game ?? null}::text IS NULL OR e.game_code = ${q.game ?? null})
-       AND (${q.scale ?? null}::text IS NULL OR e.scale = ${q.scale ?? null})
        AND (${q.streamer ?? null}::text IS NULL OR EXISTS (
              SELECT 1 FROM core_public.schedule_participant p JOIN core_public.streamer s ON s.streamer_id = p.streamer_id
               WHERE p.schedule_id = e.schedule_id AND s.slug = ${q.streamer ?? null}))
@@ -146,7 +143,7 @@ async function hydrate(entries: EntryRow[]): Promise<PublicScheduleEntry[]> {
 }
 
 /** 목록·상세가 같은 칸을 읽는다(조각 — 연결은 부를 때 얻는다). */
-const entryColumns = () => db()`e.schedule_id, e.game_code, e.title, e.scale, e.planned_kind, e.sponsor, e.description, e.status, e.origin, e.event_id`;
+const entryColumns = () => db()`e.schedule_id, e.game_code, e.title, e.planned_kind, e.sponsor, e.description, e.status, e.origin, e.event_id`;
 
 /** 결과 상세가 실제로 열리는 event 만 — 각 게임의 대회 목록 함수가 돌려주는 것. */
 async function resultPages(linked: { game_code: ScheduleGame; event_id: string | null }[]) {
@@ -174,7 +171,7 @@ export async function listUpcomingScheduleFor(slug: string, now = new Date(), li
   const time = (s: PublicScheduleSlot) => ({ on_date: s.on_date, starts_at: s.starts_at ? new Date(s.starts_at) : null, ends_at: s.ends_at ? new Date(s.ends_at) : null });
   const key = (s: PublicScheduleSlot) => `${s.on_date} ${s.starts_at ? new Date(s.starts_at).toISOString() : "~"}`;
   return entries
-    .filter((e) => ["upcoming", "in_window", "started"].includes(entryState(e.status, e.slots.map(time), now)))
+    .filter((e) => ["upcoming", "in_progress"].includes(entryState(e.status)))
     .flatMap((e) => {
       const next = e.slots.find((s) => slotPhase(time(s), now) !== "past");
       return next ? [{ ...e, next }] : [];

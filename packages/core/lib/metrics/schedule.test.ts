@@ -43,21 +43,16 @@ test("칸 — 시각 미정: 그날 안에서는 진행 판정을 하지 않는�
   assert.equal(slotPhase(s, kst("2026-10-04T00:00")), "past");
 });
 
-test("일정 상태 — 계획서 §1 표의 모든 칸", () => {
-  const one = [slot("2026-10-03", "20:00", "23:00")];
-  assert.equal(entryState("cancelled", one, kst("2026-10-03T21:00")), "cancelled");
-  assert.equal(entryState("scheduled", one, kst("2026-10-03T19:00")), "upcoming");
-  assert.equal(entryState("held", one, kst("2026-10-03T21:00")), "in_window");
-  assert.equal(entryState("scheduled", one, kst("2026-10-04T00:00")), "past_unconfirmed");
-  assert.equal(entryState("held", one, kst("2026-10-04T00:00")), "held");
+test("일정 상태 — 지정한 다섯 상태를 그대로 표시한다", () => {
+  assert.equal(entryState("scheduled"), "upcoming");
+  assert.equal(entryState("in_progress"), "in_progress");
+  assert.equal(entryState("cancelled"), "cancelled");
+  assert.equal(entryState("postponed"), "postponed");
+  assert.equal(entryState("held"), "held");
 });
 
-test("일정 상태 — 여러 날 대회: 하루가 끝났어도 남은 날이 있으면 예정, 전부 지나야 지난 일정", () => {
+test("행사 기간은 상태와 독립적으로 계산한다", () => {
   const days = [slot("2026-10-01", "18:00", "22:00"), slot("2026-10-05", "18:00", "22:00")];
-  assert.equal(entryState("scheduled", days, kst("2026-10-03T12:00")), "upcoming");
-  assert.equal(entryState("scheduled", days, kst("2026-10-05T19:00")), "in_window");
-  assert.equal(entryState("scheduled", days, kst("2026-10-06T00:00")), "past_unconfirmed",
-    "시간이 지났다고 개최 확인이 아니다 — 대형도 사람이 held 로 확인한다");
   assert.deepEqual(entryPeriod(days), { from: "2026-10-01", to: "2026-10-05" });
 });
 
@@ -86,7 +81,7 @@ test("방송 채널 — 명시값 우선, 주최 한 명·채널 하나일 때�
 });
 
 const base = (): ScheduleInput => ({
-  game_code: "lol", title: "추석 CK", scale: "minor", planned_kind: "ck", sponsor: null, description: null, admin_note: null,
+  game_code: "lol", title: "추석 CK", planned_kind: "ck", sponsor: null, description: null, admin_note: null,
   status: "scheduled", event_id: null, visibility: "public",
   slots: [{ label: null, channel_id: null, ...slot("2026-10-03", "20:00", "23:00") }],
   participants: [], sources: [{ url: "https://ch.sooplive.co.kr/x/post/1", title: null, posted_at: null }],
@@ -106,8 +101,8 @@ test("검증 — 칸 날짜와 시작 시각의 날짜가 다르면 거부", () 
   assert.ok(validateScheduleInput(bad).some((e) => e.includes("날짜가 칸 날짜와")));
 });
 
-test("검증 — 결과 연결은 개최 확인일 때만, 칸이 없으면 거부", () => {
-  assert.ok(validateScheduleInput({ ...base(), event_id: "00000000-0000-0000-0000-000000000000" }).some((e) => e.includes("개최 확인")));
+test("검증 — 결과 연결은 완료일 때만, 칸이 없으면 거부", () => {
+  assert.ok(validateScheduleInput({ ...base(), event_id: "00000000-0000-0000-0000-000000000000" }).some((e) => e.includes("완료")));
   assert.ok(validateScheduleInput({ ...base(), slots: [] }).some((e) => e.includes("칸")));
 });
 
@@ -129,5 +124,5 @@ test("변경 이력 — 칸이 늘거나 줄면 빠짐·추가로, 상태·제�
   const one = slotSummary([{ label: null, ...slot("2026-10-05", "19:00", "22:00") }]);
   const two = slotSummary([{ label: null, ...slot("2026-10-05", "19:00", "22:00") }, { label: "결승", ...slot("2026-10-12") }]);
   const changes = scheduleChanges({ title: "옛 이름", status: "scheduled", slots: one }, { title: "새 이름", status: "cancelled", slots: two });
-  assert.deepEqual(changes.map(describeChange), ["제목 변경: 옛 이름 → 새 이름", "예정 → 무산", "일정 변경: 10/12 시각 미정 (결승) 추가"]);
+  assert.deepEqual(changes.map(describeChange), ["제목 변경: 옛 이름 → 새 이름", "예정 → 취소", "일정 변경: 10/12 시각 미정 (결승) 추가"]);
 });

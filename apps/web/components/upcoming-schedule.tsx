@@ -27,7 +27,7 @@ export async function UpcomingSchedule({ slug }: { slug: string }) {
         <h2>다가오는 일정 <small className="record-sidebar-note">공지 기준</small></h2>
         <ul>
           {rows.map((e) => {
-            const state = entryState(e.status, e.slots.map(time), now);
+            const state = entryState(e.status);
             const href = roleHref("schedule", { id: e.schedule_id });
             const body = <>
               <span className="upcoming-when">{md(e.next.on_date)} · {slotTimeLabel(time(e.next))}</span>
