@@ -173,53 +173,57 @@ function keep(g: GameRow, f: string): boolean {
   return true;
 }
 
-/* ── 진행도: 같은 눈금 위에 사람마다 한 줄 — 출발점부터 지금까지 채우고, 지금부터 목표까지 비운다 ── */
+/* ── 진행도: 막대 하나에 모두 — 사람마다 막대 안의 한 칸(위·아래)에 출발점(●)부터 지금(▮)까지 채운다. 목표까지 빈 부분이 남은 거리다 ── */
 function Progress({ view, compact = false }: { view: ChallengeView; compact?: boolean }) {
   const at = (abs: number) => progressAt(abs, view.floorAbs, view.goalAbs);
   const majors: number[] = [];
   for (let t = Math.ceil(view.floorAbs / 400) * 400; t < view.goalAbs; t += 400) majors.push(t);
+  const lanes = Math.max(1, view.members.length);
   return (
     <div className="sc-progress">
-      {view.members.map((m: MemberLine, i) => {
-        const now = m.rank?.abs ?? null;
-        const start = m.startAbs;
-        const from = start != null && now != null ? Math.min(start, now) : now;
-        return (
-          <div key={i} className="sc-prow">
-            <div className="sc-pwho">
-              <span className="sc-who"><span className="sc-dot" style={{ background: `var(--sc-m${i})` }} />{m.member.name}</span>
-              {!compact && <span className="sc-muted sc-small">{m.member.role}</span>}
-            </div>
-            <div className="sc-ptrack" role="img"
-              aria-label={`${m.member.name}: ${m.member.start ? `출발 ${rankText(m.member.start.tier, m.member.start.division, m.member.start.lp)}, ` : ""}지금 ${rankText(m.rank?.tier, m.rank?.division, m.rank?.lp)}, 목표까지 ${m.toGoal ?? "?"}LP`}>
-              {majors.map((t) => <span key={t} className="sc-pmajor" style={{ left: `${at(t)}%` }} />)}
-              {from != null && now != null && (
-                <span className="sc-pfill" style={{ left: `${at(from)}%`, width: `${Math.max(0.6, at(now) - at(from))}%`, background: `var(--sc-m${i})` }} />
-              )}
-              {start != null && <span className="sc-pstart" style={{ left: `${at(start)}%`, borderColor: `var(--sc-m${i})` }} title="출발" />}
-              {now != null && <span className="sc-pnow" style={{ left: `${at(now)}%`, background: `var(--sc-m${i})` }} title="지금" />}
-            </div>
-            <div className="sc-ptext">
-              <b className="sc-num">{rankText(m.rank?.tier, m.rank?.division, m.rank?.lp)}</b>
-              <span className="sc-muted sc-small">
-                {m.gained != null ? <><b className="sc-num" style={{ color: `var(--sc-m${i})` }}>{m.gained >= 0 ? "+" : ""}{m.gained}LP</b> 왔음 · </> : <>출발 기록 없음 · </>}
-                {m.toGoal ? <><b className="sc-num">{m.toGoal}</b>LP 남음</> : "목표 달성"}
-              </span>
-              {!compact && m.member.start && (
-                <span className="sc-faint sc-small">출발 {rankText(m.member.start.tier, m.member.start.division, m.member.start.lp)} · {m.member.start.date}
-                  {m.member.start.source && <> · <a href={m.member.start.source} target="_blank" rel="noreferrer">방송 화면 ↗</a></>}</span>
-              )}
-            </div>
-          </div>
-        );
-      })}
-      <div className="sc-pscale" aria-hidden="true">
-        <span />
-        <div className="sc-pticks">
-          {majors.map((t) => <span key={t} style={{ left: `${at(t)}%` }}>{tierAt(t)}</span>)}
-          <span className="goal" style={{ left: "100%" }}>{TIER_KO[view.def.goal.tier] ?? view.def.goal.tier}</span>
+      {!compact && (
+        <div className="sc-ptags" aria-hidden="true">
+          {view.members.map((m, i) => m.rank?.abs != null && (
+            <span key={i} style={{ left: `${at(m.rank.abs)}%`, color: `var(--sc-m${i})` }}>{m.member.name} ▾</span>
+          ))}
         </div>
-        <span />
+      )}
+      <div className="sc-ptrack" role="img" style={{ height: `${lanes * 10 + 4}px` }}
+        aria-label={view.members.map((m) => `${m.member.name}: ${m.member.start ? `출발 ${rankText(m.member.start.tier, m.member.start.division, m.member.start.lp)}, ` : ""}지금 ${rankText(m.rank?.tier, m.rank?.division, m.rank?.lp)}, 목표까지 ${m.toGoal ?? "?"}LP`).join(" · ")}>
+        {majors.map((t) => <span key={t} className="sc-pmajor" style={{ left: `${at(t)}%` }} />)}
+        {view.members.map((m: MemberLine, i) => {
+          const now = m.rank?.abs ?? null, start = m.startAbs;
+          if (now == null) return null;
+          const from = start != null ? Math.min(start, now) : now;
+          const lane = { top: `${2 + i * 10}px`, height: "8px" };
+          return (
+            <span key={i}>
+              <span className="sc-pfill" style={{ ...lane, left: `${at(from)}%`, width: `${Math.max(0.6, at(now) - at(from))}%`, background: `var(--sc-m${i})` }} />
+              {start != null && <span className="sc-pstart" style={{ top: `${6 + i * 10}px`, left: `${at(start)}%`, borderColor: `var(--sc-m${i})` }} title={`${m.member.name} 출발`} />}
+              <span className="sc-pnow" style={{ top: `${6 + i * 10}px`, left: `${at(now)}%`, background: `var(--sc-m${i})` }} title={`${m.member.name} 지금`} />
+            </span>
+          );
+        })}
+      </div>
+      <div className="sc-pticks" aria-hidden="true">
+        {majors.map((t) => <span key={t} style={{ left: `${at(t)}%` }}>{tierAt(t)}</span>)}
+        <span className="goal" style={{ left: "100%" }}>{TIER_KO[view.def.goal.tier] ?? view.def.goal.tier}</span>
+      </div>
+      <div className="sc-plegend">
+        {view.members.map((m, i) => (
+          <div key={i} className="sc-ptext">
+            <span className="sc-who"><span className="sc-dot" style={{ background: `var(--sc-m${i})` }} />{m.member.name}{!compact && <span className="sc-faint sc-small">· {m.member.role}</span>}</span>
+            <b className="sc-num">{rankText(m.rank?.tier, m.rank?.division, m.rank?.lp)}</b>
+            <span className="sc-muted sc-small">
+              {m.gained != null ? <><b className="sc-num" style={{ color: `var(--sc-m${i})` }}>{m.gained >= 0 ? "+" : ""}{m.gained}LP</b> 왔음 · </> : <>출발 기록 없음 · </>}
+              {m.toGoal ? <><b className="sc-num">{m.toGoal}</b>LP 남음</> : "목표 달성"}
+            </span>
+            {!compact && m.member.start && (
+              <span className="sc-faint sc-small">출발 {rankText(m.member.start.tier, m.member.start.division, m.member.start.lp)} · {m.member.start.date}
+                {m.member.start.source && <> · <a href={m.member.start.source} target="_blank" rel="noreferrer">방송 화면 ↗</a></>}</span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

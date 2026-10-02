@@ -44,22 +44,22 @@
 .sc-card { display: grid; gap: 8px; background: var(--sc-panel); border: 1px solid var(--sc-line); border-radius: 10px; padding: 18px; color: var(--sc-fg); }
 .sc-card:hover { border-color: var(--sc-hot); }
 
-/* 진행도 — 같은 눈금 위에 사람마다 한 줄(출발 → 지금 채움, 지금 → 목표 비움) */
-.sc-progress { display: grid; gap: 14px; }
-.sc-prow, .sc-pscale { display: grid; grid-template-columns: 110px minmax(0, 1fr) 210px; gap: 14px; align-items: center; }
-.sc-pwho { display: grid; gap: 2px; }
-.sc-ptrack { position: relative; height: 12px; border-radius: 6px; background: var(--sc-line); }
+/* 진행도 — 막대 하나, 사람마다 막대 안의 한 칸(출발 ● → 지금 ▮ 채움, 목표까지 빈 부분이 남은 거리) */
+.sc-progress { display: grid; gap: 6px; }
+.sc-ptags { position: relative; height: 18px; font-size: 12px; font-weight: 700; }
+.sc-ptags span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.sc-ptrack { position: relative; border-radius: 7px; background: var(--sc-line); }
 .sc-pmajor { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--sc-faint); opacity: .5; }
-.sc-pfill { position: absolute; top: 0; bottom: 0; border-radius: 6px; opacity: .9; }
-.sc-pstart { position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; border: 3px solid; background: var(--sc-panel); transform: translate(-50%, -50%); }
-.sc-pnow { position: absolute; top: 50%; width: 6px; height: 24px; border-radius: 3px; transform: translate(-50%, -50%); box-shadow: 0 0 0 2px var(--sc-panel); }
-.sc-ptext { display: grid; gap: 2px; }
-.sc-ptext b { font-size: 16px; }
+.sc-pfill { position: absolute; border-radius: 4px; opacity: .9; }
+.sc-pstart { position: absolute; width: 12px; height: 12px; border-radius: 50%; border: 3px solid; background: var(--sc-panel); transform: translate(-50%, -50%); }
+.sc-pnow { position: absolute; width: 5px; height: 16px; border-radius: 3px; transform: translate(-50%, -50%); box-shadow: 0 0 0 2px var(--sc-panel); }
 .sc-pticks { position: relative; height: 16px; font-size: 11px; color: var(--sc-faint); }
 .sc-pticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .sc-pticks span:first-child { transform: none; }
 .sc-pticks .goal { transform: translateX(-100%); color: var(--sc-master); font-weight: 700; }
-.sc-card .sc-prow, .sc-card .sc-pscale { grid-template-columns: 90px minmax(0, 1fr) 170px; }
+.sc-plegend { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 6px; }
+.sc-ptext { display: grid; gap: 2px; }
+.sc-ptext > b { font-size: 18px; }
 
 /* 승패 흐름 */
 .sc-flow svg { width: 100%; height: auto; display: block; }
@@ -141,7 +141,4 @@
   .sc-sub, .sc-items { grid-column: 1 / -1; }
   .sc-sub { display: flex; gap: 10px; flex-wrap: wrap; }
 }
-@media (max-width: 560px) {
-  .sc-prow, .sc-pscale, .sc-card .sc-prow, .sc-card .sc-pscale { grid-template-columns: 1fr; gap: 6px; }
-  .sc-pscale > span { display: none; }
-}
+
