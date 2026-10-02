@@ -874,9 +874,9 @@ export async function decideFcoEventMatch(
     const [game] = await tx<{ match_id: string; event_id: string | null; series_id: string | null; series_event_id: string | null }[]>`
       SELECT m.match_id, m.event_id, m.series_id, ms.event_id AS series_event_id
         FROM match m
-        JOIN fco_match_detail d ON d.match_id = m.match_id
+        LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
         LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-       WHERE d.provider_match_id = ${input.providerMatchId} AND m.game_code = 'fconline'
+       WHERE (d.provider_match_id = ${input.providerMatchId} OR m.match_id = ${input.providerMatchId}) AND m.game_code = 'fconline'
        FOR UPDATE OF m
     `;
     if (!game) throw new Error(`수집되지 않은 경기입니다: ${input.providerMatchId}`);

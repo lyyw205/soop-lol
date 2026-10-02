@@ -1,8 +1,11 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getFcoReviewWorkspace, listFcoEventOptions } from "@soop-lol/core/lib/games/fconline/context";
 
-import { FcoWorkspace } from "@/components/admin/FcoWorkspace";
+import { buildMatchUnits, eventScreenMatchIds, listPickableStreamers } from "@soop-lol/core/lib/games/fconline/broadcast";
+
+import { FcoMatchWorkbench } from "@/components/admin/FcoMatchWorkbench";
 import { loadViewerVods } from "@/lib/vod-frames";
 
 export const dynamic = "force-dynamic";
@@ -54,18 +57,31 @@ export default async function FcoUnitPage({ params }: { params: Promise<{ unitId
   const unit = await loadUnit(unitId).catch(() => null);
   if (!unit) notFound();
   // 행사 검색 선택지 — 화면에서 바로 바꿀 수 있어야 하므로 같이 내려준다.
-  const vodIds = [...new Set(unit.evidences.map((e) => e.vod_title_no).filter((v): v is number => v != null))];
-  const [eventOptions, starts, vods] = await Promise.all([listFcoEventOptions(), vodStarts(vodIds), loadViewerVods(vodIds)]);
+  // 같은 작업대(FcoMatchWorkbench) — 경기는 정본 경기 하나 = 키 하나, 시점 칩으로 넥슨 기록·VOD 들을 바꿔 본다.
+  // 대회면 넥슨 기록 후보(결정·브래킷 순서)에 더해 대회에 붙은 화면 기록 정본도 넣는다(넥슨 기록만 보면 어디에도 안 나온다).
+  const extra = unit.kind === "event" && unit.event ? await eventScreenMatchIds(unit.event.id) : [];
+  const order = [...unit.matches.map((m) => m.match_id), ...extra.filter((id) => !unit.matches.some((m) => m.match_id === id))];
+  const built = await buildMatchUnits(order);
+  const matches = order.map((id) => built.find((m) => m.match_id === id)).filter((m): m is NonNullable<typeof m> => !!m);
+  const vodIds = [...new Set(matches.flatMap((m) => m.views.map((v) => v.vod)).filter((v): v is string => !!v))];
+  const [eventOptions, starts, vods, streamers] = await Promise.all([
+    listFcoEventOptions(), vodStarts(vodIds.map(Number)), loadViewerVods(vodIds), listPickableStreamers(),
+  ]);
 
   return (
     <div className="ck-review-page">
       <div className="ck-review-page-head">
-        <p className="text-[11px] leading-relaxed text-ink-500">
-          ↑↓ 큐 이동 · ←→ 프레임 이동(간격 「근거」는 고른 경기 안, 「원본」·시간 간격은 그 VOD 의 앞뒤).
-          경기 사실(점수·승패)은 넥슨 API 가 정본이라 여기서 고치지 않습니다.
-        </p>
+        <div className="min-w-0">
+          <Link href="/admin/fco" className="text-xs text-ink-400 hover:text-ink-200">← FC 맥락 검수</Link>
+          <h1 className="mt-1 truncate text-lg font-semibold text-ink-200">{unit.title}</h1>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-500">
+            ↑↓ 경기 · ← → 프레임 · 칩으로 시점 전환. 넥슨 기록이 정본인 경기는 점수·승패를 여기서 고치지 않습니다.
+          </p>
+        </div>
       </div>
-      <FcoWorkspace unit={unit} eventOptions={eventOptions} vodStarts={starts} vods={vods} />
+      <FcoMatchWorkbench matches={matches} streamers={streamers} vods={vods} eventOptions={eventOptions}
+        event={unit.kind === "event" ? { unit, vodStarts: starts } : undefined}
+        queueTitle={unit.kind === "event" ? "대회 경기" : "경기"} />
     </div>
   );
 }

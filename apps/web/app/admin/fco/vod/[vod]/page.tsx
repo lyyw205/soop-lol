@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { getFcoBroadcastWorkspace } from "@soop-lol/core/lib/games/fconline/broadcast";
 import { listFcoEventOptions } from "@soop-lol/core/lib/games/fconline/context";
 
-import { FcoBroadcastWorkbench } from "@/components/admin/FcoBroadcastWorkbench";
+import { FcoMatchWorkbench } from "@/components/admin/FcoMatchWorkbench";
 import { loadViewerVods } from "@/lib/vod-frames";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +39,7 @@ export default async function FcoBroadcastPage({ params, searchParams }: { param
           </p>
         </div>
       </header>
-      <FcoBroadcastWorkbench ws={ws} vods={vods} eventOptions={eventOptions} initialMatchId={match} />
+      <FcoMatchWorkbench matches={ws.matches} streamers={ws.streamers} vods={vods} eventOptions={eventOptions} initialMatchId={match} queueTitle="이 방송의 경기" />
     </div>
   );
 }

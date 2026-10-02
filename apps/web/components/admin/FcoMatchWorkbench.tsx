@@ -1,41 +1,50 @@
 "use client";
 
 /**
- * FC 방송 작업대 — **경기 하나 = 키 하나**, 그 경기를 본 것들은 **시점 칩**으로 바꿔 본다(CK 의 경기·시점과 같은 구조).
+ * FC 검수 작업대 — 방송·대회·단독 경기 **세 단위가 같이 쓰는 하나**. 경기 하나 = 키 하나, 그 경기를 본 것들은 **시점 칩**.
  *
  *   ┌──────────────┬──────────────────────────────────┬────────────────────┐
- *   │ 큐: 이 방송이  │ [넥슨 기록] [스맵임 VOD ●] [상대 VOD]   │ 이 시점: 읽은 값·다른 곳 │
- *   │ 집인 경기들    │  (고른 시점의 VOD 프레임 — 앞뒤 원본)     │ 경기 값(화면 정본만 편집)│
- *   │ ↑↓ 이동       │  ← → 프레임                         │ 맥락 · 검수 완료       │
+ *   │ 큐(↑↓)        │ [넥슨 기록] [스맵임 VOD ●] [상대 VOD]   │ (대회면 [대회]/[경기] 탭)│
+ *   │ 대회면 「대회   │  고른 시점의 VOD 프레임(← →)           │ 이 시점 · 경기 값 ·    │
+ *   │ 공통」+포함/제외 │                                    │ 대회 결정 · 맥락 · 완료 │
  *   └──────────────┴──────────────────────────────────┴────────────────────┘
  *
- * ★ 묶음 규칙(정본 경기·시점·집 방송)은 core/games/fconline/broadcast.ts 하나다. 이 화면은 그 결과를 보여 줄 뿐이다.
- * ★ 고친 값을 저장하지 않은 채 완료하거나 다른 경기로 가지 못하게 한다 — 「저장하고 검수 완료」가 주 동작이다(외부 검토).
- * ★ 공개 여부는 바꾸지 않는다. 완료는 "사람이 봤다"는 도장이다.
+ * ★ 묶음 규칙(정본 경기·시점·집 단위)은 core/games/fconline/broadcast.ts 하나다. 이 화면은 그 결과를 보여 줄 뿐이다.
+ * ★ 대회 단위는 예전 맥락 검수 작업대(FcoWorkspace)의 기능을 그대로 옮겼다 — 대회 공통 화면, 포함/제외·브래킷, 대회 승인/보류,
+ *   행사 정보, 다전제 집계, 조사 기록, 근거 직접 추가(2026-10-02, 작업대 두 벌을 하나로).
+ * ★ 고친 값을 저장하지 않은 채 완료하거나 다른 경기로 가지 못하게 한다 — 「저장하고 검수 완료」가 주 동작이다.
+ * ★ 공개 여부는 바꾸지 않는다. 완료는 "사람이 봤다"는 도장이다(대회 포함/제외는 원래대로 곧바로 공개에 반영된다).
  */
 
 import { useActionState, useEffect, useMemo, useState } from "react";
 
-import type { FcoEventOption } from "@soop-lol/core/lib/games/fconline/context";
-import type { FcoBroadcastWorkspace, FcoCandidate, FcoMatchUnit, FcoMatchView, FcoSide } from "@soop-lol/core/lib/games/fconline/broadcast";
+import type { FcoEventOption, FcoReviewUnit } from "@soop-lol/core/lib/games/fconline/context";
+import type { FcoCandidate, FcoMatchUnit, FcoMatchView, FcoSide, FcoViewFrame } from "@soop-lol/core/lib/games/fconline/broadcast";
+import { fcoSeriesScore, fcoSeriesStanding } from "@soop-lol/core/lib/games/fconline/series";
 
 import {
   linkScreenAction, saveAndCompleteAction, saveScreenSidesAction, setMatchCompletedAction, unlinkScreenAction,
 } from "@/app/admin/fco/vod/actions";
 import { IDLE } from "@/lib/action-state";
 
+import { FcoContextReviewer } from "./FcoContextReviewer";
 import { ActionMessage, SubmitButton } from "./Field";
-import { FcoReviewControls, type ReviewControlsUnit } from "./FcoWorkspace";
+import { decisionBadge, EventDecision, EventTab, FcoReviewControls, type ReviewControlsUnit } from "./FcoReviewParts";
 import { VodFrameViewer, type ViewerVod } from "./VodFrameViewer";
 
 const inputClass =
   "w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-ink-200 " +
   "placeholder:text-ink-400/50 outline-none focus:border-accent-600";
 const kst = (iso: string) => new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+const hms = (sec: number | null) => {
+  const v = sec ?? 0;
+  return `${Math.floor(v / 3600)}:${String(Math.floor((v % 3600) / 60)).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}`;
+};
 const BASIS_LABEL: Record<string, string> = { vod_owner: "방송 주인", nickname_match: "닉네임 일치", manual: "사람이 지정" };
 const OUTCOME_LABEL: Record<string, string> = { win: "승", loss: "패", draw: "무", unknown: "?" };
 const VERDICT_LABEL: Record<FcoCandidate["verdict"], string> = { same: "일치", maybe: "일부 일치", none: "같은 사람이 낀 가까운 경기" };
 const UNSAVED = "저장하지 않은 값이 있습니다. 버리고 이동할까요?";
+const COMMON = "__common";
 
 const sidesText = (sides: FcoSide[]) => sides.map((s) => `${s.name} ${s.score ?? "?"}`).join(" : ");
 const viewLabel = (v: FcoMatchView) => (v.kind === "api" ? "넥슨 기록" : `${v.streamer ?? "VOD"} · ${v.vod}`);
@@ -50,32 +59,95 @@ function outcomeEditOf(scoreA: number | null, scoreB: number | null, outcomeA: s
 const firstView = (m: FcoMatchUnit) =>
   m.views.find((v) => v.kind === "vod" && v.frames.some((f) => f.result)) ?? m.views.find((v) => v.kind === "vod") ?? m.views[0];
 
+/**
+ * 대회 단위 — 사진을 시간으로 다시 묶는다(예전 맥락 검수와 같은 규칙).
+ *   경기 시간대 = [시작 3분 전, 종료 2분 후]. 시작 = 넥슨 matchId 앞 8자리(유닉스 초, 실측), 종료 = 기록 시각.
+ *   사진이 그 경기 시간대 밖이면 시간이 맞는 다른 경기로, 어느 경기에도 안 들면 「대회 공통」(오프닝·소개·명단·브래킷·순위·마무리).
+ *   VOD 시작 시각이나 넥슨 번호를 모르면 원래 자리에 둔다.
+ */
+function regroupEventFrames(matches: FcoMatchUnit[], vodStarts: Record<number, number>): { matches: FcoMatchUnit[]; common: FcoViewFrame[] } {
+  const windows = matches.filter((m) => m.provider_match_id).map((m) => ({
+    id: m.match_id, a: parseInt(m.provider_match_id!.slice(0, 8), 16) * 1000 - 180_000, b: Date.parse(m.played_at) + 120_000,
+  }));
+  const moved = new Map<string, FcoViewFrame[]>();
+  const common: FcoViewFrame[] = [];
+  const kept = matches.map((m) => ({
+    ...m,
+    views: m.views.map((v) => ({
+      ...v,
+      frames: v.frames.filter((f) => {
+        const start = f.vod ? vodStarts[Number(f.vod)] : undefined;
+        if (start == null || f.sec == null || !m.provider_match_id) return true;
+        const t = start + f.sec * 1000;
+        const own = windows.find((w) => w.id === m.match_id);
+        if (own && t >= own.a && t <= own.b) return true;
+        const other = windows.find((w) => t >= w.a && t <= w.b);
+        if (other) (moved.get(other.id) ?? moved.set(other.id, []).get(other.id)!).push(f); else common.push(f);
+        return false;
+      }),
+    })),
+  }));
+  const out = kept.map((m) => {
+    const extra = moved.get(m.match_id);
+    if (!extra?.length) return m;
+    const views = [...m.views];
+    for (const f of extra) {
+      const key = `vod:${f.vod}`;
+      const i = views.findIndex((v) => v.key === key);
+      if (i >= 0) views[i] = { ...views[i], frames: [...views[i].frames, f].sort((x, y) => (x.sec ?? 0) - (y.sec ?? 0)) };
+      else views.push({ key, kind: "vod", vod: f.vod, streamer: null, screen: null, sides: null, frames: [f], mismatches: [] });
+    }
+    return { ...m, views };
+  });
+  return { matches: out, common: common.sort((x, y) => (x.sec ?? 0) - (y.sec ?? 0)) };
+}
+
 type Filter = "all" | "todo" | "mismatch" | "lonely";
 
-export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }: {
-  ws: FcoBroadcastWorkspace; vods: Record<string, ViewerVod>; eventOptions: FcoEventOption[]; initialMatchId?: string;
+export interface WorkbenchEvent {
+  /** 대회 결정·후보·행사 정보(예전 맥락 검수 단위 그대로) */
+  unit: FcoReviewUnit;
+  vodStarts: Record<number, number>;
+}
+
+export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventOptions, initialMatchId, event, queueTitle }: {
+  matches: FcoMatchUnit[];
+  streamers: { slug: string; display_name: string; has_fc: boolean }[];
+  vods: Record<string, ViewerVod>;
+  eventOptions: FcoEventOption[];
+  initialMatchId?: string;
+  /** 대회 단위면 준다 — 큐에 대회 공통·포함/제외, 오른쪽에 [대회]/[경기] 탭 */
+  event?: WorkbenchEvent;
+  queueTitle: string;
 }) {
-  const first = ws.matches.find((m) => m.match_id === initialMatchId) ?? ws.matches.find((m) => !m.review_completed_at) ?? ws.matches[0];
-  const [selectedId, setSelectedId] = useState(first?.match_id ?? null);
+  const { matches, common } = useMemo(
+    () => (event ? regroupEventFrames(rawMatches, event.vodStarts) : { matches: rawMatches, common: [] as FcoViewFrame[] }),
+    [rawMatches, event],
+  );
+  const decisionOf = (id: string) => event?.unit.matches.find((x) => x.match_id === id) ?? null;
+  const first = matches.find((m) => m.match_id === initialMatchId) ?? (common.length && event ? null : matches.find((m) => !m.review_completed_at) ?? matches[0]);
+  const [selectedId, setSelectedId] = useState<string | null>(first?.match_id ?? (event && common.length ? COMMON : matches[0]?.match_id ?? null));
   const [viewKey, setViewKey] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [dirty, setDirty] = useState(false);
+  const [tab, setTab] = useState<"event" | "match">(selectedId === COMMON ? "event" : "match");
 
-  const selected = ws.matches.find((m) => m.match_id === selectedId) ?? null;
+  const selected = selectedId === COMMON ? null : matches.find((m) => m.match_id === selectedId) ?? null;
   const view = selected ? selected.views.find((v) => v.key === viewKey) ?? firstView(selected) ?? null : null;
-  const done = ws.matches.filter((m) => m.review_completed_at).length;
-  const visible = useMemo(() => ws.matches.filter((m) => {
+  const done = matches.filter((m) => m.review_completed_at).length;
+  const visible = useMemo(() => matches.filter((m) => {
     if (filter === "todo") return !m.review_completed_at;
     if (filter === "mismatch") return hasMismatch(m);
     if (filter === "lonely") return m.source === "manual" && m.views.length <= 1;
     return true;
-  }), [ws.matches, filter]);
+  }), [matches, filter]);
+  const rows = [...(event && common.length ? [COMMON] : []), ...visible.map((m) => m.match_id)];
 
   // 고친 값을 저장하지 않았으면 다른 경기로 가기 전에 묻는다.
   const pick = (id: string) => {
     if (id === selectedId) return;
     if (dirty && !window.confirm(UNSAVED)) return;
-    setDirty(false); setSelectedId(id); setViewKey(null);
+    setDirty(false); setSelectedId(id); setViewKey(null); setTab(id === COMMON ? "event" : "match");
   };
   // ↑↓ — 큐 이동(← → 는 뷰어의 프레임 이동). 입력칸에서는 가로채지 않는다.
   useEffect(() => {
@@ -83,12 +155,12 @@ export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
       const t = e.target as HTMLElement | null;
       if (t?.matches("input, textarea, select, [contenteditable=true]")) return;
-      const i = visible.findIndex((m) => m.match_id === selectedId);
-      const next = visible[e.key === "ArrowDown" ? Math.min(i + 1, visible.length - 1) : Math.max(i - 1, 0)];
+      const i = rows.indexOf(selectedId ?? "");
+      const next = rows[e.key === "ArrowDown" ? Math.min(i + 1, rows.length - 1) : Math.max(i - 1, 0)];
       if (!next) return;
       e.preventDefault();
-      pick(next.match_id);
-      requestAnimationFrame(() => document.getElementById(`fcb-${next.match_id}`)?.scrollIntoView({ block: "nearest" }));
+      pick(next);
+      requestAnimationFrame(() => document.getElementById(`fcb-${next}`)?.scrollIntoView({ block: "nearest" }));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -104,12 +176,27 @@ export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }
   // 뷰어 재료 — VOD 마다 결과 화면 초(★)
   const resultSecs = useMemo(() => {
     const out: Record<string, number[]> = {};
-    for (const m of ws.matches) for (const v of m.views) for (const f of v.frames) if (f.result && f.vod && f.sec != null) (out[f.vod] ??= []).push(f.sec);
+    for (const m of matches) for (const v of m.views) for (const f of v.frames) if (f.result && f.vod && f.sec != null) (out[f.vod] ??= []).push(f.sec);
     return out;
-  }, [ws.matches]);
-  const evidence = useMemo(() => (view?.frames ?? []).map((f) => ({ ...f })), [view]);
+  }, [matches]);
+  const evidence = useMemo(() => (selectedId === COMMON ? common : view?.frames ?? []).map((f) => ({ ...f })), [view, selectedId, common]);
+
+  // 대회 안의 다전제 — 세트를 모아 집계한다. 규칙은 core 하나다.
+  const seriesStandings = useMemo(() => {
+    if (!event) return [];
+    const by = new Map<string, FcoReviewUnit["matches"]>();
+    for (const m of event.unit.matches) if (m.series_id) by.set(m.series_id, [...(by.get(m.series_id) ?? []), m]);
+    return [...by].map(([id, sets]) => ({
+      id,
+      standing: fcoSeriesStanding(sets.map((m) => ({
+        series_id: m.series_id, series_game_no: m.series_game_no, best_of: m.best_of,
+        participants: m.participants.map((p) => ({ ouid: p.ouid, nickname: p.name, outcome: p.outcome, side_no: 0 })),
+      }))),
+    }));
+  }, [event]);
 
   const FILTERS: [Filter, string][] = [["all", "전체"], ["todo", "미완료"], ["mismatch", "시점 불일치"], ["lonely", "화면으로만 본 경기"]];
+  const showEventTab = !!event && (tab === "event" || !selected);
 
   return (
     <div className="ck-review-workbench">
@@ -131,7 +218,8 @@ export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }
               ))}
             </nav>
           )}
-          {view?.kind === "api" ? (
+          {selectedId === COMMON && <p className="text-xs text-ink-400">대회 공통 — 어느 경기 시간대에도 안 드는 화면(오프닝·소개·명단·브래킷·순위·마무리)</p>}
+          {view?.kind === "api" && selectedId !== COMMON ? (
             <section className="ck-review-preview p-4 text-sm">
               <p className="text-xs text-ink-400">넥슨 기록은 사진이 없습니다 — API 가 준 공식 값입니다. VOD 시점 칩을 고르면 그 방송 화면을 봅니다.</p>
               <table className="mt-3 text-sm"><tbody>
@@ -142,18 +230,36 @@ export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }
               </tbody></table>
             </section>
           ) : (
-            <VodFrameViewer key={`${selected?.match_id ?? "none"}:${view?.key ?? ""}`} evidence={evidence} vods={vods} resultSecs={resultSecs}
-              emptyText={selected ? "이 시점에는 사진이 없습니다." : "검수할 경기가 없습니다."} />
+            <VodFrameViewer key={`${selectedId ?? "none"}:${view?.key ?? ""}`} evidence={evidence} vods={vods} resultSecs={resultSecs}
+              emptyText={selectedId === COMMON ? "대회 공통 화면이 없습니다." : selected ? "이 시점에는 사진이 없습니다." : "검수할 경기가 없습니다."} />
           )}
         </div>
 
-        {/* ── 오른쪽: 이 시점 · 경기 값 · 맥락 · 완료 ── */}
+        {/* ── 오른쪽: (대회면 [대회]/[경기] 탭) 이 시점 · 경기 값 · 대회 결정 · 맥락 · 완료 ── */}
         <aside className="ck-review-inspector" aria-label="검수 정보">
           <div className="ck-review-inspector-shell">
+            {event && (
+              <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보">
+                <button type="button" role="tab" aria-selected={showEventTab} onClick={() => setTab("event")}>대회</button>
+                <button type="button" role="tab" aria-selected={!showEventTab} disabled={!selected} onClick={() => setTab("match")}>경기</button>
+              </div>
+            )}
             <div className="ck-review-inspector-body">
-              {selected ? (
-                <MatchPanel key={`${selected.match_id}:${selected.review_version}`} m={selected} view={view} ws={ws}
-                  eventOptions={eventOptions} dirty={dirty} onDirty={setDirty} />
+              {showEventTab ? (
+                <div className="grid gap-4 p-1 text-sm">
+                  <EventTab unit={event!.unit}>
+                    {seriesStandings.map(({ id, standing }) => (
+                      <section key={id} className="grid gap-1 rounded-lg border border-ink-800 bg-ink-900/40 px-3 py-2">
+                        <h4 className="text-[11px] font-semibold text-ink-400">다전제 {standing.best_of ? `Bo${standing.best_of}` : "(형식 미확인)"} · {standing.sets}세트</h4>
+                        <p className="text-sm text-ink-200">{standing.sides.map((side) => side.name).join(" vs ")}<b className="ml-2 tabular-nums text-accent-400">{fcoSeriesScore(standing)}</b></p>
+                      </section>
+                    ))}
+                  </EventTab>
+                </div>
+              ) : selected ? (
+                <MatchPanel key={`${selected.match_id}:${selected.review_version}`} m={selected} view={view} streamers={streamers}
+                  eventOptions={eventOptions} dirty={dirty} onDirty={setDirty}
+                  decision={event && decisionOf(selected.match_id) ? <EventDecision unit={event.unit} match={decisionOf(selected.match_id)!} matchRef={selected.provider_match_id ?? selected.match_id} /> : null} />
               ) : <div className="ck-review-panel p-4 text-xs text-ink-400">큐에서 경기를 고르세요.</div>}
             </div>
           </div>
@@ -163,8 +269,8 @@ export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }
       {/* ── 왼쪽: 큐 ── */}
       <section className="ck-review-timeline" aria-label="검수 큐">
         <header className="ck-review-queue-head">
-          <h3>이 방송의 경기</h3>
-          <p>완료 {done} / {ws.matches.length} · ↑↓ 이동</p>
+          <h3>{queueTitle}</h3>
+          <p>완료 {done} / {matches.length} · ↑↓ 이동</p>
           <div className="flex flex-wrap gap-1">
             {FILTERS.map(([key, label]) => (
               <button key={key} type="button" onClick={() => setFilter(key)}
@@ -173,22 +279,40 @@ export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }
           </div>
         </header>
         <ul className="ck-review-queue-list">
-          {visible.map((m) => (
-            <li key={m.match_id} id={`fcb-${m.match_id}`}>
-              <button type="button" className="ck-review-queue-item" aria-current={m.match_id === selectedId ? "true" : undefined} onClick={() => pick(m.match_id)}>
-                <span className="min-w-0">
-                  <span className="block truncate text-xs text-ink-200">{m.sides.length === 2 ? sidesText(m.sides) : m.match_id}</span>
-                  <span className="block truncate text-[10px] text-ink-400">
-                    {kst(m.played_at)} · {m.source === "provider_api" ? "넥슨" : "화면"}{m.views.length > 1 ? ` · 시점 ${m.views.length}` : ""}
-                  </span>
-                </span>
-                <span className="flex shrink-0 flex-col items-end gap-0.5 text-[10px]">
-                  <span className={m.review_completed_at ? "text-win" : "text-ink-400"}>{m.review_completed_at ? "완료" : "미검수"}</span>
-                  {hasMismatch(m) && <span className="text-amber-400">불일치</span>}
-                </span>
+          {event && common.length > 0 && (
+            <li id={`fcb-${COMMON}`}>
+              <button type="button" className="ck-review-queue-item" aria-current={selectedId === COMMON ? "true" : undefined} onClick={() => pick(COMMON)}
+                title="어느 경기 시간대에도 안 드는 화면 — 오프닝·선수 소개·명단·브래킷·순위·마무리">
+                <span className="min-w-0"><span className="block text-xs text-ink-200">대회 공통</span><span className="block text-[10px] text-ink-400">경기 밖 화면 · {common.length}장</span></span>
+                <span />
               </button>
             </li>
-          ))}
+          )}
+          {visible.map((m, i) => {
+            const d = decisionOf(m.match_id);
+            const firstExcluded = d?.decision === "exclude" && decisionOf(visible[i - 1]?.match_id ?? "")?.decision !== "exclude";
+            const badge = d ? decisionBadge(d) : null;
+            return (
+              <li key={m.match_id} id={`fcb-${m.match_id}`} className={d?.decision === "exclude" ? "opacity-60" : undefined}>
+                {firstExcluded && <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold text-ink-500">대회 밖으로 뺀 경기</p>}
+                <button type="button" className="ck-review-queue-item" aria-current={m.match_id === selectedId ? "true" : undefined} onClick={() => pick(m.match_id)}>
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs text-ink-200">
+                      {d?.bracket_label ? `${d.bracket_label} · ` : d?.series_id ? `${d.series_game_no ?? "?"}세트 · ` : ""}{m.sides.length === 2 ? sidesText(m.sides) : m.match_id}
+                    </span>
+                    <span className="block truncate text-[10px] text-ink-400">
+                      {kst(m.played_at)} · {m.source === "provider_api" ? "넥슨" : "화면"}{m.views.length > 1 ? ` · 시점 ${m.views.length}` : ""}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 flex-col items-end gap-0.5 text-[10px]">
+                    {badge && <span className={`font-bold ${badge.cls}`} title={badge.text}>{d!.decision === "include" ? "포함" : d!.decision === "exclude" ? "제외" : "미정"}{d!.decision_by === "admin" ? " ✓" : ""}</span>}
+                    <span className={m.review_completed_at ? "text-win" : "text-ink-400"}>{m.review_completed_at ? "완료" : "미검수"}</span>
+                    {hasMismatch(m) && <span className="text-amber-400">불일치</span>}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
           {visible.length === 0 && <li className="ck-review-queue-empty">해당하는 경기가 없습니다.</li>}
         </ul>
       </section>
@@ -198,8 +322,11 @@ export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }
 
 // ── 오른쪽 칸 ─────────────────────────────────────────────────────────
 
-function MatchPanel({ m, view, ws, eventOptions, dirty, onDirty }: {
-  m: FcoMatchUnit; view: FcoMatchView | null; ws: FcoBroadcastWorkspace; eventOptions: FcoEventOption[]; dirty: boolean; onDirty: (v: boolean) => void;
+function MatchPanel({ m, view, streamers, eventOptions, dirty, onDirty, decision }: {
+  m: FcoMatchUnit; view: FcoMatchView | null; streamers: { slug: string; display_name: string; has_fc: boolean }[];
+  eventOptions: FcoEventOption[]; dirty: boolean; onDirty: (v: boolean) => void;
+  /** 대회 단위면 이 경기의 포함/제외 결정 폼 */
+  decision?: React.ReactNode;
 }) {
   const [saveState, saveAction] = useActionState(saveScreenSidesAction, IDLE);
   const [bothState, bothAction] = useActionState(saveAndCompleteAction, IDLE);
@@ -223,6 +350,8 @@ function MatchPanel({ m, view, ws, eventOptions, dirty, onDirty }: {
 
       {view && <ViewPanel view={view} />}
 
+      {decision}
+
       {m.editable ? (
         <form action={saveAction} onChange={() => onDirty(true)} className="ck-review-panel grid gap-3 p-3">
           <p className="text-[11px] font-semibold text-ink-200">경기 값</p>
@@ -240,10 +369,10 @@ function MatchPanel({ m, view, ws, eventOptions, dirty, onDirty }: {
                 <option value="__auto">닉네임으로 다시 판정 (등록 계정과 하나만 일치할 때)</option>
                 {s.streamer_id && <option value="__none">사람 떼기</option>}
                 <optgroup label="FC 계정 등록됨">
-                  {ws.streamers.filter((st) => st.has_fc).map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
+                  {streamers.filter((st) => st.has_fc).map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
                 </optgroup>
                 <optgroup label="그 밖의 공개 스트리머">
-                  {ws.streamers.filter((st) => !st.has_fc).map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
+                  {streamers.filter((st) => !st.has_fc).map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
                 </optgroup>
               </select>
             </fieldset>
@@ -292,6 +421,24 @@ function MatchPanel({ m, view, ws, eventOptions, dirty, onDirty }: {
         {dirty && !completed && <p className="w-full text-[11px] text-amber-400">고친 값이 저장되지 않았습니다 — 「저장하고 검수 완료」를 쓰세요.</p>}
         <p className="w-full text-[11px] text-ink-400">완료해도 공개되지 않습니다. 공개 표시는 별도 단계입니다.</p>
       </form>
+
+      {m.notes.length > 0 && (
+        <section className="ck-review-panel grid gap-1.5 p-3">
+          <h4 className="text-[11px] font-semibold text-ink-200">조사 기록 — 사진 없는 근거 ({m.notes.length})</h4>
+          {m.notes.map((n) => (
+            <div key={n.key} className="rounded-md border border-ink-800 bg-ink-900/40 px-2.5 py-1.5 text-[12px]">
+              <span className="font-mono text-[10px] text-ink-500">{n.vod ? `${n.vod} ${hms(n.sec)} ` : ""}{n.kind}</span>
+              <p className="text-ink-200">{n.observed}</p>
+              {n.why && <p className="text-ink-400">판단: {n.why}</p>}
+              {n.url && <a href={n.url} target="_blank" rel="noreferrer" className="text-[11px] text-accent-400">출처 ↗</a>}
+            </div>
+          ))}
+        </section>
+      )}
+      <details className="ck-review-panel p-3">
+        <summary className="cursor-pointer text-[11px] text-ink-400 hover:text-ink-200">근거 직접 추가</summary>
+        <div className="mt-3"><FcoContextReviewer providerMatchId={m.match_id} /></div>
+      </details>
     </div>
   );
 }

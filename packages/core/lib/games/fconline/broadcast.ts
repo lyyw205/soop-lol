@@ -118,6 +118,8 @@ export interface FcoMatchUnit {
   views: FcoMatchView[];
   /** 정본이 화면 기록이고 아무 데도 안 이어졌을 때만 — 같은 경기일 수 있는 다른 기록 */
   candidates: FcoCandidate[];
+  /** 사진 없는 근거 — 채팅·공지·링크·메모(조사 기록) */
+  notes: { key: string; kind: string; vod: string | null; sec: number | null; url: string | null; observed: string; why: string | null }[];
 }
 export interface FcoBroadcastWorkspace {
   vod: string;
@@ -153,13 +155,13 @@ export function viewMismatches(match: FcoSide[], view: FcoSide[]): FcoMismatch[]
 
 type SideRow = FcoSide & { match_id: string; side_no: number };
 
-/** 방송 하나의 작업대 — 이 방송이 **집**인 정본 경기들과 그 시점들. */
-export async function getFcoBroadcastWorkspace(vod: string): Promise<FcoBroadcastWorkspace | null> {
-  if (!/^\d{1,12}$/.test(vod)) return null;
+/**
+ * 정본 경기들 → 작업대가 보는 모양(경기 값·시점·후보·맥락·완료). 방송·대회·단독 경기 단위가 **같이 쓴다**.
+ * 순서는 넘긴 순서가 아니라 경기 시각 순이다(대회는 부르는 쪽이 브래킷 순으로 다시 놓는다).
+ */
+export async function buildMatchUnits(canon: string[]): Promise<FcoMatchUnit[]> {
+  if (!canon.length) return [];
   const sql = db();
-  const canon = (await sql.unsafe<{ canon: string }[]>(`WITH ${HOME_CTE} SELECT canon FROM home WHERE home_vod = $1`, [vod])).map((r) => r.canon);
-  if (!canon.length) return null;
-
   const matches = await sql<{
     match_id: string; provider_match_id: string | null; source: string; game_creation: Date; mode_key: string | null;
     review_completed_at: Date | null; review_version: number;
@@ -194,6 +196,9 @@ export async function getFcoBroadcastWorkspace(vod: string): Promise<FcoBroadcas
     SELECT match_id, evidence_key, frame_path, at_sec, vod_title_no::text AS vod_title_no, role, observed, why
       FROM fco_context_evidence WHERE match_id = ANY(${ids}) AND frame_path IS NOT NULL
      ORDER BY at_sec NULLS LAST, evidence_key`;
+  const notes = await sql<{ match_id: string; evidence_key: string; kind: string; vod_title_no: string | null; at_sec: number | null; url: string | null; observed: string; why: string | null }[]>`
+    SELECT match_id, evidence_key, kind, vod_title_no::text AS vod_title_no, at_sec, url, observed, why
+      FROM fco_context_evidence WHERE match_id = ANY(${ids}) AND frame_path IS NULL ORDER BY at_sec NULLS LAST, evidence_key`;
   const vodsSeen = [...new Set([...evidence.map((e) => e.vod_title_no), ...screens.map((s) => s.match_id.split(":")[1].split("@")[0])].filter((x): x is string => !!x))];
   const owners = vodsSeen.length ? await sql<{ vod: string; streamer: string | null }[]>`
     SELECT DISTINCT ON (v.vod) v.vod, st.display_name AS streamer
@@ -219,7 +224,7 @@ export async function getFcoBroadcastWorkspace(vod: string): Promise<FcoBroadcas
        AND m.game_creation BETWEEN ${new Date(Math.min(...lonely.map((m) => m.game_creation.getTime())) - NEARBY_SEC * 1000)}
                                AND ${new Date(Math.max(...lonely.map((m) => m.game_creation.getTime())) + NEARBY_SEC * 1000)}` : [];
 
-  const units: FcoMatchUnit[] = matches.map((m) => {
+  return matches.map((m): FcoMatchUnit => {
     const mine = sidesOf(m.match_id);
     const views: FcoMatchView[] = [];
     if (m.source === "provider_api") {
@@ -274,16 +279,47 @@ export async function getFcoBroadcastWorkspace(vod: string): Promise<FcoBroadcas
       },
       review_completed_at: m.review_completed_at?.toISOString() ?? null, review_version: m.review_version,
       views, candidates,
+      notes: notes.filter((n) => n.match_id === m.match_id || myScreens.some((x) => x.match_id === n.match_id))
+        .map((n) => ({ key: `${n.match_id}:${n.evidence_key}`, kind: n.kind, vod: n.vod_title_no, sec: n.at_sec, url: n.url, observed: n.observed, why: n.why })),
     };
   });
+
+}
+
+/** 사람 선택 목록 — 공개 스트리머 전부, FC 계정이 있는 사람 먼저(화면 경기의 상대는 계정이 없는 경우가 흔하다). */
+export async function listPickableStreamers(): Promise<{ slug: string; display_name: string; has_fc: boolean }[]> {
+  return db()<{ slug: string; display_name: string; has_fc: boolean }[]>`
+    SELECT s.slug, s.display_name, EXISTS (SELECT 1 FROM streamer_fco_account a WHERE a.streamer_id = s.id AND a.visibility = 'public') AS has_fc
+      FROM streamer s WHERE s.visibility = 'public' ORDER BY has_fc DESC, s.display_name`;
+}
+
+/**
+ * 대회 단위의 정본 경기 — 대회 결정·후보 목록(getFcoReviewWorkspace, 넥슨 기록만)에 더해 **대회에 붙은 화면 기록 정본**도.
+ * 화면 기록만 있는 경기가 대회에 붙으면 집이 그 대회인데(HOME_CTE 가 방송 단위에서 뺀다), 대회 목록이 넥슨 기록만 보면 어디에도 안 나온다.
+ */
+export async function eventScreenMatchIds(eventId: string): Promise<string[]> {
+  return (await db()<{ match_id: string }[]>`
+    SELECT m.match_id FROM match m
+      LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+      LEFT JOIN fco_screen_link l ON l.screen_match_id = m.match_id
+     WHERE m.game_code = 'fconline' AND m.source = 'manual' AND l.screen_match_id IS NULL
+       AND COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid
+     ORDER BY m.game_creation`).map((r) => r.match_id);
+}
+
+/** 방송 하나의 작업대 — 이 방송이 **집**인 정본 경기들과 그 시점들. */
+export async function getFcoBroadcastWorkspace(vod: string): Promise<FcoBroadcastWorkspace | null> {
+  if (!/^\d{1,12}$/.test(vod)) return null;
+  const sql = db();
+  const canon = (await sql.unsafe<{ canon: string }[]>(`WITH ${HOME_CTE} SELECT canon FROM home WHERE home_vod = $1`, [vod])).map((r) => r.canon);
+  if (!canon.length) return null;
+
+  const units = await buildMatchUnits(canon);
 
   const lead = await sql<{ title: string | null; channel_id: string | null; streamer: string | null }[]>`
     SELECT e.title, e.channel_id, st.display_name AS streamer FROM event_lead e LEFT JOIN streamer st ON st.id = e.streamer_id
      WHERE e.url LIKE ${`%/player/${vod}`} LIMIT 1`;
-  // 사람 선택 목록 — 공개 스트리머 전부, FC 계정이 있는 사람 먼저(화면 경기의 상대는 계정이 없는 경우가 흔하다).
-  const streamers = await sql<{ slug: string; display_name: string; has_fc: boolean }[]>`
-    SELECT s.slug, s.display_name, EXISTS (SELECT 1 FROM streamer_fco_account a WHERE a.streamer_id = s.id AND a.visibility = 'public') AS has_fc
-      FROM streamer s WHERE s.visibility = 'public' ORDER BY has_fc DESC, s.display_name`;
+  const streamers = await listPickableStreamers();
   return {
     vod, url: `https://vod.sooplive.com/player/${vod}`, title: lead[0]?.title ?? null, channel_id: lead[0]?.channel_id ?? null,
     streamer: lead[0]?.streamer ?? null, matches: units, streamers,

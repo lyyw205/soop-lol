@@ -253,6 +253,13 @@ try {
   await rejects("오래된 화면에서 저장하고 완료", () => B.saveAndCompleteScreenMatch(S1, v1now.v, [{ nickname: "알파감독", score: 5, person: "keep" }, { nickname: "일반감독", score: 1, person: "keep" }], "auto"), "바뀌었습니다");
   assert.equal((await sql<{ s: number }[]>`SELECT score_display s FROM fco_match_participant WHERE match_id = ${S1} AND side_no = 1`)[0].s, 4, "실패하면 값도 안 바뀐다(같은 트랜잭션)");
 
+  // 7) 대회에 붙은 화면 기록 정본도 대회 작업대가 읽고, 포함/제외를 정할 수 있다(넥슨 번호가 없어도)
+  const [scr] = await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = 'scr-cup'`;
+  assert.deepEqual(await B.eventScreenMatchIds(scr.id), [S2], "대회에 붙은 화면 기록 정본");
+  await C.decideFcoEventMatch({ eventId: scr.id, providerMatchId: S2, decision: "exclude", note: "개막 전 연습" }, { createdBy: "admin" });
+  assert.equal((await sql`SELECT event_id FROM match WHERE match_id = ${S2}`)[0].event_id, null, "내부 번호로도 대회에서 뺄 수 있다");
+  assert.equal((await B.buildMatchUnits([S2]))[0]?.match_id, S2, "공용 빌더는 어느 단위의 경기든 같은 모양으로 만든다");
+
   // 5) 검수해도 공개 조회는 그대로 — 화면 경기가 공개 쪽에 새지 않는다
   const dump = JSON.stringify([await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoLeaderboard(), await R.listFcoEvents()]);
   assert.ok(!dump.includes("fcs:") && !dump.includes("일반감독") && !dump.includes("낯선감독"), "공개 조회에 화면 경기가 샜다");
