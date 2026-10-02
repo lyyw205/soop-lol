@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { getScreenReviewWorkspace } from "@soop-lol/core/lib/games/fconline/screen-review";
 
 import { FcoScreenReviewer } from "@/components/admin/FcoScreenReviewer";
+import { vodCellLength } from "@/lib/vod-cells";
+import { listVodFrames } from "@/lib/vod-frames";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,7 @@ export default async function FcoScreenReviewPage({ params, searchParams }: { pa
   const { match } = await searchParams;
   const ws = await getScreenReviewWorkspace(vod);
   if (!ws) notFound();
+  const [vodFrames, vodLengthSec] = await Promise.all([listVodFrames(vod), vodCellLength(vod)]);
 
   return (
     <div className="ck-review-page">
@@ -32,7 +35,7 @@ export default async function FcoScreenReviewPage({ params, searchParams }: { pa
           </p>
         </div>
       </header>
-      <FcoScreenReviewer ws={ws} initialMatchId={match} />
+      <FcoScreenReviewer ws={ws} vodFrames={vodFrames} vodLengthSec={vodLengthSec} initialMatchId={match} />
     </div>
   );
 }

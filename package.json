@@ -103,5 +103,5 @@
     "typescript": "5.9.3"
   },
   "type": "module",
-  "//deps": "★ jpeg-js 는 VOD 썸네일 시트를 코드로 훑는 데만 쓴다(scripts/lib/soop-vod.mjs). 순수 JS 라 네이티브 빌드가 없고, 웹·워커는 안 쓴다. ⚠ 의존성 블록 '안'에는 주석 키를 두면 안 된다 — npm ci 가 EINVALIDPACKAGENAME 으로 즉사한다(실제로 그랬다)."
+  "//deps": "★ jpeg-js 는 VOD 썸네일 시트를 코드로 훑는 데만 쓴다(scripts/lib/soop-vod.mjs). 순수 JS 라 네이티브 빌드가 없고, 워커는 안 쓰고, 웹은 관리자 검수 화면의 앞뒤 프레임 칸(apps/web/lib/vod-cells.ts)에서만 쓴다. ⚠ 의존성 블록 '안'에는 주석 키를 두면 안 된다 — npm ci 가 EINVALIDPACKAGENAME 으로 즉사한다(실제로 그랬다)."
 }
