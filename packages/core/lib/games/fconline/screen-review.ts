@@ -308,8 +308,8 @@ export async function updateScreenSides(matchId: string, expectedVersion: number
     const linked = await tx`SELECT 1 FROM fco_screen_link WHERE screen_match_id = ${matchId}`;
     if (linked.length) throw new Error("다른 경기에 연결된 화면 경기입니다. 연결을 풀고 고치세요.");
 
-    const before = await tx<{ side_no: number; nickname: string; score_display: number | null; streamer_id: string | null; identity_basis: string | null }[]>`
-      SELECT side_no, nickname, score_display, streamer_id, identity_basis FROM fco_match_participant WHERE match_id = ${matchId} ORDER BY side_no`;
+    const before = await tx<{ side_no: number; nickname: string; score_display: number | null; streamer_id: string | null; identity_basis: string | null; outcome: string | null }[]>`
+      SELECT side_no, nickname, score_display, streamer_id, identity_basis, outcome FROM fco_match_participant WHERE match_id = ${matchId} ORDER BY side_no`;
     if (before.length !== 2) throw new Error("참가자 두 칸이 없는 경기입니다.");
 
     const resolveEdit = async (e: ScreenSideEdit, b: (typeof before)[number]) => {
@@ -338,6 +338,7 @@ export async function updateScreenSides(matchId: string, expectedVersion: number
       await log(tx, matchId, "participant", key, "score", b.score_display, r.score);
       await log(tx, matchId, "participant", key, "streamer_id", b.streamer_id, r.streamerId);
       await log(tx, matchId, "participant", key, "identity_basis", b.identity_basis, r.basis);
+      await log(tx, matchId, "participant", key, "outcome", b.outcome, outs[i]);
     }
     // 값이 달라졌으니 완료를 푼다(참가자 트리거가 없는 FC 표라 여기서 직접). 사람이 고친 경기는 자동 조사가 덮지 못하게 보호한다.
     await tx`UPDATE match SET review_completed_at = NULL, review_version = review_version + 1, reviewed_at = COALESCE(reviewed_at, now())

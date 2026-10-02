@@ -86,6 +86,8 @@ try {
   assert.equal(after.v, done1.v + 1);
   const row = (await sql<{ nickname: string; outcome: string; score_display: number }[]>`SELECT nickname, outcome, score_display FROM fco_match_participant WHERE match_id = ${S1} ORDER BY side_no`);
   assert.deepEqual(row.map((r) => r.outcome), ["win", "loss"], "직접 정한 결과가 점수보다 우선(승부차기)");
+  const outcomeLogs = await sql<{ n: number }[]>`SELECT count(*)::int n FROM review_change WHERE match_id = ${S1} AND field = 'outcome'`;
+  assert.ok(outcomeLogs[0].n >= 1, "승패 변경도 기록된다(이전 값·이후 값)");
   assert.equal(row[1].nickname, "일반감독2");
   const logs = await sql<{ field: string }[]>`SELECT field FROM review_change WHERE match_id = ${S1}`;
   assert.ok(logs.some((l) => l.field === "nickname") && logs.some((l) => l.field === "review_completed"), "닉네임 변경과 완료 해제가 기록된다");
