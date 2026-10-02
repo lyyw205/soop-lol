@@ -260,6 +260,20 @@ try {
   assert.equal((await sql`SELECT event_id FROM match WHERE match_id = ${S2}`)[0].event_id, null, "내부 번호로도 대회에서 뺄 수 있다");
   assert.equal((await B.buildMatchUnits([S2]))[0]?.match_id, S2, "공용 빌더는 어느 단위의 경기든 같은 모양으로 만든다");
 
+  // 8) 같은 경기를 두 방송에서 읽음 — 한쪽은 사람이 붙고(방송 주인) 다른 쪽은 닉네임만. 자동 대조가 작은 방송 쪽으로 묶는다.
+  const t8 = dayAgo(90);
+  const P = "fcs:900300@30", Q = "fcs:900400@40";
+  await S.saveFcoScreenMatch({ vodTitleNo: 900300, atSec: 30, endedAt: t8.toISOString(), channelId: "c3",
+    sides: [{ nickname: "불꽃열정", score: 1, streamerSlug: "beta-fc", basis: "vod_owner" }, { nickname: "H000", score: 3 }], evidence: [{ observed: "1:3", frame_path: "out/ck/900300/g0000030.jpg" }] });
+  const rq = await S.saveFcoScreenMatch({ vodTitleNo: 900400, atSec: 40, endedAt: new Date(t8.getTime() + 7_000).toISOString(), channelId: "c4",
+    sides: [{ nickname: "H000", score: 3 }, { nickname: "불꽃열정", score: 1 }], evidence: [{ observed: "3:1", frame_path: "out/ck/900400/g0000040.jpg" }] });
+  assert.equal(rq.status, "linked", "저장할 때 이미 같은 경기로 묶인다(규칙 수정 전에는 needs_review)");
+  assert.equal((rq as { link_to: string }).link_to, P, "먼저 방송한 쪽이 정본");
+  const homeP = (await B.listFcoBroadcastUnits()).filter((u) => u.match_ids.includes(P)).map((u) => u.vod);
+  assert.deepEqual(homeP, ["900300"], "목록에는 한 번만");
+  const viewsP = (await B.getFcoBroadcastWorkspace("900300"))!.matches.find((m) => m.match_id === P)!.views.map((v) => v.key);
+  assert.deepEqual(viewsP, ["vod:900300", "vod:900400"], "두 방송이 같은 경기의 시점");
+
   // 5) 검수해도 공개 조회는 그대로 — 화면 경기가 공개 쪽에 새지 않는다
   const dump = JSON.stringify([await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoLeaderboard(), await R.listFcoEvents()]);
   assert.ok(!dump.includes("fcs:") && !dump.includes("일반감독") && !dump.includes("낯선감독"), "공개 조회에 화면 경기가 샜다");

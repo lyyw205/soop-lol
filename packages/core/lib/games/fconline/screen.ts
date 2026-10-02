@@ -109,19 +109,31 @@ export function editDistance(a: string, b: string): number {
  *   시각·스코어가 맞으면 "maybe"**(검수 대기)로 올린다(자모 단위 비교 — nearName). 이름으로 사람을 단정하지 않는다 — 자동 연결("same")은 하지 않는다.
  */
 export function compareMatches(a: MatchSig, b: MatchSig): "same" | "maybe" | "no" {
-  const ka = a.sides.map((s) => s.key).sort().join("|"), kb = b.sides.map((s) => s.key).sort().join("|");
   const gap = Math.abs(a.at - b.at) / 1000;
   if (gap > SCREEN_TIME_TOLERANCE_SEC * 3) return "no";
-  if (ka !== kb) return nearNames(a, b) ? "maybe" : "no";
-  const scoreOf = (m: MatchSig, key: string) => m.sides.find((s) => s.key === key)?.score ?? null;
+  // 같은 사람끼리 짝짓는다(순서 무관). 짝이 안 지어지면 오독 범위만 본다.
+  const order = ([[0, 1], [1, 0]] as const).find(([i, j]) => samePerson(a.sides[0], b.sides[i]) && samePerson(a.sides[1], b.sides[j]));
+  if (!order) return nearNames(a, b) ? "maybe" : "no";
   let scoreKnown = true, scoreEqual = true;
-  for (const s of a.sides) {
-    const x = s.score, y = scoreOf(b, s.key);
+  for (const k of [0, 1] as const) {
+    const x = a.sides[k].score, y = b.sides[order[k]].score;
     if (x == null || y == null) scoreKnown = false;
     else if (x !== y) scoreEqual = false;
   }
   if (!scoreEqual) return "no";
   return gap <= SCREEN_TIME_TOLERANCE_SEC && scoreKnown ? "same" : "maybe";
+}
+
+/**
+ * 같은 사람인가 — 사람 키가 같으면 같다. **한쪽만 사람이 붙어 있고(다른 쪽은 닉네임 키) 두 닉네임이 같아도 같다.**
+ * ★ 2026-10-02: 같은 경기를 두 스트리머 방송에서 읽었는데, 한쪽은 「불꽃열정 = 방송 주인」으로 사람이 붙고 다른 쪽은 닉네임만 있어
+ *   "다른 사람"이 됐다 — 닉네임·점수·시각이 다 같은데 자동으로 안 묶인 쌍이 16개 중 대부분이었다.
+ *   양쪽 다 **서로 다른** 스트리머로 붙어 있으면 닉네임이 같아도 다른 사람이다(닉네임을 바꿔 쓰는 경우 — 사람 근거가 우선).
+ */
+function samePerson(x: SideSig, y: SideSig): boolean {
+  if (x.key === y.key) return true;
+  const xn = x.key.startsWith("name:"), yn = y.key.startsWith("name:");
+  return xn !== yn && x.name != null && y.name != null && normalizeName(x.name) === normalizeName(y.name);
 }
 
 /** 한글 음절을 자모(초·중·종성)로 편다 — 오독은 글자가 아니라 자모 하나에서 난다(ㅠ↔ㅜ·ㅑ↔ㅏ·ㅇ↔ㅁ). 나머지 글자는 그대로. */
@@ -307,9 +319,22 @@ const rowSig = (r: { game_creation: Date; parts: ScreenRow["parts"] }): MatchSig
  * 합친 화면 경기는 지우지 않고 숨기고(fco_screen_link), 근거는 API 경기로 옮긴다. API 저장 경로(saveFcoMatch)에서 부르지 않고
  * 자동 수집이 끝난 뒤 따로 부른다 — API 경로를 안 건드리기 위해서다.
  */
-export async function reconcileFcoScreenMatches(): Promise<{ linked: { screen: string; api: string }[]; suspects: number }> {
+export async function reconcileFcoScreenMatches(opts: { dryRun?: boolean } = {}): Promise<{ linked: { screen: string; api: string }[]; suspects: number }> {
   const sql = db();
-  return sql.begin(async (tx) => {
+  // dryRun: 같은 계산을 하고 되돌린다(무엇이 묶일지 숫자를 먼저 본다)
+  const DRY = Symbol("dry-run");
+  let result: { linked: { screen: string; api: string }[]; suspects: number } | null = null;
+  try {
+    await sql.begin(async (tx) => {
+      result = await reconcileInTx(tx);
+      if (opts.dryRun) throw DRY;
+    });
+  } catch (e) { if (e !== DRY) throw e; }
+  return result!;
+}
+
+async function reconcileInTx(tx: postgres.TransactionSql): Promise<{ linked: { screen: string; api: string }[]; suspects: number }> {
+  {
     const screens = await loadScreenRows(tx, "all");
     const linked: { screen: string; api: string }[] = [];
     let suspects = 0;
@@ -317,8 +342,11 @@ export async function reconcileFcoScreenMatches(): Promise<{ linked: { screen: s
     //   (연결 풀기는 review_change 에 screen_link → null 로 남는다. screen-review.ts unlinkScreenByAdmin)
     const unlinkedByHuman = new Set((await tx<{ match_id: string }[]>`
       SELECT DISTINCT match_id FROM review_change WHERE field = 'screen_link' AND "after" IS NULL AND match_id IS NOT NULL`).map((r) => r.match_id));
-    for (const s of screens) {
+    const vodOf = (id: string) => Number(/^fcs:(\d+)@/.exec(id)?.[1] ?? 0);
+    for (const s of [...screens].sort((x, y) => vodOf(x.match_id) - vodOf(y.match_id))) {
       if (unlinkedByHuman.has(s.match_id)) continue;
+      // 앞에서 이 기록을 대상으로 다른 기록이 이어졌을 수 있다 — 이미 이어진 기록은 건너뛴다
+      if ((await tx`SELECT 1 FROM fco_screen_link WHERE screen_match_id = ${s.match_id}`).length) continue;
       const sig = rowSig(s);
       const apis = await tx<ScreenRow[]>`
         SELECT m.match_id, m.game_creation,
@@ -328,19 +356,34 @@ export async function reconcileFcoScreenMatches(): Promise<{ linked: { screen: s
           FROM match m
          WHERE m.game_code = 'fconline' AND m.source = 'provider_api'
            AND m.game_creation BETWEEN ${new Date(sig.at - SCREEN_TIME_TOLERANCE_SEC * 3000)} AND ${new Date(sig.at + SCREEN_TIME_TOLERANCE_SEC * 3000)}`;
-      const verdicts = apis.map((a) => ({ a, v: compareMatches(sig, rowSig(a)) })).filter((x) => x.v !== "no");
+      // 같은 경기 후보 — 넥슨 기록, 그리고 **다른 방송의 화면 기록**(같은 경기를 두 스트리머가 찍은 경우).
+      // 화면 기록끼리는 방송 번호가 더 작은(먼저 방송한) 쪽을 정본으로 둔다 — 서로를 가리키지 않게 한 방향만.
+      const [, myVod] = /^fcs:(\d+)@/.exec(s.match_id) ?? [];
+      const others = await tx<ScreenRow[]>`
+        SELECT m.match_id, m.game_creation,
+               (SELECT json_agg(json_build_object('nickname', p.nickname, 'streamer_id', p.streamer_id, 'ouid', p.ouid,
+                                                  'score', coalesce(p.score_display, p.goals)) ORDER BY p.side_no)
+                  FROM fco_match_participant p WHERE p.match_id = m.match_id) AS parts
+          FROM match m
+         WHERE m.game_code = 'fconline' AND m.source = 'manual' AND m.origin = 'vod_scan' AND m.match_id LIKE 'fcs:%'
+           AND m.match_id <> ${s.match_id}
+           AND split_part(split_part(m.match_id, ':', 2), '@', 1)::bigint < ${Number(myVod ?? 0)}
+           AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
+           AND m.game_creation BETWEEN ${new Date(sig.at - SCREEN_TIME_TOLERANCE_SEC * 3000)} AND ${new Date(sig.at + SCREEN_TIME_TOLERANCE_SEC * 3000)}`;
+      const verdicts = [...apis, ...others].filter((x) => x.parts?.length === 2)
+        .map((a) => ({ a, v: compareMatches(sig, rowSig(a)) })).filter((x) => x.v !== "no");
       const same = verdicts.filter((x) => x.v === "same");
       if (same.length === 1 && verdicts.length === 1) {
-        const api = same[0].a;
-        await linkScreenTo(tx, s.match_id, api.match_id,
-          { participants: "same", time_gap_sec: Math.round(Math.abs(sig.at - rowSig(api).at) / 1000), score: "same" }, "auto");
-        linked.push({ screen: s.match_id, api: api.match_id });
+        const target = same[0].a;
+        await linkScreenTo(tx, s.match_id, target.match_id,
+          { participants: "same", time_gap_sec: Math.round(Math.abs(sig.at - rowSig(target).at) / 1000), score: "same" }, "auto");
+        linked.push({ screen: s.match_id, api: target.match_id });
       } else if (verdicts.length > 0) {
         suspects += 1; // R3: 후보가 둘 이상이거나 조건 하나가 모자란다 — 합치지 않고 사람에게 남긴다
       }
     }
     return { linked, suspects };
-  });
+  }
 }
 
 export interface FcoScreenSuspect { screen_match_id: string; other_match_id: string; other_source: string; verdict: "maybe" | "ambiguous" }

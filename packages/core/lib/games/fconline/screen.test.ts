@@ -51,3 +51,18 @@ test("자모 단위 오독 판정 — 실제 검증 사례는 가깝고, 다른 
   for (const [x, y] of [["뀨뀨rr", "꾸꾸rr"], ["걍하리", "강하리"], ["잉유진", "임유진"], ["묵직단단탑라이너", "묵직단단탈라이너"]]) assert.ok(nearName(x, y), `${x}~${y}`);
   for (const [x, y] of [["제남김", "임유진"], ["바르셀리아", "자므도"], ["태민김", "태연"]]) assert.ok(!nearName(x, y), `${x}≠${y}`);
 });
+
+test("같은 사람 — 한쪽만 사람이 붙어 있어도 닉네임이 같으면 같다(두 방송에서 읽은 같은 경기)", () => {
+  const at = Date.parse("2026-08-29T11:00:00Z");
+  const owner = { key: "streamer-불꽃", score: 1, name: "불꽃열정" };
+  // 스맵임 방송: 불꽃열정이 방송 주인으로 붙음 / 상대 방송: 닉네임만
+  const a = { at, sides: [owner, { key: "name:h000", score: 3, name: "H000" }] as [typeof owner, typeof owner] };
+  const b = { at: at + 7_000, sides: [{ key: "name:h000", score: 3, name: "H000" }, { key: "name:불꽃열정", score: 1, name: "불꽃열정" }] as [typeof owner, typeof owner] };
+  assert.equal(compareMatches(a, b), "same", "닉네임·점수·시각이 같고 한쪽만 사람이 붙음 → 같은 경기");
+  // 양쪽 다 서로 다른 스트리머로 붙어 있으면 닉네임이 같아도 다른 사람
+  const c = { at, sides: [{ key: "streamer-다른사람", score: 1, name: "불꽃열정" }, { key: "name:h000", score: 3, name: "H000" }] as [typeof owner, typeof owner] };
+  assert.notEqual(compareMatches(a, c), "same", "사람 근거가 서로 다르면 닉네임이 같아도 같은 경기로 단정하지 않는다");
+  // 점수가 다르면 여전히 다른 경기
+  const d = { ...b, sides: [{ key: "name:h000", score: 2, name: "H000" }, { key: "name:불꽃열정", score: 1, name: "불꽃열정" }] as [typeof owner, typeof owner] };
+  assert.equal(compareMatches(a, d), "no");
+});
