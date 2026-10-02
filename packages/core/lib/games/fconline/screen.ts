@@ -152,12 +152,12 @@ function nearNames(a: MatchSig, b: MatchSig): boolean {
   return (fits(a0, b0) && fits(a1, b1)) || (fits(a0, b1) && fits(a1, b0));
 }
 
-type Tx = postgres.TransactionSql | postgres.Sql;
+export type Tx = postgres.TransactionSql | postgres.Sql;
 
-interface ResolvedSide { nickname: string; streamerId: string | null; basis: "nickname_match" | FcoScreenBasis | null; key: string; score: number | null }
+export interface ResolvedSide { nickname: string; streamerId: string | null; basis: "nickname_match" | FcoScreenBasis | null; key: string; score: number | null }
 
 /** 닉네임이 등록 계정 하나와만 일치할 때만 사람을 붙인다 — 동명이면 붙이지 않는다(부계정 오노출 방지, CLAUDE.md 원칙 2). */
-async function resolveSide(tx: Tx, side: FcoScreenSideInput): Promise<ResolvedSide> {
+export async function resolveSide(tx: Tx, side: FcoScreenSideInput): Promise<ResolvedSide> {
   const nickname = side.nickname.trim();
   if (!nickname) throw new Error("화면 닉네임이 비어 있다");
   let streamerId: string | null = null;
@@ -182,7 +182,7 @@ const sigOf = (at: Date | string, sides: { key: string; score: number | null; na
   ({ at: new Date(at).getTime(), sides: [sides[0], sides[1]] });
 
 /** 화면 경기 → 같은 경기의 기존 기록 연결. 숨기고(지우지 않는다), 근거를 그쪽으로 복사한다. 이미 연결돼 있으면 아무것도 안 한다. */
-async function linkScreenTo(tx: Tx, screenId: string, targetId: string, basis: Record<string, unknown>, decidedBy: "auto" | "admin"): Promise<void> {
+export async function linkScreenTo(tx: Tx, screenId: string, targetId: string, basis: Record<string, unknown>, decidedBy: "auto" | "admin"): Promise<void> {
   await tx`INSERT INTO fco_screen_link (screen_match_id, api_match_id, basis, decided_by)
            VALUES (${screenId}, ${targetId}, ${tx.json(basis as postgres.JSONValue)}, ${decidedBy})
            ON CONFLICT (screen_match_id) DO NOTHING`;

@@ -73,11 +73,15 @@ export default async function FcoReviewListPage({
               {t.label} <b className="ml-0.5 font-semibold">{groups[t.key].length}</b>
             </a>
           ))}
+          <a href="/admin/fco/screen" className="ml-auto rounded-full border border-accent-600/40 px-3 py-1 text-xs text-accent-400 hover:bg-accent-600/10"
+            title="VOD 결과 화면에서 읽은 경기 — API 에 없거나 아직 못 이은 경기를 근거 프레임과 대조합니다">
+            화면 경기 검수 →
+          </a>
           {/* ★ 이어서 할 일의 다른 축 — LoL 조사가 봤지만 **아직 어느 경기인지 모르는** 화면. */}
           {clues.length > 0 && (
             <a
               href="/admin/fco?view=clues"
-              className={`ml-auto rounded-full border px-3 py-1 text-xs ${
+              className={`rounded-full border px-3 py-1 text-xs ${
                 current === "clues"
                   ? "border-amber-400/60 bg-amber-400/10 text-amber-400"
                   : "border-amber-400/40 text-amber-400 hover:bg-amber-400/10"
