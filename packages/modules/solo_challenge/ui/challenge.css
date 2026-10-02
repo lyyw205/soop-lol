@@ -85,6 +85,9 @@
 .sc-flow .fill.up { fill: var(--sc-win); opacity: .18; }
 .sc-flow .fill.down { fill: var(--sc-loss); opacity: .18; }
 .sc-flow .line { fill: none; stroke: var(--sc-fg); stroke-width: 2; stroke-linejoin: round; }
+.sc-flow .turn { font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--sc-panel); stroke-width: 3px; }
+.sc-flow .turn.w { fill: var(--sc-win); }
+.sc-flow .turn.l { fill: var(--sc-loss); }
 .sc-flow .end { fill: var(--sc-hot); stroke: var(--sc-panel); stroke-width: 2; }
 
 /* 기록실 */

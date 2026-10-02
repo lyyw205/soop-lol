@@ -214,7 +214,7 @@ function Streaks({ view }: { view: ChallengeView }) {
   const r = view.record;
   const runText = (x: Run) => (x.n === 1 ? (x.win ? "1승" : "1패") : `${x.n}${x.win ? "연승" : "연패"}`);
   if (!view.flow.length) return <p className="sc-muted">아직 판이 없습니다.</p>;
-  const W = 1000, H = 280, HEAD = 46, P = { l: 36, r: 10, b: 16 };
+  const W = 1000, H = 300, HEAD = 46, P = { l: 36, r: 10, b: 26 };
   const MIN_UNITS = 4;
   const units = view.days.map((d) => Math.max(d.games, MIN_UNITS));
   const total = units.reduce((a, b) => a + b, 0);
@@ -227,13 +227,22 @@ function Streaks({ view }: { view: ChallengeView }) {
   bands.forEach(({ d, x0, w }) => { for (let j = 0; j < d.games; j++) xs.push(x0 + (w * (j + 0.5)) / d.games); });
   const nets = view.flow.map((p) => p.net);
   const max = Math.max(1, ...nets), min = Math.min(-1, ...nets);
-  const top = HEAD + 8, bottom = H - P.b;
+  const top = HEAD + 22, bottom = H - P.b;
   const y = (n: number) => top + ((bottom - top) * (max - n)) / (max - min);
   const pts = [{ x: P.l, y: y(0) }, ...view.flow.map((p, i) => ({ x: xs[i], y: y(p.net) }))];
   const path = pts.map((p, k) => `${k ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   const area = `${path} L${pts.at(-1)!.x.toFixed(1)},${y(0).toFixed(1)} Z`;
   const last = pts.at(-1)!;
   const ticks = Array.from(new Set([max, 0, min]));
+  // 꺾이는 지점 — 연속 결과가 끝나는 판. 한 판짜리는 적지 않는다(봉우리마다 "1연승"이 붙으면 읽히지 않는다).
+  const turns: { i: number; n: number; win: boolean; net: number }[] = [];
+  view.flow.forEach((p, i) => {
+    const next = view.flow[i + 1];
+    if (next && next.win === p.win) return;
+    let n = 1;
+    while (i - n >= 0 && view.flow[i - n].win === p.win) n++;
+    if (n >= 2) turns.push({ i, n, win: p.win, net: p.net });
+  });
   return (
     <div className="sc-streaks">
       <div className="sc-ssum">
@@ -251,8 +260,8 @@ function Streaks({ view }: { view: ChallengeView }) {
           </defs>
           {bands.map(({ d, x0, w }, k) => (
             <g key={d.day}>
-              <rect x={x0} y={0} width={w} height={bottom} className={k % 2 ? "band odd" : "band"} />
-              {k > 0 && <line x1={x0} x2={x0} y1={0} y2={bottom} className="sep" />}
+              <rect x={x0} y={0} width={w} height={H} className={k % 2 ? "band odd" : "band"} />
+              {k > 0 && <line x1={x0} x2={x0} y1={0} y2={H} className="sep" />}
               <text x={x0 + w / 2} y={18} textAnchor="middle" className="dlabel">{dayText(d.day)}</text>
               <text x={x0 + w / 2} y={36} textAnchor="middle" className="drec">
                 <tspan className="w">{d.wins}승</tspan><tspan dx="4" className="l">{d.losses}패</tspan>
@@ -269,6 +278,11 @@ function Streaks({ view }: { view: ChallengeView }) {
           <path d={area} className="fill up" clipPath="url(#sc-up)" />
           <path d={area} className="fill down" clipPath="url(#sc-down)" />
           <path d={path} className="line" />
+          {turns.map((t) => (
+            <text key={t.i} x={xs[t.i]} y={t.win ? y(t.net) - 8 : y(t.net) + 16} textAnchor="middle" className={`turn ${t.win ? "w" : "l"}`}>
+              {t.n}{t.win ? "연승" : "연패"}
+            </text>
+          ))}
           <circle cx={last.x} cy={last.y} r={5} className="end" />
         </svg>
       </div>
