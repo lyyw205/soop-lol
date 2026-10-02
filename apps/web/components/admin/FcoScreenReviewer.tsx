@@ -14,7 +14,7 @@
  * ★ 이 화면은 공개 여부를 바꾸지 않는다. 완료는 "사람이 봤다"는 도장이다(core/screen-review.ts 머리말).
  */
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 
 import type { FcoEventOption } from "@soop-lol/core/lib/games/fconline/context";
 import type { ScreenCandidate, ScreenMatchView, ScreenWorkspace } from "@soop-lol/core/lib/games/fconline/screen-review";
@@ -23,23 +23,21 @@ import {
   linkScreenAction, saveScreenSidesAction, setScreenCompletedAction, unlinkScreenAction,
 } from "@/app/admin/fco/screen/actions";
 import { IDLE } from "@/lib/action-state";
-import type { VodFrame } from "@/lib/vod-frames";
 
 import { ActionMessage, SubmitButton } from "./Field";
 import { FcoReviewControls, type ReviewControlsUnit } from "./FcoWorkspace";
+import { VodFrameViewer, type ViewerVod } from "./VodFrameViewer";
 
 const inputClass =
   "w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-ink-200 " +
   "placeholder:text-ink-400/50 outline-none focus:border-accent-600";
 
-const frameUrl = (path: string) => `/admin/ck/frame/${path.split("/").map(encodeURIComponent).join("/")}`;
 const kst = (iso: string) => new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const hms = (sec: number | null) => {
   if (sec == null) return "—";
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 };
-const vodAt = (url: string, sec: number | null) => (sec == null ? url : `${url}?change_second=${sec}`);
 
 type Filter = "all" | "todo" | "unlinked" | "candidates";
 type MatchStatus = "linked" | "candidates" | "solo";
@@ -57,23 +55,12 @@ function outcomeEditOf(scoreA: number | null, scoreB: number | null, outcomeA: s
   return outcomeA === "win" ? "first_win" : outcomeA === "loss" ? "second_win" : outcomeA === "draw" ? "draw" : "auto";
 }
 
-/** 이동 간격(초). 3초가 시트 한 칸이다. 큰 간격으로 맥락을 훑고 작은 간격으로 정확한 순간을 잡는다. */
-/** 0 = 원본 프레임만(미리 뽑아 둔 앞뒤 원본 — npm run fco:frames). 나머지는 시간 간격(썸네일 칸, 원본이 있으면 원본). */
-const STEPS = [0, 3, 10, 30, 60, 300] as const;
-const STEP_LABEL: Record<number, string> = { 0: "원본", 3: "3초", 10: "10초", 30: "30초", 60: "1분", 300: "5분" };
-/** 띠는 지금 보는 지점 앞뒤로 이만큼 칸을 보여 준다. */
-const STRIP_SIDE = 12;
-const offsetLabel = (sec: number) => `${sec < 0 ? "−" : "+"}${String(Math.floor(Math.abs(sec) / 60)).padStart(2, "0")}:${String(Math.abs(sec) % 60).padStart(2, "0")}`;
-
-export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, eventOptions, initialMatchId }: { ws: ScreenWorkspace; vodFrames: VodFrame[]; vodLengthSec: number | null; eventOptions: FcoEventOption[]; initialMatchId?: string }) {
+export function FcoScreenReviewer({ ws, vods, eventOptions, initialMatchId }: { ws: ScreenWorkspace; vods: Record<string, ViewerVod>; eventOptions: FcoEventOption[]; initialMatchId?: string }) {
   const first = ws.matches.find((m) => m.match_id === initialMatchId) ?? ws.matches.find((m) => !m.review_completed_at) ?? ws.matches[0];
   const [selectedId, setSelectedId] = useState(first?.match_id ?? null);
-  const [frameKey, setFrameKey] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
 
   const selected = ws.matches.find((m) => m.match_id === selectedId) ?? null;
-  const frame = selected ? (selected.frames.find((f) => f.evidence_key === frameKey) ?? selected.frames[0] ?? null) : null;
   const done = ws.matches.filter((m) => m.review_completed_at).length;
 
   const visible = useMemo(() => ws.matches.filter((m) => {
@@ -83,169 +70,22 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, eventOptions, i
     return true;
   }), [ws.matches, filter]);
 
-  // ── 프레임 이동 ──────────────────────────────────────────────
-  // viewSec: 지금 크게 보는 지점(null = 이 경기의 결과 프레임). 원본 프레임이 있는 초면 원본을, 없으면 3초 썸네일 칸을 보여 준다.
-  const [viewSec, setViewSec] = useState<number | null>(null);
-  const [stepSec, setStepSec] = useState<number | null>(null); // null = 아직 안 골랐다 → 원본이 있으면 원본, 없으면 30초
-  const stripRef = useRef<HTMLDivElement>(null);
-  // 불러오지 못한 그림(파일이 지워졌거나 서버 오류). 깨진 아이콘 대신 이유를 말한다.
-  const [failed, setFailed] = useState<ReadonlySet<string>>(new Set());
-  const markFailed = (src: string) => setFailed((prev) => new Set(prev).add(src));
-  const pick = (id: string) => { setSelectedId(id); setFrameKey(null); setViewSec(null); };
-
-  const allFrames = useMemo(() => {
-    const byPath = new Map<string, VodFrame>(vodFrames.map((f) => [f.path, f]));
-    for (const m of ws.matches) for (const f of m.frames) if (f.at_sec != null && !byPath.has(f.frame_path)) byPath.set(f.frame_path, { sec: f.at_sec, path: f.frame_path });
-    return [...byPath.values()].sort((a, b) => a.sec - b.sec);
-  }, [vodFrames, ws.matches]);
-  const resultPaths = useMemo(() => new Set(ws.matches.flatMap((m) => m.frames.map((f) => f.frame_path))), [ws.matches]);
-  const resultSecs = useMemo(() => new Set(allFrames.filter((f) => resultPaths.has(f.path)).map((f) => f.sec)), [allFrames, resultPaths]);
-  const minePaths = new Set(selected?.frames.map((f) => f.frame_path) ?? []);
-
-  const center = frame?.at_sec ?? selected?.at_sec ?? null;
-  const shownSec = viewSec ?? center;
-  const cellsOk = vodLengthSec != null;
-  const clampSec = (sec: number) => Math.max(0, Math.min(sec, cellsOk ? Math.floor(vodLengthSec! - 1) : sec));
-  // 원본 프레임이 그 초(±1)에 있으면 원본, 없으면 썸네일 칸
-  const fullRes = shownSec == null ? null : allFrames.find((f) => Math.abs(f.sec - shownSec) <= 1) ?? null;
-  const shownIsCell = shownSec != null && !fullRes && cellsOk;
-  const shownSrc = fullRes ? frameUrl(fullRes.path) : shownIsCell ? `/admin/fco/screen/cell/${ws.vod}/${shownSec}` : null;
-  // 원본이 이 경기 근처(±5분)에 3장 이상 있으면 기본을 "원본"으로 — 읽을 수 있는 화면부터 넘긴다.
-  const hasOriginals = center != null && allFrames.filter((f) => Math.abs(f.sec - center) <= 300).length >= 3;
-  const stepNow = stepSec ?? (hasOriginals ? 0 : 30);
-  const step = (dir: -1 | 1) => {
-    if (shownSec == null) return;
-    if (stepNow === 0) {
-      const next = dir === 1 ? allFrames.find((f) => f.sec > shownSec + 1) : [...allFrames].reverse().find((f) => f.sec < shownSec - 1);
-      if (next) setViewSec(next.sec);
-    } else setViewSec(clampSec(shownSec + dir * stepNow));
-  };
-  const thumbSrc = (t: number) => { const f = allFrames.find((x) => Math.abs(x.sec - t) <= 1); return f ? frameUrl(f.path) : `/admin/fco/screen/cell/${ws.vod}/${t}`; };
-
-  // 띠: 지금 보는 지점 앞뒤. 원본 모드는 원본 프레임만, 시간 모드는 같은 간격의 칸(원본이 있으면 원본으로). ★ = 결과 화면.
-  const strip = useMemo(() => {
-    if (shownSec == null) return [];
-    if (stepNow === 0) return allFrames.filter((f) => Math.abs(f.sec - shownSec) <= 900).map((f) => f.sec);
-    if (!cellsOk) return [];
-    const out: number[] = [];
-    for (let k = -STRIP_SIDE; k <= STRIP_SIDE; k++) { const t = shownSec + k * stepNow; if (t >= 0 && t < vodLengthSec!) out.push(t); }
-    return out;
-  }, [shownSec, stepNow, cellsOk, vodLengthSec, allFrames]);
-  const isResultAt = (t: number) => [...resultSecs].some((r) => Math.abs(r - t) <= Math.max(1, stepNow / 2));
-
-  // ← → 로 앞뒤. 입력칸에 글을 쓰는 중에는 가로채지 않는다.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
-      if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
-      if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-  useEffect(() => {
-    stripRef.current?.querySelector<HTMLElement>('[data-current="true"]')?.scrollIntoView({ inline: "center", block: "nearest" });
-  }, [shownSec, selectedId, stepNow]);
+  const pick = (id: string) => setSelectedId(id);
+  // 뷰어 재료 — 이 경기의 근거 프레임, 이 VOD 의 결과 화면 초(★ 표시)
+  const resultSecs = useMemo(() => ({ [ws.vod]: ws.matches.flatMap((m) => m.frames.map((f) => f.at_sec).filter((x): x is number => x != null)) }), [ws]);
+  const evidence = useMemo(() => (selected?.frames ?? []).map((f) => ({
+    key: f.evidence_key, path: f.frame_path, sec: f.at_sec, vod: ws.vod,
+    label: f.role === "result" ? "결과" : f.role, result: f.role === "result", observed: f.observed,
+  })), [selected, ws.vod]);
 
   const FILTERS: [Filter, string][] = [["all", "전체"], ["todo", "미완료"], ["unlinked", "연결 안 됨"], ["candidates", "후보 있음"]];
 
   return (
     <div className="ck-review-workbench">
       <div className="ck-review-stage">
-      {/* ── ① 프레임 ───────────────────────────────────────────── */}
-      <section className="ck-review-preview">
-        <header className="flex items-center justify-between gap-3 border-b border-ink-800 px-4 py-2">
-          <div className="min-w-0 text-xs text-ink-400">
-            {shownSec != null && shownSrc ? <>
-              <span className="font-mono text-accent-400">{hms(shownSec)}</span>
-              {center != null && shownSec !== center && <span className="ml-1.5 font-mono text-ink-200">(결과 {offsetLabel(shownSec - center)})</span>}
-              <span className="mx-2 text-ink-600">·</span>
-              {fullRes && minePaths.has(fullRes.path) ? "결과 화면 — 조사가 확정한 프레임"
-                : fullRes && resultPaths.has(fullRes.path) ? "다른 경기의 결과 화면"
-                : fullRes ? "원본 프레임"
-                : "썸네일(3초 칸·저해상도) — 원본은 아직 뽑지 않았습니다"}
-            </> : selected ? "이 경기에 근거 프레임이 없습니다." : "검수할 경기가 없습니다."}
-          </div>
-          <div className="flex shrink-0 items-center gap-2 text-xs">
-            <a href={vodAt(ws.url, shownSec ?? selected?.at_sec ?? null)} target="_blank" rel="noreferrer" className="text-accent-400">이 시점 VOD ↗</a>
-            {shownSrc && <>
-              <button type="button" onClick={() => setZoom((z) => !z)} className="rounded border border-ink-700 px-2 py-1 text-ink-400 hover:text-ink-200">{zoom ? "맞추기" : "원본 크기"}</button>
-              <a href={shownSrc} target="_blank" rel="noreferrer" className="rounded border border-ink-700 px-2 py-1 text-ink-400 hover:text-ink-200">새 탭 ↗</a>
-            </>}
-          </div>
-        </header>
-        {/* 원본 크기에서는 스크롤로 닉네임 칸을 들여다본다 — 오독은 확대해야 보인다. */}
-        <div className={`ck-review-frame bg-ink-950 ${zoom ? "max-h-[75vh] overflow-auto" : ""}`}>
-          {shownSrc && !failed.has(shownSrc) ? (
-            // eslint-disable-next-line @next/next/no-img-element -- out/ 밖의 로컬 파일이라 next/image 로 최적화하지 않는다
-            <img src={shownSrc} alt={`${hms(shownSec ?? 0)} 프레임`} onError={() => markFailed(shownSrc)} className={`ck-review-frame-image ${zoom ? "max-w-none" : "w-full"}`} />
-          ) : shownSrc ? (
-            <div className="grid gap-2 px-6 py-14 text-center text-sm text-ink-400">
-              <p className="text-ink-200">{hms(shownSec ?? 0)} 의 {fullRes ? "원본 프레임 파일" : "썸네일 칸"}을 불러오지 못했습니다.</p>
-              <p className="text-xs">{fullRes ? "파일이 지워졌거나 경로가 바뀌었습니다." : "이 칸이 들어 있는 썸네일 시트가 지워졌거나 범위 밖입니다."} 같은 지점을 다시 뽑으려면:</p>
-              <code className="mx-auto rounded bg-ink-800 px-2 py-1 text-xs">npm run ck:probe -- --vod {ws.vod} --at {shownSec}</code>
-            </div>
-          ) : <p className="px-4 py-16 text-center text-sm text-ink-400">보여 줄 프레임이 없습니다.{selected && !cellsOk ? " 이 VOD 의 썸네일 시트가 지워져 앞뒤 칸도 볼 수 없습니다." : ""}</p>}
-        </div>
-        {shownSec != null && (
-          <footer className="grid gap-2 border-t border-ink-800 px-4 py-2">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <button type="button" onClick={() => step(-1)} disabled={shownSec <= 0} className="rounded border border-ink-700 px-2 py-1 text-ink-200 hover:border-accent-400 disabled:opacity-40">← {stepNow === 0 ? "이전 원본" : `${STEP_LABEL[stepNow]} 전`}</button>
-              <button type="button" onClick={() => step(1)} className="rounded border border-ink-700 px-2 py-1 text-ink-200 hover:border-accent-400">{stepNow === 0 ? "다음 원본" : `${STEP_LABEL[stepNow]} 후`} →</button>
-              <button type="button" onClick={() => setViewSec(null)} disabled={viewSec == null} className="rounded border border-ink-700 px-2 py-1 text-ink-400 hover:text-ink-200 disabled:opacity-40">결과 화면으로</button>
-              <span className="ml-auto flex items-center gap-1 text-[11px] text-ink-400">
-                간격
-                {STEPS.map((n) => (
-                  <button key={n} type="button" onClick={() => setStepSec(n)}
-                    className={`rounded border px-1.5 py-0.5 ${n === stepNow ? "border-accent-600 text-accent-400" : "border-ink-700 hover:text-ink-200"}`}>{STEP_LABEL[n]}</button>
-                ))}
-              </span>
-            </div>
-            {/* 지금 보는 지점 앞뒤의 칸 띠 — 직전의 선택·직후의 반응 같은 맥락. 가운데가 지금 보는 곳, ★ 은 결과 화면. 누르면 그 지점을 크게 본다. */}
-            {cellsOk || stepNow === 0 ? (
-              <div ref={stripRef} className="flex gap-1.5 overflow-x-auto pb-1" aria-label="앞뒤 프레임">
-                {strip.map((t) => {
-                  const current = t === shownSec;
-                  const isResult = isResultAt(t);
-                  return (
-                    <button key={t} type="button" data-current={current} onClick={() => setViewSec(t)}
-                      className={`relative shrink-0 overflow-hidden rounded border ${current ? "border-accent-600" : isResult ? "border-amber-400/60" : "border-ink-700 hover:border-ink-500"}`}>
-                      {failed.has(thumbSrc(t))
-                        ? <span className="grid h-[68px] w-[120px] place-items-center bg-ink-900 text-[10px] text-ink-500">없음</span>
-                        // eslint-disable-next-line @next/next/no-img-element -- 로컬 파일
-                        : <img src={thumbSrc(t)} alt="" loading="lazy" onError={() => markFailed(thumbSrc(t))} className="block h-[68px] w-[120px] object-cover" />}
-                      <span className="absolute inset-x-0 bottom-0 bg-ink-950/80 px-1 text-center font-mono text-[10px] text-ink-200">
-                        {isResult ? "★ " : ""}{center != null ? offsetLabel(t - center) : hms(t)}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-[11px] text-amber-400">이 VOD 의 썸네일 시트가 지워져 시간 간격 띠는 못 보여 줍니다. 위 간격에서 「원본」을 고르면 뽑아 둔 원본 {allFrames.length}장을 넘겨 볼 수 있습니다.</p>
-            )}
-            <p className="text-[11px] text-ink-400">
-              키보드 ← →. 「원본」 간격은 뽑아 둔 원본 프레임만 넘깁니다(결과 화면 앞뒤 2분). 썸네일 칸은 저해상도라 닉네임·점수는 읽기 어렵습니다 —
-              원본이 더 필요하면 <code className="rounded bg-ink-800 px-1">npm run fco:frames -- --vod {ws.vod}</code>
-            </p>
-            {selected && selected.frames.length > 1 && (
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-400">
-                이 경기의 결과 프레임
-                {selected.frames.map((f) => (
-                  <button key={f.evidence_key} type="button" onClick={() => { setFrameKey(f.evidence_key); setViewSec(null); }}
-                    className={`rounded border px-2 py-0.5 font-mono ${f.evidence_key === frame?.evidence_key ? "border-accent-600 text-accent-400" : "border-ink-700 hover:text-ink-200"}`}>{hms(f.at_sec)}</button>
-                ))}
-              </div>
-            )}
-          </footer>
-        )}
-        {frame?.observed && fullRes && minePaths.has(fullRes.path) && (
-          <p className="border-t border-ink-800 px-4 py-2 text-[11px] leading-relaxed text-ink-400">
-            <b className="text-ink-200">조사가 읽은 것</b> — {frame.observed}
-          </p>
-        )}
-      </section>
+      {/* ── ① 프레임 — 공용 뷰어(맥락 검수와 같은 부품). 경기를 바꾸면 처음(결과 화면)부터 본다. ── */}
+      <VodFrameViewer key={selected?.match_id ?? "none"} evidence={evidence} vods={vods} resultSecs={resultSecs}
+        emptyText={selected ? "이 경기에 근거 프레임이 없습니다." : "검수할 경기가 없습니다."} />
 
       {/* ── ② 값 설정 ──────────────────────────────────────────── */}
       <aside className="ck-review-inspector" aria-label="값 설정">

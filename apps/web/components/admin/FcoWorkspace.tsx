@@ -9,6 +9,7 @@ import { fcoSeriesScore, fcoSeriesStanding } from "@soop-lol/core/lib/games/fcon
 import { IDLE, type ActionState } from "@/lib/action-state";
 import { decideMatchAction, reviewToggleAction, setClassAction, updateEventAction } from "@/app/admin/fco/actions";
 import { FcoContextReviewer } from "@/components/admin/FcoContextReviewer";
+import { VodFrameViewer, type ViewerVod } from "@/components/admin/VodFrameViewer";
 import { EVENT_KIND_LABEL, FCO_STATUS_LABEL } from "@/lib/admin-labels";
 
 /**
@@ -18,7 +19,6 @@ import { EVENT_KIND_LABEL, FCO_STATUS_LABEL } from "@/lib/admin-labels";
  * 레이아웃은 admin.css 의 ck-review-* 를 재사용한다 (CK 쪽 코드는 수정하지 않는다).
  */
 
-const frameUrl = (path: string) => `/admin/ck/frame/${path.split("/").map(encodeURIComponent).join("/")}`;
 const hms = (s: number | null) => {
   const v = s ?? 0;
   return `${Math.floor(v / 3600)}:${String(Math.floor((v % 3600) / 60)).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}`;
@@ -450,8 +450,10 @@ function MatchTab({ unit, match, eventOptions, evidences }: {
   );
 }
 
-export function FcoWorkspace({ unit, eventOptions, vodStarts }: {
+export function FcoWorkspace({ unit, eventOptions, vodStarts, vods }: {
   unit: FcoReviewUnit; eventOptions: FcoEventOption[]; vodStarts: Record<number, number>;
+  /** VOD 별 디스크 원본·썸네일 칸 — 공용 뷰어가 근거 앞뒤를 넘겨 볼 때 쓴다 */
+  vods: Record<string, ViewerVod>;
 }) {
   // 단위의 전 프레임 — VOD·초 순.
   const frames = useMemo(() => unit.evidences.filter((e) => e.frame_path), [unit]);
@@ -464,17 +466,11 @@ export function FcoWorkspace({ unit, eventOptions, vodStarts }: {
 
   const [groupId, setGroupId] = useState(rows[0] ?? "");
   const groupFramesList = groups.get(groupId) ?? [];
-  const [frameKey, setFrameKey] = useState<string | null>(null);
-  const selected = groupFramesList.find((f) => evidenceId(f) === frameKey)
-    ?? groupFramesList.find((f) => f.role === "result")
-    ?? groupFramesList[0] ?? null;
   const activeMatchId = groupId === COMMON ? null : groupId;
   const activeMatch = unit.matches.find((m) => m.provider_match_id === activeMatchId) ?? null;
-  const [zoom, setZoom] = useState(false);
-
   // 탭은 큐 선택을 따라간다 — 「대회 공통」이면 [대회], 경기면 [경기]. 직접 바꿀 수도 있다.
   const [tab, setTab] = useState<"event" | "match">(rows[0] === COMMON || !rows.length ? "event" : "match");
-  const pickGroup = (id: string) => { setGroupId(id); setFrameKey(null); setTab(id === COMMON ? "event" : "match"); };
+  const pickGroup = (id: string) => { setGroupId(id); setTab(id === COMMON ? "event" : "match"); };
 
   // ↑↓ — 큐 이동. 큐는 이 키로만 움직인다 (CK 작업대와 같다).
   useEffect(() => {
@@ -498,24 +494,16 @@ export function FcoWorkspace({ unit, eventOptions, vodStarts }: {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [rows, groupId]);
 
-  // ←→ — 고른 행(경기 또는 대회 공통) 안에서만 움직인다 (CK: 「좌·우는 지금 큐에서 고른 묶음 안에서만」).
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
-      if (groupFramesList.length < 2 || !selected) return;
-      event.preventDefault();
-      const index = groupFramesList.findIndex((f) => evidenceId(f) === evidenceId(selected));
-      const next = event.key === "ArrowRight"
-        ? Math.min(index + 1, groupFramesList.length - 1)
-        : Math.max(index - 1, 0);
-      if (next === index) return;
-      setFrameKey(evidenceId(groupFramesList[next]));
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [groupFramesList, selected]);
+  // ←→ 는 공용 뷰어(VodFrameViewer)가 맡는다 — 기본 간격 「근거」는 고른 행(경기 또는 대회 공통) 안에서만 움직인다.
+  const viewerEvidence = useMemo(() => groupFramesList.filter((f) => f.frame_path).map((f) => ({
+    key: evidenceId(f), path: f.frame_path!, sec: f.at_sec, vod: f.vod_title_no != null ? String(f.vod_title_no) : null,
+    label: f.role ? ROLE_LABEL[f.role] ?? f.role : null, result: f.role === "result", observed: f.observed, why: f.why,
+  })), [groupFramesList]);
+  const resultSecs = useMemo(() => {
+    const out: Record<string, number[]> = {};
+    for (const f of frames) if (f.role === "result" && f.vod_title_no != null && f.at_sec != null) (out[String(f.vod_title_no)] ??= []).push(f.at_sec);
+    return out;
+  }, [frames]);
 
   // 이 단위 안의 다전제들 — 세트를 모아 집계한다. 규칙은 core 하나다.
   const seriesStandings = useMemo(() => {
@@ -535,8 +523,6 @@ export function FcoWorkspace({ unit, eventOptions, vodStarts }: {
       }))),
     }));
   }, [unit.matches]);
-
-  const frameIndex = selected ? groupFramesList.findIndex((f) => evidenceId(f) === evidenceId(selected)) : -1;
 
   return (
     <div className="ck-review-workbench">
@@ -605,84 +591,15 @@ export function FcoWorkspace({ unit, eventOptions, vodStarts }: {
         </ul>
       </section>
 
-      {/* ── 중앙: 프레임 ────────────────────────────────────────── */}
+      {/* ── 중앙: 프레임 — 공용 뷰어(화면 경기 작업대와 같은 부품) ── */}
       <div className="ck-review-stage">
-        <section className="ck-review-preview">
-          <header className="flex items-center justify-between gap-3 border-b border-ink-800 px-4 py-2">
-            <div className="min-w-0 text-xs text-ink-400">
-              {selected ? (
-                <>
-                  {selected.role && (
-                    <span className={`mr-2 rounded px-1.5 py-0.5 text-[10px] font-bold ${selected.role === "result" ? "bg-accent-500/20 text-accent-300" : "bg-ink-800 text-ink-300"}`}>
-                      {ROLE_LABEL[selected.role] ?? selected.role}
-                    </span>
-                  )}
-                  <span className="font-mono text-accent-400">{hms(selected.at_sec)}</span>
-                  <span className="mx-2 text-ink-600">·</span>
-                  VOD {selected.vod_title_no}
-                  <span className="mx-2 text-ink-600">·</span>
-                  {frameIndex + 1}/{groupFramesList.length}
-                  {activeMatch && (
-                    <>
-                      <span className="mx-2 text-ink-600">·</span>
-                      {activeMatch.participants.map((p) => p.name).join(" vs ")}
-                    </>
-                  )}
-                </>
-              ) : "이 경기에는 프레임 근거가 없습니다."}
-            </div>
-            {selected?.frame_path && (
-              <div className="flex shrink-0 gap-2 text-xs">
-                <button onClick={() => setZoom((z) => !z)} className="rounded border border-ink-700 px-2 py-1 text-ink-400 hover:text-ink-200">
-                  {zoom ? "맞추기" : "원본 크기"}
-                </button>
-                <a href={frameUrl(selected.frame_path)} target="_blank" rel="noreferrer"
-                  className="rounded border border-ink-700 px-2 py-1 text-ink-400 hover:text-ink-200">새 탭 ↗</a>
-              </div>
-            )}
-          </header>
-
-          <div className={`ck-review-frame bg-ink-950 ${zoom ? "max-h-[70vh] overflow-auto" : ""}`}>
-            {selected?.frame_path ? (
-              // eslint-disable-next-line @next/next/no-img-element -- out/ 밖의 로컬 판독 프레임
-              <img src={frameUrl(selected.frame_path)} alt={selected.observed}
-                className={`ck-review-frame-image ${zoom ? "max-w-none" : "w-full"}`} />
-            ) : (
-              <p className="px-4 py-16 text-center text-sm text-ink-400">
-                {unit.status === "uninvestigated"
-                  ? "아직 조사가 없습니다 — fco-match-context 스킬이 프레임과 제안을 남기면 여기서 검수합니다."
-                  : groupFramesList.length
-                    ? "이 경기에는 프레임이 없습니다. ←→ 로 단위의 다른 프레임을 보거나 우측 정보로 판단하세요."
-                    : "프레임 근거가 없는 단위입니다. 우측의 근거·연결 정보로 판단하세요."}
-              </p>
-            )}
-          </div>
-
-          <footer className="grid gap-2 border-t border-ink-800 px-4 py-2 text-xs text-ink-400">
-            {groupFramesList.length > 1 && (
-              <div className="ck-review-frame-strip" aria-label={`근거 프레임 ${groupFramesList.length}장`}>
-                {groupFramesList.map((f) => (
-                  <button key={evidenceId(f)} type="button"
-                    aria-current={selected && evidenceId(f) === evidenceId(selected) ? "true" : undefined}
-                    title={`${hms(f.at_sec)} — ${f.observed}`} onClick={() => setFrameKey(evidenceId(f))}>
-                    {/* eslint-disable-next-line @next/next/no-img-element -- 로컬 검수 프레임 */}
-                    <img src={frameUrl(f.frame_path!)} alt={`${hms(f.at_sec)} 프레임`} />
-                    <span className={f.role === "result" ? "font-bold text-accent-300" : undefined}>
-                      {f.role ? `${ROLE_LABEL[f.role] ?? f.role} ` : ""}{hms(f.at_sec)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {selected && (
-              <div className="grid gap-1">
-                <p className="text-[13px] text-ink-200">{selected.observed}</p>
-                {selected.why && <p className="text-ink-400">판단: {selected.why}</p>}
-                <span className="font-mono text-[10px] text-ink-600">{selected.frame_path}</span>
-              </div>
-            )}
-          </footer>
-        </section>
+        <VodFrameViewer key={groupId} evidence={viewerEvidence} vods={vods} resultSecs={resultSecs}
+          headerExtra={activeMatch ? <><span className="mx-2 text-ink-600">·</span>{activeMatch.participants.map((p) => p.name).join(" vs ")}</> : null}
+          emptyText={unit.status === "uninvestigated"
+            ? "아직 조사가 없습니다 — fco-match-context 스킬이 프레임과 제안을 남기면 여기서 검수합니다."
+            : groupFramesList.length
+              ? "이 경기에는 프레임이 없습니다. 큐에서 다른 경기를 고르거나 우측 정보로 판단하세요."
+              : "프레임 근거가 없는 단위입니다. 우측의 근거·연결 정보로 판단하세요."} />
       </div>
 
       {/* ── 우: [대회] / [경기] 탭 — CK 인스펙터와 같은 틀 ─────────── */}

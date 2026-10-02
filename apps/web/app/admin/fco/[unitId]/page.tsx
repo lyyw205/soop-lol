@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getFcoReviewWorkspace, listFcoEventOptions } from "@soop-lol/core/lib/games/fconline/context";
 
 import { FcoWorkspace } from "@/components/admin/FcoWorkspace";
+import { loadViewerVods } from "@/lib/vod-frames";
 
 export const dynamic = "force-dynamic";
 
@@ -53,20 +54,18 @@ export default async function FcoUnitPage({ params }: { params: Promise<{ unitId
   const unit = await loadUnit(unitId).catch(() => null);
   if (!unit) notFound();
   // 행사 검색 선택지 — 화면에서 바로 바꿀 수 있어야 하므로 같이 내려준다.
-  const [eventOptions, starts] = await Promise.all([
-    listFcoEventOptions(),
-    vodStarts([...new Set(unit.evidences.map((e) => e.vod_title_no).filter((v): v is number => v != null))]),
-  ]);
+  const vodIds = [...new Set(unit.evidences.map((e) => e.vod_title_no).filter((v): v is number => v != null))];
+  const [eventOptions, starts, vods] = await Promise.all([listFcoEventOptions(), vodStarts(vodIds), loadViewerVods(vodIds)]);
 
   return (
     <div className="ck-review-page">
       <div className="ck-review-page-head">
         <p className="text-[11px] leading-relaxed text-ink-500">
-          ↑↓ 큐 이동 · ←→ 고른 경기(또는 대회 공통) 안에서 프레임 이동.
+          ↑↓ 큐 이동 · ←→ 프레임 이동(간격 「근거」는 고른 경기 안, 「원본」·시간 간격은 그 VOD 의 앞뒤).
           경기 사실(점수·승패)은 넥슨 API 가 정본이라 여기서 고치지 않습니다.
         </p>
       </div>
-      <FcoWorkspace unit={unit} eventOptions={eventOptions} vodStarts={starts} />
+      <FcoWorkspace unit={unit} eventOptions={eventOptions} vodStarts={starts} vods={vods} />
     </div>
   );
 }

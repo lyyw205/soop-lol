@@ -148,4 +148,4 @@ API 저장 경로(`saveFcoMatch`)에서는 부르지 않는다 — API 경로를
 - **결정**: LoL 과 같은 두 도장 모델을 FC 전체에 쓴다. `reviewed_at` = 보호, `review_completed_at` = 사람이 확인한 완료. 찍는 곳은 `stampFcoReview`(context.ts) 하나다 — 승인(`approveFcoContext`·`approveFcoEvent`)·사람의 포함/제외 결정·화면 경기 완료가 모두 이 함수를 부른다. 보류(`holdFcoContext`·`holdFcoEvent`)는 두 칸을 다 뗀다. 큐의 「확인됨」은 `review_completed_at` 기준이다.
 - **실DB 정리**: 보호만 있고 완료가 없던 FC 경기 1건(`fco:6aafad0cf510b98313e7ac78`, 09-24 승인)을 `review_completed_at = reviewed_at` 으로 맞췄다(`review_change` 기록).
 - **맥락 칸**: 화면 경기 작업대에 맥락(미해결·단순 친선·CK·대회…)을 붙였다. 컨트롤은 기존 `FcoReviewControls` 그대로이고 저장도 기존 `applyFcoMatchContext` 그대로다 — 이 함수와 승인·보류가 넥슨 번호뿐 아니라 내부 `match_id`(`fcs:…`)도 받게 했다. 새 저장 경로를 만들지 않았다.
-- **남은 일(4번)**: 프레임 뷰어가 아직 두 벌이다(`FcoWorkspace` 의 뷰어 vs `FcoScreenReviewer` 의 앞뒤 원본 뷰어). 공용 부품으로 합친다.
+- **뷰어 한 벌(4번, 완료)**: `apps/web/components/admin/VodFrameViewer.tsx` 하나를 맥락 검수 단위(`FcoWorkspace`)와 화면 경기 작업대가 같이 쓴다. 간격은 「근거」(조사가 건 프레임만 — 근거가 둘 이상이면 기본)·「원본」(그 VOD 에 받아 둔 원본, 결과 화면 앞뒤 원본 포함 — 화면 경기의 기본)·3초~5분(썸네일 칸, 원본이 있으면 원본). ← → 는 뷰어, ↑↓ 는 작업대 큐. VOD 별 재료는 `loadViewerVods`(apps/web/lib/vod-frames.ts).

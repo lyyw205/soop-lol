@@ -24,3 +24,18 @@ export async function listVodFrames(vod: string): Promise<VodFrame[]> {
     return [];
   }
 }
+
+/**
+ * 여러 VOD 의 뷰어 재료 — 디스크 원본 목록과 썸네일 칸 길이. 검수 작업대 페이지(서버)가 부른다.
+ * 맥락 검수 단위는 여러 VOD(다른 시점)의 근거가 섞이므로 VOD 별로 준다.
+ */
+export async function loadViewerVods(vods: (string | number)[]): Promise<Record<string, { url: string; frames: VodFrame[]; lengthSec: number | null }>> {
+  const { vodCellLength } = await import("./vod-cells");
+  const ids = [...new Set(vods.map(String))].filter((v) => /^\d{1,12}$/.test(v));
+  const out: Record<string, { url: string; frames: VodFrame[]; lengthSec: number | null }> = {};
+  await Promise.all(ids.map(async (vod) => {
+    const [frames, lengthSec] = await Promise.all([listVodFrames(vod), vodCellLength(vod)]);
+    out[vod] = { url: `https://vod.sooplive.com/player/${vod}`, frames, lengthSec };
+  }));
+  return out;
+}
