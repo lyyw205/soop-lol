@@ -32,8 +32,6 @@ export interface StreamerCard {
   division: string | null;
   league_points: number | null;
   lp_absolute: number | null;
-  matches: number;
-  encounters: number;
   /** 대표 게임 계정(본계 우선)의 인게임 이름. 붙인 계정이 없으면 null. */
   account_name: string | null;
   account_tag: string | null;
@@ -46,25 +44,13 @@ export interface StreamerCard {
 export async function listStreamerCards(opts: { q?: string } = {}): Promise<StreamerCard[]> {
   const sql = db();
   const q = opts.q?.trim();
-  // ★ 경기·조우 수는 **전원을 한 번에** 센다(아래 mc·ec). 예전엔 스트리머마다 LATERAL 로 셌는데,
-  //   core_public.match_participant 의 streamer_id 는 COALESCE 계산값이라 인덱스를 못 탄다 —
-  //   한 명 세는 데 9.6초, 820명이면 문장 시간 제한에 걸려 목록이 500 이었다(2026-10-02, 공개 큐 1.6만 경기가 처음 들어온 날).
+  // ★ 화면이 쓰는 칸만 읽는다. 예전엔 경기 수·조우 수도 사람마다 셌는데 목록 화면은 둘 다 쓰지 않았다(카드 시절의 흔적).
+  //   게다가 core_public.match_participant 의 streamer_id 는 COALESCE 계산값이라 인덱스를 못 탄다 — 한 명 세는 데 9.6초,
+  //   공개 큐 1.6만 경기가 처음 들어온 날(2026-10-02) 820명분이 문장 시간 제한에 걸려 목록이 500 이었다.
   return sql<StreamerCard[]>`
-    WITH mc AS (
-      SELECT streamer_id, count(*) AS n FROM core_public.match_participant
-       WHERE streamer_id IS NOT NULL GROUP BY streamer_id
-    ), ec AS (
-      SELECT sid, count(*) AS n FROM (
-        SELECT streamer_a_id AS sid FROM core_public.streamer_encounter
-        UNION ALL
-        SELECT streamer_b_id FROM core_public.streamer_encounter
-      ) u GROUP BY sid
-    )
     SELECT s.streamer_id, s.slug, s.display_name, s.aliases, s.is_pro, s.team_name, s.profile_image_url,
            ch.channel_id, ch.channel_url, ch.platform,
            r.tier, r.division, r.league_points, r.lp_absolute,
-           coalesce(mc.n, 0)::int AS matches,
-           coalesce(ec.n, 0)::int AS encounters,
            acc.game_name AS account_name, acc.tag_line AS account_tag,
            coalesce(acc.total, 0)::int AS account_count,
            coalesce(tt.n, 0)::int AS titles
@@ -82,8 +68,6 @@ export async function listStreamerCards(opts: { q?: string } = {}): Promise<Stre
                                       WHERE streamer_id = s.streamer_id AND queue_type = 'RANKED_SOLO_5x5')
               ORDER BY lp_absolute DESC NULLS LAST LIMIT 1
            ) r ON true
-      LEFT JOIN mc ON mc.streamer_id = s.streamer_id
-      LEFT JOIN ec ON ec.sid = s.streamer_id
       -- ★ 순위를 **모르는** 대회는 세지 않는다. 우승 옆의 숫자가 무슨 뜻인지 흐려진다.
       LEFT JOIN LATERAL (
              SELECT count(*) AS n
