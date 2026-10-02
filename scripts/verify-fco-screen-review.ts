@@ -86,8 +86,6 @@ try {
   assert.equal(after.v, done1.v + 1);
   const row = (await sql<{ nickname: string; outcome: string; score_display: number }[]>`SELECT nickname, outcome, score_display FROM fco_match_participant WHERE match_id = ${S1} ORDER BY side_no`);
   assert.deepEqual(row.map((r) => r.outcome), ["win", "loss"], "직접 정한 결과가 점수보다 우선(승부차기)");
-  const outcomeLogs = await sql<{ n: number }[]>`SELECT count(*)::int n FROM review_change WHERE match_id = ${S1} AND field = 'outcome'`;
-  assert.ok(outcomeLogs[0].n >= 1, "승패 변경도 기록된다(이전 값·이후 값)");
   assert.equal(row[1].nickname, "일반감독2");
   const logs = await sql<{ field: string }[]>`SELECT field FROM review_change WHERE match_id = ${S1}`;
   assert.ok(logs.some((l) => l.field === "nickname") && logs.some((l) => l.field === "review_completed"), "닉네임 변경과 완료 해제가 기록된다");
@@ -101,6 +99,11 @@ try {
   await V.updateScreenSides(S1, after.v, [{ nickname: "알파감독", score: 2, person: { slug: "alpha-fc" } }, { nickname: "일반감독", score: 1, person: "auto" }], "auto");
   const manual = (await sql<{ identity_basis: string | null; outcome: string }[]>`SELECT identity_basis, outcome FROM fco_match_participant WHERE match_id = ${S1} AND side_no = 1`)[0];
   assert.deepEqual([manual.identity_basis, manual.outcome], ["manual", "win"], "사람이 정한 칸은 근거 manual, 결과는 점수로");
+  // 승패만 뒤집어도 기록이 남는다(이전 값·이후 값)
+  const vo = await ver(S1);
+  await V.updateScreenSides(S1, vo.v, [{ nickname: "알파감독", score: 2, person: "keep" }, { nickname: "일반감독", score: 1, person: "keep" }], "second_win");
+  const outcomeLogs = await sql<{ before: unknown; after: unknown }[]>`SELECT before, "after" FROM review_change WHERE match_id = ${S1} AND field = 'outcome' AND entity_key = ${S1 + "#1"} ORDER BY changed_at DESC LIMIT 1`;
+  assert.deepEqual([outcomeLogs[0]?.before, outcomeLogs[0]?.after], ["win", "loss"], "승패 변경이 이전·이후 값과 함께 기록된다");
 
   // 3-2) ★ 사람 지정은 "그대로"가 기본 — 방송 주인(vod_owner) 근거가 저장만으로 사라지면 안 된다(실데이터 56칸이 그 상태였다)
   const S4 = "fcs:900100@1500";

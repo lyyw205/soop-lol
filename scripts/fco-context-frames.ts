@@ -80,7 +80,7 @@ try {
     const t0 = Date.now();
     // 조사 기록 파일을 잡아 둔다 — 없던 파일이면 끝나고 지운다.
     // scan-draft.json 은 없을 때 ck:probe 가 새로 만든다(있으면 latest 로 비킨다) — 셋 다 원래대로 둔다.
-const records = ["probe.json", "scan-draft.json", "scan-draft.latest.json"].map((name) => {
+    const records = ["probe.json", "scan-draft.json", "scan-draft.latest.json"].map((name) => {
       const path = join("out", "ck", p.vod, name);
       return { path, before: existsSync(path) ? readFileSync(path) : null };
     });
