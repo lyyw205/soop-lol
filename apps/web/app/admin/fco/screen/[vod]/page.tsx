@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 
-/** 화면 경기 작업대는 방송 작업대(/admin/fco/vod/<VOD>)로 합쳐졌다. 예전 주소는 거기로 보낸다. */
-export default async function FcoScreenRedirect({ params }: { params: Promise<{ vod: string }> }) {
+/**
+ * 방송(VOD)은 검수 단위가 아니라 경기의 시점이다 — 방송 단위로 검수하면 같은 경기를 방송마다 다시 본다(2026-10-02, 대전 단위로 바꿈).
+ * 예전 방송 주소는 「이 방송에 나온 대전」 목록으로 보낸다.
+ */
+export default async function FcoVodRedirect({ params }: { params: Promise<{ vod: string }> }) {
   const { vod } = await params;
-  redirect(`/admin/fco/vod/${encodeURIComponent(vod)}`);
+  redirect(`/admin/fco?view=all&vod=${encodeURIComponent(vod)}`);
 }

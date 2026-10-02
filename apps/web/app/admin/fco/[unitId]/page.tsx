@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { getFcoReviewWorkspace, listFcoEventOptions } from "@soop-lol/core/lib/games/fconline/context";
 
-import { buildMatchUnits, eventScreenMatchIds, listPickableStreamers } from "@soop-lol/core/lib/games/fconline/broadcast";
+import { buildMatchUnits, eventScreenMatchIds, listPickableStreamers } from "@soop-lol/core/lib/games/fconline/match-units";
 
 import { FcoMatchWorkbench } from "@/components/admin/FcoMatchWorkbench";
 import { loadViewerVods } from "@/lib/vod-frames";

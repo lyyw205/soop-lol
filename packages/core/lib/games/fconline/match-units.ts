@@ -1,15 +1,12 @@
 /**
- * FC 검수의 단위 — **경기 하나 = 키 하나**, 그 경기를 본 것들은 **시점**이다 (CK 의 경기·시점 구조와 같다).
+ * FC 검수의 경기 모양 — **경기 하나 = 키 하나**, 그 경기를 본 것들은 **시점**이다 (CK 의 경기·시점 구조와 같다).
  *
  *   정본 경기  넥슨 기록(provider_api)이 있으면 그것, 없으면 처음 찾은 화면 기록(fcs:…).
  *              화면 기록이 다른 기록에 이어져 있으면(fco_screen_link) 그 대상이 정본이다.
  *   시점       넥슨 기록(공식 값) · VOD 마다 하나(그 방송 화면 사진 + 화면 기록이 읽은 값).
  *              맥락·검수 완료·공개 여부는 시점이 아니라 **정본 경기에 하나**다.
- *   집 단위    경기가 목록에 나오는 단 한 곳. 대회(행사)에 붙었으면 그 대회 → 아니면 그 경기를 처음 본 방송(VOD 번호가 가장 작은 것)
- *              → VOD 로 본 적이 없으면 경기 단위(기존 맥락 검수). 상대가 일반 유저여도 VOD 로 봤으면 방송 단위에 들어간다.
  *
- * ★ 정본·집을 정하는 규칙은 아래 SQL 조각(HOME_CTE) **하나**다. 목록과 작업대가 같은 조각을 쓴다 — 두 곳에서 따로 정하면
- *   같은 경기가 두 줄로 뜨거나 아무 데도 안 뜬다(2026-10-02 실제로 27경기가 두 줄이었다).
+ * 목록 단위(어느 경기를 한 화면에서 같이 보나)는 여기가 아니라 sessions.ts(대전)와 대회 단위다.
  * ★ 데이터 구조는 바꾸지 않는다(마이그레이션 없음). 이미 있는 화면 기록·연결·근거를 읽는 쪽에서 묶는다.
  */
 
@@ -20,13 +17,13 @@ import { stampFcoReview, type FcoContextStatus } from "./context.ts";
 import { compareMatches, type MatchSig } from "./screen.ts";
 import { updateScreenSides } from "./screen-review.ts";
 
-// ── 정본·집 규칙 (단일 출처) ───────────────────────────────────────────
+// ── 본 방송 (단일 출처) ─────────────────────────────────────────────
 
 /**
- * obs  : (정본 경기, 그 경기를 본 VOD) — 화면 기록의 VOD, 근거 사진의 VOD 를 정본 경기로 올려 모은다
- * home : 정본 경기마다 집 방송(가장 작은 VOD 번호). 대회에 붙은 경기는 뺀다(대회 단위가 집이다).
+ * obs : (정본 경기, 그 경기를 본 VOD) — 화면 기록의 VOD, 근거 사진의 VOD 를 정본 경기로 올려 모은다.
+ * 대전 묶음(sessions.ts)이 "VOD 로 본 경기인가"·"누구 방송에 나왔나"를 이것으로 안다.
  */
-const HOME_CTE = `
+export const OBS_CTE = `
   obs AS (
     SELECT COALESCE(l.api_match_id, m.match_id) AS canon, split_part(split_part(m.match_id, ':', 2), '@', 1)::bigint AS vod
       FROM match m LEFT JOIN fco_screen_link l ON l.screen_match_id = m.match_id
@@ -35,47 +32,7 @@ const HOME_CTE = `
     SELECT COALESCE(l.api_match_id, e.match_id) AS canon, e.vod_title_no AS vod
       FROM fco_context_evidence e LEFT JOIN fco_screen_link l ON l.screen_match_id = e.match_id
      WHERE e.vod_title_no IS NOT NULL
-  ),
-  home AS (
-    SELECT o.canon, min(o.vod) AS home_vod
-      FROM obs o JOIN match c ON c.match_id = o.canon AND c.game_code = 'fconline'
-      LEFT JOIN match_series ms ON ms.id = c.series_id AND ms.game_code = c.game_code
-     WHERE COALESCE(ms.event_id, c.event_id) IS NULL
-     GROUP BY o.canon
   )`;
-
-// ── 목록 ─────────────────────────────────────────────────────────────
-
-export interface FcoBroadcastUnit {
-  vod: string;
-  title: string | null;
-  streamer: string | null;
-  channel_id: string | null;
-  total: number;
-  completed: number;
-  /** 넥슨 기록이 정본인 경기 수 */
-  api: number;
-  first_at: string;
-  /** 이 방송이 집인 정본 경기들 — 목록이 경기 단위에서 빼는 데 쓴다 */
-  match_ids: string[];
-}
-
-export async function listFcoBroadcastUnits(): Promise<FcoBroadcastUnit[]> {
-  const rows = await db().unsafe<(Omit<FcoBroadcastUnit, "first_at" | "vod"> & { vod: string; first_at: Date })[]>(`
-    WITH ${HOME_CTE}
-    SELECT h.home_vod::text AS vod, el.title, st.display_name AS streamer, el.channel_id,
-           count(*)::int AS total,
-           count(*) FILTER (WHERE c.review_completed_at IS NOT NULL)::int AS completed,
-           count(*) FILTER (WHERE c.source = 'provider_api')::int AS api,
-           min(c.game_creation) AS first_at,
-           array_agg(c.match_id ORDER BY c.game_creation) AS match_ids
-      FROM home h JOIN match c ON c.match_id = h.canon
-      LEFT JOIN LATERAL (SELECT title, channel_id, streamer_id FROM event_lead e WHERE e.url LIKE '%/player/' || h.home_vod::text LIMIT 1) el ON true
-      LEFT JOIN streamer st ON st.id = el.streamer_id
-     GROUP BY h.home_vod, el.title, st.display_name, el.channel_id
-     ORDER BY min(c.game_creation) DESC`);
-  return rows.map((r) => ({ ...r, first_at: r.first_at.toISOString() }));
-}
 
 // ── 작업대 ───────────────────────────────────────────────────────────
 
@@ -120,15 +77,6 @@ export interface FcoMatchUnit {
   candidates: FcoCandidate[];
   /** 사진 없는 근거 — 채팅·공지·링크·메모(조사 기록) */
   notes: { key: string; kind: string; vod: string | null; sec: number | null; url: string | null; observed: string; why: string | null }[];
-}
-export interface FcoBroadcastWorkspace {
-  vod: string;
-  url: string;
-  title: string | null;
-  streamer: string | null;
-  channel_id: string | null;
-  matches: FcoMatchUnit[];
-  streamers: { slug: string; display_name: string; has_fc: boolean }[];
 }
 
 const norm = (name: string) => name.normalize("NFKC").trim().replace(/\s+/g, "").toLowerCase();
@@ -295,7 +243,7 @@ export async function listPickableStreamers(): Promise<{ slug: string; display_n
 
 /**
  * 대회 단위의 정본 경기 — 대회 결정·후보 목록(getFcoReviewWorkspace, 넥슨 기록만)에 더해 **대회에 붙은 화면 기록 정본**도.
- * 화면 기록만 있는 경기가 대회에 붙으면 집이 그 대회인데(HOME_CTE 가 방송 단위에서 뺀다), 대회 목록이 넥슨 기록만 보면 어디에도 안 나온다.
+ * 화면 기록만 있는 경기가 대회에 붙으면 그 대회 단위에서 봐야 하는데(대전 묶음은 대회 경기를 뺀다), 대회 목록이 넥슨 기록만 보면 어디에도 안 나온다.
  */
 export async function eventScreenMatchIds(eventId: string): Promise<string[]> {
   return (await db()<{ match_id: string }[]>`
@@ -305,25 +253,6 @@ export async function eventScreenMatchIds(eventId: string): Promise<string[]> {
      WHERE m.game_code = 'fconline' AND m.source = 'manual' AND l.screen_match_id IS NULL
        AND COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid
      ORDER BY m.game_creation`).map((r) => r.match_id);
-}
-
-/** 방송 하나의 작업대 — 이 방송이 **집**인 정본 경기들과 그 시점들. */
-export async function getFcoBroadcastWorkspace(vod: string): Promise<FcoBroadcastWorkspace | null> {
-  if (!/^\d{1,12}$/.test(vod)) return null;
-  const sql = db();
-  const canon = (await sql.unsafe<{ canon: string }[]>(`WITH ${HOME_CTE} SELECT canon FROM home WHERE home_vod = $1`, [vod])).map((r) => r.canon);
-  if (!canon.length) return null;
-
-  const units = await buildMatchUnits(canon);
-
-  const lead = await sql<{ title: string | null; channel_id: string | null; streamer: string | null }[]>`
-    SELECT e.title, e.channel_id, st.display_name AS streamer FROM event_lead e LEFT JOIN streamer st ON st.id = e.streamer_id
-     WHERE e.url LIKE ${`%/player/${vod}`} LIMIT 1`;
-  const streamers = await listPickableStreamers();
-  return {
-    vod, url: `https://vod.sooplive.com/player/${vod}`, title: lead[0]?.title ?? null, channel_id: lead[0]?.channel_id ?? null,
-    streamer: lead[0]?.streamer ?? null, matches: units, streamers,
-  };
 }
 
 // ── 완료 (아무 FC 정본 경기) ────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { saveAndCompleteScreenMatch, setFcoMatchCompleted } from "@soop-lol/core/lib/games/fconline/broadcast";
+import { saveAndCompleteScreenMatch, setFcoMatchCompleted } from "@soop-lol/core/lib/games/fconline/match-units";
 import {
   linkScreenByAdmin, unlinkScreenByAdmin, updateScreenSides,
   type ScreenOutcomeEdit, type ScreenPersonEdit,

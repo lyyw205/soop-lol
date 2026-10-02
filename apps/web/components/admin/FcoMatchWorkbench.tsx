@@ -9,7 +9,7 @@
  *   │ 공통」+포함/제외 │                                    │ 대회 결정 · 맥락 · 완료 │
  *   └──────────────┴──────────────────────────────────┴────────────────────┘
  *
- * ★ 묶음 규칙(정본 경기·시점·집 단위)은 core/games/fconline/broadcast.ts 하나다. 이 화면은 그 결과를 보여 줄 뿐이다.
+ * ★ 묶음 규칙은 core 하나다 — 정본 경기·시점은 match-units.ts, 대전(목록 단위)은 sessions.ts. 이 화면은 그 결과를 보여 줄 뿐이다.
  * ★ 대회 단위는 예전 맥락 검수 작업대(FcoWorkspace)의 기능을 그대로 옮겼다 — 대회 공통 화면, 포함/제외·브래킷, 대회 승인/보류,
  *   행사 정보, 다전제 집계, 조사 기록, 근거 직접 추가(2026-10-02, 작업대 두 벌을 하나로).
  * ★ 고친 값을 저장하지 않은 채 완료하거나 다른 경기로 가지 못하게 한다 — 「저장하고 검수 완료」가 주 동작이다.
@@ -19,7 +19,7 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 
 import type { FcoEventOption, FcoReviewUnit } from "@soop-lol/core/lib/games/fconline/context";
-import type { FcoCandidate, FcoMatchUnit, FcoMatchView, FcoSide, FcoViewFrame } from "@soop-lol/core/lib/games/fconline/broadcast";
+import type { FcoCandidate, FcoMatchUnit, FcoMatchView, FcoSide, FcoViewFrame } from "@soop-lol/core/lib/games/fconline/match-units";
 import { fcoSeriesScore, fcoSeriesStanding } from "@soop-lol/core/lib/games/fconline/series";
 
 import {
@@ -110,7 +110,14 @@ export interface WorkbenchEvent {
   vodStarts: Record<number, number>;
 }
 
-export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventOptions, initialMatchId, event, queueTitle }: {
+/** 대전 단위면 준다 — 오른쪽에 [대전]/[경기] 탭, 대전 전체에 맥락 한 번에 적용 */
+export interface WorkbenchSession {
+  title: string;
+  people: { slug: string; name: string }[];
+  vods: string[];
+}
+
+export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventOptions, initialMatchId, event, session, queueTitle }: {
   matches: FcoMatchUnit[];
   streamers: { slug: string; display_name: string; has_fc: boolean }[];
   vods: Record<string, ViewerVod>;
@@ -118,6 +125,7 @@ export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventO
   initialMatchId?: string;
   /** 대회 단위면 준다 — 큐에 대회 공통·포함/제외, 오른쪽에 [대회]/[경기] 탭 */
   event?: WorkbenchEvent;
+  session?: WorkbenchSession;
   queueTitle: string;
 }) {
   const { matches, common } = useMemo(
@@ -196,7 +204,8 @@ export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventO
   }, [event]);
 
   const FILTERS: [Filter, string][] = [["all", "전체"], ["todo", "미완료"], ["mismatch", "시점 불일치"], ["lonely", "화면으로만 본 경기"]];
-  const showEventTab = !!event && (tab === "event" || !selected);
+  const grouped = !!event || !!session;
+  const showEventTab = grouped && (tab === "event" || !selected);
 
   return (
     <div className="ck-review-workbench">
@@ -238,14 +247,16 @@ export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventO
         {/* ── 오른쪽: (대회면 [대회]/[경기] 탭) 이 시점 · 경기 값 · 대회 결정 · 맥락 · 완료 ── */}
         <aside className="ck-review-inspector" aria-label="검수 정보">
           <div className="ck-review-inspector-shell">
-            {event && (
+            {grouped && (
               <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보">
-                <button type="button" role="tab" aria-selected={showEventTab} onClick={() => setTab("event")}>대회</button>
+                <button type="button" role="tab" aria-selected={showEventTab} onClick={() => setTab("event")}>{event ? "대회" : "대전"}</button>
                 <button type="button" role="tab" aria-selected={!showEventTab} disabled={!selected} onClick={() => setTab("match")}>경기</button>
               </div>
             )}
             <div className="ck-review-inspector-body">
-              {showEventTab ? (
+              {showEventTab && session ? (
+                <SessionTab session={session} matches={matches} eventOptions={eventOptions} onPick={(id) => pick(id)} />
+              ) : showEventTab ? (
                 <div className="grid gap-4 p-1 text-sm">
                   <EventTab unit={event!.unit}>
                     {seriesStandings.map(({ id, standing }) => (
@@ -512,6 +523,45 @@ function ContextPanel({ m, eventOptions }: { m: FcoMatchUnit; eventOptions: FcoE
       )}
       {ctx.status === "uninvestigated" && <p className="text-xs text-ink-400">아직 맥락을 정하지 않았습니다.</p>}
       <FcoReviewControls compact unit={unit} eventOptions={eventOptions} activeMatch={unit.matches[0]} />
+    </div>
+  );
+}
+
+/**
+ * [대전] 탭 — 한 자리에서 연달아 한 판들을 한 번에 본다. 맥락(친선·CK·대회)은 대전 단위로 정하는 경우가 많아
+ * 전체 적용을 둔다(저장은 판마다 같은 함수 — FcoReviewControls 의 targets). 값 확인·완료는 판마다 한다.
+ */
+function SessionTab({ session, matches, eventOptions, onPick }: {
+  session: WorkbenchSession; matches: FcoMatchUnit[]; eventOptions: FcoEventOption[]; onPick: (id: string) => void;
+}) {
+  const done = matches.filter((m) => m.review_completed_at).length;
+  const ctxCount = new Map<string, number>();
+  for (const m of matches) {
+    const label = m.context.event ? `${m.context.event.name}(${m.context.event.kind})` : m.context.judgment?.judgment === "casual" ? "단순 친선"
+      : m.context.judgment?.judgment === "unresolved" ? "미해결" : "미조사";
+    ctxCount.set(label, (ctxCount.get(label) ?? 0) + 1);
+  }
+  const firstTodo = matches.find((m) => !m.review_completed_at);
+  const unit: ReviewControlsUnit = {
+    kind: "match", status: "uninvestigated", confirmed: false, event: null, judgment: null,
+    matches: matches.map((m) => ({ provider_match_id: m.match_id, participants: m.sides.map((x) => ({ name: x.name })) })),
+  };
+  return (
+    <div className="grid gap-3 text-sm">
+      <section className="ck-review-panel grid gap-1.5 p-3">
+        <p className="text-[13px] font-semibold text-ink-200">{session.title}</p>
+        <p className="text-xs text-ink-400">{matches.length}판 · 완료 <b className={done === matches.length ? "text-win" : "text-ink-200"}>{done}/{matches.length}</b>
+          {matches.length > 0 && <> · {kst(matches[0].played_at)} ~ {kst(matches[matches.length - 1].played_at)}</>}</p>
+        {session.people.length > 0 && <p className="text-[11px] text-ink-400">나온 사람: {session.people.map((p) => p.name).join(", ")}</p>}
+        {session.vods.length > 0 && <p className="text-[11px] text-ink-400">본 방송: {session.vods.length}개 — 경기마다 위 시점 칩으로 바꿔 봅니다</p>}
+        {firstTodo && <button type="button" onClick={() => onPick(firstTodo.match_id)} className="justify-self-start rounded border border-ink-700 px-2 py-1 text-xs text-ink-200 hover:border-accent-400">미검수 첫 판 보기 →</button>}
+      </section>
+      <section className="ck-review-panel grid gap-2 p-3">
+        <p className="text-[11px] font-semibold text-ink-200">맥락 — 이 대전 전체({matches.length}판)에 한 번에</p>
+        <p className="text-[11px] text-ink-400">지금: {[...ctxCount].map(([k, n]) => `${k} ${n}`).join(" · ")}</p>
+        <FcoReviewControls compact unit={unit} eventOptions={eventOptions} activeMatch={unit.matches[0] ?? null} targets={matches.map((m) => m.match_id)} />
+        <p className="text-[11px] text-ink-500">한 판만 다르면 그 판의 [경기] 탭에서 따로 바꾸세요. 값 확인과 검수 완료는 판마다 합니다.</p>
+      </section>
     </div>
   );
 }

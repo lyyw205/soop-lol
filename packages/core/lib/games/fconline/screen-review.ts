@@ -18,7 +18,7 @@ import { linkScreenTo, resolveSide, screenOutcomes, type ResolvedSide } from "./
 
 type ResolvedSideBasis = ResolvedSide["basis"];
 
-// 읽기는 core/games/fconline/broadcast.ts(정본 경기·시점·집 방송) 하나다. 여기는 화면 기록을 고치는 쓰기만 둔다.
+// 읽기는 match-units.ts(정본 경기·시점)와 sessions.ts(대전) 하나다. 여기는 화면 기록을 고치는 쓰기만 둔다.
 
 const norm = (name: string) => name.normalize("NFKC").trim().replace(/\s+/g, "").toLowerCase();
 

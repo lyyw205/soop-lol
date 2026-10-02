@@ -58,8 +58,10 @@ export interface ReviewControlsUnit {
 }
 
 export function FcoReviewControls({
-  unit, eventOptions, activeMatch, compact = false,
+  unit, eventOptions, activeMatch, compact = false, targets,
 }: {
+  /** 여러 경기에 한 번에 적용할 때(대전 전체) — 주면 이 경기들 전부에 같은 분류를 저장한다 */
+  targets?: string[];
   unit: ReviewControlsUnit;
   eventOptions: FcoEventOption[];
   activeMatch: ReviewControlsUnit["matches"][number] | null;
@@ -155,7 +157,7 @@ export function FcoReviewControls({
       {/* 미해결·단순 친선 — 근거 메모는 선택(비우면 「검수자 판단(메모 없음)」으로 남는다). */}
       {(picked === "unresolved" || picked === "casual") && (
         <form action={setClass} className="grid gap-2 rounded-lg border border-ink-800 bg-ink-900/40 p-3">
-          <input type="hidden" name="provider_match_id" value={targetMatch?.provider_match_id ?? ""} />
+          {(targets ?? [targetMatch?.provider_match_id ?? ""]).map((id) => <input key={id} type="hidden" name="provider_match_id" value={id} />)}
           <input type="hidden" name="target" value={picked} />
           <label className="block text-[11px] text-ink-400">
             {picked === "unresolved" ? "남은 질문 (선택)" : "그렇게 본 근거 (선택)"}
@@ -183,7 +185,7 @@ export function FcoReviewControls({
             <div className="ck-champion-suggestions">
               {matches.slice(0, 8).map((option) => (
                 <form key={option.id} action={setClass}>
-                  <input type="hidden" name="provider_match_id" value={targetMatch?.provider_match_id ?? ""} />
+                  {(targets ?? [targetMatch?.provider_match_id ?? ""]).map((id) => <input key={id} type="hidden" name="provider_match_id" value={id} />)}
                   <input type="hidden" name="target" value={picked!} />
                   <input type="hidden" name="existing_event_id" value={option.id} />
                   <button type="submit" disabled={classPending}
@@ -205,7 +207,7 @@ export function FcoReviewControls({
 
           {creating && (
             <form action={setClass} className="grid gap-2">
-              <input type="hidden" name="provider_match_id" value={targetMatch?.provider_match_id ?? ""} />
+              {(targets ?? [targetMatch?.provider_match_id ?? ""]).map((id) => <input key={id} type="hidden" name="provider_match_id" value={id} />)}
               <input type="hidden" name="target" value={picked!} />
               <div className="grid grid-cols-2 gap-2">
                 <label className="block text-[11px] text-ink-400">slug (날짜 포함)

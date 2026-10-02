@@ -68,16 +68,24 @@ export async function reviewToggleAction(_prev: ActionState, form: FormData): Pr
 export async function setClassAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   await requireAdmin();
   try {
-    const providerMatchId = text(form, "provider_match_id");
+    // 여러 경기에 한 번에(대전 전체) — 같은 저장 함수를 경기마다 부른다. 하나라도 실패하면 거기서 멈추고 알린다.
+    const ids = [...new Set(form.getAll("provider_match_id").map((v) => String(v).trim()).filter(Boolean))];
+    if (!ids.length) throw new Error("경기가 없습니다.");
+    const merged = { actions: [] as string[], skipped: [] as string[] };
+    const each = async (fn: (id: string) => Promise<{ actions: string[]; skipped: string[] }>) => {
+      for (const id of ids) {
+        const out = await fn(id);
+        merged.actions.push(...out.actions.map((x) => (ids.length > 1 ? `${id.slice(-6)}: ${x}` : x)));
+        merged.skipped.push(...out.skipped.map((x) => (ids.length > 1 ? `${id.slice(-6)}: ${x}` : x)));
+      }
+      return merged;
+    };
     const target = text(form, "target");
     if (target === "unresolved" || target === "casual") {
       // 사람이 고를 때 메모는 선택이다. 판단 표(0032)는 빈 메모를 받지 않으므로 "메모 없음"임을 그대로 적는다
       // (지어내지 않는다 — 자동 조사(auto)는 여전히 근거가 필수다. 이 경로는 admin 뿐이다).
       const note = text(form, "note") || "검수자 판단(메모 없음)";
-      const out = await applyFcoMatchContext(
-        { provider_match_id: providerMatchId, conclusion: target, note },
-        { createdBy: "admin" },
-      );
+      const out = await each((id) => applyFcoMatchContext({ provider_match_id: id, conclusion: target, note }, { createdBy: "admin" }));
       refresh();
       return summarize(out);
     }
@@ -105,14 +113,14 @@ export async function setClassAction(_prev: ActionState, form: FormData): Promis
     const series = text(form, "series_id")
       ? { id: text(form, "series_id"), game_no: Number(text(form, "series_game_no") || "1") }
       : undefined;
-    const out = await applyFcoMatchContext(
+    const out = await each((id) => applyFcoMatchContext(
       {
-        provider_match_id: providerMatchId, conclusion: "event",
+        provider_match_id: id, conclusion: "event",
         event: meta as Parameters<typeof applyFcoMatchContext>[0]["event"],
         ...(series ? { series } : {}),
       },
       { createdBy: "admin", relink: true },
-    );
+    ));
     refresh();
     return summarize(out);
   } catch (error) {

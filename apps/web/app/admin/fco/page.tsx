@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { getFcoReviewWorkspace, listFcoCrossClues, type FcoReviewUnit } from "@soop-lol/core/lib/games/fconline/context";
-import { listFcoBroadcastUnits, type FcoBroadcastUnit } from "@soop-lol/core/lib/games/fconline/broadcast";
+import { listFcoSessions, type FcoSession } from "@soop-lol/core/lib/games/fconline/sessions";
 
 import { Card, EmptyState, Tag } from "@/components/ui";
 import { FCO_STATUS_LABEL } from "@/lib/admin-labels";
@@ -24,12 +24,13 @@ const unitHref = (u: FcoReviewUnit) =>
 const STATUS_LABEL = FCO_STATUS_LABEL;
 
 /**
- * 목록의 한 줄 — **경기 하나는 한 줄에만** 나온다(집 단위, core/broadcast.ts).
- *   대회 단위   행사에 붙은 경기들
- *   방송 단위   그 방송이 처음 본 경기들(넥슨 기록이 있든 없든, 상대가 일반 유저여도). 누르면 방송 작업대 /admin/fco/vod/<VOD>
- *   경기 단위   VOD 로 본 적이 없는 넥슨 경기(스트리머끼리) — 기존 맥락 검수
+ * 목록의 한 줄 — **경기 하나는 한 줄에만** 나온다.
+ *   대회   행사에 붙은 경기들 → /admin/fco/event-<id>
+ *   대전   누가 누구와 한 자리에서 연달아 한 경기 묶음(core/games/fconline/sessions.ts) → /admin/fco/session/<id>
+ *          방송(VOD)은 단위가 아니라 경기의 시점이다 — 방송 단위로 검수하면 같은 경기를 방송마다 다시 본다(2026-10-02).
+ * 거르기: ?who=<스트리머 slug>(뛰었거나 그 사람 방송에 나온 것) · ?vod=<VOD 번호>(그 방송에 나온 것)
  */
-type Row = { type: "unit"; unit: FcoReviewUnit } | { type: "screen"; vod: FcoBroadcastUnit };
+type Row = { type: "unit"; unit: FcoReviewUnit } | { type: "session"; s: FcoSession };
 
 const EMPTY: Record<string, string> = {
   pending: "승인 대기 중인 조사가 없습니다.",
@@ -42,24 +43,34 @@ const EMPTY: Record<string, string> = {
 export default async function FcoReviewListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; who?: string; vod?: string }>;
 }) {
-  const { view = "pending" } = await searchParams;
-  const [allUnits, clues, screens] = await Promise.all([getFcoReviewWorkspace(), listFcoCrossClues(), listFcoBroadcastUnits()]);
-  // 방송 단위가 집인 경기는 경기 단위로 따로 세우지 않는다(같은 경기가 두 줄이 되지 않게). 대회 단위는 그대로.
-  const homed = new Set(screens.flatMap((v) => v.match_ids));
-  const units = allUnits.filter((u) => u.kind === "event" || !u.matches.some((m) => homed.has(m.match_id)));
+  const { view = "pending", who, vod } = await searchParams;
+  const [allUnits, clues, sessions] = await Promise.all([getFcoReviewWorkspace(), listFcoCrossClues(), listFcoSessions()]);
+  // 대회 단위만 그대로 쓴다. 대회 밖 경기는 전부 대전으로 들어간다(경기 하나 = 한 줄).
+  const events = allUnits.filter((u) => u.kind === "event")
+    .filter((u) => !who || u.matches.some((m) => m.participants.some((p) => p.slug === who)))
+    .filter((u) => !vod || u.evidences.some((e) => String(e.vod_title_no) === vod));
+  const shown = sessions
+    .filter((x) => !who || x.people.some((p) => p.slug === who))
+    .filter((x) => !vod || x.vods.includes(vod));
+  const people = [...new Map(sessions.flatMap((x) => x.people).map((p) => [p.slug, p.name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
 
   const unitRows = (list: FcoReviewUnit[]): Row[] => list.map((unit) => ({ type: "unit", unit }));
-  const screenRows = (list: FcoBroadcastUnit[]): Row[] => list.map((vod) => ({ type: "screen", vod }));
+  const sessionRows = (list: FcoSession[]): Row[] => list.map((x) => ({ type: "session", s: x }));
   const groups: Record<string, Row[]> = {
-    pending: [...unitRows(units.filter((u) => u.pending)), ...screenRows(screens.filter((v) => v.completed < v.total))],
-    confirmed: [...unitRows(units.filter((u) => u.confirmed)), ...screenRows(screens.filter((v) => v.completed === v.total))],
-    todo: unitRows(units.filter((u) => u.status === "uninvestigated")),
-    all: [...unitRows(units), ...screenRows(screens)],
+    pending: [...unitRows(events.filter((u) => u.pending)), ...sessionRows(shown.filter((x) => x.investigated && x.completed < x.total))],
+    confirmed: [...unitRows(events.filter((u) => u.confirmed)), ...sessionRows(shown.filter((x) => x.completed === x.total))],
+    todo: sessionRows(shown.filter((x) => !x.investigated && x.completed < x.total)),
+    all: [...unitRows(events), ...sessionRows(shown)],
+  };
+  const qs = (patch: Record<string, string | undefined>) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries({ view, who, vod, ...patch })) if (v) q.set(k, v);
+    return `/admin/fco?${q}`;
   };
   const TABS = [
-    { key: "pending", label: "승인 대기" },
+    { key: "pending", label: "검수 대기" },
     { key: "confirmed", label: "확인됨" },
     { key: "todo", label: "조사 필요" },
     { key: "all", label: "전체" },
@@ -77,7 +88,7 @@ export default async function FcoReviewListPage({
           {TABS.map((t) => (
             <a
               key={t.key}
-              href={`/admin/fco?view=${t.key}`}
+              href={qs({ view: t.key })}
               className={`rounded-md border px-2 py-1 ${
                 t.key === current
                   ? "border-accent-600/40 bg-accent-600/10 text-accent-400"
@@ -103,6 +114,20 @@ export default async function FcoReviewListPage({
           )}
         </div>
 
+        <form action="/admin/fco" className="mb-4 flex flex-wrap items-center gap-2 text-xs text-ink-400">
+          <input type="hidden" name="view" value={current} />
+          스트리머
+          <select name="who" defaultValue={who ?? ""} className="rounded border border-ink-700 bg-ink-900 px-2 py-1 text-ink-200">
+            <option value="">전체</option>
+            {people.map(([slug, name]) => <option key={slug} value={slug}>{name}</option>)}
+          </select>
+          방송 번호
+          <input name="vod" defaultValue={vod ?? ""} placeholder="VOD 번호" inputMode="numeric" className="w-32 rounded border border-ink-700 bg-ink-900 px-2 py-1 text-ink-200" />
+          <button type="submit" className="rounded border border-ink-700 px-2 py-1 text-ink-200 hover:border-accent-400">거르기</button>
+          {(who || vod) && <a href={qs({ who: undefined, vod: undefined })} className="text-ink-400 hover:text-ink-200">거르기 해제</a>}
+          <span className="text-ink-500">— 그 사람이 뛰었거나 그 사람 방송에 나온 대전, 그 방송에 나온 대전</span>
+        </form>
+
         <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-xs leading-relaxed text-ink-400">
           <b className="text-ink-200">매치 타입(모드)은 맥락의 증거가 아닙니다.</b> 친선 모드로도 컵·CK 를 합니다.
           <b className="text-ink-200"> VOD 가 없어도 경기는 있었던 것</b>이고, 그건 「맥락 미확인」이지 「단순 친선」이 아닙니다.
@@ -115,8 +140,8 @@ export default async function FcoReviewListPage({
           </span>
           <br />
           <span className="mt-1 inline-block">
-            <b className="text-ink-200">「방송」 줄</b>은 그 방송에서 처음 본 경기들입니다(경기 하나는 한 줄에만 나옵니다). 누르면 경기마다
-            넥슨 기록과 VOD 시점을 칩으로 바꿔 보며 값·맥락을 확인하고 완료합니다. 완료해도 공개되지는 않습니다.
+            <b className="text-ink-200">「대전」 줄</b>은 누가 누구와 한 자리에서 연달아 한 경기 묶음입니다(경기 하나는 한 줄에만 나옵니다).
+            누르면 경기마다 넥슨 기록과 그 경기를 본 방송들을 칩으로 바꿔 보고, 맥락은 대전 전체에 한 번에 정할 수 있습니다. 완료해도 공개되지는 않습니다.
           </span>
         </div>
 
@@ -142,27 +167,27 @@ export default async function FcoReviewListPage({
         ) : (
           <ul className="mt-4 divide-y divide-ink-800">
             {visible.map((row) => {
-              if (row.type === "screen") {
-                const v = row.vod;
-                const left = v.total - v.completed;
+              if (row.type === "session") {
+                const x = row.s;
+                const left = x.total - x.completed;
                 return (
-                  <li key={`screen:${v.vod}`} className="flex flex-wrap items-center gap-3 py-3">
+                  <li key={x.id} className="flex flex-wrap items-center gap-3 py-3">
                     <div className="min-w-0 flex-1">
-                      <Link href={`/admin/fco/vod/${v.vod}`} className="block truncate text-sm text-ink-200 hover:text-accent-400">
-                        {v.title ?? `VOD ${v.vod}`}
+                      <Link href={`/admin/fco/session/${encodeURIComponent(x.id)}`} className="block truncate text-sm text-ink-200 hover:text-accent-400">
+                        {x.title}
                       </Link>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
-                        <span>{kst(v.first_at)} KST</span>
-                        {v.streamer && <span>{v.streamer}</span>}
-                        <span>{v.total}경기</span>
-                        {v.api > 0 && <span>넥슨 기록 있음 {v.api}</span>}
+                        <span>{kst(x.from)}{x.total > 1 ? ` ~ ${kst(x.to).split(" ").slice(-1)[0]}` : ""} KST</span>
+                        <span>{x.total}판</span>
+                        {x.api > 0 && <span>넥슨 기록 {x.api}</span>}
+                        {x.vods.length > 0 && <span>본 방송 {x.vods.length}</span>}
                       </div>
                     </div>
-                    <span className="flex items-center gap-x-1.5 text-[11px] text-ink-400" title="이 VOD 의 화면 경기 중 사람이 검수를 완료한 수">
-                      완료 <b className={left === 0 ? "text-win" : "text-ink-200"}>{v.completed}/{v.total}</b>
+                    <span className="flex items-center gap-x-1.5 text-[11px] text-ink-400" title="이 대전의 경기 중 사람이 검수를 완료한 수">
+                      완료 <b className={left === 0 ? "text-win" : "text-ink-200"}>{x.completed}/{x.total}</b>
                     </span>
-                    <Tag tone="neutral">방송</Tag>
-                    {left === 0 ? <Tag tone="accent">확인됨</Tag> : <Tag tone="warn">검수 대기 {left}</Tag>}
+                    <Tag tone="neutral">{x.kind === "pair" ? "대전" : x.kind === "solo" ? "일반 유저전" : "닉네임 대전"}</Tag>
+                    {left === 0 ? <Tag tone="accent">확인됨</Tag> : x.investigated ? <Tag tone="warn">검수 대기 {left}</Tag> : <Tag tone="neutral">조사 필요</Tag>}
                   </li>
                 );
               }
