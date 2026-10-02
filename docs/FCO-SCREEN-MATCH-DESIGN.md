@@ -149,3 +149,4 @@ API 저장 경로(`saveFcoMatch`)에서는 부르지 않는다 — API 경로를
 - **실DB 정리**: 보호만 있고 완료가 없던 FC 경기 1건(`fco:6aafad0cf510b98313e7ac78`, 09-24 승인)을 `review_completed_at = reviewed_at` 으로 맞췄다(`review_change` 기록).
 - **맥락 칸**: 화면 경기 작업대에 맥락(미해결·단순 친선·CK·대회…)을 붙였다. 컨트롤은 기존 `FcoReviewControls` 그대로이고 저장도 기존 `applyFcoMatchContext` 그대로다 — 이 함수와 승인·보류가 넥슨 번호뿐 아니라 내부 `match_id`(`fcs:…`)도 받게 했다. 새 저장 경로를 만들지 않았다.
 - **뷰어 한 벌(4번, 완료)**: `apps/web/components/admin/VodFrameViewer.tsx` 하나를 맥락 검수 단위(`FcoWorkspace`)와 화면 경기 작업대가 같이 쓴다. 간격은 「근거」(조사가 건 프레임만 — 근거가 둘 이상이면 기본)·「원본」(그 VOD 에 받아 둔 원본, 결과 화면 앞뒤 원본 포함 — 화면 경기의 기본)·3초~5분(썸네일 칸, 원본이 있으면 원본). ← → 는 뷰어, ↑↓ 는 작업대 큐. VOD 별 재료는 `loadViewerVods`(apps/web/lib/vod-frames.ts).
+- **앞뒤 원본 자동 추출**: FC 백필(`ck-backfill.sh --game fconline`)이 VOD 마다 세션·진척 확인 뒤 `fco-context-frames.ts --vod` 를 부른다(실패해도 계속, `CK_BACKFILL_FRAMES=` 로 끔, 롤 백필엔 없음). 추출은 방송 길이(probe.json total_sec → 썸네일 시트) 밖 지점을 요청하지 않는다. 지난 백필분은 `npm run fco:frames` 한 번으로 채운다(2026-10-02 1,331장).

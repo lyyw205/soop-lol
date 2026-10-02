@@ -32,6 +32,23 @@ if (onlyVod && !/^\d+$/.test(onlyVod)) { console.error("--vod 는 숫자"); proc
 
 const frameName = (sec: number) => `g${String(sec).padStart(7, "0")}.jpg`;
 
+/**
+ * VOD 길이(초) — 방송 끝을 넘는 지점은 요청하지 않는다(끝 직전 결과 화면의 +1·+2분은 영상 밖이다).
+ * probe.json 의 total_sec(HLS 실측) → 썸네일 시트 목록 순으로 읽고, 둘 다 없으면 모른다(null — 자르지 않는다).
+ */
+function vodLength(vod: string): number | null {
+  try {
+    const p = JSON.parse(readFileSync(join("out", "ck", vod, "probe.json"), "utf8")) as { total_sec?: number };
+    if (typeof p.total_sec === "number" && p.total_sec > 0) return p.total_sec;
+  } catch { /* 다음 */ }
+  try {
+    const sh = JSON.parse(readFileSync(join("out", "ck", vod, "local", "sheets.json"), "utf8")) as { parts?: { offset: number; length: number }[] };
+    const end = Math.max(...(sh.parts ?? []).map((x) => x.offset + x.length));
+    if (Number.isFinite(end) && end > 0) return Math.floor(end);
+  } catch { /* 모른다 */ }
+  return null;
+}
+
 try {
   const sql = db();
   const rows = await sql<{ match_id: string }[]>`
@@ -47,7 +64,8 @@ try {
   let want = 0, have = 0;
   const plan: { vod: string; secs: number[] }[] = [];
   for (const [vod, ats] of [...byVod].sort((a, b) => Number(a[0]) - Number(b[0]))) {
-    const secs = [...new Set(ats.flatMap((at) => offsets.map((o) => at + o)).filter((s) => s >= 0))].sort((a, b) => a - b);
+    const length = vodLength(vod);
+    const secs = [...new Set(ats.flatMap((at) => offsets.map((o) => at + o)).filter((s) => s >= 0 && (length == null || s < length)))].sort((a, b) => a - b);
     const missing = secs.filter((s) => !existsSync(join("out", "ck", vod, frameName(s))));
     want += secs.length; have += secs.length - missing.length;
     if (missing.length) plan.push({ vod, secs: missing });

@@ -51,6 +51,13 @@ if [[ -n "${CK_BACKFILL_PREP+set}" ]]; then PREP_CMD="$CK_BACKFILL_PREP"
 elif [[ "$GAME" == fconline ]]; then PREP_CMD='node scripts/ck-local/scan.mjs --vod {vod} && (cd scripts/fco-local && ../../out/ck-detector/venv/bin/python fc_detect.py --vod {vod})'
 elif [[ "$SKILL" == "ck-local" ]]; then PREP_CMD='node scripts/ck-local/scan.mjs --vod {vod}'
 else PREP_CMD=""; fi
+# ★ FC 만: 세션이 끝나고 진척이 확인되면 그 VOD 의 결과 화면 앞뒤 **원본**을 뽑아 둔다(npm run fco:frames).
+#   검수 화면은 결과 화면 앞뒤를 원본으로 넘겨 보는데, 조사 세션은 결과 화면만 원본으로 뽑는다. 검수할 때 기다리지 않게 여기서 받는다.
+#   실패해도 백필은 멈추지 않는다(검수 재료일 뿐 조사 결과가 아니다). CK_BACKFILL_FRAMES 를 빈 값으로 주면 끈다.
+#   롤 백필에는 붙이지 않는다.
+if [[ -n "${CK_BACKFILL_FRAMES+set}" ]]; then FRAMES_CMD="$CK_BACKFILL_FRAMES"
+elif [[ "$GAME" == fconline ]]; then FRAMES_CMD='node --env-file-if-exists=apps/web/.env.local scripts/fco-context-frames.ts --vod {vod}'
+else FRAMES_CMD=""; fi
 for program in node claude flock setsid; do command -v "$program" >/dev/null || { echo "$program 필요" >&2; exit 1; }; done
 mkdir -p out/ck/auto out/ck/backfill
 exec 9>out/ck/auto/.lock
@@ -100,7 +107,7 @@ while true; do
   cli next --queue "$QUEUE" --current "$CURRENT"; CODE=$?
   if (( CODE == 3 )); then RESULT='요청 기간을 끝까지 처리'; CODE=0; break; fi
   (( CODE == 0 )) || { RESULT='다음 VOD 선택 실패'; break; }
-  VOD="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1]));console.log(c.vod.title_no)' "$CURRENT")" || { CODE=1; RESULT='current.json 읽기 실패'; break; }
+  VOD="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1]));console.log(String(c.vod.title_no))' "$CURRENT")" || { CODE=1; RESULT='current.json 읽기 실패'; break; }
   SESSIONS=$((SESSIONS+1))
   if [[ "$GAME" == fconline ]]; then
   PROMPT="/$SKILL FC 과거 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD). 스킬의 'VOD 에서 출발하기' 흐름을 그대로 따른다.
@@ -140,6 +147,11 @@ SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 이전 기록(ck:rec
   if (( CLAUDE_CODE != 0 )); then RESULT="Claude 실행 실패(종료 코드 $CLAUDE_CODE)"; CODE=$CLAUDE_CODE; break; fi
   if (( AFTER_CODE == 4 )); then RESULT='진척 없음'; CODE=4; break; fi
   (( AFTER_CODE == 0 )) || { RESULT='진척 확인 실패'; CODE=$AFTER_CODE; break; }
+  if [[ -n "$FRAMES_CMD" ]]; then
+    say "앞뒤 원본: ${FRAMES_CMD//\{vod\}/$VOD}"
+    run_child bash -c "${FRAMES_CMD//\{vod\}/$VOD}" \
+      || say "  ⚠ 앞뒤 원본을 다 못 뽑았다 — 백필은 계속한다. 나중에: npm run fco:frames -- --vod $VOD"
+  fi
 done
 say "종료: $RESULT · 조사 세션 ${SESSIONS}회"
 cli status --streamer "$STREAMER"

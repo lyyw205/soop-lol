@@ -18,6 +18,8 @@ function fixture(mode:string, env:Record<string,string>={}) {
  if(args[0]==='-e') {const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
  // ck-local 준비 단계(기본) — 실제 판별기 대신 PREP 줄만 찍는다.
  if(String(args[0]).endsWith('ck-local/scan.mjs')){fs.appendFileSync(process.env.ORDER,'prep\n');console.log('PREP: ck-local run_id=fake');process.exit(Number(process.env.PREP_CODE??0));}
+ // FC 앞뒤 원본 추출 — 실제로 받지 않고 순서만 남긴다.
+ if(args.some(a=>String(a).endsWith('fco-context-frames.ts'))){fs.appendFileSync(process.env.ORDER,'frames:'+args[args.indexOf('--vod')+1]+'\n');process.exit(Number(process.env.FRAMES_CODE??0));}
  const command=args[2];fs.appendFileSync(process.env.ORDER,command+'\n');
  if(args.includes('--game')&&args[args.indexOf('--game')+1]!=='lol')fs.appendFileSync(process.env.GAMES??'/dev/null',command+':'+args[args.indexOf('--game')+1]+'\n');
  const opt=k=>args[args.indexOf(k)+1];
@@ -96,6 +98,13 @@ test('--game fconline 은 FC 스킬·FC 지시문·FC 준비로 돌고, 모든 C
  const f=fixture('ok',{NEXT_N:'1'});try {assert.equal(await done(f.start('--streamer','test','--game','fconline')),0);
   const o=f.order();
   assert.ok(o.includes('skill:fco') && o.includes('fc-prompt'), o);
-  assert.ok(o.indexOf('prep')<o.indexOf('claude'), '준비가 세션보다 먼저 돈다');}finally{f.cleanup();}
+  assert.ok(o.indexOf('prep')<o.indexOf('claude'), '준비가 세션보다 먼저 돈다');
+  assert.ok(o.indexOf('after')<o.indexOf('frames:1'), `진척 확인 뒤에 그 VOD 의 앞뒤 원본을 뽑는다: ${o}`);}finally{f.cleanup();}
+ const h=fixture('ok',{NEXT_N:'2',FRAMES_CODE:'1'});try {assert.equal(await done(h.start('--streamer','test','--game','fconline')),0, '원본 추출이 실패해도 백필은 끝까지 간다');
+  const o=h.order();assert.ok(o.includes('frames:1') && o.includes('frames:2'), o);}finally{h.cleanup();}
+ const k=fixture('ok',{NEXT_N:'1',AFTER_CODE:'4'});try {await done(k.start('--streamer','test','--game','fconline'));
+  assert.ok(!k.order().includes('frames:'), '진척이 없으면 원본을 뽑지 않는다');}finally{k.cleanup();}
+ const n=fixture('ok',{NEXT_N:'1',CK_BACKFILL_FRAMES:''});try {assert.equal(await done(n.start('--streamer','test','--game','fconline')),0);
+  assert.ok(!n.order().includes('frames:'), '빈 CK_BACKFILL_FRAMES 는 끈다');}finally{n.cleanup();}
  const g=fixture('ok');try {assert.equal(await done(g.start('--streamer','test','--game','dota')),1);}finally{g.cleanup();}
 });
