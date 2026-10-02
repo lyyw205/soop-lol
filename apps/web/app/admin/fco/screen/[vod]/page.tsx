@@ -23,7 +23,7 @@ export default async function FcoScreenReviewPage({ params, searchParams }: { pa
     <div className="ck-review-page">
       <header className="ck-review-page-head">
         <div className="min-w-0">
-          <Link href="/admin/fco/screen" className="text-xs text-ink-400 hover:text-ink-200">← FC 화면 경기</Link>
+          <Link href="/admin/fco" className="text-xs text-ink-400 hover:text-ink-200">← FC 맥락 검수</Link>
           <h1 className="mt-1 truncate text-lg font-semibold text-ink-200">{ws.title ?? `VOD ${ws.vod}`}</h1>
           <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
             {ws.streamer && <span>{ws.streamer}</span>}

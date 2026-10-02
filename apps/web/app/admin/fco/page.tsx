@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { getFcoReviewWorkspace, listFcoCrossClues, type FcoReviewUnit } from "@soop-lol/core/lib/games/fconline/context";
+import { listScreenReviewVods, type ScreenVodRow } from "@soop-lol/core/lib/games/fconline/screen-review";
 
 import { Card, EmptyState, Tag } from "@/components/ui";
 import { FCO_STATUS_LABEL } from "@/lib/admin-labels";
@@ -22,6 +23,12 @@ const unitHref = (u: FcoReviewUnit) =>
 
 const STATUS_LABEL = FCO_STATUS_LABEL;
 
+/**
+ * 목록의 한 줄. 맥락 단위(API 경기·대회)와 화면 경기 VOD 가 **한 표**에 선다 — 둘 다 "사람이 확인할 것"이기 때문이다.
+ * 화면 경기는 VOD 하나가 한 줄이고 누르면 3칸 작업대(/admin/fco/screen/<VOD>)로 간다.
+ */
+type Row = { type: "unit"; unit: FcoReviewUnit } | { type: "screen"; vod: ScreenVodRow };
+
 const EMPTY: Record<string, string> = {
   pending: "승인 대기 중인 조사가 없습니다.",
   confirmed: "아직 승인한 단위가 없습니다.",
@@ -36,13 +43,15 @@ export default async function FcoReviewListPage({
   searchParams: Promise<{ view?: string }>;
 }) {
   const { view = "pending" } = await searchParams;
-  const [units, clues] = await Promise.all([getFcoReviewWorkspace(), listFcoCrossClues()]);
+  const [units, clues, screens] = await Promise.all([getFcoReviewWorkspace(), listFcoCrossClues(), listScreenReviewVods()]);
 
-  const groups: Record<string, FcoReviewUnit[]> = {
-    pending: units.filter((u) => u.pending),
-    confirmed: units.filter((u) => u.confirmed),
-    todo: units.filter((u) => u.status === "uninvestigated"),
-    all: units,
+  const unitRows = (list: FcoReviewUnit[]): Row[] => list.map((unit) => ({ type: "unit", unit }));
+  const screenRows = (list: ScreenVodRow[]): Row[] => list.map((vod) => ({ type: "screen", vod }));
+  const groups: Record<string, Row[]> = {
+    pending: [...unitRows(units.filter((u) => u.pending)), ...screenRows(screens.filter((v) => v.completed < v.total))],
+    confirmed: [...unitRows(units.filter((u) => u.confirmed)), ...screenRows(screens.filter((v) => v.completed === v.total))],
+    todo: unitRows(units.filter((u) => u.status === "uninvestigated")),
+    all: [...unitRows(units), ...screenRows(screens)],
   };
   const TABS = [
     { key: "pending", label: "승인 대기" },
@@ -73,15 +82,11 @@ export default async function FcoReviewListPage({
               {t.label} <b className="ml-0.5 font-semibold">{groups[t.key].length}</b>
             </a>
           ))}
-          <a href="/admin/fco/screen" className="ml-auto rounded-full border border-accent-600/40 px-3 py-1 text-xs text-accent-400 hover:bg-accent-600/10"
-            title="VOD 결과 화면에서 읽은 경기 — API 에 없거나 아직 못 이은 경기를 근거 프레임과 대조합니다">
-            화면 경기 검수 →
-          </a>
           {/* ★ 이어서 할 일의 다른 축 — LoL 조사가 봤지만 **아직 어느 경기인지 모르는** 화면. */}
           {clues.length > 0 && (
             <a
               href="/admin/fco?view=clues"
-              className={`rounded-full border px-3 py-1 text-xs ${
+              className={`ml-auto rounded-full border px-3 py-1 text-xs ${
                 current === "clues"
                   ? "border-amber-400/60 bg-amber-400/10 text-amber-400"
                   : "border-amber-400/40 text-amber-400 hover:bg-amber-400/10"
@@ -102,6 +107,11 @@ export default async function FcoReviewListPage({
             넘겨 맥락을 보고 한 번에 승인합니다. 승인하면 admin 도장이 찍혀 자동 조사가 덮지 못합니다.
             <b className="text-ink-200"> 조사 필요</b>는 검수 대상이 아니라 조사 대상입니다 — 조사는{" "}
             <code>fco-match-context</code> 스킬이 합니다.
+          </span>
+          <br />
+          <span className="mt-1 inline-block">
+            <b className="text-ink-200">「화면 경기」 줄</b>은 VOD 결과 화면에서 읽은 경기입니다(VOD 하나가 한 줄). 눌러서 근거 프레임과
+            닉네임·점수를 대조하고, 같은 경기를 API 기록에 잇고, 완료합니다. 완료해도 공개되지는 않습니다.
           </span>
         </div>
 
@@ -126,7 +136,32 @@ export default async function FcoReviewListPage({
           <div className="mt-4"><EmptyState>{EMPTY[current]}</EmptyState></div>
         ) : (
           <ul className="mt-4 divide-y divide-ink-800">
-            {visible.map((u) => {
+            {visible.map((row) => {
+              if (row.type === "screen") {
+                const v = row.vod;
+                const left = v.total - v.completed;
+                return (
+                  <li key={`screen:${v.vod}`} className="flex flex-wrap items-center gap-3 py-3">
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/admin/fco/screen/${v.vod}`} className="block truncate text-sm text-ink-200 hover:text-accent-400">
+                        {v.title ?? `VOD ${v.vod}`}
+                      </Link>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
+                        <span>{kst(v.first_at)} KST</span>
+                        {v.streamer && <span>{v.streamer}</span>}
+                        <span>{v.total}경기</span>
+                        {v.linked > 0 && <span>API 연결 {v.linked}</span>}
+                      </div>
+                    </div>
+                    <span className="flex items-center gap-x-1.5 text-[11px] text-ink-400" title="이 VOD 의 화면 경기 중 사람이 검수를 완료한 수">
+                      완료 <b className={left === 0 ? "text-win" : "text-ink-200"}>{v.completed}/{v.total}</b>
+                    </span>
+                    <Tag tone="neutral">화면 경기</Tag>
+                    {left === 0 ? <Tag tone="accent">확인됨</Tag> : <Tag tone="warn">검수 대기 {left}</Tag>}
+                  </li>
+                );
+              }
+              const u = row.unit;
               const frames = u.evidences.filter((e) => e.frame_path).length;
               return (
                 <li key={u.id} className="flex flex-wrap items-center gap-3 py-3">
