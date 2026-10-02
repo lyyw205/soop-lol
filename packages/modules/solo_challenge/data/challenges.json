@@ -4,15 +4,36 @@
     {
       "slug": "ttgyo-duo",
       "title": "뜨교듀오 마스터 도전",
-      "summary": "뜨뜨뜨뜨와 김민교가 새 계정으로 함께 솔로랭크 마스터를 노리는 도전.",
-      "goal": { "tier": "MASTER" },
-      "since": "2026-09-05",
+      "summary": "뜨뜨뜨뜨와 김민교가 새 계정으로 함께 솔로랭크 마스터를 노리는 도전. 2026-08-21 \"뜨교듀오 2년만에 뭉쳤습니다 마스터 달리기 3일컷 출발\" 방송에서 시작했다.",
+      "goal": {
+        "tier": "MASTER"
+      },
+      "since": "2026-08-21",
       "members": [
-        { "streamer": "seokwngud", "name": "뜨뜨뜨뜨", "role": "탑", "color": "orange",
-          "puuid": "jAu-Fy-yQ96GJFQtR4mbyYIiumZdM8v3dmyaPu4dQuAslWnjeiGfKLJmu2-yQe79gBdWbKDpZmTivA" },
-        { "streamer": "kimmingyo", "name": "김민교", "role": "미드", "color": "blue",
-          "puuid": "hmeMsJn7_kn3-w6SLpjVBC59hkbzfdiTi6hOWv2aSpbIgYBJCnf8hUigsdf7seukt7x0eV610pO9fw" }
+        {
+          "streamer": "seokwngud",
+          "name": "뜨뜨뜨뜨",
+          "role": "탑",
+          "color": "orange",
+          "puuid": "jAu-Fy-yQ96GJFQtR4mbyYIiumZdM8v3dmyaPu4dQuAslWnjeiGfKLJmu2-yQe79gBdWbKDpZmTivA",
+          "start": {
+            "tier": "SILVER",
+            "division": "I",
+            "lp": 40,
+            "date": "2026-08-22",
+            "note": "배치 5판 직후 6판 3승 3패",
+            "source": "https://vod.sooplive.com/player/204983739?change_second=13800"
+          }
+        },
+        {
+          "streamer": "kimmingyo",
+          "name": "김민교",
+          "role": "미드",
+          "color": "blue",
+          "puuid": "hmeMsJn7_kn3-w6SLpjVBC59hkbzfdiTi6hOWv2aSpbIgYBJCnf8hUigsdf7seukt7x0eV610pO9fw"
+        }
       ]
     }
-  ]
+  ],
+  "//start": "start 는 방송 화면에서 확인한 출발 랭크다 — Riot 은 과거 랭크를 주지 않는다. 확인 못 했으면 적지 않는다(화면이 '출발 기록 없음'으로 그린다)."
 }

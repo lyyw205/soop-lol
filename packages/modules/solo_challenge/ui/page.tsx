@@ -1,14 +1,20 @@
 /**
  * 솔랭 도전 화면. host 가 등록부의 경로(/lol/challenges, /lol/challenges/[slug])를 보고 여기를 띄운다.
  * 틀(nav·본문 폭)은 host 가 씌운다 — 여기는 내용만 그린다. 거르기는 주소(?f=)로 한다(클라이언트 상태 없음).
+ * 챔피언 표·판 목록은 전적 사이트(OP.GG)와 같은 배치를 따른다 — 보는 사람이 이미 익숙한 모양이다.
  */
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
-import { championById, championIconPath, profileHref } from "@soop-lol/core/lib/contract";
+import {
+  championById, championIconPath, itemIconPath, itemName, profileHref, runeIconPath, runeName, spellIconPath, spellName,
+} from "@soop-lol/core/lib/contract";
 
-import { getChallenge, listChallenges, progressAt, type ChallengeView, type GameRow, type MemberLine } from "../server/index.ts";
+import {
+  getChallenge, listChallenges, progressAt,
+  type ChallengeView, type ChampRow, type GameRow, type Line, type MemberLine,
+} from "../server/index.ts";
 import { challengeHref, challengesHref } from "./paths.ts";
 import "./challenge.css";
 
@@ -21,13 +27,24 @@ export async function generateMetadata({ params }: Props) {
   return { title: (await load(params.slug))?.def.title ?? "솔랭 도전" };
 }
 
+const TIERS = ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND"] as const;
 const TIER_KO: Record<string, string> = {
   IRON: "아이언", BRONZE: "브론즈", SILVER: "실버", GOLD: "골드", PLATINUM: "플래티넘", EMERALD: "에메랄드",
   DIAMOND: "다이아몬드", MASTER: "마스터", GRANDMASTER: "그랜드마스터", CHALLENGER: "챌린저",
 };
-const rankText = (m: MemberLine) => (m.rank?.tier ? `${TIER_KO[m.rank.tier] ?? m.rank.tier}${m.rank.division && !["MASTER", "GRANDMASTER", "CHALLENGER"].includes(m.rank.tier) ? ` ${m.rank.division}` : ""} ${m.rank.lp ?? 0}LP` : "랭크 기록 없음");
-const pctText = (v: number) => `${Math.round(v * 100)}%`;
-const fmt = (v: number, d = 0) => (Number.isInteger(v) ? String(v) : v.toFixed(d));
+const APEX = ["MASTER", "GRANDMASTER", "CHALLENGER"];
+const rankText = (tier: string | null | undefined, division: string | null | undefined, lp: number | null | undefined) =>
+  tier ? `${TIER_KO[tier] ?? tier}${division && !APEX.includes(tier) ? ` ${division}` : ""} ${lp ?? 0}LP` : "랭크 기록 없음";
+const tierAt = (abs: number) => TIER_KO[TIERS[Math.floor(abs / 400)]] ?? "";
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+const colorVars = (v: ChallengeView) => Object.fromEntries(v.def.members.map((m, i) => [`--sc-m${i}`, `var(--sc-${m.color})`])) as React.CSSProperties;
+
+/** KST 짧은 시각 — toLocaleString 은 서버·브라우저 로케일이 달라 쓰지 않는다. */
+function kstShort(iso: string): string {
+  const d = new Date(Date.parse(iso) + 9 * 3600_000);
+  return `${d.getUTCMonth() + 1}.${String(d.getUTCDate()).padStart(2, "0")} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+const dayText = (day: string) => `${Number(day.slice(5, 7))}.${day.slice(8)}`;
 
 export default async function SoloChallengePage({ params, searchParams }: Props) {
   if (!params?.slug) {
@@ -38,10 +55,10 @@ export default async function SoloChallengePage({ params, searchParams }: Props)
           <p className="sc-muted">스트리머들이 목표 티어를 정하고 솔로랭크를 올리는 도전을 모았습니다.</p></header>
         <div className="sc-list">
           {all.map((v) => (
-            <Link key={v.def.slug} href={challengeHref(v.def.slug)} className="sc-card">
+            <Link key={v.def.slug} href={challengeHref(v.def.slug)} className="sc-card" style={colorVars(v)}>
               <b>{v.def.title}</b>
               <span className="sc-muted">{v.def.summary}</span>
-              <Ladder view={v} compact />
+              <Progress view={v} compact />
             </Link>
           ))}
         </div>
@@ -52,7 +69,7 @@ export default async function SoloChallengePage({ params, searchParams }: Props)
   if (!v) notFound();
   const f = typeof searchParams.f === "string" ? searchParams.f : "all";
   return (
-    <div className="sc-page" style={Object.fromEntries(v.def.members.map((m, i) => [`--sc-m${i}`, `var(--sc-${m.color})`])) as React.CSSProperties}>
+    <div className="sc-page" style={colorVars(v)}>
       <header className="sc-head">
         <Link href={challengesHref()} className="sc-back">← 솔랭 도전</Link>
         <h1>{v.def.title}</h1>
@@ -61,84 +78,68 @@ export default async function SoloChallengePage({ params, searchParams }: Props)
 
       <section aria-labelledby="sc-now">
         <h2 id="sc-now">지금 어디까지 왔나</h2>
-        <div className="sc-panel"><Ladder view={v} /></div>
-        <p className="sc-note">랭크는 하루 한 번 찍는 스냅샷 기준입니다({v.members.map((m) => m.rank?.date).filter(Boolean)[0] ?? "기록 없음"}). 1구간 100LP로 계산했습니다.</p>
+        <div className="sc-panel"><Progress view={v} /></div>
+        <p className="sc-note">지금 랭크는 하루 한 번 찍는 스냅샷({v.members.map((m) => m.rank?.date).filter(Boolean)[0] ?? "기록 없음"}) 기준, 출발점은 방송 화면에서 확인한 값입니다. Riot 은 과거 랭크를 주지 않습니다.</p>
+      </section>
+
+      <section aria-labelledby="sc-flow">
+        <h2 id="sc-flow">승패 흐름</h2>
+        <div className="sc-panel"><Flow view={v} /></div>
       </section>
 
       <section aria-labelledby="sc-days">
-        <h2 id="sc-days">방송한 날</h2>
-        <div className="sc-days">
-          {[...v.days].reverse().map((d) => (
-            <div key={d.day} className="sc-day">
-              <span className="sc-muted sc-small">{d.day.slice(5).replace("-", ".")}</span>
-              <b className="sc-num">{d.wins}승 {d.losses}패</b>
-              <span className="sc-pips">{d.results.map((w, i) => <i key={i} className={w ? "w" : "l"} />)}</span>
+        <h2 id="sc-days">방송 일지</h2>
+        <div className="sc-tablewrap">
+          <table className="sc-table">
+            <thead><tr><th>날짜</th><th>판</th><th>승패</th><th>승률</th>{v.def.members.map((m) => <th key={m.puuid}>{m.name} 주력</th>)}<th>그날 최고의 판</th></tr></thead>
+            <tbody>
+              {[...v.days].reverse().map((d) => (
+                <tr key={d.day}>
+                  <td className="sc-num">{dayText(d.day)}</td>
+                  <td className="sc-num">{d.games}</td>
+                  <td className="sc-num"><span className="sc-w">{d.wins}승</span> <span className="sc-l">{d.losses}패</span></td>
+                  <td className="sc-num">{Math.round((d.wins / d.games) * 100)}%</td>
+                  {d.topChamps.map((c, i) => <td key={i}>{c ?? <span className="sc-faint">—</span>}</td>)}
+                  <td>{d.best ? <a href={`#g-${d.best.matchId}`}>{d.best.who} · {d.best.text}</a> : <span className="sc-faint">이긴 판 없음</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {v.chemistry && <Chemistry view={v} />}
+
+      <section aria-labelledby="sc-rec">
+        <h2 id="sc-rec">기록실</h2>
+        <div className="sc-records">
+          {v.records.map((r) => (
+            <div key={r.key} className="sc-record">
+              <span className="sc-label">{r.label}</span>
+              <b className="sc-num">{r.value}</b>
+              <span className="sc-muted sc-small">
+                {[r.who, r.champ, r.at ? kstShort(r.at) : null, r.note].filter(Boolean).join(" · ")}
+                {r.matchId && <> · <a href={`#g-${r.matchId}`}>판 보기</a></>}
+              </span>
             </div>
           ))}
         </div>
-        <p className="sc-note">파란 칸은 승, 빨간 칸은 패, 왼쪽부터 시간 순 · 최장 연승 {v.record.bestWinStreak} · 최장 연패 {v.record.worstLoseStreak}</p>
+        <p className="sc-note">이 도전의 판만 셉니다. 다시하기(5분 미만)는 빼고 셉니다.</p>
       </section>
-
-      {v.def.members.length === 2 && (
-        <section aria-labelledby="sc-chem">
-          <h2 id="sc-chem">둘의 케미 · 누가 더 했나</h2>
-          <div className="sc-panel sc-chem">
-            <div className="sc-chem-head">
-              <Who v={v} i={0} />
-              <span className="sc-muted sc-num">같이 {v.record.together}판 {v.record.togetherWins}승 {v.record.together - v.record.togetherWins}패</span>
-              <Who v={v} i={1} right />
-            </div>
-            <div className="sc-vs">
-              {([
-                ["팀 딜 비중(평균)", v.stats.map((s) => s.damageShare), "%"],
-                ["킬 관여율(평균)", v.stats.map((s) => s.kp), "%"],
-                ["KDA", v.stats.map((s) => s.kda), ""],
-                ["분당 딜", v.stats.map((s) => s.dpm), ""],
-                ["솔로킬(합계)", v.stats.map((s) => s.soloKills), ""],
-                ["둘 중 딜 더 넣은 판", v.stats.map((s) => s.moreDamage), "판"],
-              ] as [string, number[], string][]).map(([label, [a, b], u]) => {
-                const max = Math.max(a, b) || 1;
-                const show = (x: number) => `${label === "KDA" ? x.toFixed(2) : fmt(Math.round(x))}${u}`;
-                return [
-                  <span key={`${label}a`} className="sc-num sc-r">{show(a)}</span>,
-                  <span key={`${label}l`} className="sc-label">{label}</span>,
-                  <span key={`${label}b`} className="sc-num">{show(b)}</span>,
-                  <span key={`${label}ba`} className="sc-bar sc-left"><i style={{ width: `${(a / max) * 100}%` }} /></span>,
-                  <span key={`${label}s`} />,
-                  <span key={`${label}bb`} className="sc-bar sc-right"><i style={{ width: `${(b / max) * 100}%` }} /></span>,
-                ];
-              })}
-            </div>
-          </div>
-        </section>
-      )}
 
       <section aria-labelledby="sc-champ">
         <h2 id="sc-champ">챔피언</h2>
         <div className="sc-grid">
-          {v.stats.map((s, i) => (
-            <div key={i} className="sc-panel sc-champs">
-              <Who v={v} i={i} />
-              {s.champs.slice(0, 6).map((c) => (
-                <div key={c.id} className="sc-crow">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- 정적 챔피언 아이콘 */}
-                  {championById(c.id) ? <img src={championIconPath(championById(c.id)!)} alt="" width={24} height={24} /> : <span />}
-                  <span>{c.name}</span>
-                  <span className="sc-wl" title={`${c.wins}승 ${c.losses}패`}><i className="w" style={{ width: `${(c.wins / (c.wins + c.losses)) * 100}%` }} /><i className="l" style={{ width: `${(c.losses / (c.wins + c.losses)) * 100}%` }} /></span>
-                  <span className="sc-num sc-muted sc-r">{c.wins}-{c.losses} ({pctText(c.shrunk)})</span>
-                </div>
-              ))}
-            </div>
-          ))}
+          {v.stats.map((s, i) => <ChampTable key={i} view={v} i={i} rows={s.champs} />)}
         </div>
-        <p className="sc-note">괄호 안 승률은 판 수가 적으면 50%쪽으로 당긴 값입니다. 3승 0패를 "승률 100%"로 쓰지 않으려는 것입니다.</p>
+        <p className="sc-note">승률은 판 수가 적으면 50%쪽으로 당긴 값입니다(4판을 반반으로 더함). 3승 0패를 "승률 100%"로 쓰지 않습니다.</p>
       </section>
 
       {v.coPlayers.length > 0 && (
         <section aria-labelledby="sc-met">
           <h2 id="sc-met">솔랭에서 만난 스트리머</h2>
           <div className="sc-panel sc-met">
-            {v.coPlayers.slice(0, 12).map((c) => (
+            {v.coPlayers.slice(0, 16).map((c) => (
               <Link key={c.slug} href={profileHref("lol", c.slug)} className="sc-chip">
                 {c.name} <span className="sc-muted">같은 팀 {c.ally} · 상대 {c.enemy}</span>
               </Link>
@@ -154,24 +155,9 @@ export default async function SoloChallengePage({ params, searchParams }: Props)
             <Link key={k} href={challengeHref(v.def.slug, k === "all" ? undefined : { f: k })} aria-current={f === k ? "true" : undefined} scroll={false}>{label}</Link>
           ))}
         </nav>
-        <div className="sc-tablewrap">
-          <table className="sc-table">
-            <thead><tr><th>시각(KST)</th><th>결과</th><th>시간</th>{v.def.members.map((m) => <th key={m.puuid}>{m.name}</th>)}<th>그 판의 이야기</th></tr></thead>
-            <tbody>
-              {[...v.games].reverse().filter((g) => keep(g, f)).map((g) => (
-                <tr key={g.matchId}>
-                  <td className="sc-num">{kstShort(g.at)}</td>
-                  <td className={`sc-res ${g.win ? "w" : "l"}`}>{g.win ? "승" : "패"}</td>
-                  <td className="sc-num">{g.minutes}분</td>
-                  {g.lines.map((l, i) => (
-                    <td key={i}>{l ? <>{l.champName} <span className="sc-num">{l.kills}/{l.deaths}/{l.assists}</span> <span className="sc-faint">관여 {l.kp}%</span></> : <span className="sc-faint">—</span>}</td>
-                  ))}
-                  <td>{g.tags.length ? g.tags.map((t) => <span key={t} className={`sc-tag${/솔킬/.test(t) ? " hot" : ""}`}>{t}</span>) : <span className="sc-faint">—</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ol className="sc-games">
+          {[...v.games].reverse().filter((g) => keep(g, f)).map((g) => <GameCard key={g.matchId} view={v} g={g} />)}
+        </ol>
         {v.riotGames != null && v.riotGames > v.record.games && (
           <p className="sc-note">Riot 기준 시즌 {v.riotGames}판 중 {v.record.games}판이 수집됐습니다. 나머지는 수집되는 대로 늘어납니다.</p>
         )}
@@ -187,57 +173,238 @@ function keep(g: GameRow, f: string): boolean {
   return true;
 }
 
-/** KST 짧은 시각 — toLocaleString 은 서버·브라우저 로케일이 달라 쓰지 않는다. */
-function kstShort(iso: string): string {
-  const d = new Date(Date.parse(iso) + 9 * 3600_000);
-  return `${d.getUTCMonth() + 1}.${String(d.getUTCDate()).padStart(2, "0")} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-}
-
-function Who({ v, i, right = false }: { v: ChallengeView; i: number; right?: boolean }) {
-  const m = v.def.members[i];
+/* ── 진행도: 같은 눈금 위에 사람마다 한 줄 — 출발점부터 지금까지 채우고, 지금부터 목표까지 비운다 ── */
+function Progress({ view, compact = false }: { view: ChallengeView; compact?: boolean }) {
+  const at = (abs: number) => progressAt(abs, view.floorAbs, view.goalAbs);
+  const majors: number[] = [];
+  for (let t = Math.ceil(view.floorAbs / 400) * 400; t < view.goalAbs; t += 400) majors.push(t);
   return (
-    <Link href={profileHref("lol", m.streamer)} className={`sc-who${right ? " sc-r" : ""}`}>
-      {!right && <span className="sc-dot" style={{ background: `var(--sc-m${i})` }} />}
-      {m.name} <span className="sc-faint">· {m.role}</span>
-      {right && <span className="sc-dot" style={{ background: `var(--sc-m${i})` }} />}
-    </Link>
+    <div className="sc-progress">
+      {view.members.map((m: MemberLine, i) => {
+        const now = m.rank?.abs ?? null;
+        const start = m.startAbs;
+        const from = start != null && now != null ? Math.min(start, now) : now;
+        return (
+          <div key={i} className="sc-prow">
+            <div className="sc-pwho">
+              <span className="sc-who"><span className="sc-dot" style={{ background: `var(--sc-m${i})` }} />{m.member.name}</span>
+              {!compact && <span className="sc-muted sc-small">{m.member.role}</span>}
+            </div>
+            <div className="sc-ptrack" role="img"
+              aria-label={`${m.member.name}: ${m.member.start ? `출발 ${rankText(m.member.start.tier, m.member.start.division, m.member.start.lp)}, ` : ""}지금 ${rankText(m.rank?.tier, m.rank?.division, m.rank?.lp)}, 목표까지 ${m.toGoal ?? "?"}LP`}>
+              {majors.map((t) => <span key={t} className="sc-pmajor" style={{ left: `${at(t)}%` }} />)}
+              {from != null && now != null && (
+                <span className="sc-pfill" style={{ left: `${at(from)}%`, width: `${Math.max(0.6, at(now) - at(from))}%`, background: `var(--sc-m${i})` }} />
+              )}
+              {start != null && <span className="sc-pstart" style={{ left: `${at(start)}%`, borderColor: `var(--sc-m${i})` }} title="출발" />}
+              {now != null && <span className="sc-pnow" style={{ left: `${at(now)}%`, background: `var(--sc-m${i})` }} title="지금" />}
+            </div>
+            <div className="sc-ptext">
+              <b className="sc-num">{rankText(m.rank?.tier, m.rank?.division, m.rank?.lp)}</b>
+              <span className="sc-muted sc-small">
+                {m.gained != null ? <><b className="sc-num" style={{ color: `var(--sc-m${i})` }}>{m.gained >= 0 ? "+" : ""}{m.gained}LP</b> 왔음 · </> : <>출발 기록 없음 · </>}
+                {m.toGoal ? <><b className="sc-num">{m.toGoal}</b>LP 남음</> : "목표 달성"}
+              </span>
+              {!compact && m.member.start && (
+                <span className="sc-faint sc-small">출발 {rankText(m.member.start.tier, m.member.start.division, m.member.start.lp)} · {m.member.start.date}
+                  {m.member.start.source && <> · <a href={m.member.start.source} target="_blank" rel="noreferrer">방송 화면 ↗</a></>}</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <div className="sc-pscale" aria-hidden="true">
+        <span />
+        <div className="sc-pticks">
+          {majors.map((t) => <span key={t} style={{ left: `${at(t)}%` }}>{tierAt(t)}</span>)}
+          <span className="goal" style={{ left: "100%" }}>{TIER_KO[view.def.goal.tier] ?? view.def.goal.tier}</span>
+        </div>
+        <span />
+      </div>
+    </div>
   );
 }
 
-/** 진행도 — 막대 하나에 멤버 모두의 위치. 왼쪽 끝은 가장 낮은 멤버가 든 티어의 시작, 오른쪽 끝은 목표. */
-function Ladder({ view, compact = false }: { view: ChallengeView; compact?: boolean }) {
-  const span = view.goalAbs - view.floorAbs;
-  const ticks = Array.from({ length: span / 100 + 1 }, (_, k) => view.floorAbs + k * 100);
-  const major = ticks.filter((t) => t % 400 === 0);
-  const label = (abs: number) => {
-    if (abs >= view.goalAbs) return TIER_KO[view.def.goal.tier] ?? view.def.goal.tier;
-    const tiers = ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND"];
-    return `${TIER_KO[tiers[Math.floor(abs / 400)]] ?? ""} IV`;
-  };
-  const placed = view.members.map((m, i) => ({ m, i, at: m.rank?.abs != null ? progressAt(m.rank.abs, view.floorAbs, view.goalAbs) : null }));
+/* ── 승패 흐름: 누적(승−패) 선, 날짜마다 구분선 ── */
+function Flow({ view }: { view: ChallengeView }) {
+  const pts = view.flow;
+  if (!pts.length) return <p className="sc-muted">아직 판이 없습니다.</p>;
+  const W = 900, H = 220, P = { l: 34, r: 12, t: 14, b: 26 };
+  const max = Math.max(1, ...pts.map((p) => p.net)), min = Math.min(-1, ...pts.map((p) => p.net));
+  const step = (W - P.l - P.r) / pts.length;
+  const x = (i: number) => P.l + step * (i + 0.5);
+  const y = (n: number) => P.t + ((H - P.t - P.b) * (max - n)) / (max - min);
+  const path = pts.map((p, k) => `${k ? "L" : "M"}${x(p.i).toFixed(1)},${y(p.net).toFixed(1)}`).join(" ");
+  const dayStarts = pts.filter((p, k) => k === 0 || pts[k - 1].day !== p.day);
+  const ticks = Array.from(new Set([max, 0, min]));
+  const last = pts.at(-1)!;
   return (
-    <div className="sc-ladder" style={Object.fromEntries(view.def.members.map((m, i) => [`--sc-m${i}`, `var(--sc-${m.color})`])) as React.CSSProperties}>
-      {!compact && (
-        <div className="sc-tags" aria-hidden="true">
-          {placed.map(({ m, i, at }) => at != null && <span key={i} style={{ left: `${at}%`, color: `var(--sc-m${i})` }}>{m.member.name} ▾</span>)}
+    <div className="sc-flow">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`누적 승패 그래프: 최고 ${max}, 최저 ${min}, 지금 ${last.net}`}>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={P.l} x2={W - P.r} y1={y(t)} y2={y(t)} className={t === 0 ? "zero" : "grid"} />
+            <text x={P.l - 6} y={y(t) + 4} textAnchor="end" className="tick">{t > 0 ? `+${t}` : t}</text>
+          </g>
+        ))}
+        {dayStarts.map((p) => (
+          <g key={p.day}>
+            <line x1={x(p.i) - step / 2} x2={x(p.i) - step / 2} y1={P.t} y2={H - P.b} className="day" />
+            <text x={x(p.i) - step / 2 + 3} y={H - 8} className="tick">{dayText(p.day)}</text>
+          </g>
+        ))}
+        <path d={path} className="line" />
+        {pts.map((p) => <circle key={p.i} cx={x(p.i)} cy={y(p.net)} r={2.6} className={p.win ? "w" : "l"} />)}
+        <circle cx={x(last.i)} cy={y(last.net)} r={5} className="end" />
+      </svg>
+      <p className="sc-note">이기면 한 칸 오르고 지면 한 칸 내려갑니다 · 지금 {last.net >= 0 ? "+" : ""}{last.net} · 최장 연승 {view.record.bestWinStreak} · 최장 연패 {view.record.worstLoseStreak}</p>
+    </div>
+  );
+}
+
+/* ── 케미: 같이 만든 결과 ── */
+function Chemistry({ view }: { view: ChallengeView }) {
+  const c = view.chemistry!;
+  const [a, b] = view.def.members;
+  const tile = (label: string, x: { games: number; wins: number }, hint: string) => (
+    <div className="sc-tile">
+      <span className="sc-label">{label}</span>
+      <b className="sc-num">{x.games}판 <span className="sc-w">{x.wins}승</span> <span className="sc-l">{x.games - x.wins}패</span></b>
+      <span className="sc-faint sc-small">{hint}</span>
+    </div>
+  );
+  return (
+    <section aria-labelledby="sc-chem">
+      <h2 id="sc-chem">둘의 케미</h2>
+      <div className="sc-tiles">
+        {tile("둘 다 잘한 판", c.bothGood, "둘 다 KDA 3 이상")}
+        {tile("한 명이 캐리한 판", c.oneCarry, "한 명만 KDA 3 이상")}
+        {tile("둘 다 부진한 판", c.bothBad, "둘 다 KDA 1.5 미만")}
+      </div>
+      <div className="sc-grid">
+        <div className="sc-panel sc-chemlist">
+          <p className="sc-label">서로 돕기 (같이 한 {c.together}판)</p>
+          <div className="sc-chemrow"><span>초반 다른 라인 킬 관여</span><b className="sc-num">{a.name} {c.roam[0]} · {b.name} {c.roam[1]}</b></div>
+          <div className="sc-chemrow"><span>아군을 죽음에서 살림</span><b className="sc-num">{a.name} {c.saves[0]} · {b.name} {c.saves[1]}</b></div>
+          <div className="sc-chemrow"><span>아군과 함께 잡은 킬(판당)</span><b className="sc-num">{a.name} {c.pickWithAlly[0].toFixed(1)} · {b.name} {c.pickWithAlly[1].toFixed(1)}</b></div>
+          <p className="sc-faint sc-small">Riot 이 판마다 주는 값입니다. "아군"은 듀오 파트너만이 아니라 팀원 누구든입니다.</p>
+        </div>
+        <div className="sc-panel sc-chemlist">
+          <p className="sc-label">조합 ({a.role} + {b.role})</p>
+          {c.combos.slice(0, 6).map((x) => (
+            <div key={x.champs.join("+")} className="sc-chemrow">
+              <span>{x.champs.join(" + ")}</span>
+              <b className="sc-num">{x.wins}승 {x.games - x.wins}패 <span className="sc-faint">({pct(x.shrunk)})</span></b>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── 챔피언 표(전적 사이트 형식) ── */
+function ChampTable({ view, i, rows }: { view: ChallengeView; i: number; rows: ChampRow[] }) {
+  const m = view.def.members[i];
+  return (
+    <div className="sc-tablewrap">
+      <table className="sc-table sc-champtable">
+        <caption><span className="sc-dot" style={{ background: `var(--sc-m${i})` }} />{m.name} · {m.role}</caption>
+        <thead><tr><th>챔피언</th><th>판</th><th>승률</th><th>KDA</th><th>CS</th><th>딜/분</th></tr></thead>
+        <tbody>
+          {rows.slice(0, 10).map((c) => {
+            const champ = championById(c.id);
+            return (
+              <tr key={c.id}>
+                <td><span className="sc-champcell">{champ && <img src={championIconPath(champ)} alt="" width={28} height={28} />}{c.name}</span></td>
+                <td className="sc-num">{c.games}</td>
+                <td className="sc-num"><b className={c.shrunk >= 0.5 ? "sc-w" : "sc-l"}>{pct(c.shrunk)}</b> <span className="sc-faint">{c.wins}승 {c.losses}패</span></td>
+                <td className="sc-num"><b>{c.kda.toFixed(2)}</b> <span className="sc-faint">{(c.kills / c.games).toFixed(1)}/{(c.deaths / c.games).toFixed(1)}/{(c.assists / c.games).toFixed(1)}</span></td>
+                <td className="sc-num">{c.csPerMin.toFixed(1)}/분</td>
+                <td className="sc-num">{Math.round(c.dmgPerMin).toLocaleString("ko-KR")}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {rows.length > 10 && <p className="sc-more">그 밖의 챔피언 {rows.length - 10}개 · {rows.slice(10).reduce((n, c) => n + c.games, 0)}판</p>}
+    </div>
+  );
+}
+
+/* ── 판 카드(전적 사이트 형식) ── */
+function Icon({ src, label, size = 22, round = false }: { src: string | null; label: string | null; size?: number; round?: boolean }) {
+  return src
+    ? <img src={src} alt={label ?? ""} title={label ?? undefined} width={size} height={size} className={round ? "round" : undefined} />
+    : <span className="sc-iconblank" style={{ width: size, height: size }} />;
+}
+
+function PlayerLine({ name, i, l, minutes }: { name: string; i: number; l: Line; minutes: number }) {
+  const champ = championById(l.champId);
+  const six = l.items.slice(0, 6);
+  const items = [...six, ...Array<number>(Math.max(0, 6 - six.length)).fill(0)];
+  return (
+    <div className="sc-pline">
+      <span className="sc-pname" style={{ color: `var(--sc-m${i})` }}>{name}</span>
+      <span className="sc-build">
+        <span className="sc-champ">{champ && <img src={championIconPath(champ)} alt={l.champName} title={l.champName} width={44} height={44} />}</span>
+        <span className="sc-stack">
+          <Icon src={spellIconPath(l.spells[0])} label={spellName(l.spells[0])} />
+          <Icon src={spellIconPath(l.spells[1])} label={spellName(l.spells[1])} />
+        </span>
+        <span className="sc-stack">
+          <Icon src={runeIconPath(l.keystone)} label={runeName(l.keystone)} round />
+          <Icon src={runeIconPath(l.subStyle)} label={runeName(l.subStyle)} round />
+        </span>
+      </span>
+      <span className="sc-kda">
+        <b className="sc-num">{l.kills} / <span className="sc-l">{l.deaths}</span> / {l.assists}</b>
+        <span className="sc-muted sc-small sc-num">{((l.kills + l.assists) / Math.max(1, l.deaths)).toFixed(2)} KDA</span>
+      </span>
+      <span className="sc-sub sc-small sc-num">
+        <span>킬관여 {l.kp}%</span>
+        <span>CS {l.cs} ({(l.cs / Math.max(1, minutes)).toFixed(1)})</span>
+        <span>딜 {l.damage.toLocaleString("ko-KR")}</span>
+      </span>
+      <span className="sc-items">
+        {items.map((id, k) => <Icon key={k} src={id ? itemIconPath(id) : null} label={id ? itemName(id) : null} />)}
+        <Icon src={l.items[6] ? itemIconPath(l.items[6]) : null} label={l.items[6] ? itemName(l.items[6]) : null} round />
+      </span>
+    </div>
+  );
+}
+
+function GameCard({ view, g }: { view: ChallengeView; g: GameRow }) {
+  const teams = [g.teamId, g.teamId === 100 ? 200 : 100].map((t) => g.lineup.filter((s) => s.teamId === t));
+  return (
+    <li id={`g-${g.matchId}`} className={`sc-game ${g.win ? "win" : "loss"}`}>
+      <div className="sc-gmeta">
+        <b className={g.win ? "sc-w" : "sc-l"}>{g.win ? "승리" : "패배"}</b>
+        <span className="sc-muted sc-small">솔로랭크</span>
+        <span className="sc-muted sc-small sc-num">{kstShort(g.at)}</span>
+        <span className="sc-muted sc-small sc-num">{Math.floor(g.seconds / 60)}분 {g.seconds % 60}초{g.surrender ? " · 서렌" : ""}</span>
+      </div>
+      <div className="sc-glines">
+        {g.lines.map((l, i) => l && <PlayerLine key={i} name={view.def.members[i].name} i={i} l={l} minutes={g.minutes} />)}
+        {g.tags.length > 0 && <div className="sc-tags">{g.tags.map((t) => <span key={t} className={`sc-tag${/솔킬/.test(t) ? " hot" : ""}`}>{t}</span>)}</div>}
+      </div>
+      {g.lineup.length > 0 && (
+        <div className="sc-lineup" aria-label="양 팀">
+          {teams.map((team, k) => (
+            <ul key={k}>
+              {team.map((s, j) => {
+                const champ = championById(s.champId);
+                return (
+                  <li key={j} className={s.member != null ? "me" : undefined}>
+                    {champ && <img src={championIconPath(champ)} alt="" width={16} height={16} />}
+                    {s.slug ? <Link href={profileHref("lol", s.slug)}>{s.name}</Link> : <span className="sc-faint">{champ?.name ?? "?"}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          ))}
         </div>
       )}
-      <div className="sc-track" role="img" aria-label={view.members.map((m) => `${m.member.name} ${rankText(m)}, 목표까지 ${m.rank?.toGoal ?? "?"}LP`).join(" · ")}>
-        {ticks.slice(1, -1).map((t) => <span key={t} className={`sc-seg${t % 400 === 0 ? " major" : ""}`} style={{ left: `${progressAt(t, view.floorAbs, view.goalAbs)}%` }} />)}
-        {placed.map(({ i, at }) => at != null && <span key={i} className="sc-me" style={{ left: `calc(${at}% - 2px)`, background: `var(--sc-m${i})` }} />)}
-      </div>
-      <div className="sc-ticks">
-        {[...major.filter((t) => t < view.goalAbs), view.goalAbs].map((t) => <span key={t} style={{ left: `${progressAt(t, view.floorAbs, view.goalAbs)}%` }}>{label(t)}</span>)}
-      </div>
-      <div className="sc-legend">
-        {view.members.map((m, i) => (
-          <div key={i}>
-            <span className="sc-who"><span className="sc-dot" style={{ background: `var(--sc-m${i})` }} />{m.member.name}</span>
-            <div className="sc-bigline"><b className="sc-big">{rankText(m)}</b>{m.rank && <span className="sc-muted">{m.rank.toGoal ? <>목표까지 <b className="sc-num">{m.rank.toGoal}</b>LP</> : "목표 달성"}</span>}</div>
-            {!compact && m.rank?.wins != null && <span className="sc-muted sc-small sc-num">시즌 {m.rank.wins}승 {m.rank.losses}패</span>}
-          </div>
-        ))}
-      </div>
-    </div>
+    </li>
   );
 }

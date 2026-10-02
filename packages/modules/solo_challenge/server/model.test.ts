@@ -14,6 +14,7 @@ const row = (match: string, puuid: string, win: boolean, ch: Record<string, numb
   match_id: match, puuid, streamer_id: puuid, queue_id: 420, game_creation: new Date(at), game_duration: 1800, ended_in_surrender: false,
   team_id: 100, team_position: "TOP", champion_id: 75, champion_name: "Nasus", outcome: win ? "win" : "loss",
   kills: 3, deaths: 2, assists: 4, cs: 200, damage_to_champions: 20000, vision_score: 20, challenges: ch,
+  items: [], summoner1_id: 4, summoner2_id: 12, keystone_id: 8010, sub_style_id: 8400,
 });
 
 test("진행 막대 위치 — 바닥과 목표 사이 비율, 넘치면 끝에 붙는다", () => {
@@ -22,14 +23,16 @@ test("진행 막대 위치 — 바닥과 목표 사이 비율, 넘치면 끝에 
   assert.equal(progressAt(1900, 2000, 2800), 0);
 });
 
-test("목표까지 남은 LP·바닥은 가장 낮은 멤버의 티어 시작", () => {
-  const v = buildChallenge(def, [], [
+test("목표까지 남은 LP·출발점에서 온 LP·바닥은 가장 낮은 위치의 티어 시작", () => {
+  const withStart: ChallengeDef = { ...def, members: [{ ...def.members[0], start: { tier: "SILVER", division: "I", lp: 40, date: "2026-08-22" } }, def.members[1]] };
+  const v = buildChallenge(withStart, [], [
     { puuid: "pa", streamer_id: "a", snapshot_date: "2026-10-02", tier: "EMERALD", division: "III", league_points: 95, wins: 56, losses: 53, lp_absolute: 2195 },
     { puuid: "pb", streamer_id: "b", snapshot_date: "2026-10-02", tier: "EMERALD", division: "IV", league_points: 0, wins: 56, losses: 53, lp_absolute: 2000 },
   ], []);
   assert.equal(v.goalAbs, 2800);
-  assert.deepEqual(v.members.map((m) => m.rank?.toGoal), [605, 800]);
-  assert.equal(v.floorAbs, 2000);
+  assert.deepEqual(v.members.map((m) => m.toGoal), [605, 800]);
+  assert.deepEqual(v.members.map((m) => m.gained), [2195 - 1140, null], "출발(실버 I 40 = 1140)에서 온 LP, 출발 기록 없으면 null");
+  assert.equal(v.floorAbs, 800, "바닥은 출발점이 든 실버의 시작");
   assert.equal(v.riotGames, 109);
 });
 
@@ -39,9 +42,10 @@ test("같은 판의 두 멤버는 한 판 · 같이 한 판에서 딜을 더 넣
     row("m2", "pa", false, { teamDamagePercentage: 0.1 }, "2026-09-10T13:00:00Z"), row("m2", "pb", false, { teamDamagePercentage: 0.25 }, "2026-09-10T13:00:00Z"),
   ], [], []);
   assert.equal(v.games.length, 2);
-  assert.deepEqual([v.record.together, v.record.togetherWins], [2, 1]);
-  assert.deepEqual(v.stats.map((s) => s.moreDamage), [1, 1]);
+  assert.deepEqual([v.chemistry?.together, v.chemistry?.togetherWins], [2, 1]);
+  assert.deepEqual(v.flow.map((p) => p.net), [1, 0], "누적 승−패");
   assert.ok(v.games[0].tags.includes("가 솔킬 4") && v.games[0].tags.includes("가 딜 30%"));
+  assert.equal(v.records.find((r) => r.key === "solo")?.value, "솔킬 4");
 });
 
 test("챔피언 승률은 표본이 작으면 50%쪽으로 — 3승 0패는 100%가 아니다", () => {
@@ -49,6 +53,12 @@ test("챔피언 승률은 표본이 작으면 50%쪽으로 — 3승 0패는 100%
   const c = v.stats[0].champs[0];
   assert.deepEqual([c.wins, c.losses], [3, 0]);
   assert.ok(c.shrunk < 0.75 && c.shrunk > 0.5);
+});
+
+test("다시하기(5분 미만)는 판으로 세지 않는다", () => {
+  const r = { ...row("m9", "pa", true, {}), game_duration: 200 };
+  const v = buildChallenge(def, [r, row("m1", "pa", true, {})], [], []);
+  assert.deepEqual([v.games.length, v.record.remakes], [1, 1]);
 });
 
 test("서렌 패만 서렌 태그", () => {

@@ -306,6 +306,17 @@ try {
 
   const pubMp = await sqlClient()`SELECT * FROM core_public.match_participant`;
   check("일반인 참가자는 core_public 에 노출되지 않는다", pubMp.length === 1, `${pubMp.length}건`);
+  check("공개 참가자에 빌드 칸(아이템·스펠·핵심 룬)이 있다 — 룬 원본 JSON 은 없다(0069)",
+    pubMp.length > 0 && ["items", "summoner1_id", "keystone_id", "sub_style_id"].every((k) => k in pubMp[0]) && !("perks" in pubMp[0]),
+    Object.keys(pubMp[0] ?? {}).join(","));
+
+  // 0069: 10자리 라인업 — 신원 칸이 아예 없고, 숨긴 사람·일반인 자리는 익명(streamer_id 없음)
+  const lineup = await sqlClient()<{ streamer_id: string | null }[]>`SELECT * FROM core_public.match_lineup`;
+  check("★ 라인업에는 puuid·인게임명 칸이 아예 없다",
+    lineup.length > 0 && !("puuid" in lineup[0]) && !("observed_name" in lineup[0]), Object.keys(lineup[0] ?? {}).join(","));
+  const hiddenIds = (await sqlClient()<{ id: string }[]>`SELECT id FROM streamer WHERE visibility <> 'public'`).map((r) => r.id);
+  check("★ 숨긴 스트리머 자리는 라인업에서 익명이다(streamer_id 없음)",
+    lineup.every((r) => r.streamer_id == null || !hiddenIds.includes(r.streamer_id)), `${lineup.length}자리`);
 
   console.log("\n▸ 대회(내전) 기록 — Riot API 로 못 얻는 경기를 수기로 넣는다");
   // 공개 큐 매치는 Riot 이 준 값이 반드시 있어야 한다.

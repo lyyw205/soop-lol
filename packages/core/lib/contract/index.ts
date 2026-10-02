@@ -344,3 +344,6 @@ export type { EntryState, ScheduleGame, SlotPhase } from "../metrics/schedule.ts
 // 솔로랭크 — 정해진 계정들의 랭크 판·랭크 추이·같은 판의 다른 스트리머(솔랭 도전 모듈)
 export { listPublicRankedGames, listPublicAccountRanks, listPublicCoPlayers, RANKED_CHALLENGE_KEYS } from "../db/public-ranked.ts";
 export type { PublicRankedGame, PublicAccountRank, RankedChallengeKey } from "../db/public-ranked.ts";
+export { itemIconPath, itemName, spellIconPath, spellName, runeIconPath, runeName } from "../riot/build-icons.ts";
+export { listPublicLineups } from "../db/public-ranked.ts";
+export type { PublicLineupSlot } from "../db/public-ranked.ts";
