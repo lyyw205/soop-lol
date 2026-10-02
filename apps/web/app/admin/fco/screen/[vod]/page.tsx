@@ -1,41 +1,7 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 
-import { listFcoEventOptions } from "@soop-lol/core/lib/games/fconline/context";
-import { getScreenReviewWorkspace } from "@soop-lol/core/lib/games/fconline/screen-review";
-
-import { FcoScreenReviewer } from "@/components/admin/FcoScreenReviewer";
-import { loadViewerVods } from "@/lib/vod-frames";
-
-export const dynamic = "force-dynamic";
-
-export async function generateMetadata({ params }: { params: Promise<{ vod: string }> }) {
+/** 화면 경기 작업대는 방송 작업대(/admin/fco/vod/<VOD>)로 합쳐졌다. 예전 주소는 거기로 보낸다. */
+export default async function FcoScreenRedirect({ params }: { params: Promise<{ vod: string }> }) {
   const { vod } = await params;
-  const ws = await getScreenReviewWorkspace(vod);
-  return { title: ws ? `FC 화면 경기 · ${ws.title ?? ws.vod}` : "FC 화면 경기" };
-}
-
-export default async function FcoScreenReviewPage({ params, searchParams }: { params: Promise<{ vod: string }>; searchParams: Promise<{ match?: string }> }) {
-  const { vod } = await params;
-  const { match } = await searchParams;
-  const ws = await getScreenReviewWorkspace(vod);
-  if (!ws) notFound();
-  const [vods, eventOptions] = await Promise.all([loadViewerVods([vod]), listFcoEventOptions()]);
-
-  return (
-    <div className="ck-review-page">
-      <header className="ck-review-page-head">
-        <div className="min-w-0">
-          <Link href="/admin/fco" className="text-xs text-ink-400 hover:text-ink-200">← FC 맥락 검수</Link>
-          <h1 className="mt-1 truncate text-lg font-semibold text-ink-200">{ws.title ?? `VOD ${ws.vod}`}</h1>
-          <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
-            {ws.streamer && <span>{ws.streamer}</span>}
-            {ws.channel_id && <span className="font-mono">{ws.channel_id}</span>}
-            <a href={ws.url} target="_blank" rel="noreferrer" className="hover:text-ink-200">VOD 열기 ↗</a>
-          </p>
-        </div>
-      </header>
-      <FcoScreenReviewer ws={ws} vods={vods} eventOptions={eventOptions} initialMatchId={match} />
-    </div>
-  );
+  redirect(`/admin/fco/vod/${encodeURIComponent(vod)}`);
 }

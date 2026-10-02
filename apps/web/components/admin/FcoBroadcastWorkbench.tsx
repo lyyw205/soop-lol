@@ -1,0 +1,370 @@
+"use client";
+
+/**
+ * FC 방송 작업대 — **경기 하나 = 키 하나**, 그 경기를 본 것들은 **시점 칩**으로 바꿔 본다(CK 의 경기·시점과 같은 구조).
+ *
+ *   ┌──────────────┬──────────────────────────────────┬────────────────────┐
+ *   │ 큐: 이 방송이  │ [넥슨 기록] [스맵임 VOD ●] [상대 VOD]   │ 이 시점: 읽은 값·다른 곳 │
+ *   │ 집인 경기들    │  (고른 시점의 VOD 프레임 — 앞뒤 원본)     │ 경기 값(화면 정본만 편집)│
+ *   │ ↑↓ 이동       │  ← → 프레임                         │ 맥락 · 검수 완료       │
+ *   └──────────────┴──────────────────────────────────┴────────────────────┘
+ *
+ * ★ 묶음 규칙(정본 경기·시점·집 방송)은 core/games/fconline/broadcast.ts 하나다. 이 화면은 그 결과를 보여 줄 뿐이다.
+ * ★ 고친 값을 저장하지 않은 채 완료하거나 다른 경기로 가지 못하게 한다 — 「저장하고 검수 완료」가 주 동작이다(외부 검토).
+ * ★ 공개 여부는 바꾸지 않는다. 완료는 "사람이 봤다"는 도장이다.
+ */
+
+import { useActionState, useEffect, useMemo, useState } from "react";
+
+import type { FcoEventOption } from "@soop-lol/core/lib/games/fconline/context";
+import type { FcoBroadcastWorkspace, FcoCandidate, FcoMatchUnit, FcoMatchView, FcoSide } from "@soop-lol/core/lib/games/fconline/broadcast";
+
+import {
+  linkScreenAction, saveAndCompleteAction, saveScreenSidesAction, setMatchCompletedAction, unlinkScreenAction,
+} from "@/app/admin/fco/vod/actions";
+import { IDLE } from "@/lib/action-state";
+
+import { ActionMessage, SubmitButton } from "./Field";
+import { FcoReviewControls, type ReviewControlsUnit } from "./FcoWorkspace";
+import { VodFrameViewer, type ViewerVod } from "./VodFrameViewer";
+
+const inputClass =
+  "w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-ink-200 " +
+  "placeholder:text-ink-400/50 outline-none focus:border-accent-600";
+const kst = (iso: string) => new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+const BASIS_LABEL: Record<string, string> = { vod_owner: "방송 주인", nickname_match: "닉네임 일치", manual: "사람이 지정" };
+const OUTCOME_LABEL: Record<string, string> = { win: "승", loss: "패", draw: "무", unknown: "?" };
+const VERDICT_LABEL: Record<FcoCandidate["verdict"], string> = { same: "일치", maybe: "일부 일치", none: "같은 사람이 낀 가까운 경기" };
+const UNSAVED = "저장하지 않은 값이 있습니다. 버리고 이동할까요?";
+
+const sidesText = (sides: FcoSide[]) => sides.map((s) => `${s.name} ${s.score ?? "?"}`).join(" : ");
+const viewLabel = (v: FcoMatchView) => (v.kind === "api" ? "넥슨 기록" : `${v.streamer ?? "VOD"} · ${v.vod}`);
+const hasMismatch = (m: FcoMatchUnit) => m.views.some((v) => v.mismatches.length > 0);
+/** 저장된 결과를 편집 선택지로. 점수로 정해지는 결과와 같으면 auto, 아니면 직접 본 결과(승부차기 등). */
+function outcomeEditOf(scoreA: number | null, scoreB: number | null, outcomeA: string | null): "auto" | "first_win" | "second_win" | "draw" {
+  const byScore = scoreA == null || scoreB == null || scoreA === scoreB ? "unknown" : scoreA > scoreB ? "win" : "loss";
+  if (outcomeA == null || outcomeA === byScore) return "auto";
+  return outcomeA === "win" ? "first_win" : outcomeA === "loss" ? "second_win" : outcomeA === "draw" ? "draw" : "auto";
+}
+/** 처음 보여 줄 시점 — 결과 화면 사진이 있는 VOD 시점, 없으면 첫 VOD 시점, 그것도 없으면 넥슨 기록 */
+const firstView = (m: FcoMatchUnit) =>
+  m.views.find((v) => v.kind === "vod" && v.frames.some((f) => f.result)) ?? m.views.find((v) => v.kind === "vod") ?? m.views[0];
+
+type Filter = "all" | "todo" | "mismatch" | "lonely";
+
+export function FcoBroadcastWorkbench({ ws, vods, eventOptions, initialMatchId }: {
+  ws: FcoBroadcastWorkspace; vods: Record<string, ViewerVod>; eventOptions: FcoEventOption[]; initialMatchId?: string;
+}) {
+  const first = ws.matches.find((m) => m.match_id === initialMatchId) ?? ws.matches.find((m) => !m.review_completed_at) ?? ws.matches[0];
+  const [selectedId, setSelectedId] = useState(first?.match_id ?? null);
+  const [viewKey, setViewKey] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [dirty, setDirty] = useState(false);
+
+  const selected = ws.matches.find((m) => m.match_id === selectedId) ?? null;
+  const view = selected ? selected.views.find((v) => v.key === viewKey) ?? firstView(selected) ?? null : null;
+  const done = ws.matches.filter((m) => m.review_completed_at).length;
+  const visible = useMemo(() => ws.matches.filter((m) => {
+    if (filter === "todo") return !m.review_completed_at;
+    if (filter === "mismatch") return hasMismatch(m);
+    if (filter === "lonely") return m.source === "manual" && m.views.length <= 1;
+    return true;
+  }), [ws.matches, filter]);
+
+  // 고친 값을 저장하지 않았으면 다른 경기로 가기 전에 묻는다.
+  const pick = (id: string) => {
+    if (id === selectedId) return;
+    if (dirty && !window.confirm(UNSAVED)) return;
+    setDirty(false); setSelectedId(id); setViewKey(null);
+  };
+  // ↑↓ — 큐 이동(← → 는 뷰어의 프레임 이동). 입력칸에서는 가로채지 않는다.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      const t = e.target as HTMLElement | null;
+      if (t?.matches("input, textarea, select, [contenteditable=true]")) return;
+      const i = visible.findIndex((m) => m.match_id === selectedId);
+      const next = visible[e.key === "ArrowDown" ? Math.min(i + 1, visible.length - 1) : Math.max(i - 1, 0)];
+      if (!next) return;
+      e.preventDefault();
+      pick(next.match_id);
+      requestAnimationFrame(() => document.getElementById(`fcb-${next.match_id}`)?.scrollIntoView({ block: "nearest" }));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+  // 저장 안 한 채 페이지를 떠나려 할 때도 묻는다.
+  useEffect(() => {
+    if (!dirty) return;
+    const onLeave = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [dirty]);
+
+  // 뷰어 재료 — VOD 마다 결과 화면 초(★)
+  const resultSecs = useMemo(() => {
+    const out: Record<string, number[]> = {};
+    for (const m of ws.matches) for (const v of m.views) for (const f of v.frames) if (f.result && f.vod && f.sec != null) (out[f.vod] ??= []).push(f.sec);
+    return out;
+  }, [ws.matches]);
+  const evidence = useMemo(() => (view?.frames ?? []).map((f) => ({ ...f })), [view]);
+
+  const FILTERS: [Filter, string][] = [["all", "전체"], ["todo", "미완료"], ["mismatch", "시점 불일치"], ["lonely", "화면으로만 본 경기"]];
+
+  return (
+    <div className="ck-review-workbench">
+      <div className="ck-review-stage">
+        {/* ── 가운데: 시점 칩 + 그 시점의 프레임 ── */}
+        {/* ★ 세로 flex — 격자로 감싸면 프레임 칸의 CSS(grid-column: 2)가 이 안에서 칸을 하나 더 만든다 */}
+        <div className="flex min-h-0 min-w-0 flex-col gap-2 [&>section]:min-h-0 [&>section]:flex-1" style={{ gridColumn: 2, gridRow: 1 }}>
+          {selected && (
+            <nav className="flex flex-wrap gap-1.5" aria-label="시점 선택">
+              {selected.views.map((v) => (
+                <button key={v.key} type="button" onClick={() => setViewKey(v.key)} aria-current={v.key === view?.key ? "true" : undefined}
+                  title={v.kind === "api" ? "넥슨 API 가 준 공식 값" : `${v.vod} 방송 화면${v.screen ? " — 화면에서 읽은 값 있음" : " — 근거 사진만"}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${v.key === view?.key
+                    ? "border-accent-600/60 bg-accent-600/15 text-accent-400" : "border-ink-700 text-ink-300 hover:text-ink-100"}`}>
+                  {viewLabel(v)}
+                  {v.kind === "vod" && <span className="text-[10px] text-ink-500">{v.frames.length}장</span>}
+                  {v.mismatches.length > 0 && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-label={`경기 값과 다른 곳 ${v.mismatches.length}`} />}
+                </button>
+              ))}
+            </nav>
+          )}
+          {view?.kind === "api" ? (
+            <section className="ck-review-preview p-4 text-sm">
+              <p className="text-xs text-ink-400">넥슨 기록은 사진이 없습니다 — API 가 준 공식 값입니다. VOD 시점 칩을 고르면 그 방송 화면을 봅니다.</p>
+              <table className="mt-3 text-sm"><tbody>
+                {(view.sides ?? []).map((s, i) => (
+                  <tr key={i}><td className="pr-4 text-ink-200">{s.name}{s.name !== s.nickname && <span className="ml-1 text-[11px] text-ink-500">({s.nickname})</span>}</td>
+                    <td className="pr-4 font-mono">{s.score ?? "?"}</td><td className="text-ink-400">{OUTCOME_LABEL[s.outcome ?? "unknown"]}</td></tr>
+                ))}
+              </tbody></table>
+            </section>
+          ) : (
+            <VodFrameViewer key={`${selected?.match_id ?? "none"}:${view?.key ?? ""}`} evidence={evidence} vods={vods} resultSecs={resultSecs}
+              emptyText={selected ? "이 시점에는 사진이 없습니다." : "검수할 경기가 없습니다."} />
+          )}
+        </div>
+
+        {/* ── 오른쪽: 이 시점 · 경기 값 · 맥락 · 완료 ── */}
+        <aside className="ck-review-inspector" aria-label="검수 정보">
+          <div className="ck-review-inspector-shell">
+            <div className="ck-review-inspector-body">
+              {selected ? (
+                <MatchPanel key={`${selected.match_id}:${selected.review_version}`} m={selected} view={view} ws={ws}
+                  eventOptions={eventOptions} dirty={dirty} onDirty={setDirty} />
+              ) : <div className="ck-review-panel p-4 text-xs text-ink-400">큐에서 경기를 고르세요.</div>}
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {/* ── 왼쪽: 큐 ── */}
+      <section className="ck-review-timeline" aria-label="검수 큐">
+        <header className="ck-review-queue-head">
+          <h3>이 방송의 경기</h3>
+          <p>완료 {done} / {ws.matches.length} · ↑↓ 이동</p>
+          <div className="flex flex-wrap gap-1">
+            {FILTERS.map(([key, label]) => (
+              <button key={key} type="button" onClick={() => setFilter(key)}
+                className={`rounded border px-2 py-0.5 text-[11px] ${filter === key ? "border-accent-600 text-accent-400" : "border-ink-700 text-ink-400 hover:text-ink-200"}`}>{label}</button>
+            ))}
+          </div>
+        </header>
+        <ul className="ck-review-queue-list">
+          {visible.map((m) => (
+            <li key={m.match_id} id={`fcb-${m.match_id}`}>
+              <button type="button" className="ck-review-queue-item" aria-current={m.match_id === selectedId ? "true" : undefined} onClick={() => pick(m.match_id)}>
+                <span className="min-w-0">
+                  <span className="block truncate text-xs text-ink-200">{m.sides.length === 2 ? sidesText(m.sides) : m.match_id}</span>
+                  <span className="block truncate text-[10px] text-ink-400">
+                    {kst(m.played_at)} · {m.source === "provider_api" ? "넥슨" : "화면"}{m.views.length > 1 ? ` · 시점 ${m.views.length}` : ""}
+                  </span>
+                </span>
+                <span className="flex shrink-0 flex-col items-end gap-0.5 text-[10px]">
+                  <span className={m.review_completed_at ? "text-win" : "text-ink-400"}>{m.review_completed_at ? "완료" : "미검수"}</span>
+                  {hasMismatch(m) && <span className="text-amber-400">불일치</span>}
+                </span>
+              </button>
+            </li>
+          ))}
+          {visible.length === 0 && <li className="ck-review-queue-empty">해당하는 경기가 없습니다.</li>}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+// ── 오른쪽 칸 ─────────────────────────────────────────────────────────
+
+function MatchPanel({ m, view, ws, eventOptions, dirty, onDirty }: {
+  m: FcoMatchUnit; view: FcoMatchView | null; ws: FcoBroadcastWorkspace; eventOptions: FcoEventOption[]; dirty: boolean; onDirty: (v: boolean) => void;
+}) {
+  const [saveState, saveAction] = useActionState(saveScreenSidesAction, IDLE);
+  const [bothState, bothAction] = useActionState(saveAndCompleteAction, IDLE);
+  const [doneState, doneAction, donePending] = useActionState(setMatchCompletedAction, IDLE);
+  const completed = m.review_completed_at != null;
+  const [a, b] = m.sides;
+  const outcomeDefault = outcomeEditOf(a?.score ?? null, b?.score ?? null, a?.outcome ?? null);
+
+  return (
+    <div className="grid gap-3">
+      <div className="ck-review-panel p-3">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
+          <span>{kst(m.played_at)}</span>
+          {m.mode_key && <span>모드 {m.mode_key}</span>}
+          <span className={`ml-auto rounded border px-1.5 py-0.5 ${m.editable ? "border-amber-400/40 text-amber-400" : "border-accent-600/40 text-accent-400"}`}>
+            {m.editable ? "화면 기록이 정본 · 수기 · 숨김" : "넥슨 기록이 정본"}
+          </span>
+        </div>
+        <p className="mt-1 break-all font-mono text-[10px] text-ink-400">{m.match_id}</p>
+      </div>
+
+      {view && <ViewPanel view={view} />}
+
+      {m.editable ? (
+        <form action={saveAction} onChange={() => onDirty(true)} className="ck-review-panel grid gap-3 p-3">
+          <p className="text-[11px] font-semibold text-ink-200">경기 값</p>
+          <input type="hidden" name="match_id" value={m.match_id} />
+          <input type="hidden" name="version" value={m.review_version} />
+          {[a, b].map((s, i) => s && (
+            <fieldset key={i} className="grid gap-1.5">
+              <legend className="mb-0.5 text-[11px] font-semibold text-ink-200">{i === 0 ? "1팀" : "2팀"}</legend>
+              <div className="grid grid-cols-[1fr_56px] gap-1.5">
+                <input name={`nickname${i + 1}`} defaultValue={s.nickname} className={inputClass} placeholder="화면 닉네임" aria-label={`${i + 1}팀 닉네임`} />
+                <input name={`score${i + 1}`} defaultValue={s.score ?? ""} inputMode="numeric" className={`${inputClass} text-center font-mono`} placeholder="점수" aria-label={`${i + 1}팀 점수`} />
+              </div>
+              <select name={`streamer${i + 1}`} defaultValue="" className={inputClass} aria-label={`${i + 1}팀 사람`}>
+                <option value="">{s.streamer_id ? `그대로 — ${s.name} (${BASIS_LABEL[s.identity_basis ?? ""] ?? "근거 없음"})` : "그대로 — 사람 없음"}</option>
+                <option value="__auto">닉네임으로 다시 판정 (등록 계정과 하나만 일치할 때)</option>
+                {s.streamer_id && <option value="__none">사람 떼기</option>}
+                <optgroup label="FC 계정 등록됨">
+                  {ws.streamers.filter((st) => st.has_fc).map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
+                </optgroup>
+                <optgroup label="그 밖의 공개 스트리머">
+                  {ws.streamers.filter((st) => !st.has_fc).map((st) => <option key={st.slug} value={st.slug}>{st.display_name}</option>)}
+                </optgroup>
+              </select>
+            </fieldset>
+          ))}
+          <label className="grid gap-1 text-[11px] text-ink-400">
+            결과
+            <select name="outcome" defaultValue={outcomeDefault} className={inputClass}>
+              <option value="auto">점수로 정함 (같으면 모름)</option>
+              <option value="first_win">1팀 승 (승부차기 등)</option>
+              <option value="second_win">2팀 승 (승부차기 등)</option>
+              <option value="draw">무승부</option>
+            </select>
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 주 동작: 저장과 완료를 한 번에 — 고친 값을 저장하지 않고 완료하는 일이 없게 */}
+            <button type="submit" formAction={bothAction} className="rounded-lg bg-accent-600 px-3 py-2 text-sm font-medium text-ink-950 hover:bg-accent-500">
+              저장하고 검수 완료
+            </button>
+            <SubmitButton tone="ghost">값만 저장</SubmitButton>
+            {dirty && <span className="text-[11px] text-amber-400">저장하지 않은 값이 있습니다</span>}
+          </div>
+          <ActionMessage state={bothState.message ? bothState : saveState} />
+        </form>
+      ) : (
+        <div className="ck-review-panel grid gap-1 p-3 text-xs">
+          <p className="text-[11px] font-semibold text-ink-200">경기 값 — 넥슨 기록(고치지 않음)</p>
+          <p className="text-ink-200">{sidesText(m.sides)}</p>
+          <p className="text-[11px] text-ink-400">점수·승패는 넥슨 API 가 정본입니다. 화면 시점이 다르게 읽었으면 그 시점의 오독입니다.</p>
+        </div>
+      )}
+
+      {m.editable && <CandidatePanel m={m} />}
+
+      <ContextPanel m={m} eventOptions={eventOptions} />
+
+      <form action={doneAction} className="ck-review-panel flex flex-wrap items-center gap-2 p-3">
+        <input type="hidden" name="match_id" value={m.match_id} />
+        <input type="hidden" name="version" value={m.review_version} />
+        <input type="hidden" name="completed" value={completed ? "0" : "1"} />
+        <span className={`text-xs ${completed ? "text-win" : "text-ink-400"}`}>{completed ? "검수 완료" : "미검수"}</span>
+        <button type="submit" disabled={donePending || (dirty && !completed)} title={dirty && !completed ? "고친 값을 먼저 저장하세요 — 위의 「저장하고 검수 완료」" : undefined}
+          className="rounded border border-ink-700 px-2 py-1 text-xs text-ink-200 hover:border-accent-400 disabled:opacity-40">
+          {donePending ? "저장 중" : completed ? "완료 취소" : "검수 완료"}
+        </button>
+        <ActionMessage state={doneState} />
+        {dirty && !completed && <p className="w-full text-[11px] text-amber-400">고친 값이 저장되지 않았습니다 — 「저장하고 검수 완료」를 쓰세요.</p>}
+        <p className="w-full text-[11px] text-ink-400">완료해도 공개되지 않습니다. 공개 표시는 별도 단계입니다.</p>
+      </form>
+    </div>
+  );
+}
+
+/** 고른 시점이 읽은 값과, 경기 값과 다른 곳. 이어 붙은 화면 기록이면 떼어 낼 수 있다(잘못 이었을 때). */
+function ViewPanel({ view }: { view: FcoMatchView }) {
+  const [state, detach] = useActionState(unlinkScreenAction, IDLE);
+  if (view.kind === "api") return null;
+  return (
+    <div className="ck-review-panel grid gap-1.5 p-3 text-xs">
+      <p className="text-[11px] font-semibold text-ink-200">이 시점 — {viewLabel(view)}</p>
+      {view.sides ? (
+        <p className="text-ink-200">화면에서 읽은 값: {view.sides.map((s) => `${s.nickname} ${s.score ?? "?"}`).join(" : ")}</p>
+      ) : <p className="text-ink-400">이 시점은 근거 사진만 있습니다(값을 따로 읽지 않았습니다).</p>}
+      {view.mismatches.length > 0 ? (
+        <ul className="grid gap-0.5 text-[11px]">
+          {view.mismatches.map((x, i) => <li key={i} className="text-amber-400">● {x.field}: 경기 {x.match} · 이 시점 {x.view}</li>)}
+        </ul>
+      ) : view.sides && view.screen?.linked ? <p className="text-[11px] text-win">경기 값과 같습니다.</p> : null}
+      {view.screen?.linked && (
+        <form action={detach} className="flex flex-wrap items-center gap-2">
+          <input type="hidden" name="match_id" value={view.screen.match_id} />
+          <input type="hidden" name="version" value={view.screen.review_version} />
+          <span className="text-[11px] text-ink-400">{view.screen.linked.decided_by === "admin" ? "사람이" : "자동으로(참가자·시각 ±3분·스코어)"} 이 경기에 붙였습니다.</span>
+          <SubmitButton tone="danger">이 시점 떼기</SubmitButton>
+          <ActionMessage state={state} />
+        </form>
+      )}
+    </div>
+  );
+}
+
+function CandidatePanel({ m }: { m: FcoMatchUnit }) {
+  const [state, link] = useActionState(linkScreenAction, IDLE);
+  return (
+    <div className="ck-review-panel grid gap-2 p-3">
+      <p className="text-[11px] font-semibold text-ink-200">같은 경기일 수 있는 기록 — 붙이면 이 경기의 시점이 됩니다</p>
+      {m.candidates.length === 0 && <p className="text-[11px] text-ink-400">근처(±30분)에 후보가 없습니다.</p>}
+      {m.candidates.map((c) => (
+        <form key={c.match_id} action={link} className="grid gap-1 rounded border border-ink-800 p-2">
+          <input type="hidden" name="match_id" value={m.match_id} />
+          <input type="hidden" name="version" value={m.review_version} />
+          <input type="hidden" name="target_id" value={c.match_id} />
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className={c.verdict === "same" ? "text-win" : c.verdict === "maybe" ? "text-amber-400" : "text-ink-400"}>{VERDICT_LABEL[c.verdict]}</span>
+            <span className="text-ink-400">· {c.source === "provider_api" ? "넥슨 기록" : "화면 기록"} · {c.gap_sec >= 0 ? "+" : ""}{Math.round(c.gap_sec / 60)}분</span>
+          </div>
+          <p className="text-xs text-ink-200">{c.sides.map((s) => `${s.streamer_name ?? s.nickname} ${s.score ?? "?"}`).join(" : ")}</p>
+          <div className="flex items-center gap-2"><SubmitButton tone="ghost">같은 경기로 붙이기</SubmitButton></div>
+        </form>
+      ))}
+      <ActionMessage state={state} />
+    </div>
+  );
+}
+
+/** 맥락 — 기존 FC 맥락 검수와 같은 컨트롤·같은 저장 함수. 정본 경기 하나에 저장된다. */
+function ContextPanel({ m, eventOptions }: { m: FcoMatchUnit; eventOptions: FcoEventOption[] }) {
+  const ctx = m.context;
+  const unit: ReviewControlsUnit = {
+    kind: "match", status: ctx.status, confirmed: m.review_completed_at != null, event: ctx.event, judgment: ctx.judgment,
+    matches: [{ provider_match_id: m.match_id, participants: m.sides.map((x) => ({ name: x.name })) }],
+  };
+  return (
+    <div className="ck-review-panel grid gap-2 p-3">
+      <p className="text-[11px] font-semibold text-ink-200">맥락 — 무슨 판이었나</p>
+      {ctx.event && <p className="text-xs text-ink-200">현재: <b className="text-accent-400">{ctx.event.name}</b> <span className="text-ink-400">({ctx.event.kind})</span></p>}
+      {!ctx.event && ctx.judgment && (
+        <p className="text-xs text-ink-200">현재: <b className={ctx.judgment.judgment === "casual" ? "text-ink-300" : "text-amber-400"}>{ctx.judgment.judgment === "casual" ? "단순 친선" : "미해결"}</b>
+          <span className="ml-1 text-ink-400">— {ctx.judgment.note}</span></p>
+      )}
+      {ctx.status === "uninvestigated" && <p className="text-xs text-ink-400">아직 맥락을 정하지 않았습니다.</p>}
+      <FcoReviewControls compact unit={unit} eventOptions={eventOptions} activeMatch={unit.matches[0]} />
+    </div>
+  );
+}

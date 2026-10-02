@@ -22,6 +22,7 @@ const R = await import("../packages/core/lib/db/fconline.ts");
 const S = await import("../packages/core/lib/games/fconline/screen.ts");
 const V = await import("../packages/core/lib/games/fconline/screen-review.ts");
 const C = await import("../packages/core/lib/games/fconline/context.ts");
+const B = await import("../packages/core/lib/games/fconline/broadcast.ts");
 
 const dayAgo = (d: number) => new Date(Date.now() - d * 86_400_000);
 const apiDate = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
@@ -57,27 +58,27 @@ try {
   assert.equal(r3.status, "needs_review");
   const S1 = "fcs:900100@10", S2 = "fcs:900100@500", S3 = "fcs:900100@900", API = "fco:api-link";
 
-  // 1) 목록·작업대 읽기
-  const vods = await V.listScreenReviewVods();
+  // 1) 목록·작업대 읽기 (방송 단위 — broadcast.ts)
+  const vods = await B.listFcoBroadcastUnits();
   assert.equal(vods.length, 1);
-  assert.deepEqual([vods[0].vod, vods[0].total, vods[0].completed, vods[0].linked], ["900100", 3, 0, 0]);
-  const ws = (await V.getScreenReviewWorkspace("900100"))!;
+  assert.deepEqual([vods[0].vod, vods[0].total, vods[0].completed, vods[0].api], ["900100", 3, 0, 0]);
+  const ws = (await B.getFcoBroadcastWorkspace("900100"))!;
   assert.equal(ws.matches.length, 3);
-  assert.ok(ws.matches.every((m) => m.sides.length === 2 && m.frames.length === 1), "경기마다 두 칸과 근거 프레임");
+  assert.ok(ws.matches.every((m) => m.sides.length === 2 && m.editable && m.views.find((v) => v.key === "vod:900100")?.frames.length === 1), "경기마다 두 칸과 그 방송 시점의 근거 사진");
   const w3 = ws.matches.find((m) => m.match_id === S3)!;
   assert.equal(w3.candidates[0]?.match_id, API, "오독 경기의 후보에 API 경기가 나온다");
   assert.equal(w3.candidates[0].verdict, "maybe");
-  assert.equal(await V.getScreenReviewWorkspace("abc"), null, "숫자가 아닌 VOD 는 없는 것");
+  assert.equal(await B.getFcoBroadcastWorkspace("abc"), null, "숫자가 아닌 VOD 는 없는 것");
   assert.ok(ws.streamers.some((s) => s.slug === "alpha-fc"), "사람 선택 목록에 FC 계정이 있는 스트리머");
 
   // 2) 완료 — 변경 번호가 안 맞으면 거부, 완료는 숨김을 바꾸지 않는다
   const v1 = await ver(S1);
-  await rejects("오래된 화면", () => V.setScreenReviewCompleted(S1, true, v1.v + 5), "바뀌었습니다");
-  await V.setScreenReviewCompleted(S1, true, v1.v);
+  await rejects("오래된 화면", () => B.setFcoMatchCompleted(S1, true, v1.v + 5), "바뀌었습니다");
+  await B.setFcoMatchCompleted(S1, true, v1.v);
   const done1 = await ver(S1);
   assert.ok(done1.c && done1.r, "완료하면 완료 시각과 보호 도장이 찍힌다");
   assert.equal((await sql`SELECT visibility FROM match WHERE match_id = ${S1}`)[0].visibility, "hidden", "완료해도 공개되지 않는다");
-  await rejects("화면 경기가 아닌 것", () => V.setScreenReviewCompleted(API, true, 0), "화면 경기를 찾지 못했습니다");
+  await rejects("없는 경기", () => B.setFcoMatchCompleted("fco:none", true, 0), "경기를 찾지 못했습니다");
 
   // 3) 값 고치기 — 완료가 풀리고 변경 번호가 오르고, 로그가 남고, 다음 자동 조사가 덮지 못한다
   await V.updateScreenSides(S1, done1.v, [{ nickname: "알파감독", score: 2, person: "auto" }, { nickname: "일반감독2", score: 2, person: "auto" }], "first_win");
@@ -135,15 +136,20 @@ try {
   await rejects("이미 연결됨", () => V.linkScreenByAdmin(S3, v3b.v, API), "이미 연결");
   const v2 = await ver(S2);
   await rejects("이미 연결된 화면 경기를 대상으로", () => V.linkScreenByAdmin(S2, v2.v, S3), "이미 다른 경기에 연결");
-  const linkedView = (await V.getScreenReviewWorkspace("900100"))!.matches.find((m) => m.match_id === S3)!;
-  assert.equal(linkedView.link?.decided_by, "admin");
-  assert.equal(linkedView.link?.target?.source, "provider_api", "이어진 대상이 무엇인지 보인다");
-  assert.equal(linkedView.link?.target?.provider_match_id, "api-link", "맥락 검수로 가는 넥슨 번호");
-  assert.deepEqual(linkedView.link?.target?.sides.map((x) => x.score), [2, 1], "대상의 대진·스코어");
+  // 이으면 S3 은 따로 된 경기가 아니라 API 경기의 시점이다(경기 하나 = 키 하나)
+  const wsLinked = (await B.getFcoBroadcastWorkspace("900100"))!;
+  assert.ok(!wsLinked.matches.some((m) => m.match_id === S3), "이어진 화면 기록은 따로 된 경기로 안 나온다");
+  const apiUnit = wsLinked.matches.find((m) => m.match_id === API)!;
+  assert.deepEqual([apiUnit.source, apiUnit.provider_match_id, apiUnit.editable], ["provider_api", "api-link", false], "정본은 넥슨 기록(잠김)");
+  assert.deepEqual(apiUnit.views.map((v) => v.key), ["api", "vod:900100"], "시점: 넥슨 기록 + 그 방송");
+  const s3view = apiUnit.views.find((v) => v.key === "vod:900100")!;
+  assert.deepEqual([s3view.screen?.match_id, s3view.screen?.linked?.decided_by], [S3, "admin"]);
+  assert.deepEqual(apiUnit.sides.map((x) => x.score), [2, 1], "경기 값은 넥슨 기록");
   // 이어진 경기의 맥락은 대상에 저장된다 — 화면에서 대상 id 로 고친다
   await C.applyFcoMatchContext({ provider_match_id: API, conclusion: "unresolved", note: "이어진 대상의 맥락" }, { createdBy: "admin" });
-  const afterCtx = (await V.getScreenReviewWorkspace("900100"))!.matches.find((m) => m.match_id === S3)!;
-  assert.deepEqual([afterCtx.link?.target?.context.status, afterCtx.context.status], ["unresolved", "uninvestigated"], "대상 맥락이 바뀌고 화면 기록 자체엔 따로 안 쌓인다");
+  const afterCtx = (await B.getFcoBroadcastWorkspace("900100"))!.matches.find((m) => m.match_id === API)!;
+  assert.equal(afterCtx.context.status, "unresolved", "맥락은 정본 경기 하나에 저장된다");
+  assert.equal((await sql`SELECT count(*)::int n FROM fco_match_context WHERE match_id = ${S3}`)[0].n, 0, "화면 기록 자체엔 따로 안 쌓인다");
 
   await V.unlinkScreenByAdmin(S3, v3b.v);
   assert.equal((await sql`SELECT count(*)::int n FROM fco_screen_link WHERE screen_match_id = ${S3}`)[0].n, 0, "연결이 풀린다");
@@ -152,16 +158,18 @@ try {
   await rejects("연결 안 된 경기 풀기", () => V.unlinkScreenByAdmin(S3, v3c.v), "연결돼 있지 않은");
 
   // 4-2) 맥락 — 기존 FC 맥락 검수와 같은 함수·같은 도장. 화면 경기는 내부 match_id 로 부른다.
-  const ctxOf = async (id: string) => (await V.getScreenReviewWorkspace("900100"))!.matches.find((m) => m.match_id === id)!;
+  const ctxOf = async (id: string) => (await B.getFcoBroadcastWorkspace("900100"))!.matches.find((m) => m.match_id === id)!;
   assert.equal((await ctxOf(S2)).context.status, "uninvestigated", "처음엔 미조사");
   await rejects("근거 없는 친선", () => C.applyFcoMatchContext({ provider_match_id: S2, conclusion: "casual", note: " " }, { createdBy: "admin" }), "note");
   await C.applyFcoMatchContext({ provider_match_id: S2, conclusion: "casual", note: "본인 방송에서 몸풀기라고 말함" }, { createdBy: "admin" });
   const casual = await ctxOf(S2);
   assert.deepEqual([casual.context.status, casual.context.judgment?.created_by], ["casual", "admin"], "화면 경기에도 같은 판단 저장");
   await C.applyFcoMatchContext({ provider_match_id: S2, conclusion: "event", event: { slug: "scr-cup", name: "화면컵", kind: "tournament", source_url: "https://example.com/scr" } }, { createdBy: "admin", relink: true });
-  const withEvent = await ctxOf(S2);
-  assert.deepEqual([withEvent.context.status, withEvent.context.event?.slug], ["event", "scr-cup"], "행사 연결이 맥락이 된다(기존 규칙)");
-  assert.equal(withEvent.review_completed_at, null, "값(행사)이 바뀌면 완료는 풀린다");
+  // 행사에 붙으면 집이 대회 단위로 바뀌어 방송 작업대에서는 빠진다 — 연결은 DB 로 본다
+  assert.equal(await ctxOf(S2), undefined, "대회에 붙은 경기는 방송 단위에서 빠진다(대회 단위가 집)");
+  const [withEvent] = await sql<{ slug: string; c: Date | null }[]>`SELECT e.slug, m.review_completed_at c FROM match m JOIN event e ON e.id = m.event_id WHERE m.match_id = ${S2}`;
+  assert.equal(withEvent?.slug, "scr-cup", "행사 연결이 맥락이 된다(기존 규칙)");
+  assert.equal(withEvent.c, null, "값(행사)이 바뀌면 완료는 풀린다");
   assert.equal(await C.listFcoEventOptions().then((o) => o.some((e) => e.slug === "scr-cup")), true, "행사 목록에도 나온다");
 
   // 4-3) 도장 한 가지 — 승인·보류·완료가 같은 두 칸을 만진다. 화면 경기와 API 경기가 똑같다.
@@ -186,7 +194,7 @@ try {
   assert.equal((await C.getFcoContextDetail("api-link"))!.confirmed, false, "보호(reviewed_at)만 있으면 확인됨이 아니다 — 두 뜻을 섞지 않는다");
   // 화면 경기 완료 버튼도 같은 함수 — 같은 두 칸
   const vNow = await ver(S2);
-  await V.setScreenReviewCompleted(S2, true, vNow.v);
+  await B.setFcoMatchCompleted(S2, true, vNow.v);
   const viaScreen = await stamps(S2);
   assert.ok(viaScreen.r && viaScreen.c, "화면 경기 완료도 같은 두 칸");
 
@@ -197,6 +205,53 @@ try {
   const rec = await S.reconcileFcoScreenMatches();
   assert.ok(!rec.linked.some((x) => x.screen === S3), "사람이 푼 연결을 자동으로 되살리지 않는다");
   assert.equal((await sql`SELECT count(*)::int n FROM fco_screen_link WHERE screen_match_id = ${S3}`)[0].n, 0);
+
+  // 6) ★ 경기 하나 = 키 하나 — 정본 경기·시점·집 방송 (broadcast.ts)
+  //   api-x 를 VOD 900150 은 근거 사진으로, VOD 900200 은 화면 기록(닉네임 한 글자 오독)으로 봤다. 집은 처음 본 방송(900150).
+  const tx6 = dayAgo(80);
+  await saveFcoMatch({ matchId: "api-x", matchDate: apiDate(tx6), matchType: 40, matchInfo: [player("alpha-ouid", "알파감독", "승", 3), player("beta-ouid", "베타감독", "패", 0)] });
+  await C.applyFcoMatchContext({ provider_match_id: "api-x", conclusion: "casual", note: "조사: 몸풀기", evidences: [
+    { evidence_key: "vod:900150@100", kind: "vod_frame", vod_title_no: 900150, at_sec: 100, frame_path: "out/ck/900150/g0000100.jpg", observed: "대기실", role: "pre" }] });
+  const X = "fcs:900200@50";
+  const rx = await S.saveFcoScreenMatch({ vodTitleNo: 900200, atSec: 50, endedAt: new Date(tx6.getTime() + 4_000).toISOString(), channelId: "ch2",
+    sides: [{ nickname: "알파감둑", score: 3 }, { nickname: "베타감독", score: 0 }], evidence: [{ observed: "결과 3:0", frame_path: "out/ck/900200/g0000050.jpg" }] });
+  assert.equal(rx.status, "needs_review");
+  await V.linkScreenByAdmin(X, (await ver(X)).v, "fco:api-x");
+
+  const units = await B.listFcoBroadcastUnits();
+  const home = (id: string) => units.filter((u) => u.match_ids.includes(id)).map((u) => u.vod);
+  assert.deepEqual(home("fco:api-x"), ["900150"], "정본 경기는 처음 본 방송 한 곳에만 있다");
+  assert.deepEqual(home(X), [], "이어진 화면 기록은 따로 줄이 되지 않는다");
+  assert.ok(!units.some((u) => u.vod === "900200"), "그 방송의 경기가 전부 다른 집이면 방송 줄도 없다");
+  assert.deepEqual(home(S1), ["900100"], "화면 기록이 정본인 경기는 자기 방송이 집");
+  // 대회에 붙은 경기는 방송 단위에서 빠진다(대회 단위가 집)
+  assert.deepEqual(home(S2), [], "S2 는 위에서 행사(scr-cup)에 붙었다 — 대회 단위가 집");
+
+  const w = (await B.getFcoBroadcastWorkspace("900150"))!;
+  const mx = w.matches.find((m) => m.match_id === "fco:api-x")!;
+  assert.deepEqual(mx.views.map((v) => v.key), ["api", "vod:900150", "vod:900200"], "시점: 넥슨 기록 + VOD 둘");
+  assert.equal(mx.editable, false, "넥슨 기록이 정본이면 경기 값은 잠긴다");
+  const v200 = mx.views.find((v) => v.key === "vod:900200")!;
+  assert.equal(v200.screen?.match_id, X);
+  assert.ok(v200.mismatches.some((x) => x.field.includes("닉네임") && x.view === "알파감둑"), "시점이 읽은 값과 경기 값이 다른 곳(닉네임 오독)");
+  assert.equal(mx.views.find((v) => v.key === "vod:900150")!.frames.length, 1, "근거 사진만 있는 시점");
+  assert.equal(mx.context.judgment?.created_by, "auto");
+  assert.equal(await B.getFcoBroadcastWorkspace("900200"), null, "집이 아닌 방송 번호로는 그 경기를 열지 않는다");
+
+  // 완료: 넥슨 기록 정본도 같은 도장. 자동 판단은 사람 판단으로 굳는다(기존 승인과 같다)
+  await B.setFcoMatchCompleted("fco:api-x", true, mx.review_version);
+  const after6 = (await B.getFcoBroadcastWorkspace("900150"))!.matches.find((m) => m.match_id === "fco:api-x")!;
+  assert.ok(after6.review_completed_at, "완료");
+  assert.equal(after6.context.judgment?.created_by, "admin", "완료하면 자동 판단이 사람 판단으로 굳는다");
+
+  // 저장하고 완료 — 한 트랜잭션: 고친 값에 완료가 붙는다
+  const v1now = await ver(S1);
+  await B.saveAndCompleteScreenMatch(S1, v1now.v, [{ nickname: "알파감독", score: 4, person: "keep" }, { nickname: "일반감독", score: 1, person: "keep" }], "auto");
+  const done1b = await ver(S1);
+  const score1 = (await sql<{ s: number }[]>`SELECT score_display s FROM fco_match_participant WHERE match_id = ${S1} AND side_no = 1`)[0].s;
+  assert.ok(done1b.c && score1 === 4, "고친 값(4)으로 저장되고 완료가 찍힌다");
+  await rejects("오래된 화면에서 저장하고 완료", () => B.saveAndCompleteScreenMatch(S1, v1now.v, [{ nickname: "알파감독", score: 5, person: "keep" }, { nickname: "일반감독", score: 1, person: "keep" }], "auto"), "바뀌었습니다");
+  assert.equal((await sql<{ s: number }[]>`SELECT score_display s FROM fco_match_participant WHERE match_id = ${S1} AND side_no = 1`)[0].s, 4, "실패하면 값도 안 바뀐다(같은 트랜잭션)");
 
   // 5) 검수해도 공개 조회는 그대로 — 화면 경기가 공개 쪽에 새지 않는다
   const dump = JSON.stringify([await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoLeaderboard(), await R.listFcoEvents()]);

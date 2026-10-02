@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { getFcoReviewWorkspace, listFcoCrossClues, type FcoReviewUnit } from "@soop-lol/core/lib/games/fconline/context";
-import { listScreenReviewVods, type ScreenVodRow } from "@soop-lol/core/lib/games/fconline/screen-review";
+import { listFcoBroadcastUnits, type FcoBroadcastUnit } from "@soop-lol/core/lib/games/fconline/broadcast";
 
 import { Card, EmptyState, Tag } from "@/components/ui";
 import { FCO_STATUS_LABEL } from "@/lib/admin-labels";
@@ -24,10 +24,12 @@ const unitHref = (u: FcoReviewUnit) =>
 const STATUS_LABEL = FCO_STATUS_LABEL;
 
 /**
- * 목록의 한 줄. 맥락 단위(API 경기·대회)와 화면 경기 VOD 가 **한 표**에 선다 — 둘 다 "사람이 확인할 것"이기 때문이다.
- * 화면 경기는 VOD 하나가 한 줄이고 누르면 3칸 작업대(/admin/fco/screen/<VOD>)로 간다.
+ * 목록의 한 줄 — **경기 하나는 한 줄에만** 나온다(집 단위, core/broadcast.ts).
+ *   대회 단위   행사에 붙은 경기들
+ *   방송 단위   그 방송이 처음 본 경기들(넥슨 기록이 있든 없든, 상대가 일반 유저여도). 누르면 방송 작업대 /admin/fco/vod/<VOD>
+ *   경기 단위   VOD 로 본 적이 없는 넥슨 경기(스트리머끼리) — 기존 맥락 검수
  */
-type Row = { type: "unit"; unit: FcoReviewUnit } | { type: "screen"; vod: ScreenVodRow };
+type Row = { type: "unit"; unit: FcoReviewUnit } | { type: "screen"; vod: FcoBroadcastUnit };
 
 const EMPTY: Record<string, string> = {
   pending: "승인 대기 중인 조사가 없습니다.",
@@ -43,10 +45,13 @@ export default async function FcoReviewListPage({
   searchParams: Promise<{ view?: string }>;
 }) {
   const { view = "pending" } = await searchParams;
-  const [units, clues, screens] = await Promise.all([getFcoReviewWorkspace(), listFcoCrossClues(), listScreenReviewVods()]);
+  const [allUnits, clues, screens] = await Promise.all([getFcoReviewWorkspace(), listFcoCrossClues(), listFcoBroadcastUnits()]);
+  // 방송 단위가 집인 경기는 경기 단위로 따로 세우지 않는다(같은 경기가 두 줄이 되지 않게). 대회 단위는 그대로.
+  const homed = new Set(screens.flatMap((v) => v.match_ids));
+  const units = allUnits.filter((u) => u.kind === "event" || !u.matches.some((m) => homed.has(m.match_id)));
 
   const unitRows = (list: FcoReviewUnit[]): Row[] => list.map((unit) => ({ type: "unit", unit }));
-  const screenRows = (list: ScreenVodRow[]): Row[] => list.map((vod) => ({ type: "screen", vod }));
+  const screenRows = (list: FcoBroadcastUnit[]): Row[] => list.map((vod) => ({ type: "screen", vod }));
   const groups: Record<string, Row[]> = {
     pending: [...unitRows(units.filter((u) => u.pending)), ...screenRows(screens.filter((v) => v.completed < v.total))],
     confirmed: [...unitRows(units.filter((u) => u.confirmed)), ...screenRows(screens.filter((v) => v.completed === v.total))],
@@ -110,8 +115,8 @@ export default async function FcoReviewListPage({
           </span>
           <br />
           <span className="mt-1 inline-block">
-            <b className="text-ink-200">「화면 경기」 줄</b>은 VOD 결과 화면에서 읽은 경기입니다(VOD 하나가 한 줄). 눌러서 근거 프레임과
-            닉네임·점수를 대조하고, 같은 경기를 API 기록에 잇고, 완료합니다. 완료해도 공개되지는 않습니다.
+            <b className="text-ink-200">「방송」 줄</b>은 그 방송에서 처음 본 경기들입니다(경기 하나는 한 줄에만 나옵니다). 누르면 경기마다
+            넥슨 기록과 VOD 시점을 칩으로 바꿔 보며 값·맥락을 확인하고 완료합니다. 완료해도 공개되지는 않습니다.
           </span>
         </div>
 
@@ -143,20 +148,20 @@ export default async function FcoReviewListPage({
                 return (
                   <li key={`screen:${v.vod}`} className="flex flex-wrap items-center gap-3 py-3">
                     <div className="min-w-0 flex-1">
-                      <Link href={`/admin/fco/screen/${v.vod}`} className="block truncate text-sm text-ink-200 hover:text-accent-400">
+                      <Link href={`/admin/fco/vod/${v.vod}`} className="block truncate text-sm text-ink-200 hover:text-accent-400">
                         {v.title ?? `VOD ${v.vod}`}
                       </Link>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
                         <span>{kst(v.first_at)} KST</span>
                         {v.streamer && <span>{v.streamer}</span>}
                         <span>{v.total}경기</span>
-                        {v.linked > 0 && <span>API 연결 {v.linked}</span>}
+                        {v.api > 0 && <span>넥슨 기록 있음 {v.api}</span>}
                       </div>
                     </div>
                     <span className="flex items-center gap-x-1.5 text-[11px] text-ink-400" title="이 VOD 의 화면 경기 중 사람이 검수를 완료한 수">
                       완료 <b className={left === 0 ? "text-win" : "text-ink-200"}>{v.completed}/{v.total}</b>
                     </span>
-                    <Tag tone="neutral">화면 경기</Tag>
+                    <Tag tone="neutral">방송</Tag>
                     {left === 0 ? <Tag tone="accent">확인됨</Tag> : <Tag tone="warn">검수 대기 {left}</Tag>}
                   </li>
                 );
