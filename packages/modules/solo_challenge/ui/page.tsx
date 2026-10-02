@@ -37,6 +37,8 @@ const rankText = (tier: string | null | undefined, division: string | null | und
   tier ? `${TIER_KO[tier] ?? tier}${division && !APEX.includes(tier) ? ` ${division}` : ""} ${lp ?? 0}LP` : "랭크 기록 없음";
 const tierAt = (abs: number) => TIER_KO[TIERS[Math.floor(abs / 400)]] ?? "";
 const pct = (v: number) => `${Math.round(v * 100)}%`;
+/** 막대 끝에 가까운 이름표는 안쪽으로 붙인다(잘리지 않게). */
+const tagPos = (left: number): React.CSSProperties => ({ left: `${left}%`, transform: left < 8 ? "none" : left > 92 ? "translateX(-100%)" : "translateX(-50%)" });
 const colorVars = (v: ChallengeView) => Object.fromEntries(v.def.members.map((m, i) => [`--sc-m${i}`, `var(--sc-${m.color})`])) as React.CSSProperties;
 
 /** KST 짧은 시각 — toLocaleString 은 서버·브라우저 로케일이 달라 쓰지 않는다. */
@@ -173,38 +175,37 @@ function keep(g: GameRow, f: string): boolean {
   return true;
 }
 
-/* ── 진행도: 막대 하나에 모두 — 사람마다 막대 안의 한 칸(위·아래)에 출발점(●)부터 지금(▮)까지 채운다. 목표까지 빈 부분이 남은 거리다 ── */
+/* ── 진행도: 막대 하나에 모두 — 사람마다 출발점(○)과 지금(●) 두 점만. 사이를 채우지 않아야 여럿이 한 줄에 들어간다 ── */
 function Progress({ view, compact = false }: { view: ChallengeView; compact?: boolean }) {
   const at = (abs: number) => progressAt(abs, view.floorAbs, view.goalAbs);
   const majors: number[] = [];
   for (let t = Math.ceil(view.floorAbs / 400) * 400; t < view.goalAbs; t += 400) majors.push(t);
-  const lanes = Math.max(1, view.members.length);
   return (
     <div className="sc-progress">
       {!compact && (
         <div className="sc-ptags" aria-hidden="true">
           {view.members.map((m, i) => m.rank?.abs != null && (
-            <span key={i} style={{ left: `${at(m.rank.abs)}%`, color: `var(--sc-m${i})` }}>{m.member.name} ▾</span>
+            <span key={i} style={{ ...tagPos(at(m.rank.abs)), color: `var(--sc-m${i})` }}>{m.member.name} ▾</span>
           ))}
         </div>
       )}
-      <div className="sc-ptrack" role="img" style={{ height: `${lanes * 10 + 4}px` }}
+      <div className="sc-ptrack" role="img"
         aria-label={view.members.map((m) => `${m.member.name}: ${m.member.start ? `출발 ${rankText(m.member.start.tier, m.member.start.division, m.member.start.lp)}, ` : ""}지금 ${rankText(m.rank?.tier, m.rank?.division, m.rank?.lp)}, 목표까지 ${m.toGoal ?? "?"}LP`).join(" · ")}>
         {majors.map((t) => <span key={t} className="sc-pmajor" style={{ left: `${at(t)}%` }} />)}
-        {view.members.map((m: MemberLine, i) => {
-          const now = m.rank?.abs ?? null, start = m.startAbs;
-          if (now == null) return null;
-          const from = start != null ? Math.min(start, now) : now;
-          const lane = { top: `${2 + i * 10}px`, height: "8px" };
-          return (
-            <span key={i}>
-              <span className="sc-pfill" style={{ ...lane, left: `${at(from)}%`, width: `${Math.max(0.6, at(now) - at(from))}%`, background: `var(--sc-m${i})` }} />
-              {start != null && <span className="sc-pstart" style={{ top: `${6 + i * 10}px`, left: `${at(start)}%`, borderColor: `var(--sc-m${i})` }} title={`${m.member.name} 출발`} />}
-              <span className="sc-pnow" style={{ top: `${6 + i * 10}px`, left: `${at(now)}%`, background: `var(--sc-m${i})` }} title={`${m.member.name} 지금`} />
-            </span>
-          );
-        })}
+        {view.members.map((m: MemberLine, i) => (
+          <span key={i}>
+            {m.startAbs != null && <span className="sc-pstart" style={{ left: `${at(m.startAbs)}%`, borderColor: `var(--sc-m${i})` }} title={`${m.member.name} 출발`} />}
+            {m.rank?.abs != null && <span className="sc-pnow" style={{ left: `${at(m.rank.abs)}%`, background: `var(--sc-m${i})` }} title={`${m.member.name} 지금`} />}
+          </span>
+        ))}
       </div>
+      {!compact && (
+        <div className="sc-ptags under" aria-hidden="true">
+          {view.members.map((m, i) => m.startAbs != null && (
+            <span key={i} style={{ ...tagPos(at(m.startAbs)), color: `var(--sc-m${i})` }}>▴ {m.member.name} 출발</span>
+          ))}
+        </div>
+      )}
       <div className="sc-pticks" aria-hidden="true">
         {majors.map((t) => <span key={t} style={{ left: `${at(t)}%` }}>{tierAt(t)}</span>)}
         <span className="goal" style={{ left: "100%" }}>{TIER_KO[view.def.goal.tier] ?? view.def.goal.tier}</span>

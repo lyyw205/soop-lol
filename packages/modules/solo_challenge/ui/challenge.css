@@ -48,11 +48,11 @@
 .sc-progress { display: grid; gap: 6px; }
 .sc-ptags { position: relative; height: 18px; font-size: 12px; font-weight: 700; }
 .sc-ptags span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-.sc-ptrack { position: relative; border-radius: 7px; background: var(--sc-line); }
+.sc-ptrack { position: relative; height: 10px; border-radius: 5px; background: var(--sc-line); margin-block: 4px; }
 .sc-pmajor { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--sc-faint); opacity: .5; }
-.sc-pfill { position: absolute; border-radius: 4px; opacity: .9; }
-.sc-pstart { position: absolute; width: 12px; height: 12px; border-radius: 50%; border: 3px solid; background: var(--sc-panel); transform: translate(-50%, -50%); }
-.sc-pnow { position: absolute; width: 5px; height: 16px; border-radius: 3px; transform: translate(-50%, -50%); box-shadow: 0 0 0 2px var(--sc-panel); }
+.sc-pstart { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; border: 3px solid; background: var(--sc-panel); transform: translate(-50%, -50%); }
+.sc-pnow { position: absolute; top: 50%; width: 18px; height: 18px; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 3px var(--sc-panel); }
+.sc-ptags.under { font-weight: 600; font-size: 11px; }
 .sc-pticks { position: relative; height: 16px; font-size: 11px; color: var(--sc-faint); }
 .sc-pticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .sc-pticks span:first-child { transform: none; }

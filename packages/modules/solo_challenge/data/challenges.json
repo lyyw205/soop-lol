@@ -30,7 +30,15 @@
           "name": "김민교",
           "role": "미드",
           "color": "blue",
-          "puuid": "hmeMsJn7_kn3-w6SLpjVBC59hkbzfdiTi6hOWv2aSpbIgYBJCnf8hUigsdf7seukt7x0eV610pO9fw"
+          "puuid": "hmeMsJn7_kn3-w6SLpjVBC59hkbzfdiTi6hOWv2aSpbIgYBJCnf8hUigsdf7seukt7x0eV610pO9fw",
+          "start": {
+            "tier": "SILVER",
+            "division": "IV",
+            "lp": 40,
+            "date": "2026-08-22",
+            "note": "배치 5판 뒤 6판 3승 3패 경기 결과 화면",
+            "source": "https://vod.sooplive.com/player/204983681?change_second=11940"
+          }
         }
       ]
     }
