@@ -1,0 +1,18 @@
+{
+  "//": "솔랭 도전 목록 — 편집 데이터. 계정은 puuid 로 적는다(Riot ID 는 바뀐다). 계정이 숨겨지면 공개 조회가 거르므로 화면에서 빠진다.",
+  "challenges": [
+    {
+      "slug": "ttgyo-duo",
+      "title": "뜨교듀오 마스터 도전",
+      "summary": "뜨뜨뜨뜨와 김민교가 새 계정으로 함께 솔로랭크 마스터를 노리는 도전.",
+      "goal": { "tier": "MASTER" },
+      "since": "2026-09-05",
+      "members": [
+        { "streamer": "seokwngud", "name": "뜨뜨뜨뜨", "role": "탑", "color": "orange",
+          "puuid": "jAu-Fy-yQ96GJFQtR4mbyYIiumZdM8v3dmyaPu4dQuAslWnjeiGfKLJmu2-yQe79gBdWbKDpZmTivA" },
+        { "streamer": "kimmingyo", "name": "김민교", "role": "미드", "color": "blue",
+          "puuid": "hmeMsJn7_kn3-w6SLpjVBC59hkbzfdiTi6hOWv2aSpbIgYBJCnf8hUigsdf7seukt7x0eV610pO9fw" }
+      ]
+    }
+  ]
+}

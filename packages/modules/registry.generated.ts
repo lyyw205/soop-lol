@@ -99,6 +99,21 @@ export const MODULES: RegisteredModule[] = [
     hasUi: true,
   },
   {
+    name: "solo_challenge",
+    version: "0.1.0",
+    title: "솔랭 도전",
+    description: "정해 둔 스트리머 계정들의 솔로랭크 판·랭크(core 공개 조회)를 읽어 목표 티어 도전의 진행도·방송한 날·듀오 비교·챔피언·판별 기록을 보여준다.",
+    schema: "mod_solo_challenge",
+    routes: [{"path":"/lol/challenges","title":"솔랭 도전"},{"path":"/lol/challenges/[slug]"}],
+    provides: ["solo-challenge"],
+    navOrder: 18,
+    site: "lol",
+    jobs: [
+
+    ],
+    hasUi: true,
+  },
+  {
     name: "tournaments",
     version: "0.1.0",
     title: "대회",
