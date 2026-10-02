@@ -71,8 +71,11 @@ export async function setClassAction(_prev: ActionState, form: FormData): Promis
     const providerMatchId = text(form, "provider_match_id");
     const target = text(form, "target");
     if (target === "unresolved" || target === "casual") {
+      // 사람이 고를 때 메모는 선택이다. 판단 표(0032)는 빈 메모를 받지 않으므로 "메모 없음"임을 그대로 적는다
+      // (지어내지 않는다 — 자동 조사(auto)는 여전히 근거가 필수다. 이 경로는 admin 뿐이다).
+      const note = text(form, "note") || "검수자 판단(메모 없음)";
       const out = await applyFcoMatchContext(
-        { provider_match_id: providerMatchId, conclusion: target, note: text(form, "note") },
+        { provider_match_id: providerMatchId, conclusion: target, note },
         { createdBy: "admin" },
       );
       refresh();

@@ -166,14 +166,14 @@ export function FcoReviewControls({
         </p>
       </div>
 
-      {/* 미해결·단순 친선 — 근거 한 줄과 함께 저장한다. 빈 도장은 저장이 거부한다. */}
+      {/* 미해결·단순 친선 — 근거 메모는 선택(비우면 「검수자 판단(메모 없음)」으로 남는다). */}
       {(picked === "unresolved" || picked === "casual") && (
         <form action={setClass} className="grid gap-2 rounded-lg border border-ink-800 bg-ink-900/40 p-3">
           <input type="hidden" name="provider_match_id" value={targetMatch?.provider_match_id ?? ""} />
           <input type="hidden" name="target" value={picked} />
           <label className="block text-[11px] text-ink-400">
-            {picked === "unresolved" ? "남은 질문 (필수)" : "그렇게 본 근거 (필수)"}
-            <textarea name="note" rows={2} required
+            {picked === "unresolved" ? "남은 질문 (선택)" : "그렇게 본 근거 (선택)"}
+            <textarea name="note" rows={2}
               className="mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-200"
               placeholder={picked === "unresolved" ? "예: 상대 채널 VOD 미확인 — 다른 POV 필요" : "예: 본인 방송에서 '오늘은 몸풀기' 발언 확인"} />
           </label>
