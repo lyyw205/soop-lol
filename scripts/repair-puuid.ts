@@ -23,6 +23,7 @@
  */
 
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
+import { repointPuuid } from "@soop-lol/core/lib/db/puuid-move";
 import { RiotClient } from "@soop-lol/core/lib/riot/client";
 
 const apply = process.argv.includes("--apply");
@@ -31,17 +32,6 @@ if (!process.env.RIOT_API_KEY) {
   console.error("RIOT_API_KEY 가 없다. apps/web/.env.local 을 확인해라.");
   process.exit(1);
 }
-
-/** `puuid` 를 들고 있는 테이블 전부. 하나라도 빠뜨리면 그 데이터가 끊긴다. */
-const REFERENCES = [
-  { table: "streamer_account", column: "puuid" },
-  { table: "rank_snapshot", column: "puuid" },
-  { table: "ingest_cursor", column: "puuid" },
-  { table: "match_participant", column: "puuid" },
-  { table: "account_candidate", column: "puuid" },
-  { table: "streamer_encounter", column: "a_puuid" },
-  { table: "streamer_encounter", column: "b_puuid" },
-] as const;
 
 const sql = db();
 try {
@@ -89,31 +79,9 @@ try {
     if (!apply) { moved.push(`${label} — 옮길 수 있다`); continue; }
 
     try {
-      await sql.begin(async (tx) => {
-        // 1) 새 puuid 로 행을 만든다. 옛 행의 값을 그대로 복사한다.
-        await tx`
-          INSERT INTO riot_account (
-            puuid, game_name, tag_line, platform_region, routing_region,
-            summoner_id, summoner_level, profile_icon_id, revision_date,
-            last_profile_synced_at, last_rank_synced_at, last_match_synced_at, is_active
-          )
-          SELECT ${acc.puuid}, game_name, tag_line, platform_region, routing_region,
-                 summoner_id, summoner_level, profile_icon_id, revision_date,
-                 last_profile_synced_at, last_rank_synced_at, last_match_synced_at, is_active
-            FROM riot_account WHERE puuid = ${r.puuid}
-          ON CONFLICT (puuid) DO NOTHING
-        `;
-        // 2) 참조를 전부 옮긴다.
-        for (const ref of REFERENCES) {
-          await tx.unsafe(
-            `UPDATE ${ref.table} SET ${ref.column} = $1 WHERE ${ref.column} = $2`,
-            [acc.puuid, r.puuid],
-          );
-        }
-        // 3) 옛 행을 지운다. 참조가 남아 있으면 여기서 FK 가 막아 준다 — 그게 안전망이다.
-        await tx`DELETE FROM riot_account WHERE puuid = ${r.puuid}`;
-      });
-      moved.push(`${label} — 옮겼다`);
+      // 새 행 만들기 → 참조 옮기기 → 옛 행 지우기를 한 트랜잭션으로. 검수 완료도 지켜진다(puuid-move.ts).
+      const { preserved_reviews } = await sql.begin((tx) => repointPuuid(tx, r.puuid, acc.puuid));
+      moved.push(`${label} — 옮겼다${preserved_reviews ? ` (검수 완료 ${preserved_reviews}경기 유지)` : ""}`);
     } catch (e) {
       failed.push(`${label} — 옮기다 실패: ${e instanceof Error ? e.message : String(e)}`);
     }

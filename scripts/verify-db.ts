@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { applyAll } from "./lib/migrations.ts";
 import { verifyReviewRecordUpgrade } from "./lib/verify-review-record-migration.ts";
+import { verifyPuuidMoveDb } from "./lib/verify-puuid-move-db.ts";
 import { verifyScheduleDb } from "./lib/verify-schedule-db.ts";
 
 import { PGlite } from "@electric-sql/pglite";
@@ -1916,6 +1917,7 @@ try {
     matchEvidenceAfterLeadDelete[0]?.body ?? "없음");
 
   await verifyScheduleDb(check, expectReject);
+  await verifyPuuidMoveDb(check);
 } finally {
   await closeDb();
   await server.stop();
