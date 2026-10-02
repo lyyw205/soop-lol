@@ -16,6 +16,7 @@
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 
+import type { FcoEventOption } from "@soop-lol/core/lib/games/fconline/context";
 import type { ScreenCandidate, ScreenMatchView, ScreenWorkspace } from "@soop-lol/core/lib/games/fconline/screen-review";
 
 import {
@@ -25,6 +26,7 @@ import { IDLE } from "@/lib/action-state";
 import type { VodFrame } from "@/lib/vod-frames";
 
 import { ActionMessage, SubmitButton } from "./Field";
+import { FcoReviewControls, type ReviewControlsUnit } from "./FcoWorkspace";
 
 const inputClass =
   "w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-ink-200 " +
@@ -56,7 +58,7 @@ const STEP_LABEL: Record<number, string> = { 0: "원본", 3: "3초", 10: "10초"
 const STRIP_SIDE = 12;
 const offsetLabel = (sec: number) => `${sec < 0 ? "−" : "+"}${String(Math.floor(Math.abs(sec) / 60)).padStart(2, "0")}:${String(Math.abs(sec) % 60).padStart(2, "0")}`;
 
-export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId }: { ws: ScreenWorkspace; vodFrames: VodFrame[]; vodLengthSec: number | null; initialMatchId?: string }) {
+export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, eventOptions, initialMatchId }: { ws: ScreenWorkspace; vodFrames: VodFrame[]; vodLengthSec: number | null; eventOptions: FcoEventOption[]; initialMatchId?: string }) {
   const first = ws.matches.find((m) => m.match_id === initialMatchId) ?? ws.matches.find((m) => !m.review_completed_at) ?? ws.matches[0];
   const [selectedId, setSelectedId] = useState(first?.match_id ?? null);
   const [frameKey, setFrameKey] = useState<string | null>(null);
@@ -242,7 +244,7 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
       <aside className="ck-review-inspector" aria-label="값 설정">
         <div className="ck-review-inspector-shell">
           <div className="ck-review-inspector-body">
-            {selected ? <MatchPanel key={`${selected.match_id}:${selected.review_version}`} m={selected} ws={ws} />
+            {selected ? <MatchPanel key={`${selected.match_id}:${selected.review_version}`} m={selected} ws={ws} eventOptions={eventOptions} />
               : <div className="ck-review-panel p-4 text-xs text-ink-400">큐에서 경기를 고르세요.</div>}
           </div>
         </div>
@@ -286,7 +288,7 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
 
 // ── 값 설정 칸 ─────────────────────────────────────────────────────
 
-function MatchPanel({ m, ws }: { m: ScreenMatchView; ws: ScreenWorkspace }) {
+function MatchPanel({ m, ws, eventOptions }: { m: ScreenMatchView; ws: ScreenWorkspace; eventOptions: FcoEventOption[] }) {
   const [saveState, saveAction] = useActionState(saveScreenSidesAction, IDLE);
   const [doneState, doneAction, donePending] = useActionState(setScreenCompletedAction, IDLE);
   const completed = m.review_completed_at != null;
@@ -338,6 +340,8 @@ function MatchPanel({ m, ws }: { m: ScreenMatchView; ws: ScreenWorkspace }) {
         {locked && <p className="text-[11px] text-amber-400">다른 경기에 연결돼 있어 값을 고칠 수 없습니다. 연결을 풀고 고치세요.</p>}
       </form>
 
+      <ContextPanel m={m} eventOptions={eventOptions} />
+
       <LinkPanel m={m} />
 
       <form action={doneAction} className="ck-review-panel flex flex-wrap items-center gap-2 p-3">
@@ -351,6 +355,34 @@ function MatchPanel({ m, ws }: { m: ScreenMatchView; ws: ScreenWorkspace }) {
         <ActionMessage state={doneState} />
         <p className="w-full text-[11px] text-ink-400">완료해도 공개되지 않습니다. 공개 표시는 별도 단계입니다.</p>
       </form>
+    </div>
+  );
+}
+
+/**
+ * 맥락(무슨 판이었나) — 기존 FC 맥락 검수와 **같은 컨트롤**(`FcoReviewControls`)이고 같은 저장 함수를 부른다.
+ * 다른 경기에 연결된 화면 경기는 맥락을 그쪽이 가진다 — 여기서 따로 정하면 두 벌이 된다.
+ */
+function ContextPanel({ m, eventOptions }: { m: ScreenMatchView; eventOptions: FcoEventOption[] }) {
+  const unit: ReviewControlsUnit = {
+    kind: "match", status: m.context.status, confirmed: m.review_completed_at != null,
+    event: m.context.event, judgment: m.context.judgment,
+    matches: [{ provider_match_id: m.match_id, participants: m.sides.map((x) => ({ name: sideName(x) })) }],
+  };
+  return (
+    <div className="ck-review-panel grid gap-2 p-3">
+      <p className="text-[11px] font-semibold text-ink-200">맥락 — 무슨 판이었나</p>
+      {m.link ? (
+        <p className="text-[11px] text-ink-400">다른 경기에 연결돼 있어 맥락은 그 경기가 가집니다. 바꾸려면 연결을 풀거나 그 경기에서 정하세요.</p>
+      ) : (<>
+        {m.context.event && <p className="text-xs text-ink-200">현재: <b className="text-accent-400">{m.context.event.name}</b> <span className="text-ink-400">({m.context.event.kind})</span></p>}
+        {!m.context.event && m.context.judgment && (
+          <p className="text-xs text-ink-200">현재: <b className={m.context.judgment.judgment === "casual" ? "text-ink-300" : "text-amber-400"}>{m.context.judgment.judgment === "casual" ? "단순 친선" : "미해결"}</b>
+            <span className="ml-1 text-ink-400">— {m.context.judgment.note}</span></p>
+        )}
+        {m.context.status === "uninvestigated" && <p className="text-xs text-ink-400">아직 맥락을 정하지 않았습니다.</p>}
+        <FcoReviewControls compact unit={unit} eventOptions={eventOptions} activeMatch={unit.matches[0]} />
+      </>)}
     </div>
   );
 }

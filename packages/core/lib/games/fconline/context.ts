@@ -65,6 +65,10 @@ export interface FcoEvidenceInput {
 }
 
 export interface FcoContextInput {
+  /**
+   * 경기 참조 — 넥슨 경기 번호(provider_match_id) **또는 내부 match_id**(`fco:…`·`fcs:<VOD>@<초>`).
+   * 화면 경기(VOD 결과 화면에서 읽은 경기)는 넥슨 번호가 없어 내부 id 로만 찾는다. 두 값은 겹치지 않는다.
+   */
   provider_match_id: string;
   /** 없으면 근거만 쌓는다 — 결론 없이 중간 반영해도 된다. */
   conclusion?: "casual" | "unresolved" | "event";
@@ -119,9 +123,10 @@ export async function applyFcoMatchContext(
       const games = await tx<{ match_id: string; event_id: string | null; series_id: string | null; series_event_id: string | null }[]>`
         SELECT m.match_id, m.event_id, m.series_id, ms.event_id AS series_event_id
           FROM match m
-          JOIN fco_match_detail d ON d.match_id = m.match_id
+          LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
           LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-         WHERE d.provider_match_id = ${input.provider_match_id} AND m.game_code = 'fconline'
+         WHERE (d.provider_match_id = ${input.provider_match_id} OR m.match_id = ${input.provider_match_id})
+           AND m.game_code = 'fconline'
          FOR UPDATE OF m
       `;
       const game = games[0];
@@ -392,7 +397,7 @@ export interface FcoContextQueueRow {
   judgment_note: string | null;
   /** 최신 판단의 주체. 'auto' 면 승인 대기 후보다. */
   judgment_by: string | null;
-  /** 사람이 확인 도장을 찍었나 (match.reviewed_at). 조사 완료와는 별개다. */
+  /** 사람이 확인(완료)했나 (match.review_completed_at). 조사 완료와는 별개다. */
   confirmed: boolean;
   evidence_count: number;
 }
@@ -416,7 +421,7 @@ export async function listFcoContextQueue(
                       ' vs ' ORDER BY p.side_no) AS players,
            e.name AS event_name, e.kind AS event_kind,
            ctx.judgment, ctx.note AS judgment_note, ctx.created_by AS judgment_by,
-           (m.reviewed_at IS NOT NULL) AS confirmed,
+           (m.review_completed_at IS NOT NULL) AS confirmed,
            (SELECT count(*)::int FROM fco_context_evidence fe WHERE fe.match_id = m.match_id) AS evidence_count
       FROM match m
       JOIN fco_match_detail d ON d.match_id = m.match_id
@@ -461,7 +466,7 @@ export interface FcoContextDetail {
   played_at: string;
   mode_key: string | null;
   status: FcoContextStatus;
-  /** 사람이 확인 도장을 찍었나 (match.reviewed_at). */
+  /** 사람이 확인(완료)했나 (match.review_completed_at). */
   confirmed: boolean;
   event: { slug: string | null; name: string; kind: string; source_url: string | null } | null;
   participants: { slug: string | null; nickname: string; outcome: string; score: number | null }[];
@@ -481,7 +486,7 @@ export async function getFcoContextDetail(providerMatchId: string): Promise<FcoC
     slug: string | null; name: string | null; kind: string | null; source_url: string | null;
   }[]>`
     SELECT m.match_id, m.game_creation AS played_at, m.mode_key,
-           (m.reviewed_at IS NOT NULL) AS confirmed,
+           (m.review_completed_at IS NOT NULL) AS confirmed,
            e.slug, e.name, e.kind, e.source_url
       FROM match m
       JOIN fco_match_detail d ON d.match_id = m.match_id
@@ -534,12 +539,12 @@ export async function approveFcoContext(
   const out: FcoContextOutcome = { provider_match_id: providerMatchId, actions: [], skipped: [] };
   const sql = db();
   await sql.begin(async (tx) => {
-    const games = await tx<{ match_id: string; reviewed_at: string | null; event_id: string | null; series_event_id: string | null }[]>`
-      SELECT m.match_id, m.reviewed_at, m.event_id, ms.event_id AS series_event_id
+    const games = await tx<{ match_id: string; reviewed_at: string | null; review_completed_at: string | null; event_id: string | null; series_event_id: string | null }[]>`
+      SELECT m.match_id, m.reviewed_at, m.review_completed_at, m.event_id, ms.event_id AS series_event_id
         FROM match m
-        JOIN fco_match_detail d ON d.match_id = m.match_id
+        LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
         LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-       WHERE d.provider_match_id = ${providerMatchId} AND m.game_code = 'fconline'
+       WHERE (d.provider_match_id = ${providerMatchId} OR m.match_id = ${providerMatchId}) AND m.game_code = 'fconline'
        FOR UPDATE OF m
     `;
     const game = games[0];
@@ -563,14 +568,29 @@ export async function approveFcoContext(
         out.actions.push(`판단 승인 ${latest[0].judgment} — 자동 반영이 못 덮는다`);
       }
     }
-    if (game.reviewed_at) {
-      out.skipped.push("확인 도장 — 이미 찍혀 있다");
-    } else {
-      await tx`UPDATE match SET reviewed_at = now() WHERE match_id = ${game.match_id}`;
-      out.actions.push("확인 도장 (reviewed_at)");
-    }
+    if (await stampFcoReview(tx, game.match_id)) out.actions.push("확인 도장 (검수 완료)");
+    else out.skipped.push("확인 도장 — 이미 찍혀 있다");
   });
   return out;
+}
+
+/**
+ * 확인 도장 — 두 칸을 같이 찍는다. LoL 과 뜻이 같다(0043).
+ *   reviewed_at          자동 조사가 덮지 못하게 하는 보호
+ *   review_completed_at  사람이 확인해 끝냈다는 완료 (큐의 「확인됨」·화면 경기의 「완료」가 읽는 것)
+ * FC 는 한동안 reviewed_at 하나에 두 뜻을 담았다. 한 곳에서만 찍어 다시 갈라지지 않게 한다.
+ * @returns 완료가 새로 찍혔으면 true (이미 완료였으면 false)
+ */
+export async function stampFcoReview(tx: Tx, matchId: string): Promise<boolean> {
+  const rows = await tx<{ match_id: string }[]>`
+    UPDATE match
+       SET reviewed_at = COALESCE(reviewed_at, now()),
+           review_completed_at = COALESCE(review_completed_at, now())
+     WHERE match_id = ${matchId} AND game_code = 'fconline' AND review_completed_at IS NULL
+    RETURNING match_id`;
+  if (rows.length) return true;
+  await tx`UPDATE match SET reviewed_at = COALESCE(reviewed_at, now()) WHERE match_id = ${matchId} AND game_code = 'fconline'`;
+  return false;
 }
 
 // ── 검수 작업대 — 행사 단위로 묶어서 본다 ────────────────────────────
@@ -691,7 +711,7 @@ export async function getFcoReviewWorkspace(
     public_n: number;
   }[]>`
     SELECT d.provider_match_id, m.match_id, m.game_creation AS played_at, m.mode_key,
-           (m.reviewed_at IS NOT NULL) AS confirmed,
+           (m.review_completed_at IS NOT NULL) AS confirmed,
            COALESCE(ms.event_id, m.event_id) AS event_id,
            m.series_id, m.series_game_no, ms.best_of,
            ctx.judgment, ctx.note, ctx.created_by AS judgment_by, ctx.created_at AS judged_at,
@@ -917,9 +937,8 @@ export async function decideFcoEventMatch(
       await tx`UPDATE match SET event_id = NULL WHERE match_id = ${game.match_id}`;
       out.actions.push("행사 연결 해제 — 공개 화면의 대회 경기에서 빠진다");
     }
-    if (createdBy === "admin") {
-      await tx`UPDATE match SET reviewed_at = COALESCE(reviewed_at, now()) WHERE match_id = ${game.match_id}`;
-    }
+    // 사람이 이 경기의 포함·제외를 정했다 = 그 경기를 봤다. 기존 동작 그대로 확인 도장을 찍는다(같은 함수 하나로).
+    if (createdBy === "admin") await stampFcoReview(tx, game.match_id);
   });
   return out;
 }
@@ -955,11 +974,12 @@ export async function holdFcoContext(providerMatchId: string): Promise<FcoContex
   const out: FcoContextOutcome = { provider_match_id: providerMatchId, actions: [], skipped: [] };
   const sql = db();
   const rows = await sql<{ match_id: string }[]>`
-    UPDATE match m SET reviewed_at = NULL
-      FROM fco_match_detail d
-     WHERE d.match_id = m.match_id AND d.provider_match_id = ${providerMatchId}
-       AND m.game_code = 'fconline' AND m.reviewed_at IS NOT NULL
-    RETURNING m.match_id
+    UPDATE match SET reviewed_at = NULL, review_completed_at = NULL
+     WHERE game_code = 'fconline' AND (reviewed_at IS NOT NULL OR review_completed_at IS NOT NULL)
+       AND match_id IN (
+         SELECT m.match_id FROM match m LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
+          WHERE (d.provider_match_id = ${providerMatchId} OR m.match_id = ${providerMatchId}) AND m.game_code = 'fconline')
+    RETURNING match_id
   `;
   if (rows.length) out.actions.push("확인 도장 해제 — 다시 승인 대기로");
   else out.skipped.push("확인 도장 — 원래 없다");
@@ -970,11 +990,11 @@ export async function holdFcoContext(providerMatchId: string): Promise<FcoContex
 export async function holdFcoEvent(eventId: string): Promise<{ cleared: number }> {
   const sql = db();
   const rows = await sql<{ match_id: string }[]>`
-    UPDATE match m SET reviewed_at = NULL
+    UPDATE match m SET reviewed_at = NULL, review_completed_at = NULL
       FROM (SELECT mm.match_id FROM match mm
               LEFT JOIN match_series ms ON ms.id = mm.series_id AND ms.game_code = mm.game_code
              WHERE COALESCE(ms.event_id, mm.event_id) = ${eventId}::uuid AND mm.game_code = 'fconline') target
-     WHERE m.match_id = target.match_id AND m.reviewed_at IS NOT NULL
+     WHERE m.match_id = target.match_id AND (m.reviewed_at IS NOT NULL OR m.review_completed_at IS NOT NULL)
     RETURNING m.match_id
   `;
   return { cleared: rows.length };
@@ -1005,7 +1025,7 @@ export async function listFcoEventOptions(): Promise<FcoEventOption[]> {
 }
 
 /**
- * 행사 단위 승인 — 소속 경기 전부에 확인 도장(reviewed_at)을 찍는다.
+ * 행사 단위 승인 — 소속 경기 전부에 확인 도장(reviewed_at + review_completed_at)을 찍는다.
  * 행사 연결 자체가 결론이므로 판단 행은 만들지 않는다.
  */
 export async function approveFcoEvent(eventId: string): Promise<{
@@ -1043,8 +1063,8 @@ export async function approveFcoEvent(eventId: string): Promise<{
       promoted++;
     }
     const stamped = await tx<{ match_id: string }[]>`
-      UPDATE match SET reviewed_at = now()
-       WHERE match_id = ANY(${ids.map((r) => r.match_id)}) AND reviewed_at IS NULL
+      UPDATE match SET reviewed_at = COALESCE(reviewed_at, now()), review_completed_at = now()
+       WHERE match_id = ANY(${ids.map((r) => r.match_id)}) AND review_completed_at IS NULL
        RETURNING match_id
     `;
     return {

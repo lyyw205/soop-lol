@@ -141,3 +141,11 @@ API 저장 경로(`saveFcoMatch`)에서는 부르지 않는다 — API 경로를
 - 모든 변경은 `review_change` 에 남긴다(닉네임·점수·사람·완료 해제·연결). 마이그레이션 없음.
 - 검수 완료는 "사람이 봤다"는 도장이다. **공개되지 않는다**(7b 는 `visibility` 관문 설계가 먼저다).
 - 목록은 따로 두지 않고 `/admin/fco`(FC 맥락 검수)의 같은 표에 합쳤다 — 승인 대기 탭에는 미완료 VOD, 확인됨 탭에는 전부 완료된 VOD, 전체에는 모두. `/admin/fco/screen` 은 `/admin/fco` 로 보낸다. 처음엔 별도 목록으로 만들었으나 사용자가 "기존 맥락 검수 리스트에 넣으면 되지 않느냐"고 해서 합쳤다.
+
+### 2026-10-02 — FC 검수 도장 한 가지로 통일 · 화면 경기에 맥락 칸
+
+- **문제**: FC 검수가 두 벌이었다. 기존 맥락 검수는 `reviewed_at` 하나에 "확인됨"과 "자동 조사 보호"를 같이 담았고, 화면 경기 작업대는 LoL 처럼 `review_completed_at`(완료)·`reviewed_at`(보호)을 나눠 썼다. 같은 경기가 두 화면에서 다르게 보일 수 있었다.
+- **결정**: LoL 과 같은 두 도장 모델을 FC 전체에 쓴다. `reviewed_at` = 보호, `review_completed_at` = 사람이 확인한 완료. 찍는 곳은 `stampFcoReview`(context.ts) 하나다 — 승인(`approveFcoContext`·`approveFcoEvent`)·사람의 포함/제외 결정·화면 경기 완료가 모두 이 함수를 부른다. 보류(`holdFcoContext`·`holdFcoEvent`)는 두 칸을 다 뗀다. 큐의 「확인됨」은 `review_completed_at` 기준이다.
+- **실DB 정리**: 보호만 있고 완료가 없던 FC 경기 1건(`fco:6aafad0cf510b98313e7ac78`, 09-24 승인)을 `review_completed_at = reviewed_at` 으로 맞췄다(`review_change` 기록).
+- **맥락 칸**: 화면 경기 작업대에 맥락(미해결·단순 친선·CK·대회…)을 붙였다. 컨트롤은 기존 `FcoReviewControls` 그대로이고 저장도 기존 `applyFcoMatchContext` 그대로다 — 이 함수와 승인·보류가 넥슨 번호뿐 아니라 내부 `match_id`(`fcs:…`)도 받게 했다. 새 저장 경로를 만들지 않았다.
+- **남은 일(4번)**: 프레임 뷰어가 아직 두 벌이다(`FcoWorkspace` 의 뷰어 vs `FcoScreenReviewer` 의 앞뒤 원본 뷰어). 공용 부품으로 합친다.

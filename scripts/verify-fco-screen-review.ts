@@ -21,6 +21,7 @@ const { linkFcoAccount, saveFcoMatch } = await import("../packages/core/lib/game
 const R = await import("../packages/core/lib/db/fconline.ts");
 const S = await import("../packages/core/lib/games/fconline/screen.ts");
 const V = await import("../packages/core/lib/games/fconline/screen-review.ts");
+const C = await import("../packages/core/lib/games/fconline/context.ts");
 
 const dayAgo = (d: number) => new Date(Date.now() - d * 86_400_000);
 const apiDate = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
@@ -119,6 +120,45 @@ try {
   assert.equal((await sql`SELECT count(*)::int n FROM fco_context_evidence WHERE match_id = ${API} AND frame_path IS NOT NULL`)[0].n, 0, "복사한 근거만 거둔다");
   const v3c = await ver(S3);
   await rejects("연결 안 된 경기 풀기", () => V.unlinkScreenByAdmin(S3, v3c.v), "연결돼 있지 않은");
+
+  // 4-2) 맥락 — 기존 FC 맥락 검수와 같은 함수·같은 도장. 화면 경기는 내부 match_id 로 부른다.
+  const ctxOf = async (id: string) => (await V.getScreenReviewWorkspace("900100"))!.matches.find((m) => m.match_id === id)!;
+  assert.equal((await ctxOf(S2)).context.status, "uninvestigated", "처음엔 미조사");
+  await rejects("근거 없는 친선", () => C.applyFcoMatchContext({ provider_match_id: S2, conclusion: "casual", note: " " }, { createdBy: "admin" }), "note");
+  await C.applyFcoMatchContext({ provider_match_id: S2, conclusion: "casual", note: "본인 방송에서 몸풀기라고 말함" }, { createdBy: "admin" });
+  const casual = await ctxOf(S2);
+  assert.deepEqual([casual.context.status, casual.context.judgment?.created_by], ["casual", "admin"], "화면 경기에도 같은 판단 저장");
+  await C.applyFcoMatchContext({ provider_match_id: S2, conclusion: "event", event: { slug: "scr-cup", name: "화면컵", kind: "tournament", source_url: "https://example.com/scr" } }, { createdBy: "admin", relink: true });
+  const withEvent = await ctxOf(S2);
+  assert.deepEqual([withEvent.context.status, withEvent.context.event?.slug], ["event", "scr-cup"], "행사 연결이 맥락이 된다(기존 규칙)");
+  assert.equal(withEvent.review_completed_at, null, "값(행사)이 바뀌면 완료는 풀린다");
+  assert.equal(await C.listFcoEventOptions().then((o) => o.some((e) => e.slug === "scr-cup")), true, "행사 목록에도 나온다");
+
+  // 4-3) 도장 한 가지 — 승인·보류·완료가 같은 두 칸을 만진다. 화면 경기와 API 경기가 똑같다.
+  const stamps = async (id: string) => (await sql<{ r: Date | null; c: Date | null }[]>`SELECT reviewed_at r, review_completed_at c FROM match WHERE match_id = ${id}`)[0];
+  const a1 = await C.approveFcoContext(S2);
+  assert.ok(a1.actions.some((x) => x.includes("확인 도장")));
+  const st = await stamps(S2);
+  assert.ok(st.r && st.c, "승인은 보호와 완료를 같이 찍는다");
+  const a2 = await C.approveFcoContext(S2);
+  assert.ok(a2.skipped.some((x) => x.includes("이미")), "다시 승인해도 그대로(멱등)");
+  await C.holdFcoContext(S2);
+  const held = await stamps(S2);
+  assert.deepEqual([held.r, held.c], [null, null], "보류는 두 칸 모두 뗀다");
+  // API 경기도 같은 도장 — 맥락 검수 큐의 「확인됨」은 완료(review_completed_at) 기준이다
+  await C.applyFcoMatchContext({ provider_match_id: "api-link", conclusion: "casual", note: "API 경기 맥락" }, { createdBy: "admin" });
+  assert.equal((await C.getFcoContextDetail("api-link"))!.confirmed, false, "승인 전에는 확인됨이 아니다");
+  await C.approveFcoContext("api-link");
+  assert.equal((await C.getFcoContextDetail("api-link"))!.confirmed, true, "승인하면 확인됨");
+  const api = await stamps(API);
+  assert.ok(api.r && api.c, "API 경기 승인도 같은 두 칸");
+  await sql`UPDATE match SET review_completed_at = NULL WHERE match_id = ${API}`;
+  assert.equal((await C.getFcoContextDetail("api-link"))!.confirmed, false, "보호(reviewed_at)만 있으면 확인됨이 아니다 — 두 뜻을 섞지 않는다");
+  // 화면 경기 완료 버튼도 같은 함수 — 같은 두 칸
+  const vNow = await ver(S2);
+  await V.setScreenReviewCompleted(S2, true, vNow.v);
+  const viaScreen = await stamps(S2);
+  assert.ok(viaScreen.r && viaScreen.c, "화면 경기 완료도 같은 두 칸");
 
   // 5) 검수해도 공개 조회는 그대로 — 화면 경기가 공개 쪽에 새지 않는다
   const dump = JSON.stringify([await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoLeaderboard(), await R.listFcoEvents()]);

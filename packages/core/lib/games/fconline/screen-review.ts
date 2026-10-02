@@ -14,6 +14,7 @@
 import type postgres from "postgres";
 
 import { db } from "../../db/client.ts";
+import { stampFcoReview, type FcoContextStatus } from "./context.ts";
 import { compareMatches, linkScreenTo, resolveSide, screenOutcomes, type MatchSig } from "./screen.ts";
 
 // ── 읽기 ────────────────────────────────────────────────────────────
@@ -71,8 +72,15 @@ export interface ScreenCandidate {
   verdict: "same" | "maybe" | "none";
   sides: { nickname: string; score: number | null; streamer_name: string | null }[];
 }
+/** 이 경기의 맥락(무슨 판이었나) — 기존 FC 맥락 검수와 같은 저장(fco_match_context·event 연결)을 읽는다. */
+export interface ScreenContext {
+  status: FcoContextStatus;
+  event: { id: string; slug: string | null; name: string; kind: string; organizer: string | null; source_url: string | null } | null;
+  judgment: { judgment: string; note: string; created_by: string } | null;
+}
 export interface ScreenMatchView {
   match_id: string;
+  context: ScreenContext;
   at_sec: number;
   ended_at: string;
   mode_key: string | null;
@@ -103,10 +111,20 @@ export async function getScreenReviewWorkspace(vod: string): Promise<ScreenWorks
   const rows = await sql<{
     match_id: string; game_creation: Date; mode_key: string | null; review_completed_at: Date | null; review_version: number; reviewed_at: Date | null;
     api_match_id: string | null; decided_by: string | null;
+    event_id: string | null; event_slug: string | null; event_name: string | null; event_kind: string | null;
+    event_organizer: string | null; event_source_url: string | null;
+    judgment: string | null; judgment_note: string | null; judgment_by: string | null;
   }[]>`
     SELECT m.match_id, m.game_creation, m.mode_key, m.review_completed_at, m.review_version, m.reviewed_at,
-           l.api_match_id, l.decided_by
+           l.api_match_id, l.decided_by,
+           e.id AS event_id, e.slug AS event_slug, e.name AS event_name, e.kind AS event_kind,
+           e.organizer AS event_organizer, e.source_url AS event_source_url,
+           ctx.judgment, ctx.note AS judgment_note, ctx.created_by AS judgment_by
       FROM match m LEFT JOIN fco_screen_link l ON l.screen_match_id = m.match_id
+      LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+      LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id)
+      LEFT JOIN LATERAL (SELECT judgment, note, created_by FROM fco_match_context c
+                          WHERE c.match_id = m.match_id ORDER BY c.created_at DESC LIMIT 1) ctx ON true
      WHERE m.game_code = 'fconline' AND m.source = 'manual' AND m.origin = 'vod_scan' AND m.match_id LIKE ${`fcs:${vod}@%`}
      ORDER BY m.game_creation, m.match_id`;
   if (!rows.length) return null;
@@ -160,8 +178,15 @@ export async function getScreenReviewWorkspace(vod: string): Promise<ScreenWorks
       const rank = { same: 0, maybe: 1, none: 2 } as const;
       candidates = candidates.sort((a, b) => rank[a.verdict] - rank[b.verdict] || Math.abs(a.gap_sec) - Math.abs(b.gap_sec));
     }
+    // 맥락 파생 규칙은 기존과 같다: 행사 연결이 있으면 그 행사, 없으면 최신 판단, 그것도 없으면 미조사.
+    const context: ScreenContext = {
+      status: r.event_id ? "event" : r.judgment === "casual" || r.judgment === "unresolved" ? r.judgment : "uninvestigated",
+      event: r.event_id ? { id: r.event_id, slug: r.event_slug, name: r.event_name ?? "", kind: r.event_kind ?? "other", organizer: r.event_organizer, source_url: r.event_source_url } : null,
+      judgment: r.judgment ? { judgment: r.judgment, note: r.judgment_note ?? "", created_by: r.judgment_by ?? "auto" } : null,
+    };
     out.push({
       match_id: r.match_id,
+      context,
       at_sec: Number(r.match_id.split("@")[1] ?? 0),
       ended_at: r.game_creation.toISOString(),
       mode_key: r.mode_key,
@@ -294,14 +319,17 @@ export async function unlinkScreenByAdmin(matchId: string, expectedVersion: numb
   });
 }
 
-/** 검수 완료 도장. 공개 여부는 건드리지 않는다. */
+/**
+ * 검수 완료 도장. 공개 여부는 건드리지 않는다.
+ * 찍는 일은 기존 FC 승인과 같은 함수(`stampFcoReview`) 하나다 — 도장이 두 가지로 갈라지지 않게.
+ * 취소는 완료만 뗀다(보호 도장 reviewed_at 은 남긴다 — 사람이 본 경기를 자동 조사가 덮지 못하게. LoL 과 같다).
+ */
 export async function setScreenReviewCompleted(matchId: string, completed: boolean, expectedVersion: number): Promise<void> {
   await db().begin(async (tx) => {
     const cur = await lockScreen(tx, matchId, expectedVersion);
     if ((cur.review_completed_at != null) === completed) return;
-    await tx`UPDATE match SET review_completed_at = ${completed ? new Date() : null},
-                              reviewed_at = CASE WHEN ${completed} THEN COALESCE(reviewed_at, now()) ELSE reviewed_at END
-              WHERE match_id = ${matchId}`;
+    if (completed) await stampFcoReview(tx, matchId);
+    else await tx`UPDATE match SET review_completed_at = NULL WHERE match_id = ${matchId}`;
     await log(tx, matchId, "match", matchId, "review_completed", cur.review_completed_at != null, completed);
   });
 }

@@ -58,12 +58,25 @@ const CLASS_OPTIONS = [
   { key: "other", label: EVENT_KIND_LABEL.other, hint: "위 어디에도 안 맞는 행사" },
 ] as const;
 
-function FcoReviewControls({
+/**
+ * 분류·승인 컨트롤이 읽는 최소 모양. 맥락 검수 단위(FcoReviewUnit)도, 화면 경기 작업대도 이 모양을 채워 같은 컨트롤을 쓴다.
+ * provider_match_id 자리에는 내부 match_id(fcs:…)도 들어간다 — 저장 함수가 둘 다 받는다(context.ts).
+ */
+export interface ReviewControlsUnit {
+  kind: FcoReviewUnit["kind"];
+  status: FcoReviewUnit["status"];
+  confirmed: boolean;
+  event: { id: string; kind: string; name: string; organizer: string | null; source_url: string | null } | null;
+  judgment: { judgment: string; note: string; created_by: string } | null;
+  matches: { provider_match_id: string; participants: { name: string }[] }[];
+}
+
+export function FcoReviewControls({
   unit, eventOptions, activeMatch, compact = false,
 }: {
-  unit: FcoReviewUnit;
+  unit: ReviewControlsUnit;
   eventOptions: FcoEventOption[];
-  activeMatch: FcoReviewUnit["matches"][number] | null;
+  activeMatch: ReviewControlsUnit["matches"][number] | null;
   /** 대회 [경기] 탭 안에서 쓸 때 — 조사 결론·검수 토글은 [대회] 탭이 맡는다. */
   compact?: boolean;
 }) {

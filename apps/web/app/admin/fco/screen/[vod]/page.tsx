@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { listFcoEventOptions } from "@soop-lol/core/lib/games/fconline/context";
 import { getScreenReviewWorkspace } from "@soop-lol/core/lib/games/fconline/screen-review";
 
 import { FcoScreenReviewer } from "@/components/admin/FcoScreenReviewer";
@@ -20,7 +21,7 @@ export default async function FcoScreenReviewPage({ params, searchParams }: { pa
   const { match } = await searchParams;
   const ws = await getScreenReviewWorkspace(vod);
   if (!ws) notFound();
-  const [vodFrames, vodLengthSec] = await Promise.all([listVodFrames(vod), vodCellLength(vod)]);
+  const [vodFrames, vodLengthSec, eventOptions] = await Promise.all([listVodFrames(vod), vodCellLength(vod), listFcoEventOptions()]);
 
   return (
     <div className="ck-review-page">
@@ -35,7 +36,7 @@ export default async function FcoScreenReviewPage({ params, searchParams }: { pa
           </p>
         </div>
       </header>
-      <FcoScreenReviewer ws={ws} vodFrames={vodFrames} vodLengthSec={vodLengthSec} initialMatchId={match} />
+      <FcoScreenReviewer ws={ws} vodFrames={vodFrames} vodLengthSec={vodLengthSec} eventOptions={eventOptions} initialMatchId={match} />
     </div>
   );
 }
