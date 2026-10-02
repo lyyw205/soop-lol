@@ -69,15 +69,23 @@
 .sc-ssum { display: flex; flex-wrap: wrap; gap: 10px 28px; }
 .sc-ssum > span { display: grid; gap: 2px; }
 .sc-ssum b { font-size: 20px; }
-.sc-sdays { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.sc-sdays li { display: grid; grid-template-columns: 48px 76px minmax(0, 1fr); gap: 10px; align-items: center; }
-.sc-sday { color: var(--sc-muted); font-size: 13px; }
-.sc-srec { font-size: 13px; font-weight: 700; }
-.sc-sruns { display: flex; gap: 2px; height: 22px; min-width: 0; }
-.sc-run { display: flex; align-items: center; justify-content: center; min-width: 8px; border-radius: 3px; font-size: 11px; font-weight: 700; color: #0e141d; white-space: nowrap; overflow: hidden; }
-.sc-run.w { background: var(--sc-win); }
-.sc-run.l { background: var(--sc-loss); }
-.sc-run:hover { filter: brightness(1.15); }
+.sc-flow { overflow-x: auto; }
+.sc-flow svg { width: 100%; min-width: 640px; height: auto; display: block; }
+.sc-flow .band { fill: transparent; }
+.sc-flow .band.odd { fill: rgba(255, 255, 255, .035); }
+.sc-flow .sep { stroke: var(--sc-faint); stroke-width: 1.5; }
+.sc-flow .headline { stroke: var(--sc-line); stroke-width: 1; }
+.sc-flow .dlabel { fill: var(--sc-fg); font-size: 13px; font-weight: 700; }
+.sc-flow .drec { font-size: 12px; font-weight: 700; }
+.sc-flow .drec .w { fill: var(--sc-win); }
+.sc-flow .drec .l { fill: var(--sc-loss); }
+.sc-flow .grid { stroke: var(--sc-line); stroke-width: 1; }
+.sc-flow .zero { stroke: var(--sc-muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.sc-flow .tick { fill: var(--sc-faint); font-size: 11px; }
+.sc-flow .fill.up { fill: var(--sc-win); opacity: .18; }
+.sc-flow .fill.down { fill: var(--sc-loss); opacity: .18; }
+.sc-flow .line { fill: none; stroke: var(--sc-fg); stroke-width: 2; stroke-linejoin: round; }
+.sc-flow .end { fill: var(--sc-hot); stroke: var(--sc-panel); stroke-width: 2; }
 
 /* 기록실 */
 .sc-records { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }

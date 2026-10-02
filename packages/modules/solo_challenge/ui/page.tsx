@@ -208,11 +208,32 @@ function Progress({ view, compact = false }: { view: ChallengeView; compact?: bo
   );
 }
 
-/* ── 승패 흐름: 날짜마다 한 줄 — 그날 승패와, 시간 순서대로 이어진 연승·연패 덩어리(길이 = 판 수) ── */
+/* ── 승패 흐름: 누적(승−패) 선. 날짜마다 띠(번갈아 칠함)와 굵은 경계선, 띠 위쪽에 날짜·그날 승패 ──
+ *   날짜마다 폭은 판 수에 비례하되 최소 폭을 줘서, 두 판뿐인 날도 글자가 겹치지 않게 한다. */
 function Streaks({ view }: { view: ChallengeView }) {
   const r = view.record;
-  const maxGames = Math.max(1, ...view.days.map((d) => d.games));
-  const runText = (x: Run) => (x.n === 1 ? (x.win ? "승" : "패") : `${x.n}${x.win ? "연승" : "연패"}`);
+  const runText = (x: Run) => (x.n === 1 ? (x.win ? "1승" : "1패") : `${x.n}${x.win ? "연승" : "연패"}`);
+  if (!view.flow.length) return <p className="sc-muted">아직 판이 없습니다.</p>;
+  const W = 1000, H = 280, HEAD = 46, P = { l: 36, r: 10, b: 16 };
+  const MIN_UNITS = 4;
+  const units = view.days.map((d) => Math.max(d.games, MIN_UNITS));
+  const total = units.reduce((a, b) => a + b, 0);
+  const plotW = W - P.l - P.r;
+  // 날짜 띠의 시작 x 와 폭
+  let acc = 0;
+  const bands = view.days.map((d, k) => { const x0 = P.l + (acc / total) * plotW; acc += units[k]; return { d, x0, w: (units[k] / total) * plotW }; });
+  // 판마다 x — 그 날 띠 안에 고르게
+  const xs: number[] = [];
+  bands.forEach(({ d, x0, w }) => { for (let j = 0; j < d.games; j++) xs.push(x0 + (w * (j + 0.5)) / d.games); });
+  const nets = view.flow.map((p) => p.net);
+  const max = Math.max(1, ...nets), min = Math.min(-1, ...nets);
+  const top = HEAD + 8, bottom = H - P.b;
+  const y = (n: number) => top + ((bottom - top) * (max - n)) / (max - min);
+  const pts = [{ x: P.l, y: y(0) }, ...view.flow.map((p, i) => ({ x: xs[i], y: y(p.net) }))];
+  const path = pts.map((p, k) => `${k ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const area = `${path} L${pts.at(-1)!.x.toFixed(1)},${y(0).toFixed(1)} Z`;
+  const last = pts.at(-1)!;
+  const ticks = Array.from(new Set([max, 0, min]));
   return (
     <div className="sc-streaks">
       <div className="sc-ssum">
@@ -221,22 +242,37 @@ function Streaks({ view }: { view: ChallengeView }) {
         <span><span className="sc-label">최장 연승</span><b className="sc-num sc-w">{r.bestWinStreak}연승</b></span>
         <span><span className="sc-label">최장 연패</span><b className="sc-num sc-l">{r.worstLoseStreak}연패</b></span>
       </div>
-      <ol className="sc-sdays">
-        {[...view.days].reverse().map((d) => (
-          <li key={d.day}>
-            <span className="sc-sday sc-num">{dayText(d.day)}</span>
-            <span className="sc-srec sc-num"><span className="sc-w">{d.wins}승</span> <span className="sc-l">{d.losses}패</span></span>
-            <span className="sc-sruns" style={{ width: `${(d.games / maxGames) * 100}%` }}>
-              {d.runs.map((x, k) => (
-                <a key={k} href={`#g-${x.firstMatchId}`} className={`sc-run ${x.win ? "w" : "l"}`} style={{ flexGrow: x.n }} title={`${runText(x)} — 첫 판으로`}>
-                  {x.n >= 2 ? runText(x) : ""}
-                </a>
-              ))}
-            </span>
-          </li>
-        ))}
-      </ol>
-      <p className="sc-note">날짜마다 그날 판을 시간 순서대로 이어 놓았습니다. 파란 덩어리는 연승, 빨간 덩어리는 연패이고 길이가 판 수입니다. 누르면 그 덩어리의 첫 판으로 갑니다.</p>
+      <div className="sc-flow">
+        <svg viewBox={`0 0 ${W} ${H}`} role="img"
+          aria-label={`누적 승패: ${view.days.map((d) => `${dayText(d.day)} ${d.wins}승 ${d.losses}패`).join(", ")}. 지금 ${last && nets.at(-1)! >= 0 ? "+" : ""}${nets.at(-1)}`}>
+          <defs>
+            <clipPath id="sc-up"><rect x={P.l} y={0} width={plotW} height={y(0)} /></clipPath>
+            <clipPath id="sc-down"><rect x={P.l} y={y(0)} width={plotW} height={H} /></clipPath>
+          </defs>
+          {bands.map(({ d, x0, w }, k) => (
+            <g key={d.day}>
+              <rect x={x0} y={0} width={w} height={bottom} className={k % 2 ? "band odd" : "band"} />
+              {k > 0 && <line x1={x0} x2={x0} y1={0} y2={bottom} className="sep" />}
+              <text x={x0 + w / 2} y={18} textAnchor="middle" className="dlabel">{dayText(d.day)}</text>
+              <text x={x0 + w / 2} y={36} textAnchor="middle" className="drec">
+                <tspan className="w">{d.wins}승</tspan><tspan dx="4" className="l">{d.losses}패</tspan>
+              </text>
+            </g>
+          ))}
+          <line x1={P.l} x2={W - P.r} y1={HEAD} y2={HEAD} className="headline" />
+          {ticks.map((t) => (
+            <g key={t}>
+              <line x1={P.l} x2={W - P.r} y1={y(t)} y2={y(t)} className={t === 0 ? "zero" : "grid"} />
+              <text x={P.l - 6} y={y(t) + 4} textAnchor="end" className="tick">{t > 0 ? `+${t}` : t}</text>
+            </g>
+          ))}
+          <path d={area} className="fill up" clipPath="url(#sc-up)" />
+          <path d={area} className="fill down" clipPath="url(#sc-down)" />
+          <path d={path} className="line" />
+          <circle cx={last.x} cy={last.y} r={5} className="end" />
+        </svg>
+      </div>
+      <p className="sc-note">이기면 한 칸 오르고 지면 한 칸 내려갑니다(0 = 승패 같음). 띠 하나가 하루이고, 위에 그날 승패를 적었습니다.</p>
     </div>
   );
 }
