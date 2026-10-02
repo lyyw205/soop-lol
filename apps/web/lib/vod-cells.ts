@@ -46,10 +46,25 @@ async function layoutOf(vod: string): Promise<Layout | null> {
   return out;
 }
 
-/** 이 VOD 에서 칸을 꺼낼 수 있는 전체 길이(초). 시트가 없으면 null. */
+/**
+ * 이 VOD 에서 칸을 꺼낼 수 있는 전체 길이(초). 시트가 없으면 null.
+ * ★ 목록(`local/sheets.json`)만 있고 시트 **이미지가 지워진** VOD 가 있다(디스크 정리). 목록만 믿으면 화면이 칸이 있다고 보고
+ *   요청해서 깨진 그림이 뜬다 — 파일이 하나라도 있어야 "있다"고 한다.
+ */
 export async function vodCellLength(vod: string): Promise<number | null> {
   if (!/^\d{1,12}$/.test(vod)) return null;
-  return (await layoutOf(vod))?.total ?? null;
+  const layout = await layoutOf(vod);
+  if (!layout) return null;
+  const fs: Fs = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const base = await root(fs);
+  if (!base) return null;
+  for (const p of layout.parts) {
+    const first = p.sheets[0];
+    if (!first) continue;
+    try { await fs.access(join(base, first.startsWith("out/") ? first.slice(4) : first)); return layout.total; } catch { /* 다음 파일 */ }
+  }
+  return null;
 }
 
 /** VOD 전체 초의 칸을 JPEG 로. 시트가 없거나 범위 밖이면 null. */

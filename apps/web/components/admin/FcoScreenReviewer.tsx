@@ -78,6 +78,9 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
   const [viewSec, setViewSec] = useState<number | null>(null);
   const [stepSec, setStepSec] = useState<number>(30);
   const stripRef = useRef<HTMLDivElement>(null);
+  // 불러오지 못한 그림(파일이 지워졌거나 서버 오류). 깨진 아이콘 대신 이유를 말한다.
+  const [failed, setFailed] = useState<ReadonlySet<string>>(new Set());
+  const markFailed = (src: string) => setFailed((prev) => new Set(prev).add(src));
   const pick = (id: string) => { setSelectedId(id); setFrameKey(null); setViewSec(null); };
 
   const allFrames = useMemo(() => {
@@ -152,10 +155,16 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
         </header>
         {/* 원본 크기에서는 스크롤로 닉네임 칸을 들여다본다 — 오독은 확대해야 보인다. */}
         <div className={`ck-review-frame bg-ink-950 ${zoom ? "max-h-[75vh] overflow-auto" : ""}`}>
-          {shownSrc ? (
+          {shownSrc && !failed.has(shownSrc) ? (
             // eslint-disable-next-line @next/next/no-img-element -- out/ 밖의 로컬 파일이라 next/image 로 최적화하지 않는다
-            <img src={shownSrc} alt={`${hms(shownSec ?? 0)} 프레임`} className={`ck-review-frame-image ${zoom ? "max-w-none" : "w-full"}`} />
-          ) : <p className="px-4 py-16 text-center text-sm text-ink-400">보여 줄 프레임이 없습니다.</p>}
+            <img src={shownSrc} alt={`${hms(shownSec ?? 0)} 프레임`} onError={() => markFailed(shownSrc)} className={`ck-review-frame-image ${zoom ? "max-w-none" : "w-full"}`} />
+          ) : shownSrc ? (
+            <div className="grid gap-2 px-6 py-14 text-center text-sm text-ink-400">
+              <p className="text-ink-200">{hms(shownSec ?? 0)} 의 {fullRes ? "원본 프레임 파일" : "썸네일 칸"}을 불러오지 못했습니다.</p>
+              <p className="text-xs">{fullRes ? "파일이 지워졌거나 경로가 바뀌었습니다." : "이 칸이 들어 있는 썸네일 시트가 지워졌거나 범위 밖입니다."} 같은 지점을 다시 뽑으려면:</p>
+              <code className="mx-auto rounded bg-ink-800 px-2 py-1 text-xs">npm run ck:probe -- --vod {ws.vod} --at {shownSec}</code>
+            </div>
+          ) : <p className="px-4 py-16 text-center text-sm text-ink-400">보여 줄 프레임이 없습니다.{selected && !cellsOk ? " 이 VOD 의 썸네일 시트가 지워져 앞뒤 칸도 볼 수 없습니다." : ""}</p>}
         </div>
         {shownSec != null && (
           <footer className="grid gap-2 border-t border-ink-800 px-4 py-2">
@@ -180,8 +189,10 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
                   return (
                     <button key={t} type="button" data-current={current} onClick={() => setViewSec(t)}
                       className={`relative shrink-0 overflow-hidden rounded border ${current ? "border-accent-600" : isResult ? "border-amber-400/60" : "border-ink-700 hover:border-ink-500"}`}>
-                      {/* eslint-disable-next-line @next/next/no-img-element -- 로컬 파일 */}
-                      <img src={`/admin/fco/screen/cell/${ws.vod}/${t}`} alt="" loading="lazy" className="block h-[68px] w-[120px] object-cover" />
+                      {failed.has(`/admin/fco/screen/cell/${ws.vod}/${t}`)
+                        ? <span className="grid h-[68px] w-[120px] place-items-center bg-ink-900 text-[10px] text-ink-500">없음</span>
+                        // eslint-disable-next-line @next/next/no-img-element -- 로컬 파일
+                        : <img src={`/admin/fco/screen/cell/${ws.vod}/${t}`} alt="" loading="lazy" onError={() => markFailed(`/admin/fco/screen/cell/${ws.vod}/${t}`)} className="block h-[68px] w-[120px] object-cover" />}
                       <span className="absolute inset-x-0 bottom-0 bg-ink-950/80 px-1 text-center font-mono text-[10px] text-ink-200">
                         {isResult ? "★ " : ""}{center != null ? offsetLabel(t - center) : hms(t)}
                       </span>
@@ -190,7 +201,7 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
                 })}
               </div>
             ) : (
-              <p className="text-[11px] text-amber-400">이 VOD 의 썸네일 시트가 없어 앞뒤 칸을 못 보여 줍니다(out/ck/{ws.vod}/sheets). 원본 프레임 {allFrames.length}장만 있습니다.</p>
+              <p className="text-[11px] text-amber-400">이 VOD 의 썸네일 시트가 지워져 앞뒤 칸을 못 보여 줍니다(out/ck/{ws.vod}/sheets). 지금 볼 수 있는 원본 프레임은 {allFrames.length}장뿐입니다.</p>
             )}
             <p className="text-[11px] text-ink-400">
               키보드 ← →. 썸네일은 3초 칸의 저해상도 화면이라 닉네임·점수는 읽기 어렵습니다. 원본이 필요하면{" "}
