@@ -224,7 +224,7 @@ try {
 
   const sx = await sessionsOf("fco:api-x");
   assert.equal(sx.length, 1, "두 방송에서 본 경기도 대전 하나에만(방송마다 다시 보지 않는다)");
-  assert.equal(sx[0].kind, "pair", "알파 vs 베타 — 두 사람의 대전");
+  assert.equal(sx[0].kind, "meet", "알파 vs 베타 — 스트리머끼리 모임(대전 하나)");
   assert.deepEqual(sx[0].vods, ["900150", "900200"], "그 대전을 본 방송 둘(방송 거르기에 둘 다 걸린다)");
   assert.equal((await sessionsOf(X)).length, 0, "이어진 화면 기록은 따로 줄이 되지 않는다");
   assert.equal((await sessionsOf(S2)).length, 0, "S2 는 위에서 행사(scr-cup)에 붙었다 — 대회 단위");
@@ -284,6 +284,33 @@ try {
   assert.deepEqual(sc[0]?.match_ids, ["fco:pair-c"], "2시간 뒤는 다음 대전");
   assert.equal(sa[0].investigated, false, "조사 기록이 없으면 「조사 필요」");
   assert.equal((await SS.getFcoSession(sa[0].id))?.id, sa[0].id, "대전 id 로 다시 연다");
+
+  // 10) 모임 — 사용자 예시. 김민교 vs 임유진 / 스맵 vs 도현 / 서도일 vs 저라뎃 / 도현 vs 김민교, 그리고 서도일 방송에 띄운 김민교 vs 이상호.
+  //   사람이 겹치면 사슬로 한 모임, 서도일 vs 저라뎃은 겹치는 사람이 없지만 서도일이 김민교 경기를 띄워 봤으므로 같은 모임.
+  await sql`INSERT INTO streamer (slug, display_name) VALUES ('m-kim','김민교'),('m-lim','임유진'),('m-smap','스맵'),('m-do','도현'),('m-seo','서도일'),('m-jeo','저라뎃'),('m-lee','이상호'),('m-far','먼사람')`;
+  const T10 = dayAgo(120).getTime();
+  const meet = async (vod: number, at: number, min: number, a: string, b: string) => {
+    await S.saveFcoScreenMatch({ vodTitleNo: vod, atSec: at, endedAt: new Date(T10 + min * 60_000).toISOString(), channelId: `ch-${vod}`,
+      sides: [{ nickname: `${a}닉`, score: 2, streamerSlug: a, basis: "manual" }, { nickname: `${b}닉`, score: 1, streamerSlug: b, basis: "manual" }],
+      evidence: [{ observed: "결과", frame_path: `out/ck/${vod}/g${String(at).padStart(7, "0")}.jpg` }] });
+    return `fcs:${vod}@${at}`;
+  };
+  const k1 = await meet(901001, 100, 0, "m-kim", "m-lim");
+  const k2 = await meet(901002, 100, 10, "m-smap", "m-do");
+  const k3 = await meet(901003, 100, 20, "m-seo", "m-jeo");
+  const k4 = await meet(901001, 1300, 30, "m-do", "m-kim");
+  // 서도일 방송(901003)에 김민교 vs 이상호가 나왔다 — 그 판의 시점이 서도일 방송
+  const k5 = await meet(901003, 1900, 40, "m-kim", "m-lee");
+  await sql`INSERT INTO event_lead (source, source_key, url, title, channel_id, streamer_id, observed_at)
+             SELECT 'vod_title', 'vod:901003', 'https://vod.sooplive.com/player/901003', '서도일 방송', 'ch-seo', id, now() FROM streamer WHERE slug = 'm-seo'`;
+  const far = await meet(901009, 100, 300, "m-kim", "m-far");   // 5시간 뒤 — 다른 모임
+  const m10 = await sessionsOf(k1);
+  assert.equal(m10.length, 1);
+  assert.equal(m10[0].kind, "meet");
+  for (const id of [k2, k4, k5]) assert.ok(m10[0].match_ids.includes(id), `${id} 는 사람이 겹쳐 같은 모임`);
+  assert.ok(m10[0].match_ids.includes(k3), "서도일이 김민교 경기를 띄워 봐서 서도일 vs 저라뎃도 같은 모임");
+  assert.ok(!m10[0].match_ids.includes(far), "5시간 뒤 경기는 다른 모임");
+  assert.ok(m10[0].pairs.length >= 4, "모임 안 대전 목록");
 
   // 5) 검수해도 공개 조회는 그대로 — 화면 경기가 공개 쪽에 새지 않는다
   const dump = JSON.stringify([await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoLeaderboard(), await R.listFcoEvents()]);

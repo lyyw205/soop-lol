@@ -24,7 +24,8 @@ import { OBS_CTE } from "./match-units.ts";
 
 export const SESSION_GAP_MIN = 40;
 
-export type FcoSessionKind = "pair" | "solo" | "names";
+/** meet = 스트리머끼리 모임(대전 하나뿐이어도 meet) · solo = 그 스트리머의 일반 유저전 · names = 닉네임끼리 */
+export type FcoSessionKind = "meet" | "solo" | "names";
 
 export interface FcoSession {
   /** `<kind>~<키>~<첫 경기 유닉스 초>` — 주소에 쓴다 */
@@ -45,6 +46,8 @@ export interface FcoSession {
   /** 이 대전의 경기들을 본 방송 — 「이 방송에 나온 대전」 거르기에 쓴다 */
   vods: string[];
   match_ids: string[];
+  /** 모임 안의 두 사람 대전들(시간 순) — 모임이 아니면 자기 하나 */
+  pairs: { title: string; total: number }[];
 }
 
 interface Row {
@@ -97,7 +100,7 @@ async function loadCandidates(): Promise<Row[]> {
 }
 
 /** 경기 하나의 묶음 키와 이름. */
-function keyOf(r: Row): { kind: FcoSessionKind; key: string; title: string; people: { slug: string; name: string }[] } {
+function keyOf(r: Row): { kind: "pair" | "solo" | "names"; key: string; title: string; people: { slug: string; name: string }[] } {
   const parts = r.parts ?? [];
   const named = parts.filter((p) => p.streamer_id && p.slug);
   const people = named.map((p) => ({ slug: p.slug!, name: p.name ?? p.nickname }));
@@ -131,7 +134,7 @@ export async function listFcoSessions(): Promise<FcoSession[]> {
         for (const o of r.owners ?? []) people.set(o.slug, o.name);
       }
       out.push({
-        id: `${base}~${Math.floor(cur[0].game_creation.getTime() / 1000)}`, kind: k.kind, title: k.title,
+        id: `${base}~${Math.floor(cur[0].game_creation.getTime() / 1000)}`, kind: k.kind as FcoSessionKind, pairs: [], title: k.title,
         people: [...people].map(([slug, name]) => ({ slug, name })),
         from: cur[0].game_creation.toISOString(), to: cur[cur.length - 1].game_creation.toISOString(),
         total: cur.length, completed: cur.filter((r) => r.review_completed_at).length,
@@ -148,7 +151,55 @@ export async function listFcoSessions(): Promise<FcoSession[]> {
     }
     flush();
   }
-  return out.sort((a, b) => b.from.localeCompare(a.from));
+  const pairs = out.filter((x) => (x.kind as string) === "pair");
+  const rest = out.filter((x) => (x.kind as string) !== "pair").map((x) => ({ ...x, pairs: [{ title: x.title, total: x.total }] }));
+  return [...gatherMeets(pairs), ...rest].sort((a, b) => b.from.localeCompare(a.from));
+}
+
+/**
+ * 스트리머끼리 대전을 **모임**으로 잇는다 — 사용자 결정(2026-10-02).
+ *   두 대전이 SESSION_GAP_MIN 안에 이어지거나 겹치고, **그 자리에 있던 사람**이 한 명이라도 겹치면 같은 모임(사슬로 이어진다).
+ *   그 자리에 있던 사람 = 뛴 사람 + 그 판을 자기 방송에 띄운 방송 주인(서로 경기를 띄워 보는 모임에서 서도일 방송에 김민교 vs 이상호가 나오면 서도일도 있던 것).
+ *   4~5명이 돌아가며 하거나 CK 대진을 돌리면 두 사람 대전이 여러 개로 쪼개져 흐름이 안 보였다(실측: 330대전 중 170이 56개 모임으로 묶임, 가장 큰 모임 8판).
+ * ★ 모임은 검수 화면에서만 쓰고 저장하지 않는다. 공개에 닿는 것은 모임에서 내린 **행사 연결**뿐이다.
+ */
+function gatherMeets(list: FcoSession[]): FcoSession[] {
+  const present = list.map((x) => new Set(x.people.map((p) => p.slug)));
+  const parent = list.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const gap = SESSION_GAP_MIN * 60_000;
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      if (Date.parse(a.from) - gap > Date.parse(b.to) || Date.parse(b.from) - gap > Date.parse(a.to)) continue;
+      if ([...present[i]].some((x) => present[j].has(x))) parent[find(i)] = find(j);
+    }
+  }
+  const groups = new Map<number, FcoSession[]>();
+  list.forEach((x, i) => (groups.get(find(i)) ?? groups.set(find(i), []).get(find(i))!).push(x));
+  return [...groups.values()].map((g) => {
+    g.sort((a, b) => a.from.localeCompare(b.from));
+    const people = new Map<string, string>();
+    for (const x of g) for (const p of x.people) people.set(p.slug, p.name);
+    const from = g[0].from, to = g.map((x) => x.to).sort().at(-1)!;
+    const ids = g.flatMap((x) => x.match_ids);
+    const players = new Set(g.flatMap((x) => x.title.split(" vs ")));
+    return {
+      id: `meet~${Math.floor(Date.parse(from) / 1000)}~${ids.length}`,
+      kind: "meet" as const,
+      title: g.length === 1 ? g[0].title : `${players.size}명 모임 · ${[...players].slice(0, 4).join(", ")}${players.size > 4 ? " 외" : ""}`,
+      people: [...people].map(([slug, name]) => ({ slug, name })),
+      from, to,
+      total: g.reduce((n, x) => n + x.total, 0),
+      completed: g.reduce((n, x) => n + x.completed, 0),
+      api: g.reduce((n, x) => n + x.api, 0),
+      investigated: g.some((x) => x.investigated),
+      vods: [...new Set(g.flatMap((x) => x.vods))].sort(),
+      // 모임 안 경기는 시간 순 — 대전들을 섞어 그 자리의 흐름 그대로
+      match_ids: ids,
+      pairs: g.map((x) => ({ title: x.title, total: x.total })),
+    };
+  });
 }
 
 /**
@@ -156,14 +207,16 @@ export async function listFcoSessions(): Promise<FcoSession[]> {
  * 같은 묶음 키에서 그 시각을 포함하는(또는 가장 가까운) 대전을 준다.
  */
 export async function getFcoSession(id: string): Promise<FcoSession | null> {
-  const m = /^(pair|solo|names)~(.+)~(\d{9,11})$/.exec(id);
+  const m = /^(meet|solo|names)~(.+?)~?(\d{9,11})?$/.exec(id);
   if (!m) return null;
-  const base = `${m[1]}~${m[2]}`, at = Number(m[3]) * 1000;
-  const same = (await listFcoSessions()).filter((s) => s.id.startsWith(`${base}~`));
-  if (!same.length) return null;
-  const exact = same.find((s) => s.id === id);
+  const all = await listFcoSessions();
+  const exact = all.find((x) => x.id === id);
   if (exact) return exact;
-  const covering = same.find((s) => Date.parse(s.from) <= at && at <= Date.parse(s.to));
-  if (covering) return covering;
-  return same.sort((a, b) => Math.abs(Date.parse(a.from) - at) - Math.abs(Date.parse(b.from) - at))[0];
+  // 그 사이 경기가 더해지거나 묶음이 바뀌었으면 — 같은 종류에서 그 시각을 포함하는 것(없으면 가장 가까운 것)
+  const at = Number((/~(\d{9,11})(?:~|$)/.exec(id) ?? [])[1] ?? NaN) * 1000;
+  if (!Number.isFinite(at)) return null;
+  const same = all.filter((x) => x.kind === m[1] && (m[1] === "meet" || x.id.startsWith(`${m[1]}~${id.split("~")[1]}~`)));
+  if (!same.length) return null;
+  return same.find((x) => Date.parse(x.from) <= at && at <= Date.parse(x.to))
+    ?? same.sort((a, b) => Math.abs(Date.parse(a.from) - at) - Math.abs(Date.parse(b.from) - at))[0];
 }

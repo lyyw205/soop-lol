@@ -26,7 +26,9 @@ export default async function FcoSessionPage({ params, searchParams }: { params:
   const session = await getFcoSession(decodeURIComponent(id));
   if (!session) notFound();
   const built = await buildMatchUnits(session.match_ids);
-  const matches = session.match_ids.map((mid) => built.find((m) => m.match_id === mid)).filter((m): m is NonNullable<typeof m> => !!m);
+  // 모임은 여러 대전이 섞인다 — 그 자리의 흐름 그대로 시간 순으로 놓는다.
+  const matches = session.match_ids.map((mid) => built.find((m) => m.match_id === mid)).filter((m): m is NonNullable<typeof m> => !!m)
+    .sort((a, b) => a.played_at.localeCompare(b.played_at));
   const vodIds = [...new Set(matches.flatMap((m) => m.views.map((v) => v.vod)).filter((v): v is string => !!v))];
   const [vods, eventOptions, streamers] = await Promise.all([loadViewerVods(vodIds), listFcoEventOptions(), listPickableStreamers()]);
 
@@ -40,7 +42,7 @@ export default async function FcoSessionPage({ params, searchParams }: { params:
         </div>
       </header>
       <FcoMatchWorkbench matches={matches} streamers={streamers} vods={vods} eventOptions={eventOptions} initialMatchId={match}
-        session={{ kind: session.kind, title: session.title, people: session.people, vods: session.vods }} queueTitle="이 대전의 경기" />
+        session={{ kind: session.kind, pairs: session.pairs, title: session.title, people: session.people, vods: session.vods }} queueTitle={session.pairs.length > 1 ? "이 모임의 경기(시간 순)" : "이 대전의 경기"} />
     </div>
   );
 }

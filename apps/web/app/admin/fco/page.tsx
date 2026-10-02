@@ -61,8 +61,8 @@ export default async function FcoReviewListPage({
   const sessionRows = (list: FcoSession[]): Row[] => list.map((x) => ({ type: "session", s: x }));
   // ★ 맥락(친선·CK·대회)을 가르는 검수는 스트리머 vs 스트리머 대전만 한다. 일반 유저전(스트리머 vs 일반 유저, 닉네임끼리)은
   //   CK·대회일 일이 없어 값(스코어·결과 화면)만 보고 완료하면 된다 — 기본 탭에서 빼고 「일반 유저전」 탭에 따로 모은다.
-  const versus = shown.filter((x) => x.kind === "pair");
-  const casual = shown.filter((x) => x.kind !== "pair");
+  const versus = shown.filter((x) => x.kind === "meet");
+  const casual = shown.filter((x) => x.kind !== "meet");
   const groups: Record<string, Row[]> = {
     pending: [...unitRows(events.filter((u) => u.pending)), ...sessionRows(versus.filter((x) => x.investigated && x.completed < x.total))],
     confirmed: [...unitRows(events.filter((u) => u.confirmed)), ...sessionRows(versus.filter((x) => x.completed === x.total))],
@@ -194,7 +194,7 @@ export default async function FcoReviewListPage({
                     <span className="flex items-center gap-x-1.5 text-[11px] text-ink-400" title="이 대전의 경기 중 사람이 검수를 완료한 수">
                       완료 <b className={left === 0 ? "text-win" : "text-ink-200"}>{x.completed}/{x.total}</b>
                     </span>
-                    <Tag tone="neutral">{x.kind === "pair" ? "대전" : x.kind === "solo" ? "일반 유저전" : "닉네임 대전"}</Tag>
+                    <Tag tone="neutral">{x.kind === "meet" ? (x.pairs.length > 1 ? `모임 · 대전 ${x.pairs.length}` : "대전") : x.kind === "solo" ? "일반 유저전" : "닉네임 대전"}</Tag>
                     {left === 0 ? <Tag tone="accent">확인됨</Tag> : x.investigated ? <Tag tone="warn">검수 대기 {left}</Tag> : <Tag tone="neutral">조사 필요</Tag>}
                   </li>
                 );

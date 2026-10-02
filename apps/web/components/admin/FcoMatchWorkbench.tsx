@@ -113,7 +113,9 @@ export interface WorkbenchEvent {
 /** 대전 단위면 준다 — 오른쪽에 [대전]/[경기] 탭, 대전 전체에 맥락 한 번에 적용 */
 export interface WorkbenchSession {
   /** pair = 스트리머 vs 스트리머(맥락을 가른다) · 그 밖은 일반 유저전(값만 확인) */
-  kind: "pair" | "solo" | "names";
+  kind: "meet" | "solo" | "names";
+  /** 모임 안의 두 사람 대전들 */
+  pairs: { title: string; total: number }[];
   title: string;
   people: { slug: string; name: string }[];
   vods: string[];
@@ -251,7 +253,7 @@ export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventO
           <div className="ck-review-inspector-shell">
             {grouped && (
               <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보">
-                <button type="button" role="tab" aria-selected={showEventTab} onClick={() => setTab("event")}>{event ? "대회" : "대전"}</button>
+                <button type="button" role="tab" aria-selected={showEventTab} onClick={() => setTab("event")}>{event ? "대회" : session && session.pairs.length > 1 ? "모임" : "대전"}</button>
                 <button type="button" role="tab" aria-selected={!showEventTab} disabled={!selected} onClick={() => setTab("match")}>경기</button>
               </div>
             )}
@@ -556,21 +558,49 @@ function SessionTab({ session, matches, eventOptions, onPick }: {
           {matches.length > 0 && <> · {kst(matches[0].played_at)} ~ {kst(matches[matches.length - 1].played_at)}</>}</p>
         {session.people.length > 0 && <p className="text-[11px] text-ink-400">나온 사람: {session.people.map((p) => p.name).join(", ")}</p>}
         {session.vods.length > 0 && <p className="text-[11px] text-ink-400">본 방송: {session.vods.length}개 — 경기마다 위 시점 칩으로 바꿔 봅니다</p>}
+        {session.pairs.length > 1 && <PairTable matches={matches} />}
         {firstTodo && <button type="button" onClick={() => onPick(firstTodo.match_id)} className="justify-self-start rounded border border-ink-700 px-2 py-1 text-xs text-ink-200 hover:border-accent-400">미검수 첫 판 보기 →</button>}
       </section>
-      {session.kind !== "pair" ? (
+      {session.kind !== "meet" ? (
         <section className="ck-review-panel grid gap-1 p-3 text-[11px] text-ink-400">
           <p className="font-semibold text-ink-200">일반 유저전 — 맥락을 가르지 않습니다</p>
           <p>일반 유저와는 CK·대회가 없습니다. 판마다 스코어·결과 화면만 보고 값이 맞으면 「검수 완료」를 누르세요.</p>
         </section>
       ) : (
       <section className="ck-review-panel grid gap-2 p-3">
-        <p className="text-[11px] font-semibold text-ink-200">맥락 — 이 대전 전체({matches.length}판)에 한 번에</p>
+        <p className="text-[11px] font-semibold text-ink-200">맥락 — 이 {session.pairs.length > 1 ? "모임" : "대전"} 전체({matches.length}판)에 한 번에</p>
+        {session.pairs.length > 1 && <p className="text-[11px] text-amber-400">CK·대회로 정하면 이 {matches.length}판이 전부 공개 대회에 붙습니다 — 다른 판이 섞이지 않았는지 위 대진을 보고 누르세요.</p>}
         <p className="text-[11px] text-ink-400">지금: {[...ctxCount].map(([k, n]) => `${k} ${n}`).join(" · ")}</p>
         <FcoReviewControls compact unit={unit} eventOptions={eventOptions} activeMatch={unit.matches[0] ?? null} targets={matches.map((m) => m.match_id)} />
         <p className="text-[11px] text-ink-500">한 판만 다르면 그 판의 [경기] 탭에서 따로 바꾸세요. 값 확인과 검수 완료는 판마다 합니다.</p>
       </section>
       )}
+    </div>
+  );
+}
+
+/** 모임 대진 — 두 사람마다 몇 판·몇 승. 리그(다 같이 돌아가며)인지 토너먼트인지 몇 사람끼리만인지 한눈에. */
+function PairTable({ matches }: { matches: FcoMatchUnit[] }) {
+  const rows = new Map<string, { a: string; b: string; aw: number; bw: number; d: number; n: number }>();
+  for (const m of matches) {
+    if (m.sides.length !== 2) continue;
+    const [x, y] = [...m.sides].sort((p, q) => p.name.localeCompare(q.name));
+    const key = `${x.name}|${y.name}`;
+    const r = rows.get(key) ?? { a: x.name, b: y.name, aw: 0, bw: 0, d: 0, n: 0 };
+    r.n++;
+    if (x.outcome === "win") r.aw++; else if (y.outcome === "win") r.bw++; else if (x.outcome === "draw") r.d++;
+    rows.set(key, r);
+  }
+  const people = new Set([...rows.values()].flatMap((r) => [r.a, r.b]));
+  return (
+    <div className="mt-1 grid gap-0.5 text-[11px]">
+      <p className="text-ink-400">{people.size}명 · 대진 {rows.size}개</p>
+      {[...rows.values()].map((r) => (
+        <p key={`${r.a}|${r.b}`} className="text-ink-200">
+          {r.a} <b className="tabular-nums text-accent-400">{r.aw}</b> : <b className="tabular-nums text-accent-400">{r.bw}</b> {r.b}
+          <span className="ml-1 text-ink-500">({r.n}판{r.d ? ` · 무 ${r.d}` : ""})</span>
+        </p>
+      ))}
     </div>
   );
 }
