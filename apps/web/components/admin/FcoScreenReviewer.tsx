@@ -220,25 +220,31 @@ function MatchPanel({ m, ws, eventOptions }: { m: ScreenMatchView; ws: ScreenWor
  * 다른 경기에 연결된 화면 경기는 맥락을 그쪽이 가진다 — 여기서 따로 정하면 두 벌이 된다.
  */
 function ContextPanel({ m, eventOptions }: { m: ScreenMatchView; eventOptions: FcoEventOption[] }) {
+  // 다른 경기에 이어졌으면 맥락은 그 경기에 저장된다 — 여기서 **그 경기의** 맥락을 고친다(두 벌로 만들지 않는다).
+  const target = m.link?.target ?? null;
+  const ctx = target ? target.context : m.context;
+  const refId = m.link ? m.link.api_match_id : m.match_id;
   const unit: ReviewControlsUnit = {
-    kind: "match", status: m.context.status, confirmed: m.review_completed_at != null,
-    event: m.context.event, judgment: m.context.judgment,
-    matches: [{ provider_match_id: m.match_id, participants: m.sides.map((x) => ({ name: sideName(x) })) }],
+    kind: "match", status: ctx.status, confirmed: m.review_completed_at != null,
+    event: ctx.event, judgment: ctx.judgment,
+    matches: [{ provider_match_id: refId, participants: (target ? target.sides.map((x) => ({ name: x.name })) : m.sides.map((x) => ({ name: sideName(x) }))) }],
   };
   return (
     <div className="ck-review-panel grid gap-2 p-3">
       <p className="text-[11px] font-semibold text-ink-200">맥락 — 무슨 판이었나</p>
-      {m.link ? (
-        <p className="text-[11px] text-ink-400">다른 경기에 연결돼 있어 맥락은 그 경기가 가집니다. 바꾸려면 연결을 풀거나 그 경기에서 정하세요.</p>
-      ) : (<>
-        {m.context.event && <p className="text-xs text-ink-200">현재: <b className="text-accent-400">{m.context.event.name}</b> <span className="text-ink-400">({m.context.event.kind})</span></p>}
-        {!m.context.event && m.context.judgment && (
-          <p className="text-xs text-ink-200">현재: <b className={m.context.judgment.judgment === "casual" ? "text-ink-300" : "text-amber-400"}>{m.context.judgment.judgment === "casual" ? "단순 친선" : "미해결"}</b>
-            <span className="ml-1 text-ink-400">— {m.context.judgment.note}</span></p>
-        )}
-        {m.context.status === "uninvestigated" && <p className="text-xs text-ink-400">아직 맥락을 정하지 않았습니다.</p>}
-        <FcoReviewControls compact unit={unit} eventOptions={eventOptions} activeMatch={unit.matches[0]} />
-      </>)}
+      {m.link && (
+        <p className="text-[11px] text-ink-400">
+          이 경기는 {target?.source === "provider_api" ? "넥슨 API 기록" : "다른 화면 기록"}에 이어져 있어, 맥락은 <b className="text-ink-200">그 경기</b>에 저장됩니다.
+          여기서 고치면 그 경기가 바뀝니다.
+        </p>
+      )}
+      {ctx.event && <p className="text-xs text-ink-200">현재: <b className="text-accent-400">{ctx.event.name}</b> <span className="text-ink-400">({ctx.event.kind})</span></p>}
+      {!ctx.event && ctx.judgment && (
+        <p className="text-xs text-ink-200">현재: <b className={ctx.judgment.judgment === "casual" ? "text-ink-300" : "text-amber-400"}>{ctx.judgment.judgment === "casual" ? "단순 친선" : "미해결"}</b>
+          <span className="ml-1 text-ink-400">— {ctx.judgment.note}</span></p>
+      )}
+      {ctx.status === "uninvestigated" && <p className="text-xs text-ink-400">아직 맥락을 정하지 않았습니다.</p>}
+      <FcoReviewControls compact unit={unit} eventOptions={eventOptions} activeMatch={unit.matches[0]} />
     </div>
   );
 }
@@ -253,9 +259,20 @@ function LinkPanel({ m }: { m: ScreenMatchView }) {
         <input type="hidden" name="match_id" value={m.match_id} />
         <input type="hidden" name="version" value={m.review_version} />
         <p className="text-[11px] text-ink-400">
-          <b className="text-ink-200">연결됨</b> — {m.link.decided_by === "admin" ? "사람이" : "자동으로"} 같은 경기로 이었습니다.
+          <b className="text-ink-200">연결됨</b> — {m.link.decided_by === "admin" ? "사람이" : "자동으로(참가자·시각 ±3분·스코어가 모두 맞아)"} 같은 경기의
+          {" "}{m.link.target?.source === "provider_api" ? "넥슨 API 기록" : "다른 화면 기록"}에 이었습니다. 이 화면 기록은 숨긴 채 남고, 근거 사진은 그쪽으로 복사됐습니다.
         </p>
-        <p className="break-all font-mono text-[10px] text-ink-400">{m.link.api_match_id}</p>
+        {m.link.target && (
+          <p className="text-xs text-ink-200">
+            {m.link.target.sides.map((x) => `${x.name} ${x.score ?? "?"}`).join(" : ")}
+            <span className="ml-1.5 text-[11px] text-ink-400">{kst(m.link.target.played_at)}</span>
+          </p>
+        )}
+        <p className="break-all font-mono text-[10px] text-ink-400">
+          {m.link.target?.provider_match_id
+            ? <a href={`/admin/fco/${m.link.target.provider_match_id}`} className="hover:text-accent-400">{m.link.api_match_id} — 맥락 검수에서 열기 ↗</a>
+            : m.link.api_match_id}
+        </p>
         <div className="flex items-center gap-2"><SubmitButton tone="danger">연결 풀기</SubmitButton><ActionMessage state={unlinkState} /></div>
       </form>
     );

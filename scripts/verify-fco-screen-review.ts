@@ -130,7 +130,15 @@ try {
   await rejects("이미 연결됨", () => V.linkScreenByAdmin(S3, v3b.v, API), "이미 연결");
   const v2 = await ver(S2);
   await rejects("이미 연결된 화면 경기를 대상으로", () => V.linkScreenByAdmin(S2, v2.v, S3), "이미 다른 경기에 연결");
-  assert.equal(((await V.getScreenReviewWorkspace("900100"))!.matches.find((m) => m.match_id === S3)!).link?.decided_by, "admin");
+  const linkedView = (await V.getScreenReviewWorkspace("900100"))!.matches.find((m) => m.match_id === S3)!;
+  assert.equal(linkedView.link?.decided_by, "admin");
+  assert.equal(linkedView.link?.target?.source, "provider_api", "이어진 대상이 무엇인지 보인다");
+  assert.equal(linkedView.link?.target?.provider_match_id, "api-link", "맥락 검수로 가는 넥슨 번호");
+  assert.deepEqual(linkedView.link?.target?.sides.map((x) => x.score), [2, 1], "대상의 대진·스코어");
+  // 이어진 경기의 맥락은 대상에 저장된다 — 화면에서 대상 id 로 고친다
+  await C.applyFcoMatchContext({ provider_match_id: API, conclusion: "unresolved", note: "이어진 대상의 맥락" }, { createdBy: "admin" });
+  const afterCtx = (await V.getScreenReviewWorkspace("900100"))!.matches.find((m) => m.match_id === S3)!;
+  assert.deepEqual([afterCtx.link?.target?.context.status, afterCtx.context.status], ["unresolved", "uninvestigated"], "대상 맥락이 바뀌고 화면 기록 자체엔 따로 안 쌓인다");
 
   await V.unlinkScreenByAdmin(S3, v3b.v);
   assert.equal((await sql`SELECT count(*)::int n FROM fco_screen_link WHERE screen_match_id = ${S3}`)[0].n, 0, "연결이 풀린다");

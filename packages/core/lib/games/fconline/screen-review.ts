@@ -89,7 +89,11 @@ export interface ScreenMatchView {
   review_completed_at: string | null;
   review_version: number;
   reviewed_at: string | null;
-  link: { api_match_id: string; decided_by: string } | null;
+  /** 같은 경기로 이은 기록. 맥락(무슨 판이었나)은 그쪽에 저장된다 — 화면에서 그쪽 맥락을 바로 고친다. */
+  link: {
+    api_match_id: string; decided_by: string;
+    target: { provider_match_id: string | null; source: string; played_at: string; sides: { name: string; score: number | null }[]; context: ScreenContext } | null;
+  } | null;
   sides: ScreenSide[];
   frames: ScreenFrame[];
   /** 같은 경기일 수 있는 다른 기록 — 이미 연결됐으면 비어 있다. */
@@ -158,6 +162,32 @@ export async function getScreenReviewWorkspace(vod: string): Promise<ScreenWorks
        AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
        AND m.game_creation BETWEEN ${new Date(Math.min(...times) - NEARBY_SEC * 1000)} AND ${new Date(Math.max(...times) + NEARBY_SEC * 1000)}`;
 
+  // 이어진 대상(API·다른 화면 경기) — 맥락은 그쪽에 있으므로 그쪽 맥락과 대진을 같이 읽는다.
+  const targetIds = [...new Set(rows.map((r) => r.api_match_id).filter((x): x is string => !!x))];
+  const targets = targetIds.length ? await sql<{
+    match_id: string; provider_match_id: string | null; source: string; game_creation: Date;
+    parts: { name: string; score: number | null }[] | null;
+    event_id: string | null; event_slug: string | null; event_name: string | null; event_kind: string | null; event_organizer: string | null; event_source_url: string | null;
+    judgment: string | null; judgment_note: string | null; judgment_by: string | null;
+  }[]>`
+    SELECT m.match_id, d.provider_match_id, m.source, m.game_creation,
+           (SELECT json_agg(json_build_object('name', coalesce(s.display_name, p.nickname), 'score', coalesce(p.score_display, p.goals)) ORDER BY p.side_no)
+              FROM fco_match_participant p LEFT JOIN streamer s ON s.id = p.streamer_id WHERE p.match_id = m.match_id) AS parts,
+           e.id AS event_id, e.slug AS event_slug, e.name AS event_name, e.kind AS event_kind, e.organizer AS event_organizer, e.source_url AS event_source_url,
+           ctx.judgment, ctx.note AS judgment_note, ctx.created_by AS judgment_by
+      FROM match m
+      LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
+      LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+      LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id)
+      LEFT JOIN LATERAL (SELECT judgment, note, created_by FROM fco_match_context c WHERE c.match_id = m.match_id ORDER BY c.created_at DESC LIMIT 1) ctx ON true
+     WHERE m.match_id = ANY(${targetIds})` : [];
+  const contextOf = (r: { event_id: string | null; event_slug: string | null; event_name: string | null; event_kind: string | null; event_organizer: string | null; event_source_url: string | null; judgment: string | null; judgment_note: string | null; judgment_by: string | null }): ScreenContext => ({
+    // 맥락 파생 규칙은 기존과 같다: 행사 연결이 있으면 그 행사, 없으면 최신 판단, 그것도 없으면 미조사.
+    status: r.event_id ? "event" : r.judgment === "casual" || r.judgment === "unresolved" ? r.judgment : "uninvestigated",
+    event: r.event_id ? { id: r.event_id, slug: r.event_slug, name: r.event_name ?? "", kind: r.event_kind ?? "other", organizer: r.event_organizer, source_url: r.event_source_url } : null,
+    judgment: r.judgment ? { judgment: r.judgment, note: r.judgment_note ?? "", created_by: r.judgment_by ?? "auto" } : null,
+  });
+
   const out: ScreenMatchView[] = [];
   for (const r of rows) {
     const mySides = sides.filter((x) => x.match_id === r.match_id);
@@ -189,12 +219,8 @@ export async function getScreenReviewWorkspace(vod: string): Promise<ScreenWorks
       const rank = { same: 0, maybe: 1, none: 2 } as const;
       candidates = candidates.sort((a, b) => rank[a.verdict] - rank[b.verdict] || Math.abs(a.gap_sec) - Math.abs(b.gap_sec));
     }
-    // 맥락 파생 규칙은 기존과 같다: 행사 연결이 있으면 그 행사, 없으면 최신 판단, 그것도 없으면 미조사.
-    const context: ScreenContext = {
-      status: r.event_id ? "event" : r.judgment === "casual" || r.judgment === "unresolved" ? r.judgment : "uninvestigated",
-      event: r.event_id ? { id: r.event_id, slug: r.event_slug, name: r.event_name ?? "", kind: r.event_kind ?? "other", organizer: r.event_organizer, source_url: r.event_source_url } : null,
-      judgment: r.judgment ? { judgment: r.judgment, note: r.judgment_note ?? "", created_by: r.judgment_by ?? "auto" } : null,
-    };
+    const context = contextOf(r);
+    const t = r.api_match_id ? targets.find((x) => x.match_id === r.api_match_id) : undefined;
     out.push({
       match_id: r.match_id,
       context,
@@ -204,7 +230,10 @@ export async function getScreenReviewWorkspace(vod: string): Promise<ScreenWorks
       review_completed_at: r.review_completed_at?.toISOString() ?? null,
       review_version: r.review_version,
       reviewed_at: r.reviewed_at?.toISOString() ?? null,
-      link: r.api_match_id ? { api_match_id: r.api_match_id, decided_by: r.decided_by ?? "auto" } : null,
+      link: r.api_match_id ? {
+        api_match_id: r.api_match_id, decided_by: r.decided_by ?? "auto",
+        target: t ? { provider_match_id: t.provider_match_id, source: t.source, played_at: t.game_creation.toISOString(), sides: t.parts ?? [], context: contextOf(t) } : null,
+      } : null,
       sides: mySides.map(({ match_id: _m, ...s }) => s),
       frames: frames.filter((f) => f.match_id === r.match_id).map(({ match_id: _m, ...f }) => f),
       candidates,
