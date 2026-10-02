@@ -35,6 +35,7 @@
     "fco:context": "node --env-file-if-exists=apps/web/.env.local scripts/fco-context.ts",
     "fco:candidates": "node --env-file-if-exists=apps/web/.env.local scripts/fco-candidates.ts",
     "verify:fco": "node scripts/verify-fco.ts",
+    "fco:frames": "node --env-file-if-exists=apps/web/.env.local scripts/fco-context-frames.ts",
     "verify:fco-screen": "node scripts/verify-fco-screen.ts",
     "verify:fco-screen-review": "node scripts/verify-fco-screen-review.ts",
     "verify:fco-context": "node scripts/verify-fco-context.ts",

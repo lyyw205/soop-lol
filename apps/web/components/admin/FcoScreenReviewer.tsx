@@ -49,8 +49,9 @@ const scoreText = (m: ScreenMatchView) => m.sides.map((s) => s.score ?? "?").joi
 const sideName = (s: ScreenMatchView["sides"][number]) => s.streamer_name ?? s.nickname;
 
 /** 이동 간격(초). 3초가 시트 한 칸이다. 큰 간격으로 맥락을 훑고 작은 간격으로 정확한 순간을 잡는다. */
-const STEPS = [3, 10, 30, 60, 300] as const;
-const STEP_LABEL: Record<number, string> = { 3: "3초", 10: "10초", 30: "30초", 60: "1분", 300: "5분" };
+/** 0 = 원본 프레임만(미리 뽑아 둔 앞뒤 원본 — npm run fco:frames). 나머지는 시간 간격(썸네일 칸, 원본이 있으면 원본). */
+const STEPS = [0, 3, 10, 30, 60, 300] as const;
+const STEP_LABEL: Record<number, string> = { 0: "원본", 3: "3초", 10: "10초", 30: "30초", 60: "1분", 300: "5분" };
 /** 띠는 지금 보는 지점 앞뒤로 이만큼 칸을 보여 준다. */
 const STRIP_SIDE = 12;
 const offsetLabel = (sec: number) => `${sec < 0 ? "−" : "+"}${String(Math.floor(Math.abs(sec) / 60)).padStart(2, "0")}:${String(Math.abs(sec) % 60).padStart(2, "0")}`;
@@ -76,7 +77,7 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
   // ── 프레임 이동 ──────────────────────────────────────────────
   // viewSec: 지금 크게 보는 지점(null = 이 경기의 결과 프레임). 원본 프레임이 있는 초면 원본을, 없으면 3초 썸네일 칸을 보여 준다.
   const [viewSec, setViewSec] = useState<number | null>(null);
-  const [stepSec, setStepSec] = useState<number>(30);
+  const [stepSec, setStepSec] = useState<number | null>(null); // null = 아직 안 골랐다 → 원본이 있으면 원본, 없으면 30초
   const stripRef = useRef<HTMLDivElement>(null);
   // 불러오지 못한 그림(파일이 지워졌거나 서버 오류). 깨진 아이콘 대신 이유를 말한다.
   const [failed, setFailed] = useState<ReadonlySet<string>>(new Set());
@@ -100,16 +101,28 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
   const fullRes = shownSec == null ? null : allFrames.find((f) => Math.abs(f.sec - shownSec) <= 1) ?? null;
   const shownIsCell = shownSec != null && !fullRes && cellsOk;
   const shownSrc = fullRes ? frameUrl(fullRes.path) : shownIsCell ? `/admin/fco/screen/cell/${ws.vod}/${shownSec}` : null;
-  const step = (dir: -1 | 1) => { if (shownSec != null) setViewSec(clampSec(shownSec + dir * stepSec)); };
+  // 원본이 이 경기 근처(±5분)에 3장 이상 있으면 기본을 "원본"으로 — 읽을 수 있는 화면부터 넘긴다.
+  const hasOriginals = center != null && allFrames.filter((f) => Math.abs(f.sec - center) <= 300).length >= 3;
+  const stepNow = stepSec ?? (hasOriginals ? 0 : 30);
+  const step = (dir: -1 | 1) => {
+    if (shownSec == null) return;
+    if (stepNow === 0) {
+      const next = dir === 1 ? allFrames.find((f) => f.sec > shownSec + 1) : [...allFrames].reverse().find((f) => f.sec < shownSec - 1);
+      if (next) setViewSec(next.sec);
+    } else setViewSec(clampSec(shownSec + dir * stepNow));
+  };
+  const thumbSrc = (t: number) => { const f = allFrames.find((x) => Math.abs(x.sec - t) <= 1); return f ? frameUrl(f.path) : `/admin/fco/screen/cell/${ws.vod}/${t}`; };
 
-  // 띠: 지금 보는 지점 앞뒤로 같은 간격의 칸. 결과 화면(★)이 근처에 있으면 표시한다.
+  // 띠: 지금 보는 지점 앞뒤. 원본 모드는 원본 프레임만, 시간 모드는 같은 간격의 칸(원본이 있으면 원본으로). ★ = 결과 화면.
   const strip = useMemo(() => {
-    if (shownSec == null || !cellsOk) return [];
+    if (shownSec == null) return [];
+    if (stepNow === 0) return allFrames.filter((f) => Math.abs(f.sec - shownSec) <= 900).map((f) => f.sec);
+    if (!cellsOk) return [];
     const out: number[] = [];
-    for (let k = -STRIP_SIDE; k <= STRIP_SIDE; k++) { const t = shownSec + k * stepSec; if (t >= 0 && t < vodLengthSec!) out.push(t); }
+    for (let k = -STRIP_SIDE; k <= STRIP_SIDE; k++) { const t = shownSec + k * stepNow; if (t >= 0 && t < vodLengthSec!) out.push(t); }
     return out;
-  }, [shownSec, stepSec, cellsOk, vodLengthSec]);
-  const isResultAt = (t: number) => [...resultSecs].some((r) => Math.abs(r - t) <= Math.max(1, stepSec / 2));
+  }, [shownSec, stepNow, cellsOk, vodLengthSec, allFrames]);
+  const isResultAt = (t: number) => [...resultSecs].some((r) => Math.abs(r - t) <= Math.max(1, stepNow / 2));
 
   // ← → 로 앞뒤. 입력칸에 글을 쓰는 중에는 가로채지 않는다.
   useEffect(() => {
@@ -124,7 +137,7 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
   });
   useEffect(() => {
     stripRef.current?.querySelector<HTMLElement>('[data-current="true"]')?.scrollIntoView({ inline: "center", block: "nearest" });
-  }, [shownSec, selectedId, stepSec]);
+  }, [shownSec, selectedId, stepNow]);
 
   const FILTERS: [Filter, string][] = [["all", "전체"], ["todo", "미완료"], ["unlinked", "연결 안 됨"], ["candidates", "후보 있음"]];
 
@@ -169,19 +182,19 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
         {shownSec != null && (
           <footer className="grid gap-2 border-t border-ink-800 px-4 py-2">
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <button type="button" onClick={() => step(-1)} disabled={shownSec <= 0} className="rounded border border-ink-700 px-2 py-1 text-ink-200 hover:border-accent-400 disabled:opacity-40">← {STEP_LABEL[stepSec]} 전</button>
-              <button type="button" onClick={() => step(1)} className="rounded border border-ink-700 px-2 py-1 text-ink-200 hover:border-accent-400">{STEP_LABEL[stepSec]} 후 →</button>
+              <button type="button" onClick={() => step(-1)} disabled={shownSec <= 0} className="rounded border border-ink-700 px-2 py-1 text-ink-200 hover:border-accent-400 disabled:opacity-40">← {stepNow === 0 ? "이전 원본" : `${STEP_LABEL[stepNow]} 전`}</button>
+              <button type="button" onClick={() => step(1)} className="rounded border border-ink-700 px-2 py-1 text-ink-200 hover:border-accent-400">{stepNow === 0 ? "다음 원본" : `${STEP_LABEL[stepNow]} 후`} →</button>
               <button type="button" onClick={() => setViewSec(null)} disabled={viewSec == null} className="rounded border border-ink-700 px-2 py-1 text-ink-400 hover:text-ink-200 disabled:opacity-40">결과 화면으로</button>
               <span className="ml-auto flex items-center gap-1 text-[11px] text-ink-400">
                 간격
                 {STEPS.map((n) => (
                   <button key={n} type="button" onClick={() => setStepSec(n)}
-                    className={`rounded border px-1.5 py-0.5 ${n === stepSec ? "border-accent-600 text-accent-400" : "border-ink-700 hover:text-ink-200"}`}>{STEP_LABEL[n]}</button>
+                    className={`rounded border px-1.5 py-0.5 ${n === stepNow ? "border-accent-600 text-accent-400" : "border-ink-700 hover:text-ink-200"}`}>{STEP_LABEL[n]}</button>
                 ))}
               </span>
             </div>
             {/* 지금 보는 지점 앞뒤의 칸 띠 — 직전의 선택·직후의 반응 같은 맥락. 가운데가 지금 보는 곳, ★ 은 결과 화면. 누르면 그 지점을 크게 본다. */}
-            {cellsOk ? (
+            {cellsOk || stepNow === 0 ? (
               <div ref={stripRef} className="flex gap-1.5 overflow-x-auto pb-1" aria-label="앞뒤 프레임">
                 {strip.map((t) => {
                   const current = t === shownSec;
@@ -189,10 +202,10 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
                   return (
                     <button key={t} type="button" data-current={current} onClick={() => setViewSec(t)}
                       className={`relative shrink-0 overflow-hidden rounded border ${current ? "border-accent-600" : isResult ? "border-amber-400/60" : "border-ink-700 hover:border-ink-500"}`}>
-                      {failed.has(`/admin/fco/screen/cell/${ws.vod}/${t}`)
+                      {failed.has(thumbSrc(t))
                         ? <span className="grid h-[68px] w-[120px] place-items-center bg-ink-900 text-[10px] text-ink-500">없음</span>
                         // eslint-disable-next-line @next/next/no-img-element -- 로컬 파일
-                        : <img src={`/admin/fco/screen/cell/${ws.vod}/${t}`} alt="" loading="lazy" onError={() => markFailed(`/admin/fco/screen/cell/${ws.vod}/${t}`)} className="block h-[68px] w-[120px] object-cover" />}
+                        : <img src={thumbSrc(t)} alt="" loading="lazy" onError={() => markFailed(thumbSrc(t))} className="block h-[68px] w-[120px] object-cover" />}
                       <span className="absolute inset-x-0 bottom-0 bg-ink-950/80 px-1 text-center font-mono text-[10px] text-ink-200">
                         {isResult ? "★ " : ""}{center != null ? offsetLabel(t - center) : hms(t)}
                       </span>
@@ -201,11 +214,11 @@ export function FcoScreenReviewer({ ws, vodFrames, vodLengthSec, initialMatchId 
                 })}
               </div>
             ) : (
-              <p className="text-[11px] text-amber-400">이 VOD 의 썸네일 시트가 지워져 앞뒤 칸을 못 보여 줍니다(out/ck/{ws.vod}/sheets). 지금 볼 수 있는 원본 프레임은 {allFrames.length}장뿐입니다.</p>
+              <p className="text-[11px] text-amber-400">이 VOD 의 썸네일 시트가 지워져 시간 간격 띠는 못 보여 줍니다. 위 간격에서 「원본」을 고르면 뽑아 둔 원본 {allFrames.length}장을 넘겨 볼 수 있습니다.</p>
             )}
             <p className="text-[11px] text-ink-400">
-              키보드 ← →. 썸네일은 3초 칸의 저해상도 화면이라 닉네임·점수는 읽기 어렵습니다. 원본이 필요하면{" "}
-              <code className="rounded bg-ink-800 px-1">npm run ck:probe -- --vod {ws.vod} --at {shownSec}</code>
+              키보드 ← →. 「원본」 간격은 뽑아 둔 원본 프레임만 넘깁니다(결과 화면 앞뒤 2분). 썸네일 칸은 저해상도라 닉네임·점수는 읽기 어렵습니다 —
+              원본이 더 필요하면 <code className="rounded bg-ink-800 px-1">npm run fco:frames -- --vod {ws.vod}</code>
             </p>
             {selected && selected.frames.length > 1 && (
               <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-400">
