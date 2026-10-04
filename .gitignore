@@ -10,6 +10,8 @@ next-env.d.ts
 
 .DS_Store
 *.log
+__pycache__/
+*.py[cod]
 
 # Project-local ASR environments, model weights, caches and temporary files.
 .local/asr/

@@ -349,6 +349,7 @@ for (const [i, r] of results.entries()) {
     }
   }
   if (r.resultType === "match") {
+    if (r.game_mode !== undefined && !['CLASSIC', 'ARAM'].includes(r.game_mode)) fail(i, 'game_mode 는 CLASSIC 또는 ARAM');
     if (!r.match_id) { fail(i, "match 는 match_id 가 필요하다"); continue; }
     if (r.pov !== undefined) {
       if (typeof r.pov !== "object" || r.pov === null) fail(i, "pov 는 객체여야 한다");
@@ -385,6 +386,7 @@ for (const [i, r] of results.entries()) {
         fail(i, `${r.match_id} 는 이미 있는 경기다 — 시점을 더하려면 pov.link_basis(같은 경기라고 본 근거)가 필요하다`);
       }
     } else {
+      if (!r.game_mode) fail(i, '새 경기는 game_mode(CLASSIC 또는 ARAM)가 필요하다 — 모드를 못 확인했으면 unresolved 후보로 남길 것');
       for (const msg of creationProblems(r)) fail(i, msg);
     }
   }
@@ -614,8 +616,9 @@ try {
         // ★ 행을 잠그고 읽는다 — 아래 soleCreator 판단("덮어써도 되나")과 실제 저장 사이에 다른 조사가 시점·증거를 더하면
         //   낡은 판단으로 덮어쓴다. 시점을 더하는 쪽(submitMatchPovInTx)도 같은 행을 먼저 잠그므로 여기서 직렬화된다.
         //   잠근 뒤의 다음 문장이 최신 커밋을 본다(READ COMMITTED) — match_pov 조회가 그 뒤에 온다.
-        const [current] = await tx`SELECT reviewed_at FROM match WHERE match_id = ${r.match_id} FOR UPDATE`;
+        const [current] = await tx`SELECT reviewed_at, game_mode FROM match WHERE match_id = ${r.match_id} FOR UPDATE`;
         const exists = current != null;
+        if (!exists && !r.game_mode) throw new Error(`${r.match_id}: 새 경기의 game_mode가 필요하다`);
         const povs = exists ? await tx`SELECT lead_id::text AS lead_id, role FROM match_pov WHERE match_id = ${r.match_id}` : [];
         // ★ 경기를 만든 시점만 붙어 있을 때만 그 시점이 값을 고칠 수 있다(§4.4). 다른 시점이 한 번이라도
         //   붙었으면 그 뒤로는 덮어쓰지 않고 빈 칸 채우기·비교만 한다.
@@ -630,6 +633,10 @@ try {
 
         // 검수된 경기는 값이 잠긴다 — 만든 시점이라도 덮어쓰지 않고, 시점·사진만 더한다(§4.6).
         if (exists && !(soleCreator && complete && current.reviewed_at == null)) {
+          if (r.game_mode && r.game_mode !== current.game_mode
+            && (r.game_mode === 'ARAM' || current.game_mode === 'ARAM')) {
+            throw new Error(`${r.match_id}: 기존 모드 ${current.game_mode}와 제출 ${r.game_mode}가 다르다. 다른 경기인지 확인하고 기존 모드는 근거로 검수할 것`);
+          }
           if (!povLead) {
             throw new Error(`${r.match_id}: 이미 있는 경기인데 어느 VOD 의 시점인지 모른다 — pov.source_key 를 적거나 같은 파일에 그 VOD 의 scan 을 넣을 것`);
           }
@@ -703,6 +710,7 @@ try {
 
         const wrote = await upsertMatchFromScanInTx(tx, {
           match_id: r.match_id,
+          game_mode: r.game_mode,
           event_id: eventId,
           played_at: new Date(r.played_at),
           played_at_precision: r.played_at_precision,

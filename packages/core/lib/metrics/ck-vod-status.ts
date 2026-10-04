@@ -65,6 +65,18 @@ export interface VodWork {
   uncovered: number | null;
   failed: number;
   unresolved: number;
+  /** 같은 원본을 다시 열어도 늘지 않는다. */
+  opened: number;
+  settled: number;
+  /** DB의 match_pov 수. 백필 실행기가 같은 VOD의 저장 결과를 조회해 채운다. */
+  saved_matches?: number;
+}
+
+/** 부모 후보는 이력으로 보존하되 현재 남은 일에서 제외한다. */
+export function activeCandidates(raw?: ScanRaw): any[] {
+  const candidates = Array.isArray(raw?.candidates) ? raw.candidates.filter((c: any) => c && typeof c === 'object') : [];
+  const replaced = new Set(candidates.map((c: any) => c.supersedes).filter(Boolean));
+  return candidates.filter((c: any) => !c.id || !replaced.has(c.id));
 }
 
 /** 확인된 삭제·비공개. 근거 없는 표시는 인정하지 않는다. */
@@ -88,14 +100,17 @@ export function vodWork(raw: ScanRaw | undefined, apiSeconds: number | null, key
   const requested = mergeRanges(scan?.requested?.length ? scan.requested : (scan?.sampled ?? []));
   const failed = coveredSeconds(scan?.failed ?? []);
   // 미해결 후보(raw.candidates)는 롤 조사의 것이다. FC 조사는 미해결을 경기 맥락(fco_match_context)에 남긴다.
-  const unresolved = key === 'scan' && Array.isArray(raw?.candidates)
-    ? raw!.candidates.filter((c: any) => c?.conclusion === 'unresolved').length : 0;
+  const candidates = key === 'scan' ? activeCandidates(raw) : [];
+  const unresolved = candidates.filter(c => c.conclusion === 'unresolved').length;
+  const settled = candidates.filter(c => c.conclusion === 'not_target'
+    || (['match', 'linked'].includes(c.conclusion) && c.match_id)).length;
+  const opened = new Set((Array.isArray(scan?.opened) ? scan.opened : []).filter((n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0)).size;
   // 끝 오차만 허용: [0, total - 허용] 을 요청 범위에서 빼고 남는 게 있으면 덜 본 것이다.
   // 구간은 양끝 포함 정수 초라 [5,5] 도 1초다(coveredSeconds 는 길이라 0 으로 센다).
   const uncovered = total == null ? null
     : subtractRanges([[0, Math.max(0, total - END_TOLERANCE_SEC)] as Range], requested)
         .reduce((sum, [a, b]) => sum + b - a + 1, 0);
-  const work = { unavailable: isUnavailable(raw), uncovered, failed, unresolved };
+  const work = { unavailable: isUnavailable(raw), uncovered, failed, unresolved, opened, settled };
   if (work.unavailable) return { ...work, reason: null };
   if (!raw) return { ...work, reason: 'new' };
   const status = scan?.status;
@@ -112,8 +127,16 @@ export function vodWork(raw: ScanRaw | undefined, apiSeconds: number | null, key
  * 도장(status)이 그대로여도 running 2시간 → 4시간이면 진척이다. 메모·시각만 바뀐 건 진척이 아니다.
  */
 export function madeProgress(before: VodWork, after: VodWork): boolean {
-  if (after.reason === null && before.reason !== null) return true;
-  if (after.unavailable && !before.unavailable) return true;
-  if (before.uncovered == null ? after.uncovered != null : after.uncovered != null && after.uncovered < before.uncovered) return true;
-  return after.failed < before.failed || after.unresolved < before.unresolved;
+  return progressKind(before, after) !== 'none';
+}
+
+/** 원본 열람은 탐색 활동이다. 결과 진척과 구분해야 무제한 세션 반복을 막을 수 있다. */
+export function progressKind(before: VodWork, after: VodWork): 'outcome' | 'exploration' | 'none' {
+  if (after.reason === null && before.reason !== null) return 'outcome';
+  if (after.unavailable && !before.unavailable) return 'outcome';
+  if (before.uncovered == null ? after.uncovered != null : after.uncovered != null && after.uncovered < before.uncovered) return 'outcome';
+  if (after.failed < before.failed || after.unresolved < before.unresolved
+    || after.settled > (before.settled ?? 0)
+    || (after.saved_matches ?? 0) > (before.saved_matches ?? 0)) return 'outcome';
+  return after.opened > (before.opened ?? 0) ? 'exploration' : 'none';
 }

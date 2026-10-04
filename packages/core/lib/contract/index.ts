@@ -320,7 +320,7 @@ export type {
 } from "../db/public-tournaments.ts";
 export { championById, championIconPath, CHAMPION_DATA_VERSION } from "../riot/champions.ts";
 
-export { MATCH_CATEGORIES, CATEGORY_LABEL, isMatchCategoryFilter, expandCategory } from "../metrics/category.ts";
+export { MATCH_CATEGORIES, RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, isMatchCategoryFilter, expandCategory } from "../metrics/category.ts";
 export type { MatchCategoryFilter } from "../metrics/category.ts";
 
 export { RECORD_PERIODS, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod } from "../metrics/record-period.ts";

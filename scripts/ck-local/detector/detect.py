@@ -16,6 +16,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).parent))
 from embed import FH, FW, PER, letterbox, load_model  # noqa: E402
 from runs import group_runs  # noqa: E402
+from sheets import cell_image
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = ROOT / "out/ck-detector"
@@ -43,8 +44,8 @@ def main():
         for k, sheet in enumerate(p["sheets"]):
             n = min(PER, p["cells"] - k * PER)
             if n <= 0: break
-            img = np.asarray(Image.open(ROOT / sheet).convert("RGB"))
-            cells = np.stack([img[(c // 10) * FH:(c // 10 + 1) * FH, (c % 10) * FW:(c % 10 + 1) * FW] for c in range(n)])
+            img = Image.open(ROOT / sheet).convert("RGB")
+            cells = np.stack([np.asarray(cell_image(img, c)) for c in range(n)])
             x = (letterbox(cells, size).to(device).half() - mean) / std
             with torch.no_grad():
                 e = torch.nn.functional.normalize(enc(x).float(), dim=-1).cpu().numpy()

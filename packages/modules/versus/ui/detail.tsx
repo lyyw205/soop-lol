@@ -31,7 +31,7 @@ import { formatBadge, isRepeatedDate, matchOutcome } from "../../../ui/match-row
 // ★ 모듈은 계약만 import 한다. core/lib/db·metrics 를 직접 부르면 verify:modules 가 막는다 —
 //   좁은 계약이 곧 core 가 내부를 바꿀 수 있는 자유다.
 import {
-  withinRecordPeriod, resolveRecordPeriod, recordPeriodLabel, type RecordPeriod, type PublicRosterEntry, QUEUE_LABEL, MATCH_CATEGORIES, CATEGORY_LABEL, expandCategory, kstDateString, kstYear, type MatchCategoryFilter,
+  withinRecordPeriod, resolveRecordPeriod, recordPeriodLabel, type RecordPeriod, type PublicRosterEntry, QUEUE_LABEL, RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, expandCategory, kstDateString, kstYear, type MatchCategoryFilter,
   setLabel, isStandaloneSet, profileHref as contractProfileHref,
 } from "@soop-lol/core/lib/contract";
 import { versusHref } from "./paths.ts";
@@ -275,7 +275,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
           ⚠ 여기 기간은 주소가 아니라 이 컴포넌트 상태다(상대전적은 한 쌍의 조우를
             통째로 받아 두고 화면에서 거른다). 그래서 onApply 로 받아 직접 넣는다. */}
       <RecordFilters category={category} year="all"
-        categories={MATCH_CATEGORIES.map((c)=>({value:c.key,label:c.label}))}
+        categories={RIFT_MATCH_CATEGORIES.map((c)=>({value:c.key,label:c.label}))}
         years={[]}
         onCategoryChange={(value)=>setCategory(value as MatchCategoryFilter)} onYearChange={()=>{}}
         trailing={<RecordDateRange period={datePeriod} onApply={(range)=>{

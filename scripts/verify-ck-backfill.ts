@@ -109,6 +109,33 @@ try {
  await ck.markLeadScan(await leadId(303),{status:'running',requested:[[0,1000]],note:'메모만'} as never);
  const stuck=await cli('after','--current',current);
  assert.equal(stuck.code,4);assert.match(stuck.out,/진척 없음/);
+ // 전체 탐색 범위가 이미 찍힌 뒤의 경기 저장도 진척이다. 같은 경기 재제출은 아니다.
+ await ck.markLeadScan(await leadId(303),{status:'running',requested:[[0,3600]],opened:[0],
+   resume:{next_action:'두 번째 경기 결과 확인',next_at:1800,context:['앞 경기 저장 완료']}});
+ assert.equal((await cli('next','--queue',queue,'--current',current)).code,0);
+ await ck.upsertMatchFromScan({match_id:'backfill:progress',played_at:new Date('2026-09-20T00:00:00Z'),played_at_precision:'date',
+  winning_team:100,participants:[{streamer_id:s.id,participant_id:1,team_id:100,champion_id:103}]});
+ await db()`INSERT INTO match_pov(match_id,lead_id,role,source) VALUES('backfill:progress',${await leadId(303)}::uuid,'created','own')`;
+ assert.equal((await cli('after','--current',current)).code,0,'새 시점 저장은 진척');
+ assert.equal((await cli('next','--queue',queue,'--current',current)).code,0);
+ const resume=JSON.parse(readFileSync(join(dir,'resume.json'),'utf8'));
+ assert.deepEqual(resume.saved_matches.map((m:any)=>m.match_id),['backfill:progress']);
+ assert.equal(resume.scan.resume.next_at,1800); assert.equal(resume.identities[0].display_name,'백필CLI');
+ assert.equal((await cli('after','--current',current)).code,4,'같은 저장을 다시 세지 않는다');
+ // 새 프로세스로 재실행해도 열람뿐인 세션의 횟수는 유지한다. DB 완료 도장은 바꾸지 않는다.
+ const guardDir=join(dir,'guards'),guardFile=join(guardDir,'lol-303.json');
+ for(let n=1;n<=3;n++){
+  assert.equal((await cli('next','--queue',queue,'--current',current,'--guard-dir',guardDir)).code,0);
+  await ck.markLeadScan(await leadId(303),{status:'running',opened:[100+n]});
+  assert.equal((await cli('after','--current',current,'--guard-dir',guardDir)).code,n===3?4:0);
+  assert.equal(JSON.parse(readFileSync(guardFile,'utf8')).no_outcome_sessions,n);
+ }
+ assert.equal((await cli('after','--current',current,'--guard-dir',guardDir)).code,4);
+ assert.equal(JSON.parse(readFileSync(guardFile,'utf8')).no_outcome_sessions,3,'after 중복 호출은 두 번 세지 않음');
+ assert.equal((await cli('next','--queue',queue,'--current',current,'--guard-dir',guardDir)).code,4,'재실행도 보류');
+ assert.equal((await b.vodRaws([303])).get(303)?.scan.status,'running','반복 제한은 완료 도장을 만들지 않음');
+ assert.equal((await cli('next','--queue',queue,'--current',current,'--guard-dir',guardDir,'--reset-stall')).code,0,'명시적 초기화 후 재개');
+ await assert.rejects(ck.markLeadScan(await leadId(303),{status:'running',resume:{next_action:'다음',next_at:-1}}),/next_at/);
  await ck.markLeadScan(await leadId(303),full(3600));
  // ★ FC 도장(fco_scan)은 롤 도장(scan)과 따로 쓰이고 서로 지우지 않는다(같은 VOD 를 두 게임이 따로 끝낸다).
  await ck.markLeadScan(await leadId(303),{status:'running',requested:[[0,500]]},{key:'fco_scan'});

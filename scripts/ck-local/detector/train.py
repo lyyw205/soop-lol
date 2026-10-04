@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
+from sheets import cell_image as sheet_cell
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = ROOT / "out/ck-detector"
@@ -121,15 +122,26 @@ def fit(a):
     # 학습에 dev 까지 넣은 최종 판별기(시험 채널은 끝까지 안 본다)
     Xa = np.concatenate([X["train"], X["dev"]] + ([np.array(XA_dev)] if XA_dev else [])); Ya = np.concatenate([Y["train"], Y["dev"]] + ([np.array(YA_dev)] if YA_dev else []))
     final = LogisticRegression(C=C, class_weight="balanced", max_iter=3000).fit(Xa, Ya)
-    dst = OUT / "model" / (a.model if TARGET == "result" else f"{a.model}-{TARGET}"); dst.mkdir(parents=True, exist_ok=True)
+    root = Path(a.output_dir) if a.output_dir else OUT / "candidates" / "latest"
+    if root.resolve() == OUT.resolve(): raise ValueError("fit은 운영 OUT을 덮지 않는다. 후보 디렉터리를 지정할 것")
+    dst = root / "model" / (a.model if TARGET == "result" else f"{a.model}-{TARGET}"); dst.mkdir(parents=True, exist_ok=True)
     # ★ 백필이 도는 중에 읽을 수 있다 — 임시 파일에 쓰고 이름을 바꾼다(반쯤 쓴 파일을 읽지 않게)
     np.savez(dst / "clf.tmp.npz", coef=final.coef_[0], intercept=final.intercept_, C=C); (dst / "clf.tmp.npz").replace(dst / "clf.npz")
     np.savez(dst / "clf-train-only.npz", coef=clf.coef_[0], intercept=clf.intercept_, C=C)
     # 모든 칸 점수 — 검수 뽑기(학습에만 쓴 판별기)와 판 단위 평가에 쓴다
-    sd = OUT / "scores" / (a.model if TARGET == "result" else f"{a.model}-{TARGET}"); sd.mkdir(parents=True, exist_ok=True)
+    sd = root / "scores" / (a.model if TARGET == "result" else f"{a.model}-{TARGET}"); sd.mkdir(parents=True, exist_ok=True)
     for vod, (at, emb) in E.items():
-        which = clf if split_of(metas[vod]["channel"], vod) in ("dev", "test") else final
+        # dev는 선택용(train-only), test는 실제 배포 후보(final)를 평가한다.
+        which = clf if split_of(metas[vod]["channel"], vod) == "dev" else final
         np.save(sd / f"{vod}.npy", which.predict_proba(emb)[:, 1].astype(np.float32))
+    (dst / 'training.json').write_text(json.dumps({
+        'model': a.model, 'target': TARGET, 'C': C, 'dev_ap': float(ap),
+        'train_vods': [v for v in E if split_of(metas[v]['channel'], v) in ('train', 'dev')],
+        'test_vods': [v for v in E if split_of(metas[v]['channel'], v) == 'test'],
+        'test_scores_model': 'clf.npz',
+        'limitation': '일부 test 채널의 다른 VOD가 train에 포함되어 있다. 신규 채널 독립 시험으로 해석하지 않는다.',
+    }, ensure_ascii=False, indent=2))
+    print(f"후보 저장: {root} — 운영 모델은 바꾸지 않았다. games --output-dir로 평가 후 적용할 것")
     print(f"선택 C={C} · dev AP {ap:.3f} · 점수 저장 {len(E)}개 VOD")
     # 칸 단위: dev 에서 결과창 칸을 다 잡는 문턱마다 결과창 아닌 칸이 몇이나 넘나
     if len(Y["dev"]) and Y["dev"].sum():
@@ -149,17 +161,18 @@ def cell_image(meta, at):
         if i >= p["cells"]: return None
         sheet = Image.open(ROOT / p["sheets"][i // 100]).convert("RGB")
         c = i % 100
-        return sheet.crop(((c % 10) * FW, (c // 10) * FH, (c % 10 + 1) * FW, (c // 10 + 1) * FH))
+        return sheet_cell(sheet, c)
     return None
 
 def review(a):
     """검수할 칸 고르기 — 판별기가 자신 없는 칸, 초벌과 어긋나는 칸, 결과창 앞뒤 칸.
     출력: out/ck-detector/review/r<round>/page-N.jpg + items.json (번호 → vod·시각)."""
     metas = load_meta(); E = load_emb(a.model, metas); L = load_labels(E, metas)
+    score_root = Path(a.output_dir) if a.output_dir else OUT
     picks = []
     for vod, (at, emb) in E.items():
         if split_of(metas[vod]["channel"], vod) == "test": continue   # 시험 채널은 검수에도 안 쓴다(답을 보면 시험이 아니다)
-        s = np.load(OUT / "scores" / a.model / f"{vod}.npy")
+        s = np.load(score_root / "scores" / a.model / f"{vod}.npy")
         labeled = {i for (v, i) in L if v == vod}
         # (1) 초벌과 어긋남: 결과창 표시인데 점수 낮음 · 아닌데 점수 높음
         for (v, i), (lab, src) in L.items():
@@ -182,7 +195,7 @@ def review(a):
     seen, items = set(), []
     for pr, vod, i, why in sorted(picks, key=lambda x: -x[0]):
         if (vod, i) in seen: continue
-        seen.add((vod, i)); items.append({"vod": vod, "at": float(E[vod][0][i]), "why": why, "score": round(float(np.load(OUT / "scores" / a.model / f"{vod}.npy")[i]), 3)})
+        seen.add((vod, i)); items.append({"vod": vod, "at": float(E[vod][0][i]), "why": why, "score": round(float(np.load(score_root / "scores" / a.model / f"{vod}.npy")[i]), 3)})
         if len(items) >= a.limit: break
     dst = OUT / "review" / f"r{a.round}"; dst.mkdir(parents=True, exist_ok=True)
     PAGE, COLS = 40, 8
@@ -216,7 +229,7 @@ def games(a):
             for min_len in [1, 2, 3]:
                 hit = tot = extra = 0; hours = 0.0
                 for vod in vods:
-                    at = E[vod][0]; s = np.load(OUT / "scores" / a.model / f"{vod}.npy")
+                    at = E[vod][0]; s = np.load((Path(a.output_dir) if a.output_dir else OUT) / "scores" / a.model / f"{vod}.npy")
                     rs = runs_of(s, thr, min_len, at)
                     hours += (at[-1] - at[0]) / 3600
                     # 같은 판의 결과창 사진 여러 장은 90초 안에 모인다 — 그걸 한 판으로 센다
@@ -236,6 +249,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["fit", "review", "games"])
     ap.add_argument("--model", default="siglip")
+    ap.add_argument("--output-dir", help="후보 모델·점수 디렉터리 (fit 기본 out/ck-detector/candidates/latest)")
     ap.add_argument("--round", type=int, default=1)
     ap.add_argument("--limit", type=int, default=400)
     ap.add_argument("--target", default="result", choices=["result", "end"])

@@ -3,7 +3,7 @@
  * 여기서 따로 저장하는 건 "마지막 요청 기간" 하나다 — 다음 요청의 기본값일 뿐이다.
  */
 import { db } from './client.ts';
-import { vodDate, type ScanRaw } from '../metrics/ck-vod-status.ts';
+import { activeCandidates, vodDate, type ScanRaw } from '../metrics/ck-vod-status.ts';
 
 export interface BackfillTarget { id: string; display_name: string; slug: string; channel_id: string }
 export type BackfillGame = 'lol' | 'fconline';
@@ -43,6 +43,48 @@ export async function vodRaws(titleNos: number[]): Promise<Map<number, ScanRaw>>
   const rows = keys.length ? await db()<{ source_key: string; raw: ScanRaw }[]>`
     SELECT source_key, raw FROM event_lead WHERE source='vod_title' AND source_key=ANY(${keys})` : [];
   return new Map(rows.map(r=>[Number(r.source_key.slice(4)), r.raw]));
+}
+
+/** 조사 결과를 다시 읽어 만드는 인계 자료. 별도 진행 테이블이나 추측한 재개 커서는 없다. */
+export async function backfillContext(vod: number, game: BackfillGame = 'lol') {
+  const [lead] = await db()<{ id: string; source_key: string; raw: ScanRaw }[]>`
+    SELECT id, source_key, raw FROM event_lead WHERE source='vod_title' AND source_key=${`vod:${vod}`}`;
+  if (!lead) return null;
+  const scan = lead.raw[game === 'lol' ? 'scan' : 'fco_scan'];
+  const candidates = game === 'lol' ? activeCandidates(lead.raw) : [];
+  const matches = game === 'lol' ? await db()<{
+    match_id: string; winning_team: number | null; game_creation: Date; game_duration: number | null;
+  }[]>`SELECT m.match_id, m.winning_team, m.game_creation, m.game_duration
+    FROM match_pov p JOIN match m ON m.match_id=p.match_id
+    WHERE p.lead_id=${lead.id}::uuid ORDER BY m.game_creation, m.match_id` : [];
+  const people = matches.length ? await db()<{
+    streamer_id: string; display_name: string; observed_name: string | null;
+  }[]>`SELECT DISTINCT s.id AS streamer_id, s.display_name, mp.observed_name
+    FROM match_pov p JOIN match_participant mp ON mp.match_id=p.match_id
+    JOIN streamer s ON s.id=mp.streamer_id WHERE p.lead_id=${lead.id}::uuid
+    ORDER BY s.display_name, mp.observed_name` : [];
+  return {
+    source_key: lead.source_key,
+    scan: scan ? { status: scan.status, requested: scan.requested, failed: scan.failed,
+      opened_count: new Set(scan.opened ?? []).size, resume: scan.resume ?? null,
+      // 구형 조사에는 resume가 없다. 메모는 힌트로만 제공하고 전체 기록 조회 경로를 남긴다.
+      note: typeof scan.note === 'string' ? scan.note.slice(0, 3000) : null } : null,
+    access: lead.raw.access ?? null,
+    saved_matches: matches,
+    identities: people,
+    candidates: candidates.map(c => ({ id: c.id, at: c.at, conclusion: c.conclusion, match_id: c.match_id })),
+    detail_command: `npm run ck:record -- --lead vod:${vod}`,
+    warning: '동일 VOD에서 저장 확인된 결과를 재사용한다. 기존 경기값은 다른 VOD의 독립 판독을 대체하지 않는다. 미해결 상세 근거는 ck:record로 조회한다.',
+  };
+}
+
+export async function savedPovCounts(vods: number[]): Promise<Map<number, number>> {
+  if (!vods.length) return new Map();
+  const rows = await db()<{ source_key: string; n: number }[]>`
+    SELECT l.source_key, count(p.match_id)::int AS n FROM event_lead l
+    LEFT JOIN match_pov p ON p.lead_id=l.id
+    WHERE l.source='vod_title' AND l.source_key=ANY(${vods.map(n => `vod:${n}`)}) GROUP BY l.source_key`;
+  return new Map(rows.map(r => [Number(r.source_key.slice(4)), r.n]));
 }
 
 /**

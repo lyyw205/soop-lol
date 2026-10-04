@@ -14,6 +14,7 @@
  */
 
 import type { ScanKey } from "../metrics/ck-vod-status.ts";
+import { validateScanResume, type ScanResume } from "../metrics/ck-resume.ts";
 import type postgres from "postgres";
 
 import { db } from "./client.ts";
@@ -82,6 +83,8 @@ export interface LeadScanState {
   version?: string;
   finished_at?: string;
   note?: string;
+  /** 다음 행동·필요한 맥락만. 경기값·완료 상태는 기존 DB 기록이 정본이다. */
+  resume?: ScanResume | null;
 }
 
 /**
@@ -228,6 +231,7 @@ export async function markLeadScanInTx(
   /** key: 어느 게임의 조사 도장인가 — 롤 `scan`(기본) · FC `fco_scan`. 서로 다른 키라 덮지 않는다. */
   opts: { mode?: "merge" | "replace"; resolved_failed?: TimeRange[]; key?: ScanKey } = {},
 ): Promise<LeadScanState> {
+  validateScanResume(scan.resume);
   const resolved = (opts.resolved_failed ?? []).map((r): TimeRange => {
     if (!Array.isArray(r) || r.length !== 2 || !r.every(Number.isFinite) || r[0] < 0 || r[1] < r[0]) {
       throw new Error("resolved_failed 는 VOD 전체 초 [시작, 끝] 배열이어야 합니다.");
@@ -244,6 +248,7 @@ export async function markLeadScanInTx(
 
   const prev = rows[0].raw[key];
   const next = opts.mode === "replace" || !prev ? state : mergeScan(prev, state, resolved);
+  if (next.status === 'done') next.resume = null;
 
   await tx`
     UPDATE event_lead SET raw = raw || ${tx.json({ [key]: next } as never)}
@@ -725,6 +730,8 @@ export interface CkMatchParticipantInput {
 
 export interface CkMatchInput {
   match_id: string;
+  /** 실제 화면으로 확인한 규칙. 생략은 구형 제출 호환(CUSTOM), 칼바람은 반드시 ARAM. */
+  game_mode?: 'CLASSIC' | 'ARAM';
   event_id?: string | null;
   played_at: Date;
   /**
@@ -838,7 +845,37 @@ export async function upsertMatchFromScan(g: CkMatchInput): Promise<boolean> {
   return db().begin((tx) => upsertMatchFromScanInTx(tx, g)) as Promise<boolean>;
 }
 
+/** 근거를 확인한 운영 정정. 모드·공개 집계·수정 이력을 한 트랜잭션으로 갱신한다. */
+export async function correctMatchMode(input: {
+  match_id: string; expected_mode: string | null; game_mode: 'CLASSIC' | 'ARAM'; evidence_frame: string; reason: string;
+}): Promise<void> {
+  if (!['CLASSIC', 'ARAM'].includes(input.game_mode) || !input.reason.trim()) throw new Error('확인한 모드와 근거 사유가 필요하다');
+  await db().begin(async tx => {
+    const [current] = await tx<{ game_mode: string | null; map_id: number | null; game_code: string; source: string }[]>`
+      SELECT game_mode,map_id,game_code,source FROM match WHERE match_id=${input.match_id} FOR UPDATE`;
+    if (!current || current.game_code !== 'lol' || current.source !== 'manual') throw new Error('수기 LoL 경기를 찾지 못했다');
+    if (current.game_mode !== input.expected_mode) throw new Error('조회 이후 모드가 변경됐다. 다시 확인할 것');
+    const [frame] = await tx<{ lead_id: string }[]>`
+      SELECT lead_id FROM match_evidence_frame WHERE match_id=${input.match_id}
+      AND frame_path=${input.evidence_frame} AND read_at IS NOT NULL`;
+    if (!frame) throw new Error('이 경기에 연결되고 실제로 읽은 근거 프레임이 필요하다');
+    const mapId = input.game_mode === 'ARAM' ? 12 : 11;
+    if (current.game_mode === input.game_mode && current.map_id === mapId) return;
+    await tx`UPDATE match SET game_mode=${input.game_mode},map_id=${mapId},reviewed_at=now(),
+      review_completed_at=NULL,review_version=review_version+1 WHERE match_id=${input.match_id}`;
+    await recordReviewChanges(tx, [
+      {match_id:input.match_id,lead_id:frame.lead_id,entity:'match',entity_key:input.match_id,field:'game_mode',before:current.game_mode,after:input.game_mode},
+      {match_id:input.match_id,lead_id:frame.lead_id,entity:'match',entity_key:input.match_id,field:'map_id',before:current.map_id,after:mapId},
+      {match_id:input.match_id,lead_id:frame.lead_id,entity:'match',entity_key:input.match_id,field:'mode_evidence',before:null,
+        after:{frame:input.evidence_frame,reason:input.reason}},
+    ]);
+    await rederiveEncountersInTx(tx,input.match_id);
+    await recomputeChampionStatsInTx(tx,await affectedStreamers(tx,input.match_id));
+  });
+}
+
 export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<boolean> {
+  if (g.game_mode !== undefined && !['CLASSIC', 'ARAM'].includes(g.game_mode)) throw new Error('game_mode 는 CLASSIC 또는 ARAM');
   // ★ `FOR UPDATE` 로 그 행을 잠근다. 없으면 검수 저장과 자동 수집이 **동시에** 돌 때
   //   READ COMMITTED 에서 둘 다 `reviewed_at IS NULL` 을 보고 통과해, 사람이 고친 값이
   //   덮인다. 잠그면 자동 수집이 검수 커밋을 기다렸다가 보고 물러난다.
@@ -865,15 +902,17 @@ export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<
   const matchEventId = g.series_id ? null : (g.event_id ?? null);
 
   await tx`
-    INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, game_creation, game_duration,
+    INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, game_creation, game_duration,
                        winning_team, source, origin, event_id, source_url,
                        series_id, series_game_no, blue_team_id, red_team_id, game_creation_precision)
-    VALUES (${g.match_id}, 'lol', 0, '0', 'CUSTOM', ${g.played_at}, ${g.duration ?? null},
+    VALUES (${g.match_id}, 'lol', 0, '0', ${g.game_mode ?? 'CUSTOM'}, ${g.game_mode === 'ARAM' ? 12 : g.game_mode === 'CLASSIC' ? 11 : null}, ${g.played_at}, ${g.duration ?? null},
             ${g.winning_team}, 'manual', ${g.origin ?? "vod_scan"}, ${matchEventId},
             ${g.source_url ?? null},
             ${g.series_id ?? null}, ${g.series_game_no ?? null},
             ${g.blue_team_id ?? null}, ${g.red_team_id ?? null}, ${g.played_at_precision})
     ON CONFLICT (match_id) DO UPDATE SET
+      game_mode       = CASE WHEN ${g.game_mode ?? null}::text IS NULL THEN match.game_mode ELSE EXCLUDED.game_mode END,
+      map_id          = COALESCE(EXCLUDED.map_id, match.map_id),
       game_creation   = EXCLUDED.game_creation,
       -- 시각과 그 정확도는 한 쌍이다. 시각을 VOD 로 보정하면 정확도도 입력값으로 바뀐다.
       game_creation_precision = EXCLUDED.game_creation_precision,

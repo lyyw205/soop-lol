@@ -108,11 +108,69 @@ try {
   const firstRead = full.map((p) => (p.streamer_slug === "pov-d" ? { ...p, champion_name: undefined } : p));
   check("준비 완료", true);
 
+  console.log("\n▸ 칼바람도 저장하되 일반 전적·CK·대회 집계와 분리한다");
+  fakeVod(VODS.h, [100]);
+  {
+    const missingMode=await merge([scan(VODS.h,'pov_h',[100]),
+      {resultType:'match',match_id:'pov:missing-mode',winning_team:100,played_at:'2026-09-25T00:00:00Z',
+        played_at_precision:'date',result_evidence:'결과창',participants:full,evidence_frames:[framePath(VODS.h,100)]}]);
+    check('새 경기의 모드를 생략하면 기본 CK로 섞이지 않고 파일 전체 거부',missingMode.code!==0
+      && missingMode.out.includes('game_mode')
+      && (await sql()`SELECT 1 FROM event_lead WHERE source_key=${`vod:${VODS.h}`}`).length===0);
+    const result = await merge([
+      scan(VODS.h, 'pov_h', [100]),
+      { resultType:'match', match_id:'pov:aram', game_mode:'ARAM', winning_team:100,
+        event:{slug:'pov-aram',name:'칼바람 CK',kind:'ck'}, played_at:'2026-09-25T00:00:00Z',
+        played_at_precision:'date',duration:900,result_evidence:'칼바람 나락 결과창',participants:full,
+        evidence_frames:[framePath(VODS.h,100)] },
+    ]);
+    check('실제 merge로 ARAM 저장',result.code===0,result.code?result.out:'');
+    const [m]=await sql()`SELECT game_mode,map_id FROM match WHERE match_id='pov:aram'`;
+    check('모드와 맵 구분',m?.game_mode==='ARAM'&&m?.map_id===12);
+    check('칼바람 공개 조회에만 경기 존재',(await sql()`SELECT category FROM core_public.aram_match WHERE match_id='pov:aram'`)[0]?.category==='aram_custom');
+    check('일반 경기/대회/상대전적에서 제외',
+      (await sql()`SELECT 1 FROM core_public.match WHERE match_id='pov:aram'`).length===0
+      &&(await sql()`SELECT 1 FROM core_public.tournament_match WHERE match_id='pov:aram'`).length===0
+      &&(await sql()`SELECT 1 FROM core_public.streamer_encounter WHERE match_id='pov:aram'`).length===0);
+    check('칼바람 상대전적은 별도로 보존',(await sql()`SELECT 1 FROM core_public.aram_encounter WHERE match_id='pov:aram'`).length>0);
+    check('칼바람 챔피언 통계는 별도로 보존',(await sql()`SELECT 1 FROM core_public.aram_champion_stat WHERE category='aram_custom'`).length>0);
+    check('일반 챔피언 통계에 칼바람 없음',(await sql()`SELECT 1 FROM core_public.champion_stat WHERE category='aram_custom'`).length===0);
+
+    const correction = {match_id:'pov:aram',expected_mode:'ARAM',game_mode:'CLASSIC' as const,
+      evidence_frame:framePath(VODS.h,100),reason:'모드 정정 경로 회귀 검증'};
+    // 실제 CLI 기본 동작은 미리보기이며 원본과 집계를 바꾸지 않는다.
+    const preview = await new Promise<{code:number;out:string}>(resolve => {
+      const child=spawn(process.execPath,['scripts/ck-mode.ts','--match',correction.match_id,'--mode','CLASSIC',
+        '--frame',correction.evidence_frame,'--reason',correction.reason],{cwd:ROOT,env:{...process.env,DATABASE_URL}});
+      let out='';child.stdout.on('data',d=>out+=d);child.stderr.on('data',d=>out+=d);
+      child.on('close',code=>resolve({code:code??1,out}));
+    });
+    check('모드 정정 CLI 기본은 미리보기',preview.code===0 && JSON.parse(preview.out).apply===false
+      && (await sql()`SELECT game_mode FROM match WHERE match_id='pov:aram'`)[0]?.game_mode==='ARAM',preview.code?preview.out:'');
+    await assert.rejects(ck.correctMatchMode({...correction,evidence_frame:framePath(VODS.a,999)}),/근거 프레임/);
+    await ck.correctMatchMode(correction);
+    check('분류 정정은 경기·상대전적·챔피언 집계를 함께 이동',
+      (await sql()`SELECT category FROM core_public.match WHERE match_id='pov:aram'`)[0]?.category==='ck'
+      && (await sql()`SELECT 1 FROM core_public.streamer_encounter WHERE match_id='pov:aram'`).length>0
+      && (await sql()`SELECT 1 FROM core_public.aram_champion_stat`).length===0
+      && (await sql()`SELECT 1 FROM core_public.champion_stat WHERE category='ck'`).length>0);
+    await assert.rejects(ck.correctMatchMode(correction),/조회 이후 모드가 변경/);
+    const history=await ck.listReviewChanges({match_id:'pov:aram'});
+    check('근거·전후 값이 정정 이력에 남는다',history.some(h=>h.field==='game_mode'&&h.before==='ARAM'&&h.after==='CLASSIC')
+      && history.some(h=>h.field==='mode_evidence'&&(h.after as any)?.frame===correction.evidence_frame));
+    await ck.correctMatchMode({...correction,expected_mode:'CLASSIC',game_mode:'ARAM'});
+    await ck.correctMatchMode({...correction,game_mode:'ARAM'});
+    check('칼바람으로 재정정·재전송 후 통계가 중복되지 않는다',
+      (await sql()`SELECT 1 FROM core_public.champion_stat WHERE category='ck'`).length===0
+      && (await sql()`SELECT max(games)::int AS n FROM core_public.aram_champion_stat`)[0]?.n===1
+      && (await ck.listReviewChanges({match_id:'pov:aram'})).length===history.length*2);
+  }
+
   console.log("\n▸ 첫 시점이 경기를 만든다");
   fakeVod(VODS.a, [3000, 3100]);
   let r = await merge([
     scan(VODS.a, "pov_a", [3000, 3100], [{ id: "c1", at: [3000, 3100], conclusion: "match", match_id: "pov:m1" }]),
-    { resultType: "match", match_id: "pov:m1", winning_team: 200, played_at: "2026-09-26T13:00:00Z",
+    { resultType: "match", match_id: "pov:m1", game_mode: "CLASSIC", winning_team: 200, played_at: "2026-09-26T13:00:00Z",
       played_at_precision: "datetime", duration: 1800, result_evidence: "결과창", participants: firstRead,
       evidence_frames: [framePath(VODS.a, 3000), framePath(VODS.a, 3100)] },
   ]);
@@ -296,7 +354,7 @@ try {
 
   console.log("\n▸ 만든 시점이 혼자일 때만 고칠 수 있다");
   fakeVod(VODS.f, [100, 200]);
-  const m2 = (winner: 100 | 200) => ({ resultType: "match", match_id: "pov:m2", winning_team: winner,
+  const m2 = (winner: 100 | 200) => ({ resultType: "match", match_id: "pov:m2", game_mode: "CLASSIC", winning_team: winner,
     played_at: "2026-09-26T14:00:00Z", played_at_precision: "date", result_evidence: "결과창",
     participants: full, evidence_frames: [framePath(VODS.f, 100)] });
   await merge([scan(VODS.f, "pov_f", [100, 200]), m2(100)]);

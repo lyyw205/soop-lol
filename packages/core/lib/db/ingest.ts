@@ -422,7 +422,8 @@ async function insertEncounter(tx: Tx, r: EncounterRow): Promise<void> {
              FROM match m
              LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
              LEFT JOIN event ev ON ev.id = COALESCE(ms.event_id, m.event_id)
-            WHERE m.match_id = ${r.match_id}))
+            WHERE m.match_id = ${r.match_id}),
+          (SELECT game_mode FROM match WHERE match_id = ${r.match_id}))
       ELSE NULL END
     )
     ON CONFLICT (match_id, streamer_a_id, streamer_b_id) DO UPDATE SET
@@ -688,7 +689,7 @@ export async function recomputeChampionStatsInTx(tx: Tx, streamerIds?: string[])
              coalesce(sum(mp.assists)  FILTER (WHERE kda.all_read), 0)::int AS assists,
              coalesce(sum(mp.cs), 0)::bigint           AS cs,
              coalesce(sum(m.game_duration), 0)::bigint AS seconds_played,
-             lol_match_category(m.source, m.queue_id, ev.kind)  AS category,
+             lol_match_category(m.source, m.queue_id, ev.kind, m.game_mode)  AS category,
              -- ★ 평균의 분모. games 로 나누면 못 읽은 판이 분모에만 남아 평균이 묽어진다
              --   (0020 ⑧). 결과 화면은 셋을 같이 주거나 안 주므로 손실은 거의 없고,
              --   부분 판독(툴팁 가림 등)은 **읽은 것으로 치지 않는다.**

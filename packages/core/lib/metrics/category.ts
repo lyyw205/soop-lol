@@ -35,6 +35,7 @@ export const MATCH_CATEGORIES = [
   { key: "solo", label: "솔로랭크" },
   { key: "flex", label: "자유랭크" },
   { key: "aram", label: "칼바람" },
+  { key: "aram_custom", label: "칼바람 나락 내전" },
   { key: "normal", label: "일반" },
   { key: "clash", label: "클래시" },
   { key: "ck", label: "내전 (CK)" },
@@ -42,6 +43,9 @@ export const MATCH_CATEGORIES = [
   { key: "tournament", label: "대회" },
   { key: "other", label: "기타" },
 ] as const;
+
+/** 일반 전적 화면의 선택지. 칼바람은 별도 조회/화면에서 다룬다(0071). */
+export const RIFT_MATCH_CATEGORIES = MATCH_CATEGORIES.filter(c => c.key !== 'aram' && c.key !== 'aram_custom');
 
 /**
  * `all` 과 `public_queue` 는 **필터 전용 묶음**이다 — 어떤 경기도 그 값을 갖지 않는다.
@@ -94,9 +98,12 @@ export interface MatchCategoryInput {
   queue_id: number | null;
   /** 이 경기가 붙어 있는 `event.kind`. 대회에 안 붙었으면 null. */
   event_kind?: string | null;
+  game_mode?: string | null;
 }
 
-export function matchCategory({ source, queue_id, event_kind }: MatchCategoryInput): MatchCategory {
+export function matchCategory({ source, queue_id, event_kind, game_mode }: MatchCategoryInput): MatchCategory {
+  // 맵/규칙이 먼저다. 칼바람 CK도 소환사의 협곡 CK 집계에 섞지 않는다.
+  if (game_mode === 'ARAM') return source === 'public_queue' ? 'aram' : 'aram_custom';
   // 대회가 붙어 있으면 그게 가장 확실한 근거다 — 사람이 판단해 넣은 값이다.
   if (event_kind === "ck") return "ck";
   if (event_kind === "scrim") return "scrim";

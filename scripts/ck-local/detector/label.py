@@ -11,14 +11,21 @@ NAME = {"R": "result", "E": "end", "B": "banpick", "D": "loading", "L": "lobby",
 ap = argparse.ArgumentParser(); ap.add_argument("--round", type=int, required=True); ap.add_argument("marks"); ap.add_argument("--range", default=None, help="a-b: 이 번호 범위에서 적지 않은 칸은 --default 로"); ap.add_argument("--default", default=None); a = ap.parse_args()
 items = json.loads((OUT / "review" / f"r{a.round}" / "items.json").read_text())
 n = skip = 0
-toks = a.marks.split()
-if a.range and a.default:
-    lo, hi = map(int, a.range.split("-")); given = {int(t[:-1]) for t in toks}
-    toks += [f"{i}{a.default}" for i in range(lo, hi + 1) if i not in given]
-with open(OUT / "review-labels.jsonl", "a") as f:
-    for tok in toks:
+if a.range or a.default:
+    ap.error("일괄 기본 라벨은 지원하지 않는다. 직접 확인한 번호:라벨만 명시할 것")
+rows = []
+seen = set()
+for tok in a.marks.split():
+    try:
         i, lab = int(tok[:-1]), tok[-1].upper()
+        if i < 0 or i >= len(items) or i in seen: raise ValueError("번호 범위/중복")
+        seen.add(i)
         if lab == "X": skip += 1; continue
         it = items[i]
-        f.write(json.dumps({"vod": it["vod"], "at": it["at"], "label": NAME[lab], "source": f"review:r{a.round}"}) + "\n"); n += 1
-print(f"적음 {n} · 애매 {skip}")
+        rows.append({"vod": it["vod"], "at": it["at"], "label": NAME[lab], "source": f"review:r{a.round}"})
+    except (ValueError, KeyError, IndexError):
+        ap.error(f"잘못된 판정 {tok}; 아무 라벨도 저장하지 않았다")
+if rows:
+    with open(OUT / "review-labels.jsonl", "a") as f:
+        f.write("\n".join(json.dumps(row) for row in rows) + "\n")
+print(f"적음 {len(rows)} · 애매 {skip}")

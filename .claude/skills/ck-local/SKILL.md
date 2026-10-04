@@ -18,16 +18,19 @@ description: (실험) 학습한 판별기가 썸네일 전체에 화면 종류 �
 단일 VOD 면 직접: `npm run ck:local -- --vod <번호>` (6시간 VOD 약 1분). 끝나기 전에 다른 SOOP 도구를 시작하지 않는다.
 준비 실패·종료 코드 2 면 **ck-research 로 조사하고 끝.** 종료 코드 3 은 VOD 를 못 찾은 것 — ck-backfill 접근 불가 규칙으로 확인한다.
 
-**1. 이전 기록** — `ck:record --lead vod:<번호>`, `ck:merge --find-match --vod <번호>` (예측 위치가 있으면 그 경기는 그 위치도 본다).
+**1. 이전 기록** — 백필이 제공한 `resume.json` 또는 `ck:backfill context --vod <번호>`부터 읽는다. 부족한 후보 근거·질문은 `ck:record --lead vod:<번호>`로 조회한다. `ck:merge --find-match --vod <번호>` (예측 위치가 있으면 그 경기는 그 위치도 본다).
 
-**2. 구간 지도 + 개요 몽타주 — 둘 다 항상 본다.**
+**2. 구간 지도 + 개요 몽타주 — 최초 조사에서는 둘 다 본다.**
+동일 VOD의 재개에서는 앞 세션에 실제로 확인했다고 기록된 범위·경기를 재사용한다. 준비된 이미지 목록만으로 읽음을 가정하지 않는다.
+처리한 경기까지 전부 다시 열지 않고, 미확인 범위와 남은 질문에 필요한 원본부터 본다. 다른 VOD의 새 시점은 별도로 판독한다.
+칼바람 내전도 수집한다. ck-research의 수집 모드 규칙대로 `game_mode: "ARAM"`을 명시해 일반 CK 집계와 분리한다.
 - 지도: `out/ck/<번호>/local/map.txt` (준비 출력에도 있다). 예:
   ```
   0:06:09~0:13:24 밴픽
   0:14:39~0:44:27 게임 중
     0:44:36~0:45:21 결과창 (후보 #3,#4)
   ```
-- 개요: `overview-*.jpg`(2분 칸 전체, 결과창 후보 근처는 분홍 테두리)를 **전부** 연다.
+- 개요: 최초 조사에서는 `overview-*.jpg`(2분 칸 전체, 결과창 후보 근처는 분홍 테두리)를 **전부** 연다. 재개 시에는 위에 적힌 실제 확인 기록을 따른다.
   **지도는 요약본이다** — "모름"·"롤 아님"·2분 미만 게임 구간은 빠져 있다. 지도만 보고 넘어가지 않는다.
 - 둘을 맞춰 **확인할 곳 목록**을 만든다:
   ① 결과창 후보(번호 있음) ② 지도의 결과창·그래프 구간인데 후보 번호가 없는 곳
@@ -58,17 +61,18 @@ DB 후보로 넣지 않고 5단계 `--verdicts` 로만 남긴다. `--finish` 가
 **롤 유무와 상관없이** `scan.json` 의 `failed`(썸네일을 못 받은 범위)는 ck-research 훑기로 원본을 본다.
 
 **5. 후보 판정 — 판별기가 배우는 자료다. 한 줄로:**
-`npm run ck:local -- --review --vod <번호> --run <run_id> --verdicts 3:result,4:result,5:other,6:graph`
-(`result` 결과창 점수판 · `graph` 결과창 다른 탭 · `ingame` · `client` · `other` 전적 사이트·FC·방송 그래픽 등). 연 후보만 적는다.
+`npm run ck:local -- --review --vod <번호> --run <run_id> --verdicts 3:result,4:result,5:other,6:graph --seen <실제로_연_각_후보_peak_초>`
+(`result` 결과창 점수판 · `graph` 결과창 다른 탭 · `ingame` · `client` · `other` 전적 사이트·FC·방송 그래픽 등). 연 후보만 적는다. `--seen`에는 실제로 연 원본의 VOD 전체 초를 쉼표로 나열한다. 파일 존재도 검사하며 전체 라벨 검증을 마친 뒤 기록한다. 몽타주만 보고 원본을 안 연 후보는 확정 라벨로 넣지 않는다.
 판별기가 **놓친 결과창**이나 **지도 라벨이 틀린 곳**은 시각으로 같이 남긴다(같은 명령에 붙여도 된다):
-`--label 1:23:45=result,0:57:51=lobby` (라벨: result·graph·banpick·lobby·client·ingame·end·other — 원본이나 띠로 직접 본 것만)
+`--label 1:23:45=result,0:57:51=lobby --seen 5025,3471` (라벨: result·graph·banpick·lobby·client·ingame·end·other — 해당 시각 원본을 직접 열어 확인한 것만)
 
 **6. 기록 — 초안은 도구가 조립한다.**
 ```bash
 npm run ck:local -- --finish --vod <번호> --run <run_id> --opened <연 원본 초,…> \
-  [--result-frames <결과창 원본 초,…>] [--resolved <시작-끝,…>] [--status done|running] [--games out/ck/<번호>/local/games.json] [--note "본 것·라벨이 틀린 곳"]
+  [--result-frames <결과창 원본 초,…>] [--resolved <시작-끝,…>] [--status done|running] [--games out/ck/<번호>/local/games.json] [--resume <짧은_인계_JSON>] [--requested <확인범위_시작-끝,…>] [--note "본 것·라벨이 틀린 곳"]
 npm run ck:merge -- --result out/ck/<번호>/local/final.json
 ```
+- 경기마다 저장한다. 다음 세션에는 DB 저장이 확인된 결과를 다시 제출하지 않고 이번에 새로 읽거나 정정한 결과만 넘긴다.
 - 경기가 있으면 `games.json` 에 **읽은 결과만** 쓴다: `{"candidates":[ck-research 후보…], "results":[match·identify…]}` (형식은 ck-research 「입력 창구」).
 - `opened` 는 원본을 연 시각만이다(이 실험의 정책). `status: done` 조건은 ck-research 그대로.
 - 썸네일을 못 받은 범위(`failed`)를 원본으로 메웠으면 `--finish ... --resolved <시작-끝,…>` (VOD 전체 초)로 넘긴다.
@@ -82,14 +86,14 @@ npm run ck:merge -- --result out/ck/<번호>/local/final.json
 ## 여러 VOD (백필)
 
 ```bash
-CK_BACKFILL_SKILL=ck-local CK_BACKFILL_PREP='node scripts/ck-local/scan.mjs --vod {vod}' \
-  scripts/ck-backfill.sh --streamer <이름> --from YYYY-MM-DD --to YYYY-MM-DD
+scripts/ck-backfill.sh --streamer <이름> --from YYYY-MM-DD --to YYYY-MM-DD --session-games 5
 ```
 
 준비는 백필 잠금 안에서 Claude 세션 **전에** 직렬로 돈다(중단하면 같이 멈춘다). 진척·멈추기는 [ck-backfill](../ck-backfill/SKILL.md)과 같다.
 
 ## 판별기 다시 학습
 
+**작업 반복만으로 모델이 갱신되지는 않는다.** 다음 명령을 실행해야 학습한다. 운영 모델을 직접 덮지 않고 후보 디렉터리에 저장한다.
 5단계 판정이 쌓이면(예: 새 판정 200개마다, 또는 라벨이 자주 틀릴 때) 다시 학습한다. 몇 분 걸린다.
 
 ```bash
@@ -97,17 +101,20 @@ PY=out/ck-detector/venv/bin/python
 node --env-file-if-exists=apps/web/.env.local scripts/ck-local/detector/collect.mjs --vods <판정한 VOD 들>
 $PY scripts/ck-local/detector/embed.py --model siglip
 $PY scripts/ck-local/detector/augment.py --model siglip         # 늘려 보기 변형
-$PY scripts/ck-local/detector/train.py fit --model siglip       # 결과창 후보 판별기 — dev AP 를 이전과 비교
-$PY scripts/ck-local/detector/train.py games --model siglip     # 판 단위 — 놓친 판이 늘면 이전 파일로 되돌린다
-$PY scripts/ck-local/detector/multi.py eval && $PY scripts/ck-local/detector/multi.py fit   # 화면 종류 라벨
+$PY scripts/ck-local/detector/train.py fit --model siglip --output-dir out/ck-detector/candidates/reviewed       # 결과창 후보 판별기 — dev AP 를 이전과 비교
+$PY scripts/ck-local/detector/train.py games --model siglip --output-dir out/ck-detector/candidates/reviewed     # 판 단위 — 놓친 판이 늘면 적용하지 않는다
+$PY scripts/ck-local/detector/multi.py eval && $PY scripts/ck-local/detector/multi.py fit --output-dir out/ck-detector/candidates/reviewed   # 화면 종류 라벨
 ```
 
-판별기 파일은 `out/ck-detector/model/siglip/{clf,multi}.npz`. 바꾸기 전에 복사해 둔다.
+운영 판별기 파일은 `out/ck-detector/model/siglip/{clf,multi}.npz`이며 위 명령으로 바뀌지 않는다.
+후보를 같은 평가 자료에서 비교하고, 놓친 경기와 오탐을 확인한 후 운영 파일을 백업하고 명시적으로 적용한다.
+현재 binary 시험 분할에는 같은 채널의 다른 VOD가 학습에 들어간 이력이 있어 새 채널 일반화 검증으로 부르지 않는다.
+지도용 leave-one-channel-out 평가도 배포 후보 모델 자체의 독립 평가와 다르다. 라벨 축적만으로 개선됐다고 보고하지 않는다.
 
 ## 지우기
 
 남는 것: 공용 시간축 수정(`scripts/lib/vod-timeline.mjs`, `scanSheets`·`ck-probe` 전환, `verify-sheet-axis.mjs`) — 기존 도구의 결함 수정이라 지우지 않는다.
-`ck-backfill.sh` 의 `CK_BACKFILL_SKILL`·`CK_BACKFILL_PREP` 도 안 주면 꺼진 상태라 둬도 무해하다.
+실행기 기본이 ck-local이므로 삭제 전 자동·수동 실행기를 ck-research로 되돌리고 준비 명령을 끈다.
 
 지우는 것:
 1. `rm -rf .claude/skills/ck-local scripts/ck-local`

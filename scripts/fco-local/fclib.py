@@ -11,6 +11,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/ck-local/detector"))
 from embed import FH, FW, PER, letterbox, load_model  # noqa: E402
+from sheets import cell_image
 
 OUT = ROOT / "out/fco-detector"
 CK = ROOT / "out/ck-detector"     # ck-local 의 라벨·임베딩 — **읽기만** 한다(FC 라벨을 같이 쓰려고)
@@ -30,9 +31,9 @@ _cache = {}
 def crop(sheet, c):
     if sheet not in _cache:
         if len(_cache) > 64: _cache.pop(next(iter(_cache)))
-        _cache[sheet] = np.asarray(Image.open(ROOT / sheet).convert("RGB"))
+        _cache[sheet] = Image.open(ROOT / sheet).convert("RGB")
     img = _cache[sheet]
-    return img[(c // 10) * FH:(c // 10 + 1) * FH, (c % 10) * FW:(c % 10 + 1) * FW]
+    return np.asarray(cell_image(img, c))
 
 class Embedder:
     def __init__(self, model="siglip"):

@@ -23,12 +23,15 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 import { mergeRanges, subtractRanges } from "@soop-lol/core/lib/metrics/ranges";
 
 import { hms, vodBroadcastTimes, vodDetail } from "../lib/soop-vod.mjs";
 import { cellIndexAt, cellOf, coveragePoints, decodeSheet, fetchSheets, measureParts } from "../lib/vod-timeline.mjs";
 import { encode, montage } from "./image.mjs";
+import { reviewLabels } from "./review.mjs";
+import { validateScanResume } from "@soop-lol/core/lib/metrics/ck-resume";
 
 const args = process.argv.slice(2);
 const flag = (n, d = null) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
@@ -41,6 +44,31 @@ const writeJson = (path, value) => { writeFileSync(`${path}.tmp`, `${JSON.string
 const ledger = (row) => appendFileSync(LEDGER, `${JSON.stringify({ at: new Date().toISOString(), vod: Number(vodId), ...row })}\n`);
 const statePath = join(dir, "scan.json");
 
+// 같은 VOD를 여러 짧은 세션으로 잇더라도 후보 번호/run_id를 매번 바꾸지 않는다.
+// 오류 범위가 있거나 파일·모델·준비 코드가 달라지면 다시 준비한다. DB 완료 판정과 무관하다.
+const prepKey = () => {
+  const hash = createHash('sha256');
+  for (const p of ['scripts/ck-local/scan.mjs', 'scripts/ck-local/image.mjs', 'scripts/lib/vod-timeline.mjs',
+    'scripts/ck-local/detector/detect.py', 'scripts/ck-local/detector/sheets.py',
+    'out/ck-detector/model/siglip/clf.npz', 'out/ck-detector/model/siglip/multi.npz']) {
+    hash.update(p); hash.update(existsSync(p) ? readFileSync(p) : 'missing');
+  }
+  return hash.digest('hex');
+};
+if (args.includes('--reuse') && existsSync(statePath)) {
+  try {
+    const state = JSON.parse(readFileSync(statePath, 'utf8'));
+    const files = [...(state.overview_pages ?? []), ...(state.candidate_pages ?? [])].map(p => join(dir, p));
+    files.push(join(dir, 'scan-draft.json'), join(dir, 'map.txt'));
+    files.push(...[...(state.candidates ?? []), ...(state.file_tails ?? [])].map(c => c.frame).filter(Boolean));
+    if (state.vod_id === Number(vodId) && state.preparation_key === prepKey() && state.total_sec > 0
+      && state.overview_pages?.length && !state.failed?.length && files.every(p => existsSync(p))) {
+      console.log(`PREP: ck-local run_id=${state.run_id} candidates=${state.candidates.length} dir=${dir} reused=true`);
+      process.exit(0);
+    }
+  } catch { /* 손상되거나 예전 산출물이면 새 준비로 복구한다. */ }
+}
+
 // ── 검산 기록 ───────────────────────────────────────────────────────
 // ★ 현재 scan.json 의 run_id 와 다른 기록은 받지 않는다 — 옛 산출물을 새 결과로 오인하지 않게.
 if (args.includes("--review")) {
@@ -52,44 +80,20 @@ if (args.includes("--review")) {
   }
   const entry = { at: new Date().toISOString(), run_id: run, note: flag("--note") };
   if (flag("--opened")) entry.opened = flag("--opened").split(",").map((s) => s.trim()).filter(Boolean);
-  if (flag("--verdicts")) {
-    // 한 번에: --verdicts 1:result,2:other,3:ingame — 후보마다 명령을 따로 부르면 턴이 늘어 토큰이 는다
-    const out = [];
-    for (const tok of flag("--verdicts").split(",").map((x) => x.trim()).filter(Boolean)) {
-      const [n, is] = tok.split(":"); const c = state.candidates?.find((x) => x.n === Number(n));
-      if (!c || !["result", "graph", "ingame", "client", "other"].includes(is)) { console.error(`판정이 이상하다: ${tok} (번호:result|graph|ingame|client|other)`); process.exit(1); }
-      appendFileSync("out/ck-detector/review-labels.jsonl", `${JSON.stringify({ vod: Number(vodId), at: c.peak, label: is, source: `ck-local:${run}` })}\n`);
-      out.push({ cand: c.n, is });
-    }
-    entry.verdicts = out;
-  }
-  if (flag("--label")) {
-    // 후보 번호 없이 시각으로 — 판별기가 놓친 결과창, 틀린 지도 라벨도 학습 데이터로 남긴다(Codex 검토, 2026-10-01)
-    //   --label 1:23:45=result,5130=banpick   (VOD 전체 시각: h:mm:ss 또는 초)
-    const KINDS = ["result", "graph", "banpick", "lobby", "client", "ingame", "end", "other", "fc_match", "fc_result", "fc_menu"];
-    const sec = (x) => x.split(":").map(Number).reduce((p, q) => p * 60 + q, 0);
-    const out = [];
-    for (const tok of flag("--label").split(",").map((x) => x.trim()).filter(Boolean)) {
-      const m = /^([\d:]+)=(\w+)$/.exec(tok);
-      if (!m || !KINDS.includes(m[2]) || !Number.isFinite(sec(m[1])) || sec(m[1]) > state.total_sec) {
-        console.error(`--label 값이 이상하다: ${tok} (시각=${KINDS.join("|")})`); process.exit(1);
-      }
-      appendFileSync("out/ck-detector/review-labels.jsonl", `${JSON.stringify({ vod: Number(vodId), at: sec(m[1]), label: m[2], source: `ck-local:${run}` })}\n`);
-      out.push({ at: sec(m[1]), label: m[2] });
-    }
-    entry.labels = out;
-  }
-  if (flag("--cand")) {
-    const n = Number(flag("--cand")), is = flag("--is");
-    const c = state.candidates?.find((x) => x.n === n);
-    if (!c) { console.error(`후보 #${n} 이 이 실행에 없다`); process.exit(1); }
-    if (!["result", "ingame", "client", "other"].includes(is)) { console.error("--is 는 result|ingame|client|other"); process.exit(1); }
-    Object.assign(entry, { cand: n, is });
-    // ★ 학습 데이터 — 후보의 가장 높은 칸 시각에 Claude 가 본 라벨. 학습(train.py)이 검수 라벨로 읽는다.
-    appendFileSync("out/ck-detector/review-labels.jsonl", `${JSON.stringify({ vod: Number(vodId), at: c.peak, label: is, source: `ck-local:${run}` })}\n`);
+  let labels;
+  try {
+    labels = reviewLabels(state, { verdicts: flag("--verdicts", ""), labels: flag("--label", ""),
+      cand: flag("--cand"), is: flag("--is"), seen: flag("--seen", "") },
+      at => existsSync(join("out/ck", vodId, `g${String(at).padStart(7, "0")}.jpg`)));
+    if (flag("--merged") && !["done", "running", "failed"].includes(flag("--merged"))) throw new Error("--merged 는 done|running|failed");
+  } catch (error) { console.error(error.message); process.exit(1); }
+  // 앞 라벨 저장 후 뒤 라벨에서 실패하는 부분 제출을 막는다.
+  if (labels.length) {
+    mkdirSync("out/ck-detector", { recursive: true });
+    appendFileSync("out/ck-detector/review-labels.jsonl", labels.map(x => JSON.stringify(x)).join("\n") + "\n");
+    entry.labels = labels;
   }
   if (flag("--merged")) {
-    if (!["done", "running", "failed"].includes(flag("--merged"))) { console.error("--merged 는 done|running|failed"); process.exit(1); }
     entry.merged = flag("--merged");
     ledger({ kind: "claude", run_id: run, merged: entry.merged, note: entry.note });
   }
@@ -127,6 +131,19 @@ if (args.includes("--finish")) {
   if (missing.length) { console.error(`원본 파일이 없다: ${missing.join(",")} — ck:probe 로 받은 시각만 적는다`); process.exit(1); }
   draft.scan.opened = opened.sort((x, y) => x - y);
   draft.scan.status = status;
+  if (flag("--resume")) {
+    draft.scan.resume = JSON.parse(readFileSync(flag("--resume"), "utf8"));
+    validateScanResume(draft.scan.resume);
+  }
+  if (status === "done") draft.scan.resume = null;
+  // 부분 작업을 전체 범위 완료로 위장하지 않는다. 미지정은 기존 초안의 requested를 유지한다.
+  if (flag("--requested")) {
+    draft.scan.requested = flag("--requested").split(",").map(x => {
+      const m = /^(\d+)-(\d+)$/.exec(x.trim());
+      if (!m || +m[2] < +m[1] || +m[2] > state.total_sec) throw new Error("--requested 는 영상 안 시작-끝 범위");
+      return [+m[1], +m[2]];
+    });
+  }
   if (flag("--note")) draft.scan.note = `${draft.scan.note}\n${flag("--note")}`;
   // 메운 실패 범위 — 이번 failed 에서 빼고 resolved_failed 에도 넣는다. 병합(mergeScan)은 resolved_failed 를 이전 DB 실패에만
   // 적용하고 이번 failed 는 그대로 더하므로, 한쪽만 하면 안 닫힌다.
@@ -249,9 +266,9 @@ const sheetsMeta = {
 writeJson(join(dir, "sheets.json"), sheetsMeta);
 let det;
 try {
-  det = JSON.parse(execFileSync(PY, ["scripts/ck-local/detector/detect.py", "--meta", join(dir, "sheets.json")], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+  det = JSON.parse(execFileSync(PY, ["scripts/ck-local/detector/detect.py", "--meta", join(dir, "sheets.json")], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
 } catch (e) {
-  console.error(`판별 실패: ${String(e.message).slice(0, 200)}`);
+  console.error(`판별 실패: ${String(e.stderr ?? e.message).slice(-2000)}`);
   process.exit(2);
 }
 const candidates = det.candidates.map((c, i) => ({ n: i + 1, ...c }));
@@ -340,7 +357,7 @@ const prev = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8"))
 const summary = { run_id: runId, started_at: new Date(started).toISOString(), finished_at: new Date().toISOString(),
   detector: `${det.model} ≥${det.threshold} ×${det.min_len}`, cells: det.cells, candidates: candidates.length, elapsed_sec: elapsedSec };
 writeJson(statePath, {
-  schema: 2, vod_id: Number(vodId), title: detail.title ?? null, total_sec: Math.round(total), ...summary,
+  schema: 2, preparation_key: prepKey(), vod_id: Number(vodId), title: detail.title ?? null, total_sec: Math.round(total), ...summary,
   failed: failedMerged, file_tails: fileTails.map((t) => ({ at: t, frame: frameOf(t) })),
   candidates, candidate_pages: candidatePages, overview_pages: overviewPages, map: mapSegs, fc,
   runs: [...(prev?.runs ?? []), summary],

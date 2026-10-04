@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import jpeg from 'jpeg-js';
-import { coveragePoints, fetchSheets, cellIndexAt } from './vod-timeline.mjs';
+import { coveragePoints, fetchSheets, cellIndexAt, cellOf } from './vod-timeline.mjs';
 
 /** 시트 한 장: 앞 used 칸은 무늬(빈 칸이 아님), 나머지는 검정. seed 로 시트끼리 다르게. */
 function sheet(used: number, seed: number) {
@@ -24,6 +24,22 @@ const server = (map: Record<number, any>, calls: number[] = []) => async (url: s
 };
 const file = { snapshot: 'https://videoimg.sooplive.co.kr/php/SnapshotLoad.php?rowKey=abc_t' };
 const opts = (fetchImpl: any) => ({ fetchImpl, retryDelayMs: 0 });
+
+test('720p 시트도 마지막 99번 칸까지 정확한 칸을 잘라 표준 크기로 만든다', () => {
+ for (const [width,height] of [[1280,720],[1920,1080]]) {
+  const data = new Uint8Array(width*height*4);
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++) {
+   const n=Math.floor(y/(height/10))*10+Math.floor(x/(width/10)); const i=(y*width+x)*4;
+   data[i]=n;data[i+1]=255-n;data[i+3]=255;
+  }
+  for(const n of [0,9,10,57,99]) {
+   const im=cellOf({width,height,data},n);
+   assert.equal(im.width,192);assert.equal(im.height,108);
+   for(const i of [0,4*191,4*192*107,im.data.length-4])assert.deepEqual([...im.data.slice(i,i+4)],[n,255-n,0,255]);
+  }
+ }
+ assert.throws(()=>cellOf({width:1279,height:720,data:new Uint8Array()},0));
+});
 
 test('column 0 중복을 빼고 3초 칸으로 끝까지 덮으면 완료다', async () => {
   const last = sheet(10, 3);

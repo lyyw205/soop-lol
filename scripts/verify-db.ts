@@ -116,10 +116,11 @@ try {
   for (const source of sources) {
     for (const queue_id of queues) {
       for (const event_kind of kinds) {
+       for (const game_mode of [null, "CUSTOM", "CLASSIC", "ARAM"]) {
         catCombos++;
         const res = await db.query<{ v: string }>(
-          "SELECT lol_match_category($1, $2, $3) AS v", [source, queue_id, event_kind]);
-        const ts = matchCategory({ source, queue_id, event_kind });
+          "SELECT lol_match_category($1, $2, $3, $4) AS v", [source, queue_id, event_kind, game_mode]);
+        const ts = matchCategory({ source, queue_id, event_kind, game_mode });
         if (res.rows[0].v !== ts) {
           catMismatch++;
           if (catMismatch <= 3) {
@@ -128,6 +129,7 @@ try {
         }
       }
     }
+  }
   }
   check(`${catCombos}개 조합 전부 일치`, catMismatch === 0, catMismatch ? `${catMismatch}개 불일치` : "");
   // 분류값이 우리가 아는 목록 안에 있어야 한다 — SQL 이 오타로 새 값을 내면 필터에서 통째로 사라진다.

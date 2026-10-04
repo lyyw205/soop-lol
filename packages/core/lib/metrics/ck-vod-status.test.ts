@@ -64,6 +64,21 @@ test('진척은 도장이 아니라 남은 일로 판단한다',()=>{
  assert.equal(madeProgress(vodWork(undefined,100),vodWork(undefined,100)),false);
  assert.equal(madeProgress(vodWork({},100),vodWork({access:{status:'unavailable',reason:'비공개 확인'}},100)),true);
 });
+test('전체 범위를 이미 요청했어도 새 원본·경기 저장·후보 결론은 진척이다', () => {
+ const before = vodWork({scan:{status:'running',requested:[[0,100]],opened:[10]}},100);
+ const after = vodWork({scan:{status:'running',requested:[[0,100]],opened:[10,20,20]}},100);
+ assert.equal(after.opened,2);
+ assert.equal(madeProgress(before,after),true);
+ assert.equal(madeProgress(after,{...after}),false,'재전송은 새 진척이 아니다');
+ assert.equal(madeProgress({...before,saved_matches:10},{...before,saved_matches:11}),true,'이미지 탐색을 마친 뒤 경기 저장도 진척');
+ assert.equal(madeProgress({...before,saved_matches:11},{...before,saved_matches:11}),false);
+});
+test('대체된 미해결 부모는 남은 일에서 제외하고 done의 뜻은 바꾸지 않는다', () => {
+ const w=vodWork({scan:done,candidates:[
+  {id:'parent',conclusion:'unresolved'}, {id:'child',supersedes:'parent',conclusion:'not_target'},
+  {id:'open',conclusion:'unresolved'}]},100);
+ assert.equal(w.unresolved,1); assert.equal(w.settled,1); assert.equal(w.reason,null);
+});
 test('LCK Watch Party 태그 방송은 제목만으로 뺀다',()=>{
  assert.equal(titleExclusion('김민교x칸 LCK T1 vs BFX 플레이오프 #LckWatchParty'),'LCK Watch Party');
  assert.equal(titleExclusion('이상호 DNS vs NS 샤벨스승님응원갑니다 #LckWatchparty'),'LCK Watch Party');

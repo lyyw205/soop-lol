@@ -2,14 +2,17 @@
 
 Node.js·npm 의존성과 기존 Claude CLI 로그인, ffmpeg 등 ck-research 환경을 준비한다.
 Linux/WSL의 `flock`, `setsid`를 사용한다. 자동·수동 조사 컴퓨터는 한 대로 운영한다.
-새 DB에는 `npm run db:migrate`로 `0046_ck_backfill_request`까지 적용한다.
+DB에는 `0071_aram_collection_split`까지 적용한 뒤 새 수집 코드를 실행한다.
+운영 적용 전 `npm run db:migrate -- --status`로 대기 목록을 확인한다(다른 작업의 마이그레이션도 함께 있을 수 있다).
 
 ```bash
 npm run ck:backfill -- status --streamer 이상호
 scripts/ck-backfill.sh --streamer 이상호 --from 2026-08-20 --to 2026-09-25   # 기간 지정(저장됨)
 scripts/ck-backfill.sh --streamer 이상호                                    # 마지막 기간 이어서
 scripts/ck-backfill.sh --streamer 이상호 --model haiku                      # 조사 세션(claude -p)만 다른 모델로
-scripts/ck-backfill.sh --stop                                               # 지금 VOD 마친 뒤 멈춤
+scripts/ck-backfill.sh --streamer 이상호 --session-games 5                   # 시험용 세션 분할(기본 0: 분할 목표 끔)
+scripts/ck-backfill.sh --stop                                               # 현재 세션의 저장 경계에서 멈춤
+npm run ck:backfill -- context --vod 123456                                  # DB에서 만든 짧은 재개 요약
 ```
 
 ## 동작
@@ -19,14 +22,78 @@ scripts/ck-backfill.sh --stop                                               # �
    시각의 KST 날짜다. 잘린 목록이나 기간 밖 VOD 가 섞인 응답은 오류로 멈춘다.
 2. **거르기** — VOD 마다 조사 도장을 읽어 완료·확인된 접근 불가는 뺀다. 판정은 자동 조사(`ck:queue`)와 같은
    `vodWork` 다: `done`·실패 구간 없음·연 화면 있음·요청 범위가 영상 끝까지(끝 경계만 5초 허용).
-3. **하나씩 조사** — VOD 하나에 `claude -p` 세션 하나. 시작 직전에 DB 도장을 다시 읽는다. 세션이 끝나면
-   남은 일(못 본 초·실패 초·미해결 후보)이 줄었는지 확인한다. `running` 이 남으면 같은 VOD 를 새 세션으로 잇는다.
+3. **하나씩 조사** — 세션 하나는 VOD 하나만 맡는다. 분할을 지정하면 긴 영상을 경기 저장 경계에서 여러 세션으로 나눈다.
+   시작 직전에 DB 도장·저장 시점·후보를 다시 읽어 `resume.json`으로 전달한다. 세션이 끝나면
+   남은 일 감소 또는 새 원본 열람·후보 결론·시점 저장을 확인한다. `running`이면 같은 VOD를 잇는다.
+   같은 파일 재전송이나 메모 변경만으로 진척으로 보지 않는다. 원본 열람만 늘고 결과 진척이 없는 세션은 연속 3회 후 미완료로 멈춘다.
 4. **끝** — 남은 VOD 가 없거나, 멈춤 요청(`--stop`)·진척 없음(4)·Claude 실패·중단(130)에서 끝난다.
 
 진척 기록은 `event_lead.raw` 하나다. `ck_backfill_request` 는 채널별 **마지막 요청 기간**만 담는다 —
 기간을 생략했을 때의 기본값이다. 목록에서 사라졌는데 DB 에 미완료로 남은 VOD 는 `missing` 으로 보고한다.
 
 로그·큐·현재 VOD 는 `out/ck/backfill/run-*/`, 마지막 계획은 `out/ck/backfill/last-<채널>.json` 에 남는다.
+
+`done`은 필수 탐색을 마쳤다는 뜻이다. 미해결 후보는 `review_pending`과 `review_pending_vods`로 별도 보고한다.
+이 수는 경기의 빈 칸이나 시점 간 불일치 총수가 아니다. 저장 경기의 불일치는 기존 검수 화면과 `ck:record --match`에서 확인한다.
+대체 후보의 부모(`supersedes`)는 이력으로 남지만 미해결 수에서 제외한다.
+
+## 짧은 세션과 사용량
+
+기본 실행 모델은 `sonnet`이다. `--model` 또는 `CK_BACKFILL_MODEL`로 바꾸며 전역 Claude 설정을 바꾸지 않는다.
+`--session-games`/`CK_BACKFILL_SESSION_GAMES`는 **지시문상의 목표**로서 강제 중단 한도가 아니다.
+대조 시험 전 기본값은 **0(분할 목표 끔)**이다. 5경기가 최적이거나 토큰이 절반 줄어든다는 근거는 없다.
+0이 더 저렴하다는 뜻도 아니다. 어려운 경기 하나는 여전히 오래 걸릴 수 있다.
+
+열람만 있는 세션은 탐색 활동으로 기록하지만, 결과 진척(저장 시점·후보 결론·남은 범위 감소·완료)과 구분한다.
+결과 진척 없는 세션이 연속 3회면 종료 코드 4로 멈춘다. 실제 결과 진척이 있으면 횟수를 초기화하므로 긴 VOD 전체에 3회 제한을 걸지는 않는다.
+횟수와 마지막 비교 값은 `out/ck/backfill/guards/<게임>-<VOD>.json`에 원자적으로 기록해 백필 재실행에도 유지한다.
+이는 실행 비용 제한이며 DB의 완료 상태나 재개 위치를 대신하지 않는다. 같은 `after` 재호출은 두 번 세지 않는다.
+원인을 해결한 뒤 `scripts/ck-backfill.sh --streamer <채널> --reset-stall`로 첫 미완료 VOD의 제한만 명시적으로 초기화할 수 있다.
+DB에서 실제 결과가 진척된 경우에도 재개할 수 있다. 파일이 손상되면 조용히 초기화하지 않고 오류로 멈춘다.
+
+경기마다 `ck:merge` 저장을 확인하고 `running`·확인 범위·미해결 후보를 남긴다. 다음 행동은
+`scan.resume: {next_action, next_at?, context?}`에 짧게 기록한다. 이 메모가 완료 판정을 대신하지 않는다.
+같은 VOD에서 저장된 결과는 재사용하되, 다른 VOD의 새 시점은 직접 읽는다.
+`ck-local --reuse`는 준비 코드·모델 지문과 파일 존재·실패 범위를 검사해 유효한 준비물을 재사용한다.
+
+- `session-N.json`: Claude CLI의 최종 JSON, 세션 ID·사용 모델·사용량 원본.
+- `run.log`: 최종 응답의 한 줄 요약(최대 1,600자)과 원본 JSON 경로. 요약에 추가 모델 호출을 쓰지 않는다.
+- `usage.jsonl`: 세션별 입력/캐시 쓰기/캐시 읽기/출력, 호출 턴 수, 시간, 새 저장 시점 수.
+- `after.json`: 해당 세션 전후 DB 진척. 조회 실패 시 이전 세션 값을 재사용하지 않는다.
+
+`api_equivalent_usd`는 CLI가 보고한 API 환산값이며 구독 계정의 실제 청구액이 아니다.
+사용량 원본이 없으면 집계 실패로 보고하며 0으로 채우지 않는다. 저장 시점 0개인 탐색 세션도 비교에서 제외하지 않는다.
+백필을 2시간 후 강제 종료하는 상위 실행기는 별도로 피해야 한다. 이 셸은 강제 종료된 상위 프로세스를 복원하지 못한다.
+
+병렬 실행은 `scripts/ck-backfill-par.sh --jobs 3 --streamer A --streamer B ...`로 한다.
+같은 채널의 다른 별칭도 중복 실행을 막는다. 진척 없는 채널은 나머지 채널의 진행을 막지 않지만 최종 코드는 4다.
+워커의 채널 잠금 충돌(75)은 채널을 건너뛰고 나머지를 시작하며, 건너뛴 수를 보고한다.
+병렬 실행기 자체의 공통 잠금 충돌(75)은 전체 실행을 시작하지 않는다. 실제 Claude/조회 실패는 계속 전체 신규 배정을 중단한다.
+SOOP 도구의 채널 안 직렬 실행과 `SOOP_PACE`는 유지한다.
+
+## 칼바람 분리
+
+소량 운영 검증은 `scripts/ck-backfill.sh --streamer <채널> --session-games 2 --max-sessions 1`로 실행한다.
+`--max-sessions`는 저장·진척·사용량 확인까지 마친 뒤 반복을 멈춘다. 기본 0은 제한 없음이며 기간 완료 도장을 만들지 않는다.
+
+보상 유무와 관계없이 스트리머끼리의 칼바람 내전도 수집한다. 새 `match` 제출에는
+`game_mode: "ARAM"` 또는 `"CLASSIC"`이 필수다. 모드를 못 확인했으면 미해결 후보로 남긴다.
+`event.kind`는 대회/보상 성격이고 모드와 별개다. 보상 미확인을 임의로 CK로 바꾸지 않는다.
+
+0071은 칼바람 경기·상대전적·챔피언 통계를 일반 공개 뷰에서 분리하고
+`core_public.aram_match`, `aram_encounter`, `aram_champion_stat`에 제공한다.
+별도 상단 메뉴는 후속 모듈로 만들며 원본 테이블을 직접 읽지 않는다.
+과거 `CUSTOM` 경기에는 모드 정보가 없으므로 제목으로 일괄 변환하지 않는다.
+확인한 경기의 정정은 연결되어 있고 읽음이 기록된 근거 프레임을 사용한다:
+
+```bash
+node --env-file-if-exists=apps/web/.env.local scripts/ck-mode.ts \
+  --match <경기ID> --mode ARAM --frame out/ck/<VOD>/g0000123.jpg --reason '123초 로비에서 칼바람 나락 확인'
+# 출력된 변경을 실제 반영할 때만 같은 명령에 --apply를 붙인다.
+```
+
+기본은 미리보기다. 적용 시 경기 분류·맵·조우·챔피언 통계·수정 이력을 한 트랜잭션으로 갱신한다.
+이미 다른 정정이 모드를 바꿨으면 거부하며, API 원본 경기는 이 도구로 수정하지 않는다.
 
 ## 자동 조사와의 관계
 
@@ -36,6 +103,7 @@ scripts/ck-backfill.sh --stop                                               # �
 
 백필이 `running` 으로 멈춘 VOD 는 와치리스트 채널이면 자동 조사가 기간과 무관하게 이어받는다(의도한 정책).
 두 쪽이 같은 도장을 보므로 먼저 끝낸 쪽이 찍고, 다른 쪽은 건너뛴다.
+위 연속 세션 제한은 수동 백필 실행기에 적용한다. 자동 조사의 기존 배정 정책은 바꾸지 않는다.
 
 ## 접근 불가
 
@@ -49,7 +117,7 @@ flock -n out/ck/auto/.lock env CK_BACKFILL_LOCKED=1 \
 # 이어서 ck-backfill.sh 를 실행한다.
 ```
 
-`plan`·`access` 는 잠금 아래에서만 쓰는 변경 명령이고, `next`·`after` 는 셸이 부르는 내부 명령이다.
+`plan`·`access` 는 잠금 아래에서만 쓰는 변경 명령이고, `target`·`next`·`after` 는 셸이 부르는 내부 명령이다.
 환경변수 표시는 운영 계약이며 보안 인증 수단이 아니다.
 
 ## 검증
@@ -59,3 +127,4 @@ flock -n out/ck/auto/.lock env CK_BACKFILL_LOCKED=1 \
 - `npm test` — 판정 함수·목록 조회 단위 테스트와 실제 셸의 반복·멈춤·잠금·중단 회귀 테스트.
 
 설계 경위: [CK-BACKFILL-PLAN.md](CK-BACKFILL-PLAN.md)(0044, 대체됨) → 이 문서(0046).
+최신 검토·검증·운영 확대 계획: [CK-BACKFILL-HARDENING-PLAN.md](CK-BACKFILL-HARDENING-PLAN.md).

@@ -5,7 +5,7 @@ import { MatchDetails } from "../../../packages/ui/match-details";
 import { LinkedRecordFilters } from "../../../packages/ui/record-filters";
 import { RecordPeriodFilters } from "./record-period-filters";
 import type { RecordPeriod } from "@soop-lol/core/lib/metrics/record-period";
-import { CATEGORY_LABEL, MATCH_CATEGORIES, expandCategory, type MatchCategoryFilter } from "@soop-lol/core/lib/metrics/category";
+import { CATEGORY_LABEL, RIFT_MATCH_CATEGORIES, expandCategory, type MatchCategoryFilter } from "@soop-lol/core/lib/metrics/category";
 import { rawWinRate } from "@soop-lol/core/lib/metrics/affinity";
 import { isStandaloneSet, setLabel } from "@soop-lol/core/lib/metrics/set-label";
 import { kstDateString } from "@soop-lol/core/lib/time";
@@ -25,7 +25,7 @@ export function PersonalRecordFilters({ category, year, period, hrefFor }: {
   category: MatchCategoryFilter; year?: number; period: RecordPeriod; hrefFor: HrefFor;
 }) {
   return <LinkedRecordFilters category={category} year={year ? String(year) : "all"}
-    categories={MATCH_CATEGORIES.map((c)=>({value:c.key,label:c.label,href:hrefFor({category:c.key,page:null})}))}
+    categories={RIFT_MATCH_CATEGORIES.map((c)=>({value:c.key,label:c.label,href:hrefFor({category:c.key,page:null})}))}
     years={[]}
     trailing={<RecordPeriodFilters href={hrefFor({})} period={period} />} />;
 }

@@ -95,8 +95,25 @@ export const decodeSheet = (buf) => jpeg.decode(buf, { useTArray: true, maxMemor
 
 /** 시트의 cell 번째 칸(0~99, 행 우선)을 RGBA 이미지로. */
 export function cellOf(sheet, cell) {
+  if (!Number.isInteger(cell) || cell < 0 || cell >= 100 || sheet.width % 10 || sheet.height % 10
+    || sheet.width < 10 || sheet.height < 10) throw new Error('썸네일은 10×10 격자와 0~99 칸 번호가 필요하다');
   const fx = cell % 10, fy = Math.floor(cell / 10);
   const data = new Uint8Array(FW * FH * 4);
+  const sw = sheet.width / 10, sh = sheet.height / 10;
+  // 720p 시트도 같은 100칸/3초 축이다. 실제 칸을 자른 뒤 표준 192×108로 맞춘다.
+  if (sw !== FW || sh !== FH) {
+    for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
+      const sx = Math.max(0, Math.min(sw - 1, (x + 0.5) * sw / FW - 0.5));
+      const sy = Math.max(0, Math.min(sh - 1, (y + 0.5) * sh / FH - 0.5));
+      const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(sw - 1, x0 + 1), y1 = Math.min(sh - 1, y0 + 1);
+      const dx = sx - x0, dy = sy - y0, out = (y * FW + x) * 4;
+      const at = (xx, yy, c) => sheet.data[((fy * sh + yy) * sheet.width + fx * sw + xx) * 4 + c];
+      for (let c = 0; c < 4; c++) data[out + c] = Math.round(
+        (at(x0, y0, c) * (1 - dx) + at(x1, y0, c) * dx) * (1 - dy)
+        + (at(x0, y1, c) * (1 - dx) + at(x1, y1, c) * dx) * dy);
+    }
+    return { width: FW, height: FH, data };
+  }
   for (let y = 0; y < FH; y++) {
     const src = ((fy * FH + y) * sheet.width + fx * FW) * 4;
     data.set(sheet.data.subarray(src, src + FW * 4), y * FW * 4);
@@ -183,6 +200,13 @@ export async function fetchSheets(file, length, { cacheDir = null, retries = 3, 
       const coveredSoFar = out.sheets.length * PER_SHEET * SHEET_SEC;
       if (coveredSoFar >= length - END_SLACK_SEC) break;
       return settle(out, length, got.kind === "end" ? "시트가 파일 끝 전에 끝남" : `시트 수신 실패 (${got.why})`);
+    }
+    try {
+      const image = decodeSheet(got.buf);
+      if (image.width < 10 || image.height < 10 || image.width % 10 || image.height % 10)
+        throw new Error(`10×10 격자가 아닌 크기 ${image.width}×${image.height}`);
+    } catch (e) {
+      return settle(out, length, `시트 해석 실패 (${e.message})`);
     }
     out.sheets.push({ column, buf: got.buf, sha: sha(got.buf) });
     if (out.sheets.length >= need + 1) break;

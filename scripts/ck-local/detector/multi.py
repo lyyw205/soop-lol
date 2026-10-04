@@ -75,7 +75,9 @@ def evaluate(a):
 def fit(a):
     X, Y, C, XA, YA, CA = data(a.model)
     clf = make(a.C).fit(np.concatenate([X, XA]), np.concatenate([Y, YA]))
-    dst = T.OUT / "model" / a.model; dst.mkdir(parents=True, exist_ok=True)
+    root = Path(a.output_dir) if a.output_dir else T.OUT / "candidates" / "latest"
+    if root.resolve() == T.OUT.resolve(): raise ValueError("fit은 운영 OUT을 덮지 않는다. 후보 디렉터리를 지정할 것")
+    dst = root / "model" / a.model; dst.mkdir(parents=True, exist_ok=True)
     # 저장하는 라벨 목록은 실제로 학습된 순서(clf.classes_)여야 detect.py 의 argmax 가 맞는 이름을 가리킨다
     np.savez(dst / "multi.tmp.npz", coef=clf.coef_, intercept=clf.intercept_, classes=np.array([CLASSES[k] for k in clf.classes_]),
              min_conf=a.min_conf, version=np.array(VERSION))
@@ -86,6 +88,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["eval", "fit"])
     ap.add_argument("--model", default="siglip")
+    ap.add_argument("--output-dir", help="후보 모델 디렉터리; 운영 모델은 자동 교체하지 않음")
     ap.add_argument("--C", type=float, default=3)
     ap.add_argument("--min-conf", type=float, default=0.6)
     a = ap.parse_args()

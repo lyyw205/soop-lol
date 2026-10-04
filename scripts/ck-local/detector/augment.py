@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.argv, _argv = [sys.argv[0]], sys.argv
 import train as T  # noqa: E402
 from embed import FH, FW, letterbox, load_model  # noqa: E402
+from sheets import cell_image
 sys.argv = _argv
 
 def main():
@@ -48,7 +49,7 @@ def main():
         if path not in sheet_cache:
             if len(sheet_cache) > 64: sheet_cache.pop(next(iter(sheet_cache)))
             sheet_cache[path] = Image.open(T.ROOT / path).convert("RGB")
-        return sheet_cache[path].crop(((c % 10) * FW, (c // 10) * FH, (c % 10 + 1) * FW, (c // 10 + 1) * FH))
+        return cell_image(sheet_cache[path], c)
     def zoom_in(im):
         s = rnd.uniform(0.70, 0.95); w, h = int(FW * s), int(FH * s)
         x, y = rnd.randint(0, FW - w), rnd.randint(0, FH - h)
