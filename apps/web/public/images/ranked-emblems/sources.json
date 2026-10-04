@@ -1,0 +1,18 @@
+{
+  "owner": "Riot Games",
+  "provider": "CommunityDragon",
+  "version": "16.3",
+  "source": "https://raw.communitydragon.org/16.3/plugins/rcp-fe-lol-static-assets/global/default/ranked-emblem/",
+  "files": [
+    "iron.png",
+    "bronze.png",
+    "silver.png",
+    "gold.png",
+    "platinum.png",
+    "emerald.png",
+    "diamond.png",
+    "master.png",
+    "grandmaster.png",
+    "challenger.png"
+  ]
+}

@@ -1,11 +1,15 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { adminHref, adminReturn } from "@/lib/admin-navigation";
+import { useActionState } from "react";
 
 import type { FcoEventOption, FcoReviewUnit } from "@soop-lol/core/lib/games/fconline/context";
 
 import { IDLE, type ActionState } from "@/lib/action-state";
 import { decideMatchAction, reviewToggleAction, setClassAction, updateEventAction } from "@/app/admin/fco/actions";
+import { AdminHistory } from "./AdminHistory";
+import { useReviewDraft } from "./use-review-draft";
 import { EVENT_KIND_LABEL } from "@/lib/admin-labels";
 
 /**
@@ -25,7 +29,7 @@ export const kstShort = (iso: string) => {
 
 export function Result({ state }: { state: ActionState }) {
   if (!state.message) return null;
-  return <p className={`text-xs ${state.ok ? "text-ink-400" : "text-red-400"}`}>{state.ok ? state.message : `✗ ${state.message}`}</p>;
+  return <p role="status" className={`text-xs ${state.ok ? "text-ink-400" : "text-red-400"}`}>{state.ok ? state.message : `✗ ${state.message}`}</p>;
 }
 
 /**
@@ -54,11 +58,11 @@ export interface ReviewControlsUnit {
   confirmed: boolean;
   event: { id: string; kind: string; name: string; organizer: string | null; source_url: string | null } | null;
   judgment: { judgment: string; note: string; created_by: string } | null;
-  matches: { provider_match_id: string; participants: { name: string }[] }[];
+  matches: { provider_match_id: string; context_version: number; participants: { name: string }[] }[];
 }
 
 export function FcoReviewControls({
-  unit, eventOptions, activeMatch, compact = false, targets,
+  unit, eventOptions, activeMatch, targets,
 }: {
   /** 여러 경기에 한 번에 적용할 때(대전 전체) — 주면 이 경기들 전부에 같은 분류를 저장한다 */
   targets?: string[];
@@ -66,16 +70,19 @@ export function FcoReviewControls({
   eventOptions: FcoEventOption[];
   activeMatch: ReviewControlsUnit["matches"][number] | null;
   /** 대회 [경기] 탭 안에서 쓸 때 — 조사 결론·검수 토글은 [대회] 탭이 맡는다. */
-  compact?: boolean;
 }) {
-  const [reviewState, toggleReview, reviewPending] = useActionState(reviewToggleAction, IDLE);
-  const [classState, setClass, classPending] = useActionState(setClassAction, IDLE);
+  const router = useRouter(), params = useSearchParams();
+  const ids = targets ?? [activeMatch?.provider_match_id ?? unit.matches[0]?.provider_match_id ?? ""];
+  const { draft, base, setDraft, reset, dirty } = useReviewDraft(`fco-class:${ids.join("|")}`, { picked: "", query: "", creating: false, note: "", slug: "", name: "", organizer: "", source_url: "", versions: Object.fromEntries(unit.matches.map(m => [m.provider_match_id, m.context_version])) });
+  const [classState, setClass, classPending] = useActionState(async (prev: ActionState, form: FormData) => { const result = await setClassAction(prev, form); if (result.ok) { reset(); if (result.nextHref) router.replace(adminHref(result.nextHref, { from: adminReturn(params.get("from"), "/admin/fco"), match: ids[0] })); } return result; }, IDLE);
+  const { picked, query, creating } = draft;
+  const setPicked = (picked: string | null) => setDraft(old => ({ ...old, picked: picked ?? "" }));
+  const setQuery = (query: string) => setDraft(old => ({ ...old, query }));
+  const setCreating = (next: boolean | ((v: boolean) => boolean)) => setDraft(old => ({ ...old, creating: typeof next === "function" ? next(old.creating) : next }));
+  const field = (key: "note" | "slug" | "name" | "organizer" | "source_url") => ({ value: draft[key], onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(old => ({ ...old, [key]: e.target.value })) });
   const current = unit.status === "event" ? (unit.event?.kind ?? null) : unit.judgment?.judgment ?? null;
-  const [picked, setPicked] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
 
-  const isEventClass = picked != null && picked !== "unresolved" && picked !== "casual";
+  const isEventClass = !!picked && picked !== "unresolved" && picked !== "casual";
   const matches = eventOptions.filter((o) => {
     const q = query.trim().toLowerCase();
     return !q || o.name.toLowerCase().includes(q) || (o.slug ?? "").toLowerCase().includes(q);
@@ -85,53 +92,7 @@ export function FcoReviewControls({
 
   return (
     <section className="grid gap-3">
-      {/* 조사 결론 — 행사면 눌러서 바로 바꾼다(검색 드롭다운이 아래에 열린다). */}
-      {compact ? null : unit.event ? (
-        <div className="grid gap-1 text-[13px]">
-          <button type="button" className="text-left text-ink-200 hover:text-accent-400"
-            onClick={() => { setPicked(unit.event!.kind); setCreating(false); }}
-            title="눌러서 행사를 검색해 바꿉니다">
-            조사 결론: <b className="text-accent-400">{unit.event.name}</b>
-            <span className="ml-1 text-ink-400">({unit.event.kind}{unit.event.organizer ? ` · 주최 ${unit.event.organizer}` : ""})</span>
-            <span className="ml-1 text-[11px] text-ink-500">— 눌러서 변경</span>
-          </button>
-          {unit.event.source_url && (
-            <a href={unit.event.source_url} target="_blank" rel="noreferrer" className="text-[11px] text-ink-400 hover:text-ink-200">
-              행사 확인 근거 ↗
-            </a>
-          )}
-        </div>
-      ) : unit.judgment ? (
-        <div className="grid gap-1 text-[13px]">
-          <p className="text-ink-200">
-            조사 결론: <b className={unit.judgment.judgment === "casual" ? "text-ink-300" : "text-amber-400"}>
-              {unit.judgment.judgment === "casual" ? "단순 친선" : "미해결"}
-            </b>
-            <span className="ml-1 text-[11px] text-ink-500">({unit.judgment.created_by})</span>
-          </p>
-          <p className="text-ink-300">{unit.judgment.note}</p>
-        </div>
-      ) : null}
-
-      {!compact && <div className="grid gap-1">
-        <h4 className="text-[11px] font-semibold text-ink-400">
-          검수 {unit.kind === "event" && `· 이 행사 ${unit.matches.length}경기 전체`}
-        </h4>
-        <form action={toggleReview} className="ck-review-winner-toggle">
-          {unit.kind === "event"
-            ? <input type="hidden" name="event_id" value={unit.event!.id} />
-            : <input type="hidden" name="provider_match_id" value={unit.matches[0]?.provider_match_id ?? ""} />}
-          <button type="submit" name="state" value="approve" disabled={reviewPending}
-            aria-pressed={unit.confirmed}>승인</button>
-          <button type="submit" name="state" value="hold" disabled={reviewPending}
-            aria-pressed={!unit.confirmed}>보류</button>
-        </form>
-        <Result state={reviewState} />
-        {unit.status === "uninvestigated" && (
-          <p className="text-[11px] text-ink-500">조사 전이라 승인해도 근거가 없다 — 분류를 직접 정하거나 조사를 먼저 돌린다.</p>
-        )}
-      </div>}
-
+      {dirty && <p className="text-xs text-amber-400">분류 초안 보관 중 <button type="button" onClick={() => reset()} className="ml-2 text-ink-400">초안 버리기</button></p>}
       <div className="grid gap-1">
         <h4 className="text-[11px] font-semibold text-ink-400">
           분류 {targetMatch && unit.kind === "event" && <span className="text-ink-600">— {targetMatch.participants.map((p) => p.name).join(" vs ")} 경기에 적용</span>}
@@ -158,17 +119,18 @@ export function FcoReviewControls({
       {(picked === "unresolved" || picked === "casual") && (
         <form action={setClass} className="grid gap-2 rounded-lg border border-ink-800 bg-ink-900/40 p-3">
           {(targets ?? [targetMatch?.provider_match_id ?? ""]).map((id) => <input key={id} type="hidden" name="provider_match_id" value={id} />)}
+          <input type="hidden" name="context_versions" value={JSON.stringify(base.versions)} />
           <input type="hidden" name="target" value={picked} />
           <label className="block text-[11px] text-ink-400">
             {picked === "unresolved" ? "남은 질문 (선택)" : "그렇게 본 근거 (선택)"}
-            <textarea name="note" rows={2}
+            <textarea name="note" {...field("note")} rows={2}
               className="mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-200"
               placeholder={picked === "unresolved" ? "예: 상대 채널 VOD 미확인 — 다른 POV 필요" : "예: 본인 방송에서 '오늘은 몸풀기' 발언 확인"} />
           </label>
           <div className="flex items-center gap-3">
             <button type="submit" disabled={classPending}
               className="rounded-md border border-accent-600/40 bg-accent-600/10 px-3 py-1.5 text-xs text-accent-400 hover:bg-accent-600/20">
-              {CLASS_OPTIONS.find((o) => o.key === picked)?.label}로 저장
+              {CLASS_OPTIONS.find((o) => o.key === picked)?.label} 저장
             </button>
             <Result state={classState} />
           </div>
@@ -186,13 +148,14 @@ export function FcoReviewControls({
               {matches.slice(0, 8).map((option) => (
                 <form key={option.id} action={setClass}>
                   {(targets ?? [targetMatch?.provider_match_id ?? ""]).map((id) => <input key={id} type="hidden" name="provider_match_id" value={id} />)}
-                  <input type="hidden" name="target" value={picked!} />
+                  <input type="hidden" name="context_versions" value={JSON.stringify(base.versions)} />
+          <input type="hidden" name="target" value={picked!} />
                   <input type="hidden" name="existing_event_id" value={option.id} />
                   <button type="submit" disabled={classPending}
                     data-selected={unit.event?.id === option.id ? "" : undefined}
                     style={{ gridTemplateColumns: "minmax(0,1fr) auto", width: "100%" }}>
                     <span className="truncate">{option.name}</span>
-                    <small>{option.kind} · {option.games}경기</small>
+                    <small>{EVENT_KIND_LABEL[option.kind] ?? option.kind} · {option.games}경기</small>
                   </button>
                 </form>
               ))}
@@ -208,20 +171,21 @@ export function FcoReviewControls({
           {creating && (
             <form action={setClass} className="grid gap-2">
               {(targets ?? [targetMatch?.provider_match_id ?? ""]).map((id) => <input key={id} type="hidden" name="provider_match_id" value={id} />)}
-              <input type="hidden" name="target" value={picked!} />
+              <input type="hidden" name="context_versions" value={JSON.stringify(base.versions)} />
+          <input type="hidden" name="target" value={picked!} />
               <div className="grid grid-cols-2 gap-2">
-                <label className="block text-[11px] text-ink-400">slug (날짜 포함)
-                  <input name="slug" required placeholder="fc-sisik-cup-2026-09-20"
+                <label className="block text-[11px] text-ink-400">행사 주소 ID (날짜 포함)
+                  <input name="slug" {...field("slug")} required placeholder="fc-sisik-cup-2026-09-20"
                     className="mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-200" /></label>
                 <label className="block text-[11px] text-ink-400">주최 (선택)
-                  <input name="organizer" placeholder="고세구"
+                  <input name="organizer" {...field("organizer")} placeholder="고세구"
                     className="mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-200" /></label>
               </div>
-              <label className="block text-[11px] text-ink-400">행사 이름 (날짜 금지 — slug 가 담당)
-                <input name="name" required placeholder="고세구 피온시식컵"
+              <label className="block text-[11px] text-ink-400">행사 이름
+                <input name="name" {...field("name")} required placeholder="고세구 피온시식컵"
                   className="mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-200" /></label>
               <label className="block text-[11px] text-ink-400">확인 근거 URL (필수)
-                <input name="source_url" required placeholder="https://…"
+                <input name="source_url" {...field("source_url")} required placeholder="https://…"
                   className="mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-200" /></label>
               <button type="submit" disabled={classPending}
                 className="justify-self-start rounded-md border border-accent-600/40 bg-accent-600/10 px-3 py-1.5 text-xs text-accent-400 hover:bg-accent-600/20">
@@ -249,9 +213,13 @@ const inputCls = "mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1
 
 /** [대회] 탭 — 행사 정보·후보 요약·일괄 승인. */
 export function EventTab({ unit, children }: { unit: FcoReviewUnit; children?: React.ReactNode }) {
-  const [saved, save, saving] = useActionState(updateEventAction, IDLE);
-  const [review, toggle, reviewing] = useActionState(reviewToggleAction, IDLE);
   const ev = unit.event!;
+  const { draft, base, setDraft, reset, dirty } = useReviewDraft(`fco-event:${ev.id}`, { name: ev.name, kind: ev.kind, organizer: ev.organizer ?? "", source_url: ev.source_url ?? "", version: ev.admin_version });
+  const [saved, save, saving] = useActionState(async (prev: ActionState, form: FormData) => {
+    const result = await updateEventAction(prev, form); if (result.ok) reset(); return result;
+  }, IDLE);
+  const field = (key: "name" | "kind" | "organizer" | "source_url") => ({ value: draft[key], onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDraft(old => ({ ...old, [key]: e.target.value })) });
+  const [review, toggle, reviewing] = useActionState(reviewToggleAction, IDLE);
   const inc = unit.matches.filter((m) => m.decision === "include").length;
   const exc = unit.matches.filter((m) => m.decision === "exclude").length;
   const und = unit.matches.filter((m) => m.decision === null).length;
@@ -270,9 +238,10 @@ export function EventTab({ unit, children }: { unit: FcoReviewUnit; children?: R
         </p>
         <form action={toggle} className="ck-review-winner-toggle">
           <input type="hidden" name="event_id" value={ev.id} />
-          <button type="submit" name="state" value="approve" disabled={reviewing} aria-pressed={unit.confirmed}
-            title={`조사 제안 ${pendingAuto}건을 사람 결정으로 굳히고 포함 경기에 확인 도장을 찍는다`}>승인</button>
-          <button type="submit" name="state" value="hold" disabled={reviewing} aria-pressed={!unit.confirmed}>보류</button>
+          <input type="hidden" name="context_versions" value={JSON.stringify(Object.fromEntries(unit.matches.filter(m => m.decision != null).map(m => [m.match_id, m.context_version])))} />
+          <button type="submit" name="state" value="approve" disabled={reviewing || dirty} aria-pressed={unit.confirmed}
+            title={`조사 제안 ${pendingAuto}건을 사람 결정으로 굳히고 포함 경기에 대회 판단을 확정한다`}>대회 판단 확정</button>
+          <button type="submit" name="state" value="hold" disabled={reviewing || dirty} aria-pressed={!unit.confirmed}>확정 해제</button>
         </form>
         {!unit.confirmed && (
           <p className="text-[11px] text-ink-400">
@@ -286,18 +255,20 @@ export function EventTab({ unit, children }: { unit: FcoReviewUnit; children?: R
       <form action={save} className="grid gap-2 border-t border-ink-800 pt-3">
         <h4 className="text-[11px] font-semibold text-ink-400">행사 정보</h4>
         <input type="hidden" name="event_id" value={ev.id} />
+        <input type="hidden" name="context_version" value={base.version} />
+        {dirty && <p className="text-xs text-amber-400">행사 정보 초안 보관 중 · 먼저 저장해 주세요.</p>}
         <label className="block text-[11px] text-ink-400">이름
-          <input name="name" defaultValue={ev.name} className={inputCls} /></label>
+          <input name="name" {...field("name")} className={inputCls} /></label>
         <div className="grid grid-cols-2 gap-2">
           <label className="block text-[11px] text-ink-400">종류
-            <select name="kind" defaultValue={ev.kind} className={inputCls}>
-              {["ck", "tournament", "showmatch", "scrim", "other"].map((k) => <option key={k} value={k}>{k}</option>)}
+            <select name="kind" {...field("kind")} className={inputCls}>
+              {["ck", "tournament", "showmatch", "scrim", "other"].map((k) => <option key={k} value={k}>{EVENT_KIND_LABEL[k] ?? k}</option>)}
             </select></label>
           <label className="block text-[11px] text-ink-400">주최
-            <input name="organizer" defaultValue={ev.organizer ?? ""} className={inputCls} /></label>
+            <input name="organizer" {...field("organizer")} className={inputCls} /></label>
         </div>
         <label className="block text-[11px] text-ink-400">확인 근거 URL
-          <input name="source_url" defaultValue={ev.source_url ?? ""} className={inputCls} /></label>
+          <input name="source_url" {...field("source_url")} className={inputCls} /></label>
         <p className="text-[11px] text-ink-500">
           기간 {ev.starts_at ? kstShort(ev.starts_at) : "?"} ~ {ev.ends_at ? kstShort(ev.ends_at) : "?"} · slug {ev.slug}
         </p>
@@ -307,6 +278,7 @@ export function EventTab({ unit, children }: { unit: FcoReviewUnit; children?: R
           <Result state={saved} />
         </div>
       </form>
+      <AdminHistory scope="event" id={ev.id} />
       {children}
     </div>
   );
@@ -316,14 +288,19 @@ export function EventTab({ unit, children }: { unit: FcoReviewUnit; children?: R
  * 대회 포함/제외 결정 — 고른 경기 한 판을 이 대회에 넣을지·뺄지, 브래킷 번호·이름표. 저장하면 곧바로 공개에 반영된다.
  * matchRef 는 넥슨 번호 또는 내부 match_id(화면 기록 정본) — 저장 함수가 둘 다 받는다.
  */
-export function EventDecision({ unit, match, matchRef }: { unit: FcoReviewUnit; match: Pick<FcoReviewUnit["matches"][number], "decision" | "decision_by" | "decision_note" | "bracket_no" | "bracket_label">; matchRef: string }) {
-  const [state, decide, deciding] = useActionState(decideMatchAction, IDLE);
-  const [picked, setPicked] = useState<"include" | "exclude">(match.decision ?? "include");
+export function EventDecision({ unit, match, matchRef }: { unit: FcoReviewUnit; match: Pick<FcoReviewUnit["matches"][number], "decision" | "decision_by" | "decision_note" | "bracket_no" | "bracket_label" | "context_version">; matchRef: string }) {
+  const { draft, base, setDraft, reset, dirty } = useReviewDraft(`fco-decision:${unit.event!.id}:${matchRef}`, { decision: match.decision ?? "include", bracket_no: String(match.bracket_no ?? ""), bracket_label: match.bracket_label ?? "", note: match.decision_note ?? "", version: match.context_version });
+  const [state, decide, deciding] = useActionState(async (prev: ActionState, form: FormData) => { const result = await decideMatchAction(prev, form); if (result.ok) reset(); return result; }, IDLE);
+  const picked = draft.decision;
+  const setPicked = (decision: "include" | "exclude") => setDraft(old => ({ ...old, decision }));
+  const field = (key: "bracket_no" | "bracket_label" | "note") => ({ value: draft[key], onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft(old => ({ ...old, [key]: e.target.value })) });
   const badge = decisionBadge(match as FcoReviewUnit["matches"][number]);
   return (
   <form action={decide} className="grid gap-2 rounded-lg border border-ink-800 bg-ink-900/40 p-3" key={matchRef}>
       <input type="hidden" name="event_id" value={unit.event!.id} />
       <input type="hidden" name="provider_match_id" value={matchRef} />
+      <input type="hidden" name="context_version" value={base.version} />
+      {dirty && <p className="text-xs text-amber-400">대회 판단 초안 보관 중</p>}
       <input type="hidden" name="decision" value={picked} />
       <h4 className="flex items-center justify-between text-[11px] font-semibold text-ink-400">
         <span>이 대회({unit.event!.name})에</span>
@@ -335,12 +312,12 @@ export function EventDecision({ unit, match, matchRef }: { unit: FcoReviewUnit; 
       </div>
       <div className="grid grid-cols-[72px_1fr] gap-2">
         <label className="block text-[11px] text-ink-400">번호
-          <input name="bracket_no" inputMode="numeric" defaultValue={match.bracket_no ?? ""} className={inputCls} /></label>
+          <input name="bracket_no" inputMode="numeric" {...field("bracket_no")} className={inputCls} /></label>
         <label className="block text-[11px] text-ink-400">브래킷 이름표
-          <input name="bracket_label" defaultValue={match.bracket_label ?? ""} placeholder="1경기 / 13경기 · 7위 결정전" className={inputCls} /></label>
+          <input name="bracket_label" {...field("bracket_label")} placeholder="1경기 / 13경기 · 7위 결정전" className={inputCls} /></label>
       </div>
       <label className="block text-[11px] text-ink-400">{picked === "exclude" ? "제외 이유 (필수)" : "메모"}
-        <input name="note" defaultValue={match.decision_note ?? ""} required={picked === "exclude"}
+        <input name="note" {...field("note")} required={picked === "exclude"}
           placeholder={picked === "exclude" ? "예: 개막 전 연습 — 방송은 개막 타이틀 화면" : ""} className={inputCls} /></label>
       <div className="flex items-center gap-3">
         <button type="submit" disabled={deciding}

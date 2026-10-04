@@ -21,7 +21,7 @@ export interface PovChip {
   mismatch_open: number;
 }
 
-const KEEP = ["review", "match", "tab"] as const;
+const KEEP = ["review", "match", "tab", "focus", "from"] as const;
 
 export function PovChips({ slug, currentLeadId, povs }: { slug: string; currentLeadId: string; povs: PovChip[] }) {
   const params = useSearchParams();

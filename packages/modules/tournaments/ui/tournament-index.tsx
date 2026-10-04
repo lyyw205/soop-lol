@@ -11,6 +11,8 @@ import {
   period,
 } from "./tournament-shared.tsx";
 import { tournamentsIndexHref } from "./paths.ts";
+import { TeamLogo } from "./team-logo.tsx";
+import { TournamentLogo } from "./tournament-logo.tsx";
 export function TournamentIndex({ events }: { events: TournamentSummary[] }) {
   const params = useSearchParams(),
     router = useRouter();
@@ -139,7 +141,10 @@ export function TournamentIndex({ events }: { events: TournamentSummary[] }) {
                         <span className="tp-table-category">
                           {categoryLabel(e)}
                         </span>
-                        <Link href={tournamentHref(e.slug)}>{e.name}</Link>
+                        <Link href={tournamentHref(e.slug)}>
+                          <TournamentLogo slug={e.slug} className="tp-event-list-logo" />
+                          <span>{e.name}</span>
+                        </Link>
                       </div>
                       <div>
                         {period(e)}
@@ -153,9 +158,7 @@ export function TournamentIndex({ events }: { events: TournamentSummary[] }) {
                       <div>
                         {e.winner ? (
                           <span className="tp-winner">
-                            <span className="tp-winner-logo" aria-hidden="true">
-                              {e.winner.slice(0, 1)}
-                            </span>
+                            <TeamLogo eventSlug={e.slug} name={e.winner} className="tp-winner-logo" />
                             {e.winner}
                           </span>
                         ) : (

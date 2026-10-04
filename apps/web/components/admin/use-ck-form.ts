@@ -1,18 +1,18 @@
 'use client';
-import { useActionState, useRef, useState } from 'react';
+import { useActionState, useRef } from 'react';
+import { useReviewDraft } from './use-review-draft';
 import type { CkActionState, CkFormValues } from '@/lib/ck-review-form';
 
 /** props가 갱신돼도 편집 기준을 바꾸지 않는다. 성공/명시적 불러오기만 새 기준을 채택한다. */
-export function useCkForm(initial: CkFormValues, save: (prev: CkActionState, form: FormData) => Promise<CkActionState>) {
-  const [base, setBase] = useState(initial);
-  const [draft, setDraft] = useState(initial);
+export function useCkForm(key: string, initial: CkFormValues, save: (prev: CkActionState, form: FormData) => Promise<CkActionState>) {
+  const { base, draft, setDraft, reset, dirty, stale } = useReviewDraft(key, initial);
   const submitting = useRef(false);
   const [state, action, pending] = useActionState(async (prev: CkActionState, form: FormData) => {
     if (submitting.current) return prev;
     submitting.current = true;
     try {
       const result = await save(prev, form);
-      if (result.ok && result.saved) { setBase(result.saved); setDraft(result.saved); }
+      if (result.ok && result.saved) reset(result.saved);
       return result;
     } finally { submitting.current = false; }
   }, { ok: true, message: '' });
@@ -22,7 +22,7 @@ export function useCkForm(initial: CkFormValues, save: (prev: CkActionState, for
   });
   const reload = () => {
     const next = state.latest ?? initial;
-    setBase(next); setDraft(next);
+    reset(next);
   };
-  return { base, draft, setDraft, field, state, action, pending, reload };
+  return { base, draft, setDraft, field, state, action, pending, reload, dirty, stale };
 }

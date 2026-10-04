@@ -18,31 +18,28 @@ const label = "block text-[11px] text-ink-400";
 function Result({ state }: { state: ActionState }) {
   if (!state.message) return null;
   return (
-    <p className={`text-xs ${state.ok ? "text-ink-400" : "text-red-400"}`}>
+    <p role="status" className={`text-xs ${state.ok ? "text-ink-400" : "text-red-400"}`}>
       {state.ok ? state.message : `✗ ${state.message}`}
     </p>
   );
 }
 
-export function FcoContextReviewer({ providerMatchId }: { providerMatchId: string }) {
+export function FcoContextReviewer({ providerMatchId, version }: { providerMatchId: string; version: number }) {
   const [evidenced, evidence, evidencing] = useActionState(addEvidenceAction, IDLE);
 
   return (
-    <form action={evidence} className="grid gap-2">
+    <form action={evidence} onReset={event => event.preventDefault()} className="grid gap-2">
       <input type="hidden" name="provider_match_id" value={providerMatchId} />
-      <p className="text-[11px] leading-relaxed text-ink-500">
-        <b className="text-ink-300">observed 는 본 것</b>, why 는 그래서 어떻게 봤나 — 섞지 않는다.
-        시각은 VOD <b className="text-ink-300">전체 초</b>(ck:probe 축)다. 같은 근거는 키로 합쳐진다.
-      </p>
+      <input type="hidden" name="context_version" value={version} />
       <div className="grid grid-cols-2 gap-2">
         <div>
           <span className={label}>종류</span>
           <select name="kind" className={input} defaultValue="vod_frame">
-            <option value="vod_frame">vod_frame — 화면</option>
-            <option value="chat">chat — 채팅</option>
-            <option value="audio">audio — 음성</option>
-            <option value="notice">notice — 공지</option>
-            <option value="url">url — 외부 링크</option>
+            <option value="vod_frame">화면</option>
+            <option value="chat">채팅</option>
+            <option value="audio">음성</option>
+            <option value="notice">공지</option>
+            <option value="url">외부 링크</option>
           </select>
         </div>
         <div>
@@ -59,15 +56,15 @@ export function FcoContextReviewer({ providerMatchId }: { providerMatchId: strin
         </div>
       </div>
       <div>
-        <span className={label}>URL (url/notice 일 때)</span>
+        <span className={label}>공지·외부 링크 URL</span>
         <input name="url" className={input} placeholder="https://pick.sooplive.com/…" />
       </div>
       <div>
-        <span className={label}>observed — 본 것 (필수)</span>
+        <span className={label}>관찰 내용 (필수)</span>
         <input name="observed" required className={input} placeholder="인게임 88:23, 교로텔리 3:4 호날두" />
       </div>
       <div>
-        <span className={label}>why — 해석 (선택)</span>
+        <span className={label}>판단 근거 (선택)</span>
         <input name="why" className={input} placeholder="matchDate 16초 전 88분 — 이 matchId 경기다" />
       </div>
       <div className="flex items-center gap-3">

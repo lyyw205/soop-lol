@@ -5,10 +5,13 @@ import { setReviewCompletedAction } from "@/app/admin/ck/actions";
 import { IDLE } from "@/lib/action-state";
 import { ActionMessage } from "./Field";
 
-export function ReviewCompletion({ matchId, version, completed, disabled = false, statusButton = false }: {
+export function ReviewCompletion({ matchId, version, completed, disabled = false, statusButton = false, onCompleted }: {
+  onCompleted?: () => void;
   matchId: string; version: number; completed: boolean; disabled?: boolean; statusButton?: boolean;
 }) {
-  const [state, action, pending] = useActionState(setReviewCompletedAction, IDLE);
+  const [state, action, pending] = useActionState(async (prev: typeof IDLE, form: FormData) => {
+    const result = await setReviewCompletedAction(prev, form); if (result.ok && !completed) onCompleted?.(); return result;
+  }, IDLE);
   return <form action={action} className={statusButton ? "ck-review-completion" : "flex flex-wrap items-center gap-2"} data-review-completion>
     <input type="hidden" name="match_id" value={matchId} />
     <input type="hidden" name="version" value={version} />

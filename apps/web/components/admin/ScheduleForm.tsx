@@ -8,6 +8,11 @@
  * ★ 검증은 서버(core 의 saveScheduleEntry)가 한다. 여기선 입력을 돕기만 한다.
  */
 
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { adminHref, adminReturn } from "@/lib/admin-navigation";
+import { useReviewDraft } from "./use-review-draft";
+import { PersonPicker } from "./PersonPicker";
 import { useActionState, useState } from "react";
 
 import {
@@ -16,7 +21,7 @@ import {
 } from "@soop-lol/core/lib/metrics/schedule";
 
 import { deleteScheduleAction, saveScheduleAction, type ScheduleFormPayload } from "@/app/admin/schedule/actions";
-import { IDLE } from "@/lib/action-state";
+import { IDLE, type ActionState } from "@/lib/action-state";
 
 import { ActionMessage, SubmitButton } from "./Field";
 
@@ -34,8 +39,14 @@ export function ScheduleForm({ initial, streamers, events }: {
   streamers: { slug: string; display_name: string }[];
   events: Record<ScheduleGame, ScheduleEventChoice[]>;
 }) {
-  const [state, action] = useActionState(saveScheduleAction, IDLE);
-  const [v, setV] = useState(initial);
+  const router = useRouter(), search = useSearchParams();
+  const from = adminReturn(search.get("from"), "/admin/schedule");
+  const { draft: v, setDraft: setV, reset, dirty, stale } = useReviewDraft(`schedule:${initial.id ?? "new"}`, initial);
+  const [state, action, pending] = useActionState(async (prev: ActionState, form: FormData) => {
+    const result = await saveScheduleAction(prev, form);
+    if (result.ok && result.savedId) { reset({ ...JSON.parse(String(form.get("payload"))) as ScheduleFormPayload, id: result.savedId, version: result.savedVersion! }); router.replace(adminHref(`/admin/schedule/${result.savedId}`, { saved: "1", from })); router.refresh(); }
+    return result;
+  }, IDLE);
   const set = <K extends keyof ScheduleFormPayload>(k: K, value: ScheduleFormPayload[K]) => setV((p) => ({ ...p, [k]: value }));
   const setRow = <K extends "slots" | "participants" | "sources">(k: K, i: number, patch: Partial<ScheduleFormPayload[K][number]>) =>
     setV((p) => ({ ...p, [k]: p[k].map((row, j) => (j === i ? { ...row, ...patch } : row)) }));
@@ -48,13 +59,14 @@ export function ScheduleForm({ initial, streamers, events }: {
   function repeatLast() {
     const last = v.slots[v.slots.length - 1];
     if (!last?.on_date) return;
-    setV((p) => ({ ...p, slots: [...p.slots, ...Array.from({ length: repeat }, (_, i) => ({ ...last, label: "", on_date: addDays(last.on_date, i + 1) }))] }));
+    setV((p) => ({ ...p, slots: [...p.slots, ...Array.from({ length: Math.min(30, Math.max(1, Math.floor(repeat))) }, (_, i) => ({ ...last, label: "", on_date: addDays(last.on_date, i + 1) }))] }));
   }
 
   const gameEvents = events[v.game_code as ScheduleGame] ?? [];
 
   return (
     <form action={action} className="space-y-6">
+      <fieldset disabled={pending} className="contents">
       <input type="hidden" name="payload" value={JSON.stringify(v)} />
 
       <section className="grid gap-3 sm:grid-cols-4">
@@ -104,7 +116,7 @@ export function ScheduleForm({ initial, streamers, events }: {
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <button type="button" className="rounded border border-ink-700 px-2 py-1" onClick={() => addRow("slots", { label: "", on_date: "", start: "", end: "", channel_id: "" })}>칸 추가</button>
           <span className="text-ink-400">마지막 칸과 같은 시각으로 다음 날부터</span>
-          <input aria-label="반복 일수" type="number" min={1} max={30} className={`${input} w-16`} value={repeat} onChange={(e) => setRepeat(Number(e.target.value) || 1)} />
+          <input aria-label="반복 일수" type="number" min={1} max={30} className={input} style={{ width: "4rem" }} value={repeat} onChange={(e) => setRepeat(Number(e.target.value) || 1)} />
           <button type="button" className="rounded border border-ink-700 px-2 py-1" onClick={repeatLast}>일 추가</button>
         </div>
       </section>
@@ -114,7 +126,7 @@ export function ScheduleForm({ initial, streamers, events }: {
         <datalist id="schedule-streamers">{streamers.map((s) => <option key={s.slug} value={s.slug}>{s.display_name}</option>)}</datalist>
         <div className="space-y-2">
           {v.participants.map((p: Person, i) => <div key={i} className="grid grid-cols-[1fr_110px_1fr_auto] gap-2">
-            <input aria-label="스트리머 slug" list="schedule-streamers" className={input} placeholder="slug" value={p.slug} onChange={(e) => setRow("participants", i, { slug: e.target.value })} />
+            <PersonPicker people={streamers} value={p.slug} onChange={slug => setRow("participants", i, { slug })} />
             <select aria-label="역할" className={input} value={p.role} onChange={(e) => setRow("participants", i, { role: e.target.value })}>
               {Object.entries(SCHEDULE_ROLE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
@@ -128,17 +140,21 @@ export function ScheduleForm({ initial, streamers, events }: {
       <section>
         <h3 className="mb-2 text-sm font-semibold">근거 공지 <small className="font-normal text-ink-400">공개하려면 1개 이상. 공지가 여러 개면 모두 붙입니다.</small></h3>
         <div className="space-y-2">
-          {v.sources.map((s: Source, i) => <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_190px_auto]">
+          {v.sources.map((s: Source, i) => <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_190px_auto_auto]">
             <input aria-label="공지 주소" className={input} placeholder="https://…" value={s.url} onChange={(e) => setRow("sources", i, { url: e.target.value })} />
             <input aria-label="공지 제목" className={input} placeholder="공지 제목" value={s.title} onChange={(e) => setRow("sources", i, { title: e.target.value })} />
             <input aria-label="공지 작성 시각" type="datetime-local" className={input} value={s.posted_at} onChange={(e) => setRow("sources", i, { posted_at: e.target.value })} />
+            {/^https?:\/\//i.test(s.url) ? <a href={s.url} target="_blank" rel="noreferrer" className="self-center text-xs text-accent-400">공지 열기 ↗</a> : <span />}
             <button type="button" className="text-xs text-ink-400 hover:text-lose" onClick={() => dropRow("sources", i)}>삭제</button>
           </div>)}
         </div>
         <button type="button" className="mt-2 rounded border border-ink-700 px-2 py-1 text-xs" onClick={() => addRow("sources", { url: "", title: "", posted_at: "" })}>출처 추가</button>
       </section>
 
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="admin-sticky-actions flex flex-wrap items-center gap-4">
+        {dirty && <span className="text-xs text-amber-400">{stale ? "기준값이 변경된 초안 — 다시 확인해 주세요" : "초안 보관 중"}</span>}
+        {dirty && <button type="button" onClick={() => reset()} className="text-xs text-ink-400">초안 버리기</button>}
+        <Link href={from} className="text-xs text-ink-400">목록</Link>
         {v.id && <label className="flex items-center gap-2 text-sm text-ink-200" title="처음 입력을 고친 것까지 공개 화면에 '일정 변경' 으로 보이면 거짓이다">
           <input type="checkbox" className="size-4 accent-accent-600" checked={v.typo} onChange={(e) => set("typo", e.target.checked)} />
           오타 수정 — 공개 변경 이력에 남기지 않음
@@ -146,14 +162,16 @@ export function ScheduleForm({ initial, streamers, events }: {
         <SubmitButton>{v.id ? "저장" : "일정 등록"}</SubmitButton>
         <ActionMessage state={state} />
       </div>
+      </fieldset>
     </form>
   );
 }
 
 export function ScheduleDeleteForm({ id, version }: { id: string; version: string }) {
+  const search = useSearchParams();
   const [state, action] = useActionState(deleteScheduleAction, IDLE);
   return <form action={action} className="flex items-center gap-3" onSubmit={(e) => { if (!confirm("이 일정을 지울까요? 되돌릴 수 없습니다.")) e.preventDefault(); }}>
-    <input type="hidden" name="id" value={id} /><input type="hidden" name="version" value={version} />
+    <input type="hidden" name="from" value={adminReturn(search.get("from"), "/admin/schedule")} /><input type="hidden" name="id" value={id} /><input type="hidden" name="version" value={version} />
     <SubmitButton tone="danger">일정 삭제</SubmitButton>
     <ActionMessage state={state} />
   </form>;

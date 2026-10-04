@@ -90,7 +90,6 @@ const people = await R.listFcoPeople();
 out["people"] = people;
 out["topPairs"] = await R.listFcoTopPairs(50);
 out["featured"] = await R.getFeaturedFcoPair();
-out["leaderboard"] = await R.listFcoLeaderboard();
 const events = await R.listFcoEvents();
 out["events"] = events;
 const providerIds = new Set<string>();

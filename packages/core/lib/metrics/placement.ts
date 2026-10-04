@@ -2,8 +2,9 @@
  * 대회 순위 표기를 다루는 곳.
  *
  * 표기가 회차마다 제각각이다 — `4강` · `10강` · `2차예선 탈락` · `예선 6강 or 4강 탈락`.
- * **화면엔 출처가 쓴 그대로 보여주고, 세는 건 숫자로 한다.** 표기를 통일해서 저장하면
- * 원문이 사라지고, 숫자 없이 표기만 두면 "우승 몇 번"을 셀 수 없다. 둘 다 들고 간다.
+ * **표기는 출처를 따르되, 같은 뜻의 흔들림은 저장할 때 하나로 통일한다**(normalizePlacement).
+ * 화면마다 표기를 고쳐 부르면 한 곳만 빠져도 어긋난다(2026-10-02: 4강 팀이 '4강 탈락'으로 보였다).
+ * 세는 건 숫자(placement_rank)로 한다 — 표기만 두면 "우승 몇 번"을 셀 수 없다. 둘 다 들고 간다.
  *
  * ★ 모르는 표기는 `null` 이다. 억지로 숫자를 붙이면 요약이 조용히 틀어진다.
  */
@@ -29,6 +30,20 @@ export function placementRank(label: string | null | undefined): number | null {
   if (wi) return Number(wi[1]);
   if (t === "본선" || t === "본선진출") return 50;
   return null;
+}
+
+/**
+ * 저장할 순위 표기 — 같은 뜻의 흔들림을 하나로 맞춘다. 저장 경로(saveEventTeams)가 부르고, 기존 값은 0070 이 맞췄다.
+ *   '4강 탈락'·'8강 탈락' → '4강'·'8강'  — 거기까지 갔다는 뜻이다(placementRank 도 같은 값으로 센다).
+ *   '1차예선 탈락' → '1차 예선 탈락'      — 띄어쓰기만 다른 같은 표기.
+ * 그 밖의 표기는 손대지 않는다(뜻이 다를 수 있는 것을 합치지 않는다).
+ */
+export function normalizePlacement(label: string | null | undefined): string | null {
+  if (!label) return null;
+  const t = String(label).trim();
+  const gang = /^(\d+)강\s*탈락$/.exec(t);
+  if (gang) return `${gang[1]}강`;
+  return t.replace(/^(\d)차예선/, "$1차 예선");
 }
 
 /** 요약 카드에서 묶는 단위. rank 로 묶고, 화면엔 이 이름을 쓴다. */

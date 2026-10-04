@@ -1,0 +1,257 @@
+{
+  "event": "meljang-2026-geng",
+  "game": "lol",
+  "evidence": "나무위키 대진표(경기 번호·라운드) https://namu.wiki/w/2026%20LoL%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20with%20Gen.G · 대회 공식 안내 https://www.sooplive.com/station/lolbjmatch/post/201096201 (더블 엘리미네이션 · BO3)",
+  "stages": [
+    {
+      "no": 1,
+      "name": "본선",
+      "template": "double_elim:8",
+      "slots": [
+        {
+          "no": 1,
+          "lane": "승자조",
+          "label": "승자조 1라운드",
+          "bestOf": 3,
+          "seedA": "노종뀨뀨낭",
+          "seedB": "명 수",
+          "winner": "5a",
+          "loser": "6a",
+          "matches": [
+            "meljang-2026-geng:g01s1",
+            "meljang-2026-geng:g01s2",
+            "meljang-2026-geng:g01s3"
+          ]
+        },
+        {
+          "no": 2,
+          "lane": "승자조",
+          "label": "승자조 1라운드",
+          "bestOf": 3,
+          "seedA": "막차타요",
+          "seedB": "저로듀스lol",
+          "winner": "5b",
+          "loser": "6b",
+          "matches": [
+            "meljang-2026-geng:g02s1",
+            "meljang-2026-geng:g02s2",
+            "meljang-2026-geng:g02s3"
+          ]
+        },
+        {
+          "no": 3,
+          "lane": "승자조",
+          "label": "승자조 1라운드",
+          "bestOf": 3,
+          "seedA": "교권보호국",
+          "seedB": "임부장",
+          "winner": "7a",
+          "loser": "8a",
+          "matches": [
+            "meljang-2026-geng:g03s1",
+            "meljang-2026-geng:g03s2",
+            "meljang-2026-geng:g03s3"
+          ]
+        },
+        {
+          "no": 4,
+          "lane": "승자조",
+          "label": "승자조 1라운드",
+          "bestOf": 3,
+          "seedA": "고점폭발",
+          "seedB": "딕닦꺼 브라더즈",
+          "winner": "7b",
+          "loser": "8b",
+          "matches": [
+            "meljang-2026-geng:g04s1",
+            "meljang-2026-geng:g04s2"
+          ]
+        },
+        {
+          "no": 5,
+          "lane": "승자조",
+          "label": "승자조 2라운드",
+          "bestOf": 3,
+          "winner": "11a",
+          "loser": "9a",
+          "matches": [
+            "meljang-2026-geng:g05s1",
+            "meljang-2026-geng:g05s2",
+            "meljang-2026-geng:g05s3"
+          ]
+        },
+        {
+          "no": 6,
+          "lane": "패자조",
+          "label": "패자조 1라운드",
+          "bestOf": 3,
+          "winner": "9b",
+          "loser": "rank:7-8",
+          "matches": [
+            "meljang-2026-geng:g06s1",
+            "meljang-2026-geng:g06s2",
+            "meljang-2026-geng:g06s3"
+          ]
+        },
+        {
+          "no": 7,
+          "lane": "승자조",
+          "label": "승자조 2라운드",
+          "bestOf": 3,
+          "winner": "11b",
+          "loser": "10a",
+          "matches": [
+            "meljang-2026-geng:g07s1",
+            "meljang-2026-geng:g07s2",
+            "meljang-2026-geng:g07s3"
+          ]
+        },
+        {
+          "no": 8,
+          "lane": "패자조",
+          "label": "패자조 1라운드",
+          "bestOf": 3,
+          "winner": "10b",
+          "loser": "rank:7-8",
+          "matches": [
+            "meljang-2026-geng:g08s1",
+            "meljang-2026-geng:g08s2"
+          ]
+        },
+        {
+          "no": 9,
+          "lane": "패자조",
+          "label": "패자조 2라운드",
+          "bestOf": 3,
+          "winner": "12a",
+          "loser": "rank:5-6",
+          "matches": [
+            "meljang-2026-geng:g09s1",
+            "meljang-2026-geng:g09s2"
+          ]
+        },
+        {
+          "no": 10,
+          "lane": "패자조",
+          "label": "패자조 2라운드",
+          "bestOf": 3,
+          "winner": "12b",
+          "loser": "rank:5-6",
+          "matches": [
+            "meljang-2026-geng:g10s1",
+            "meljang-2026-geng:g10s2",
+            "meljang-2026-geng:g10s3"
+          ]
+        },
+        {
+          "no": 11,
+          "lane": "승자조",
+          "label": "승자조 결승",
+          "bestOf": 3,
+          "winner": "14a",
+          "loser": "13a",
+          "matches": [
+            "meljang-2026-geng:g11s1",
+            "meljang-2026-geng:g11s2"
+          ]
+        },
+        {
+          "no": 12,
+          "lane": "패자조",
+          "label": "패자조 3라운드",
+          "bestOf": 3,
+          "winner": "13b",
+          "loser": "rank:4",
+          "matches": [
+            "meljang-2026-geng:g12s1",
+            "meljang-2026-geng:g12s2"
+          ]
+        },
+        {
+          "no": 13,
+          "lane": "패자조",
+          "label": "패자조 결승",
+          "bestOf": 3,
+          "winner": "14b",
+          "loser": "rank:3",
+          "matches": [
+            "meljang-2026-geng:g13s1",
+            "meljang-2026-geng:g13s2"
+          ]
+        },
+        {
+          "no": 14,
+          "lane": "결승",
+          "label": "결승",
+          "bestOf": 3,
+          "winner": "rank:1",
+          "loser": "rank:2",
+          "matches": [
+            "meljang-2026-geng:g14s1",
+            "meljang-2026-geng:g14s2",
+            "meljang-2026-geng:g14s3"
+          ]
+        }
+      ]
+    }
+  ],
+  "entrants": [
+    {
+      "key": "교권보호국",
+      "name": "교권보호국",
+      "streamers": []
+    },
+    {
+      "key": "고점폭발",
+      "name": "고점폭발",
+      "streamers": []
+    },
+    {
+      "key": "막차타요",
+      "name": "막차타요",
+      "streamers": []
+    },
+    {
+      "key": "노종뀨뀨낭",
+      "name": "노종뀨뀨낭",
+      "streamers": []
+    },
+    {
+      "key": "딕닦꺼 브라더즈",
+      "name": "딕닦꺼 브라더즈",
+      "streamers": []
+    },
+    {
+      "key": "저로듀스lol",
+      "name": "저로듀스lol",
+      "streamers": []
+    },
+    {
+      "key": "명 수",
+      "name": "명 수",
+      "streamers": []
+    },
+    {
+      "key": "임부장",
+      "name": "임부장",
+      "streamers": []
+    }
+  ],
+  "decisions": [],
+  "finalRanks": [
+    {
+      "entrant": "교권보호국",
+      "min": 1,
+      "max": 1,
+      "basis": "official",
+      "evidence": "SOOP 제공 결승 결과 https://www.inven.co.kr/webzine/news/?news=319141&site=lol"
+    },
+    {
+      "entrant": "고점폭발",
+      "min": 2,
+      "max": 2,
+      "basis": "official",
+      "evidence": "SOOP 제공 결승 결과 https://www.inven.co.kr/webzine/news/?news=319141&site=lol"
+    }
+  ]
+}

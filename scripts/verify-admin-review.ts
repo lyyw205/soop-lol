@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict';
+import { disposablePglite } from './lib/disposable-pglite.ts';
+import { applyAll } from './lib/migrations.ts';
+import { join } from 'node:path';
+const pg = await disposablePglite();
+process.env.DATABASE_URL = pg.url;
+process.env.DATABASE_POOL_MAX = "1";
+const { db, closeDb } = await import('../packages/core/lib/db/client.ts');
+const C = await import('../packages/core/lib/games/fconline/context.ts');
+const B = await import('../packages/core/lib/games/fconline/match-units.ts');
+const S = await import('../packages/core/lib/games/fconline/screen.ts');
+const SS = await import('../packages/core/lib/games/fconline/sessions.ts');
+const people = await import('../packages/core/lib/db/streamers.ts');
+const schedule = await import('../packages/core/lib/db/schedule.ts');
+const { listAdminHistory } = await import('../packages/core/lib/db/admin-history.ts');
+try {
+  await applyAll(sql => pg.database.exec(sql), join(import.meta.dirname, '..'));
+  const sql = db();
+  const a = await people.createStreamer({ slug: 'admin-a', display_name: '검수 A' });
+  await people.createStreamer({ slug: 'admin-b', display_name: '검수 B' });
+  const ids = ['fcs:990100@10', 'fcs:990100@700'];
+  for (const atSec of [10, 700]) await S.saveFcoScreenMatch({ vodTitleNo: 990100, atSec, endedAt: new Date(Date.now() - (50000 - atSec) * 1000).toISOString(),
+    sides: [{ nickname: '검수 A', score: 2, streamerSlug: 'admin-a', basis: 'manual' }, { nickname: '검수 B', score: 1, streamerSlug: 'admin-b', basis: 'manual' }], evidence: [{ observed: 'fixture' }] });
+  const current = async (id = ids[0]) => (await B.buildMatchUnits([id]))[0];
+  let m = await current();
+  await C.applyFcoMatchContext({ provider_match_id: ids[0], conclusion: 'casual', note: 'test', expectedVersion: m.context_version });
+  m = await current();
+  await B.setFcoMatchCompleted(ids[0], true, m.review_version);
+  assert.equal((await current()).context.judgment?.created_by, 'auto');
+  assert.equal((await current()).context_completed_at, null);
+  await C.approveFcoContext(ids[0], m.context_version);
+  m = await current(); assert.ok(m.review_completed_at && m.context_completed_at);
+  await C.holdFcoContext(ids[0], m.context_version);
+  assert.ok((await current()).review_completed_at, 'context hold preserves match-value completion');
+  m = await current(); await C.approveFcoContext(ids[0], m.context_version);
+  m = await current();
+  await sql`UPDATE fco_match_participant SET score_display = 7 WHERE match_id = ${ids[0]} AND side_no = 1`;
+  assert.ok((await current()).context_completed_at, 'value change preserves context confirmation');
+  assert.equal((await current()).review_completed_at, null);
+  await assert.rejects(C.holdFcoContext(ids[0], m.context_version - 1), /변경/);
+  const before = await sql`SELECT count(*)::int n FROM fco_match_context`;
+  await assert.rejects(C.applyFcoMatchContexts([
+    { provider_match_id: ids[0], conclusion: 'unresolved', note: 'first write' },
+    { provider_match_id: ids[1], conclusion: 'casual', note: '' },
+  ]), /note/);
+  assert.equal((await sql`SELECT count(*)::int n FROM fco_match_context`)[0].n, before[0].n, 'bulk failure rolls back every match');
+  const session = (await SS.listFcoSessions()).find(s => s.match_ids.includes(ids[0]))!;
+  assert.equal((await SS.getFcoSession(session.id))?.id, session.id);
+  assert.equal((await SS.getFcoSession(encodeURIComponent(session.id)))?.id, session.id, 'encoded match IDs are accepted');
+  assert.equal(await SS.getFcoSession('meet~1000000000~99'), null, 'bad session does not open a nearby session');
+  const meta = { slug: 'admin-cup', name: '검수 대회', kind: 'tournament' as const, source_url: 'https://example.test/notice' };
+  await C.applyFcoMatchContexts(ids.map(provider_match_id => ({ provider_match_id, conclusion: 'event', event: meta })));
+  const [event] = await C.listFcoEventOptions();
+  const ws = (await C.getFcoReviewWorkspace({ eventId: event.id }))[0];
+  assert.equal(ws.matches.length, 2, 'manual matches appear in event workspace');
+  m = await current(); await B.setFcoMatchCompleted(m.match_id, true, m.review_version);
+  await C.decideFcoEventMatch({ eventId: event.id, providerMatchId: ids[0], decision: 'exclude', note: '연습', expectedVersion: (await current()).context_version }, { createdBy: 'admin' });
+  assert.ok((await current()).review_completed_at, 'event exclusion preserves value completion');
+  const ws2 = (await C.getFcoReviewWorkspace({ eventId: event.id }))[0];
+  const snapshot = Object.fromEntries(ws2.matches.filter(m => m.decision).map(m => [m.match_id, m.context_version]));
+  await C.approveFcoEvent(event.id, snapshot);
+  assert.ok((await current()).context_completed_at, 'event approve includes exclusion decisions');
+  assert.equal((await current(ids[1])).review_completed_at, null, 'event approval never completes values');
+  await assert.rejects(C.holdFcoEvent(event.id, snapshot), /변경/);
+  // Pagination must expose records beyond the former implicit 200-row cap.
+  await sql`INSERT INTO streamer (slug, display_name) SELECT 'paging-' || n, '페이지 ' || n FROM generate_series(1, 205) n`;
+  assert.equal(await people.countStreamers(), 207);
+  assert.equal((await people.listStreamers({ limit: 50, offset: 200 })).length, 7);
+  assert.equal((await people.listAdminStreamerChoices()).length, 207);
+  await people.upsertRiotAccount({ puuid: 'test-puuid', game_name: '후보', tag_line: 'KR1' });
+  const [candidate] = await sql`INSERT INTO account_candidate(puuid, game_name, tag_line) VALUES ('test-puuid', '후보', 'KR1') RETURNING id`;
+  await people.linkAccount({ candidate_id: candidate.id, streamer_id: a.id, puuid: 'test-puuid', confidence: 'verified', evidence: { source: 'manual', note: '직접 확인' } });
+  assert.equal((await sql`SELECT state FROM account_candidate WHERE id = ${candidate.id}`)[0].state, 'approved');
+  assert.equal((await people.listStreamerAccounts(a.id)).length, 1);
+  await assert.rejects(people.linkAccount({ candidate_id: candidate.id, streamer_id: a.id, puuid: 'test-puuid', confidence: 'verified', evidence: { source: 'manual', note: '두 번 클릭' } }), /이미/);
+  assert.equal(await people.setCandidateState(candidate.id, 'ignored', 'pending'), false, 'old candidate form cannot overwrite connection');
+  assert.equal(await people.unlinkAccount(a.id, 'test-puuid'), true);
+  assert.equal((await sql`SELECT state FROM account_candidate WHERE id = ${candidate.id}`)[0].state, 'pending', 'unlink restores candidate queue');
+  assert.equal(await people.setCandidateState(candidate.id, 'approved', 'pending'), false, 'completion requires an active mapping');
+  assert.equal(await people.setCandidateState(candidate.id, 'ignored', 'pending'), true);
+  assert.equal(await people.setCandidateState(candidate.id, 'rejected', 'pending'), false, 'stale candidate state is rejected');
+  assert.equal(await schedule.getScheduleForAdmin('not-a-uuid'), null);
+  const input = { game_code: 'lol' as const, title: '샘플 테스트', planned_kind: 'ck' as const, sponsor: null, description: null, admin_note: null, status: 'scheduled' as const, event_id: null, visibility: 'public' as const,
+    slots: [{ label: null, on_date: '2026-10-04', starts_at: null, ends_at: null, channel_id: null }], participants: [], sources: [{ url: 'https://example.test/schedule', title: null, posted_at: null }] };
+  const saved = await schedule.saveScheduleEntry(input);
+  await schedule.saveScheduleEntry({ ...input, title: '샘플 오타 수정' }, { ...saved, recordHistory: false });
+  assert.equal((await schedule.listScheduleChanges(saved.id)).length, 0);
+  assert.equal((await listAdminHistory('schedule', saved.id)).length, 2, 'internal history retains typo edits');
+  assert.equal((await schedule.getScheduleForAdmin(saved.id))?.input.visibility, 'public');
+  console.log('Admin contracts passed: independent FC states, optimistic guards, atomic batch, session identity, manual event matches, pagination, candidate transaction, schedule internal history.');
+} finally { await closeDb(); await pg.stop(); }

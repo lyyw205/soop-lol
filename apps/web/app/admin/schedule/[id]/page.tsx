@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { AdminBackLink } from "@/components/admin/AdminBackLink";
+import { AdminHistory } from "@/components/admin/AdminHistory";
 import { notFound } from "next/navigation";
 
 import { getScheduleForAdmin, listEventsForScheduleLink, listScheduleChanges, listStreamerChoices } from "@soop-lol/core/lib/db/schedule";
@@ -48,10 +49,10 @@ export default async function AdminScheduleEditPage({ params, searchParams }: {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm"><Link href="/admin/schedule" className="text-ink-400 hover:underline">← 편성표</Link></p>
+      <p className="text-sm"><AdminBackLink fallback="/admin/schedule">← 편성표</AdminBackLink></p>
       <Card title={detail ? detail.input.title : "새 일정"} description={saved ? "저장했습니다." : undefined}>
-        {/* key: 저장 뒤 새 version 으로 폼 상태를 다시 시작한다 */}
-        <ScheduleForm key={detail?.version ?? "new"} initial={initial} streamers={streamers}
+        {/* 같은 일정은 서버가 돌려준 저장 기준값으로 갱신한다. */}
+        <ScheduleForm key={detail?.id ?? "new"} initial={initial} streamers={streamers}
           events={{ lol: lol.map(choice), fconline: fc.map(choice) }} />
       </Card>
       {detail && <Card title="변경 이력" description="공개 상세 화면에 그대로 보입니다(오타 수정으로 저장한 것은 남지 않습니다).">
@@ -59,6 +60,7 @@ export default async function AdminScheduleEditPage({ params, searchParams }: {
           {changes.map((c, i) => <li key={i}><span className="tabular-nums text-ink-400">{kstDateString(new Date(c.changed_at))} {kstClock(new Date(c.changed_at))}</span> · {describeChange(c)}</li>)}
         </ul>}
       </Card>}
+      {detail && <AdminHistory scope="schedule" id={detail.id} />}
       {detail && <Card title="삭제"><ScheduleDeleteForm id={detail.id} version={detail.version} /></Card>}
     </div>
   );

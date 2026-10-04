@@ -6,6 +6,7 @@
 
 import { RiotApiError, RiotClient } from "@soop-lol/core/lib/riot/client";
 import { NexonApiError, NexonClient } from "@soop-lol/core/lib/games/fconline/client";
+import { FcoSiteClient } from "@soop-lol/core/lib/games/fconline/club/site-client";
 
 import type { WorkerConfig } from "./config.ts";
 import { log } from "./log.ts";
@@ -15,6 +16,8 @@ export interface WorkerContext {
   riot: RiotClient;
   /** 공급자별 limiter를 공유하지 않는다. 키가 없으면 LoL 워커만 구성한다. */
   nexon: NexonClient | null;
+  /** FC 공식 홈페이지(구단가치·스쿼드·시세). 키가 필요 없어 늘 있다. 초당 1회 버킷이 이 안에 있다. */
+  fcoSite: FcoSiteClient;
 }
 
 /**
@@ -24,7 +27,7 @@ export interface WorkerContext {
  */
 export function createContext(
   cfg: WorkerConfig,
-  overrides: { fetchImpl?: typeof fetch; nexonFetchImpl?: typeof fetch } = {},
+  overrides: { fetchImpl?: typeof fetch; nexonFetchImpl?: typeof fetch; fcoSiteFetchImpl?: typeof fetch } = {},
 ): WorkerContext {
   const riot = new RiotClient({
     apiKey: cfg.riotApiKey,
@@ -47,7 +50,8 @@ export function createContext(
           else if (e.status >= 500) log.warn("nexon", `${e.status}`, { method: e.methodId });
         },
   }) : null;
-  return { cfg, riot, nexon };
+  const fcoSite = new FcoSiteClient({ fetchImpl: overrides.fcoSiteFetchImpl });
+  return { cfg, riot, nexon, fcoSite };
 }
 
 /**

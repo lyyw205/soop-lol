@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { kstDateString } from "@soop-lol/core/lib/contract";
+import { kstDateString } from "@soop-lol/core/lib/contract/client";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 

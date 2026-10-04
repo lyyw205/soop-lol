@@ -1,0 +1,59 @@
+{
+  "event": "2026-mini-ppuchamps",
+  "game": "fconline",
+  "evidence": "주최 방송 브래킷 화면 — 두치와뿌꾸(galsa) VOD 205292057 3300초 (out/ck/205292057/g0003300.jpg)",
+  "stages": [
+    {
+      "no": 1,
+      "name": "본선",
+      "template": "double_elim:8 + 패자전 탈락자 순위 결정전 계단",
+      "slots": [
+        { "no": 1, "lane": "승자전", "bestOf": 1, "seedA": "doochiwa-ppukku", "seedB": "imyujin", "winner": "5a", "loser": "7a", "matches": ["fco:6a8d4fe066b9776fe4e71070"] },
+        { "no": 2, "lane": "승자전", "bestOf": 1, "seedA": "smebim", "seedB": "clid1", "winner": "5b", "loser": "7b", "matches": ["fco:6a8d53c28c7e4462645fc1c2"] },
+        { "no": 3, "lane": "승자전", "bestOf": 1, "seedA": "seodoil", "seedB": "kimmingyo", "winner": "6a", "loser": "8a", "matches": ["fco:6a8d574d17f5a560e6a5a6f5"] },
+        { "no": 4, "lane": "승자전", "bestOf": 1, "seedA": "dohyun", "seedB": "leesangho", "winner": "6b", "loser": "8b", "matches": ["fco:6a8d5cd2e3c14f0cfe6d936a"] },
+        { "no": 5, "lane": "승자전", "bestOf": 1, "winner": "9a", "loser": "11a", "matches": ["fco:6a8d60a20e63f4b38dacb741"] },
+        { "no": 6, "lane": "승자전", "bestOf": 1, "winner": "9b", "loser": "11b", "matches": ["fco:6a8d63d377042869cc5c6b56"] },
+        { "no": 7, "lane": "패자전", "bestOf": 1, "winner": "12a", "loser": "10a", "matches": ["fco:6a8d675f14c88e1864cd70bf"] },
+        { "no": 8, "lane": "패자전", "bestOf": 1, "winner": "12b", "loser": "10b", "matches": ["fco:6a8d6ae0cd571e3d4ac70490"] },
+        { "no": 9, "lane": "승자전", "bestOf": 1, "winner": "17a", "loser": "14a", "matches": ["fco:6a8d6e6b65a9205e405ea643"] },
+        { "no": 10, "lane": "결정전", "label": "8위 결정전", "bestOf": 1, "winner": "13a", "loser": "rank:8", "matches": [] },
+        { "no": 11, "lane": "패자전", "bestOf": 1, "winner": "14b", "loser": "15a", "matches": ["fco:6a8d75607caf4e2b24437b13"] },
+        { "no": 12, "lane": "패자전", "bestOf": 1, "winner": "15b", "loser": "13b", "matches": ["fco:6a8d78b6f9eabe4e7810c8d9"] },
+        { "no": 13, "lane": "결정전", "label": "7위 결정전", "bestOf": 1, "winner": "16a", "loser": "rank:7", "matches": ["fco:6a8d7c04e379e7e63b5a5697"] },
+        { "no": 14, "lane": "패자전", "bestOf": 1, "winner": "17b", "loser": "18a", "matches": [] },
+        { "no": 15, "lane": "패자전", "bestOf": 1, "winner": "18b", "loser": "16b", "matches": ["fco:6a8d83497095898040774f83"] },
+        { "no": 16, "lane": "결정전", "label": "6위 결정전", "bestOf": 1, "winner": "19a", "loser": "rank:6", "matches": ["fco:6a8d8680a8db38b21d96e4af"] },
+        { "no": 17, "lane": "승자전", "bestOf": 1, "winner": "22a", "loser": "20a", "matches": ["fco:6a8d8a0676472064f023136a"] },
+        { "no": 18, "lane": "패자전", "bestOf": 1, "winner": "20b", "loser": "19b", "matches": ["fco:6a8d8d2a3127b1bfcb7d9751"] },
+        { "no": 19, "lane": "결정전", "label": "5위 결정전", "bestOf": 1, "winner": "21a", "loser": "rank:5", "matches": ["fco:6a8d91a8c7f13dff46e7c00d"] },
+        { "no": 20, "lane": "패자전", "bestOf": 1, "winner": "22b", "loser": "21b", "matches": ["fco:6a8d9596cf80344b0ed41458"] },
+        { "no": 21, "lane": "결정전", "label": "4위 결정전", "bestOf": 1, "winner": "23a", "loser": "rank:4", "matches": ["fco:6a8d9a0b73e031dce3609ee8"] },
+        { "no": 22, "lane": "승자전", "bestOf": 1, "winner": "24a", "loser": "23b", "matches": [] },
+        { "no": 23, "lane": "결정전", "label": "3위 결정전", "bestOf": 1, "winner": "24b", "loser": "rank:3", "matches": ["fco:6a8da1b6b50f4b19579a2d5a"] },
+        { "no": 24, "lane": "승자전", "label": "최종 결정전", "bestOf": 3, "winner": "rank:1", "loser": "rank:2", "matches": [],
+          "evidence": "브래킷 화면 「최종 결정전 (3판 2선) · 1·2위」. 넥슨 기록 없음(현장 계정으로 치른 것으로 보인다 — docs/FCO-TIME-SAMPLES.md)" }
+      ]
+    }
+  ],
+  "entrants": [
+    { "key": "imyujin", "name": "임유진", "streamers": ["imyujin"] },
+    { "key": "dohyun", "name": "도현", "streamers": ["dohyun"] },
+    { "key": "smebim", "name": "스맵", "streamers": ["smebim"] },
+    { "key": "leesangho", "name": "이상호", "streamers": ["leesangho"] },
+    { "key": "kimmingyo", "name": "김민교", "streamers": ["kimmingyo"] },
+    { "key": "doochiwa-ppukku", "name": "두치와뿌꾸", "streamers": ["doochiwa-ppukku"] },
+    { "key": "clid1", "name": "클리드", "streamers": ["clid1"] },
+    { "key": "seodoil", "name": "서도일", "streamers": ["seodoil"] }
+  ],
+  "decisions": [
+    { "slot": 24, "status": "result", "winners": ["imyujin"], "basis": "official",
+      "evidence": "SOOP PICK 「N커넥트와 함께하는 미니 뿌챔스」 https://pick.sooplive.com/daily/view/182785 — 임유진 최종 우승, 도현 준우승. 방송 VOD 205320949 14400초에 세트 1:1 뒤 3세트 진행 확인, 세트 점수는 미확인" }
+  ],
+  "finalRanks": [
+    { "entrant": "imyujin", "min": 1, "max": 1, "basis": "official", "evidence": "https://pick.sooplive.com/daily/view/182785" },
+    { "entrant": "dohyun", "min": 2, "max": 2, "basis": "official", "evidence": "https://pick.sooplive.com/daily/view/182785" },
+    { "entrant": "smebim", "min": 3, "max": 3, "basis": "official", "evidence": "https://pick.sooplive.com/daily/view/182785" },
+    { "entrant": "leesangho", "min": 4, "max": 4, "basis": "official", "evidence": "https://pick.sooplive.com/daily/view/182785" }
+  ]
+}

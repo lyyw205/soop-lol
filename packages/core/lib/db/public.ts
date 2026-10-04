@@ -73,6 +73,7 @@ export async function listStreamerCards(opts: { q?: string } = {}): Promise<Stre
              SELECT count(*) AS n
                FROM core_public.event_team_member tm
                JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
+               JOIN core_public.event e ON e.event_id = tm.event_id AND e.game_code = 'lol'
               WHERE tm.streamer_id = s.streamer_id AND t.placement_rank = 1
            ) tt ON true
       -- 대표 계정은 **본계 우선**이다. 부계정이 대표로 뜨면 같은 사람을 못 알아본다.
@@ -493,7 +494,8 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
       JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
       JOIN core_public.event e ON e.event_id = tm.event_id
       LEFT JOIN agg a ON a.event_id = tm.event_id
-     WHERE tm.streamer_id = ${streamerId}::uuid
+     -- ★ 롤 프로필의 대회 이력이다. FC 대회 참가 단위가 섞이지 않게 게임을 건다(0062).
+     WHERE tm.streamer_id = ${streamerId}::uuid AND e.game_code = 'lol'
        AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.starts_at) = ${year ?? null}::int)
      ORDER BY e.starts_at DESC
   `;
@@ -599,7 +601,7 @@ export async function summarizePlacements(
       FROM core_public.event_team_member tm
       JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
       JOIN core_public.event e ON e.event_id = tm.event_id
-     WHERE tm.streamer_id = ${streamerId}::uuid
+     WHERE tm.streamer_id = ${streamerId}::uuid AND e.game_code = 'lol'
        AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.starts_at) = ${year ?? null}::int)
   `;
   // ★ 올스타전·이벤트 매치는 우승 숫자에서 뺀다(0052, 사용자 결정 2026-10-01). 참가 수(total)에는 넣는다.

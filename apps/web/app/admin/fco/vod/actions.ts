@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { saveAndCompleteScreenMatch, setFcoMatchCompleted } from "@soop-lol/core/lib/games/fconline/match-units";
+import { buildMatchUnits, saveAndCompleteScreenMatch, setFcoMatchCompleted } from "@soop-lol/core/lib/games/fconline/match-units";
 import {
   linkScreenByAdmin, unlinkScreenByAdmin, updateScreenSides,
   type ScreenOutcomeEdit, type ScreenPersonEdit,
@@ -52,42 +52,47 @@ function sidesFrom(form: FormData) {
   return { edits, outcome };
 }
 
-export async function saveScreenSidesAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+export async function saveScreenSidesAction(_prev: ActionState, form: FormData): Promise<ActionState & { savedVersion?: number }> {
   await requireAdmin();
   try {
     const { edits, outcome } = sidesFrom(form);
-    await updateScreenSides(text(form, "match_id"), version(form), edits, outcome);
+    const savedVersion = await updateScreenSides(text(form, "match_id"), version(form), edits, outcome);
     refresh();
-    return { ok: true, message: "값을 저장했습니다. 값이 바뀌어 검수 완료는 풀렸습니다." };
+    return { ok: true, savedVersion, message: "경기값을 저장했습니다." };
   } catch (error) { return fail(error); }
 }
 
 /** 주 동작 — 고친 값 저장과 완료를 한 트랜잭션으로. */
-export async function saveAndCompleteAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+export async function saveAndCompleteAction(_prev: ActionState, form: FormData): Promise<ActionState & { savedVersion?: number }> {
   await requireAdmin();
   try {
     const { edits, outcome } = sidesFrom(form);
-    await saveAndCompleteScreenMatch(text(form, "match_id"), version(form), edits, outcome);
+    const savedVersion = await saveAndCompleteScreenMatch(text(form, "match_id"), version(form), edits, outcome);
     refresh();
-    return { ok: true, message: "저장하고 검수를 완료했습니다." };
+    return { ok: true, savedVersion, message: "저장하고 검수를 완료했습니다." };
   } catch (error) { return fail(error); }
 }
 
-export async function linkScreenAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+async function matchHref(id: string) {
+  const [match] = await buildMatchUnits([id]);
+  return match?.context.event ? `/admin/fco/event-${match.context.event.id}` : `/admin/fco/session/${encodeURIComponent(`match~${id}`)}`;
+}
+
+export async function linkScreenAction(_prev: ActionState, form: FormData): Promise<ActionState & { nextHref?: string }> {
   await requireAdmin();
   try {
     await linkScreenByAdmin(text(form, "match_id"), version(form), text(form, "target_id"));
-    refresh();
-    return { ok: true, message: "같은 경기로 붙였습니다 — 이제 그 경기의 시점입니다." };
+    revalidatePath("/admin/fco");
+    return { ok: true, message: "같은 경기로 연결했습니다.", nextHref: await matchHref(text(form, "target_id")).catch(() => "/admin/fco") };
   } catch (error) { return fail(error); }
 }
 
-export async function unlinkScreenAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+export async function unlinkScreenAction(_prev: ActionState, form: FormData): Promise<ActionState & { nextHref?: string }> {
   await requireAdmin();
   try {
     await unlinkScreenByAdmin(text(form, "match_id"), version(form));
-    refresh();
-    return { ok: true, message: "시점을 뗐습니다 — 다시 따로 된 경기입니다." };
+    revalidatePath("/admin/fco");
+    return { ok: true, message: "시점을 분리했습니다.", nextHref: await matchHref(text(form, "match_id")).catch(() => "/admin/fco") };
   } catch (error) { return fail(error); }
 }
 

@@ -1,4 +1,5 @@
 "use server";
+import { reviewMatchData } from "@/lib/ck-review-data";
 
 import { revalidatePath } from "next/cache";
 
@@ -187,12 +188,10 @@ export async function saveRosterAction(_prev: CkActionState, form: FormData): Pr
     if (!patch.add!.length) delete patch.add;
     if (!patch.remove!.length) delete patch.remove;
     const changed = Boolean(patch.patch?.length || patch.add?.length || patch.remove?.length);
-    if (changed) {
-      const saved = await applyMatchReview(matchId, { participants: patch });
-      if (!saved) return fail("경기를 찾지 못했습니다.");
-      revalidateReview();
-    }
-    return { ok: true, message: changed ? "로스터 변경사항을 저장했습니다." : "바뀐 값이 없습니다." };
+    const saved = changed ? await applyMatchReview(matchId, { participants: patch }) : await getMatchDetail(matchId);
+    if (!saved) return fail("경기를 찾지 못했습니다.");
+    if (changed) revalidateReview();
+    return { ok: true, message: changed ? "로스터 변경사항을 저장했습니다." : "바뀐 값이 없습니다.", savedRoster: reviewMatchData(saved).participants };
   } catch (error) {
     return actionError(error);
   }

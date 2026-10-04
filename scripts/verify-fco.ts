@@ -15,13 +15,13 @@ await server.start();
 process.env.DATABASE_URL = `postgres://postgres@127.0.0.1:${port}/postgres`;
 const { db, closeDb } = await import("../packages/core/lib/db/client.ts");
 const { linkFcoAccount, saveFcoMatch, linkFcoMatchToEvent } = await import("../packages/core/lib/games/fconline/ingest.ts");
-const { listFcoEvents, listFcoEventGames, listFcoVersus, listFcoTopPairs, listFcoLeaderboard,
+const { listFcoEvents, listFcoEventGames, listFcoVersus, listFcoTopPairs,
   listFcoGamesForPerson, listFcoStreamerGamesForPerson, listFcoModesForPerson,
   getFcoGame, listFcoPeople, getFeaturedFcoPair, FCO_PUBLIC_MATCH_INFO_KEYS } = await import("../packages/core/lib/db/fconline.ts");
 
 /** 공개 조회 함수의 반환값 전부를 한 문자열로. 신원 문자열이 어디에든 남으면 여기서 잡힌다. */
 async function publicDump(personIds: string[]): Promise<string> {
-  const out: unknown[] = [await listFcoPeople(), await listFcoTopPairs(), await listFcoLeaderboard(),
+  const out: unknown[] = [await listFcoPeople(), await listFcoTopPairs(),
     await getFeaturedFcoPair(), await listFcoEvents()];
   for (const event of await listFcoEvents()) out.push(await listFcoEventGames(event.id));
   for (const id of personIds) {
@@ -75,13 +75,19 @@ try {
   assert.equal(topPairs[0].games, 1);
   assert.equal(topPairs[0].a_wins + topPairs[0].b_wins, 1);
   assert.equal(topPairs[0].draws, 0);
+  for (const person of people) {
+    assert.deepEqual(await listFcoTopPairs(1, person.id), topPairs,
+      "저장된 쌍의 좌우에 관계없이 검색한 스트리머의 맞대결을 찾는다");
+  }
+  const [noRecords] = await sql`INSERT INTO streamer (slug, display_name) VALUES ('no-records-fc', '기록 없음') RETURNING id`;
+  assert.equal((await listFcoTopPairs(1, noRecords.id)).length, 0, "기록이 없으면 전체 인기 쌍을 대신 보여주지 않는다");
+  await sql`DELETE FROM streamer WHERE id = ${noRecords.id}`;
   assert.equal((await listFcoGamesForPerson(people[0].id)).length, 2);
   assert.equal((await listFcoStreamerGamesForPerson(people[0].id)).length, 1);
   assert.deepEqual(await listFcoModesForPerson(people[0].id), ["50", "60"]);
   assert.equal((await listFcoGamesForPerson(people[0].id, 200, { mode: "50" })).length, 1);
   assert.equal((await listFcoStreamerGamesForPerson(people[0].id, 200, { mode: "50" })).length, 0);
   assert.equal((await listFcoGamesForPerson(people[0].id, 200, { from: "2026-09-22", to: "2026-09-22" })).length, 1);
-  assert.equal((await listFcoLeaderboard()).length, 2);
 
   // ── 공개 반환값에서 신원이 새지 않는다 ─────────────────────────────
   // 숨긴 사람: 계정 연결은 공개인데 사람이 숨김이다.
@@ -91,7 +97,16 @@ try {
   assert.equal(await saveFcoMatch({ ...detail, matchId: "fco-test-hidden-person", matchDate: "2026-09-24 13:00:00",
     matchInfo: [detail.matchInfo[0], { ...detail.matchInfo[1], ouid: "gamma-ouid", nickname: "감마감독" }],
   }), "saved");
+  const [gamma] = await sql`SELECT id FROM streamer WHERE slug = 'gamma-fc'`;
+  const beta = people.find((person) => person.slug === "beta-fc")!;
+  assert.deepEqual(await listFcoTopPairs(8, beta.id), topPairs, "검색한 사람과 관계없는 쌍은 제외한다");
+  // 알파-베타가 전체 1위여도 감마 검색에서는 알파-감마를 LIMIT 전에 찾아야 한다.
+  await saveFcoMatch({ ...detail, matchId: "fco-test-ranking" });
+  const [gammaPair] = await listFcoTopPairs(1, gamma.id);
+  assert.ok(gammaPair && [gammaPair.a_id, gammaPair.b_id].includes(gamma.id));
+  assert.equal(gammaPair.games, 1);
   await sql`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'gamma-fc'`;
+  assert.equal((await listFcoTopPairs(8, gamma.id)).length, 0, "숨긴 스트리머는 범위를 지정해도 나오지 않는다");
   // 허용 목록 밖의 키는 넥슨이 새로 붙여도 나가지 않는다.
   await sql`UPDATE fco_match_participant SET match_info = match_info || '{"futureField":"새키"}'::jsonb`;
 
@@ -119,7 +134,7 @@ try {
   dump = await publicDump([alphaId, betaId]);
   assert.deepEqual(leaks(dump, ["beta-ouid", "베타감독"]), [], "숨긴 계정의 신원이 공개 반환값에 남았다");
   assert.ok((await listFcoGamesForPerson(alphaId)).length > 0, "숨긴 계정과의 경기 자체는 알파 쪽에서 보인다");
-  console.log("FC 수집·대회 연결·상대전적·리더보드·공개 반환값 신원 차단 검증 통과");
+  console.log("FC 수집·대회 연결·상대전적·공개 반환값 신원 차단 검증 통과");
 } finally {
   await closeDb();
   await server.stop();

@@ -29,6 +29,7 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 | **롤 내전 — 방송 VOD 판독** | **운영 중.** VOD 판독 경기 87건(`origin='vod_scan'`). 매일 자동 조사(`scripts/ck-auto.sh`)·사용자 요청 백필 | [docs/CK-COLLECTION.md](docs/CK-COLLECTION.md) · [docs/CK-BACKFILL.md](docs/CK-BACKFILL.md) |
 | 롤 대회 — 나무위키 시드 | 경기 875건(`origin='wiki_seed'`, 멸망전 등 과거 대회). 롤 수기 경기 전체가 만든 조우 34,399건 | [seed/README.md](seed/README.md) |
 | **FC 온라인 — 넥슨 API + VOD 맥락** | **운영 중.** API 경기 2,790건. 화면으로만 아는 경기(30일 이전)는 저장 구조만 있다(0050, 공개 전) | [docs/FCO-SCREEN-MATCH-DESIGN.md](docs/FCO-SCREEN-MATCH-DESIGN.md) |
+| FC 온라인 — 구단가치·스쿼드·시세(공식 홈페이지) | 2026-10-02 첫 수집(16계정, 카드 379장). 주기 실행은 서버 배포 때(구단 2시간 · 시세 하루 1회). 그 전엔 손으로 `worker -- fco-club` | [docs/FCO-CLUB-VALUE-PLAN.md](docs/FCO-CLUB-VALUE-PLAN.md) |
 | **롤 공개 큐 — Riot API(워커 Engine A~D)** | 코드 완성, **지금 데이터 없음**(공개 큐 경기 0건). Riot 키 상태는 docs/SETUP.md §1 에서 확인한다 | [docs/PLAN.md](docs/PLAN.md) §10 |
 | 롤 내전 — 토너먼트 코드 | 미시작. Production Key 가 필요하고 그 심사 요건이 "동작하는 사이트"라 **배포(M4) 뒤에만** 가능하다. VOD 판독과는 별개 경로다 | [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) |
 
@@ -37,6 +38,7 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 - **랭크 스냅샷** — 하루 안 쌓으면 그날은 영원히 구멍이다. `worker -- rank` 만 돌려도 된다
 
 FC 도 시한부다 — 넥슨 목록은 **최근 30일**만 준다(docs/FCO-TIME-SAMPLES.md).
+FC 구단가치·스쿼드 스냅샷도 시한부다 — 지나간 날은 다시 못 구한다(`worker -- fco-club`). 카드 시세는 365일까지 소급된다.
 
 ## 검증 명령
 

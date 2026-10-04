@@ -16,6 +16,9 @@
  * ★ 저장은 서버 액션이다. 원본 수정·조우 재파생·통계 재계산이 한 트랜잭션으로 돈다.
  */
 
+import { adminTabKeys } from "@/lib/admin-tab-keys";
+import { useRouter, useSearchParams } from "next/navigation";
+import { adminReturn } from "@/lib/admin-navigation";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -33,6 +36,8 @@ import { framesForSelection, resolveSelection, timelineSpan, type Picked } from 
 import { projectReviewQueue, reviewQueueEntries, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
 
 import { ActionMessage, SubmitButton } from "./Field";
+import { useReviewDraft } from "./use-review-draft";
+import { AdminHistory } from "./AdminHistory";
 import { useCkForm } from "./use-ck-form";
 import { metaFormValues, participantFormValues, type CkActionState } from "@/lib/ck-review-form";
 import { matchOriginLabel } from "@/lib/admin-labels";
@@ -112,6 +117,7 @@ export interface ReviewEvent {
 }
 
 interface Props {
+  reviewQueueIds?: string[];
   leadId: string;
   vodUrl?: string | null;
   initialMatchId?: string;
@@ -194,17 +200,19 @@ const POSITIONS = ["", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
 
 type Projected = ProjectedMatch<ReviewMatch, ReviewFrame>;
 
-export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialTab, syncUrl = false, povDiffs }: Props) {
+export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialTab, syncUrl = false, povDiffs, reviewQueueIds }: Props) {
+  const router = useRouter(), params = useSearchParams();
   const projection = useMemo(
     () => projectReviewQueue(frames, matches, { vodStartedAt }),
     [frames, matches, vodStartedAt],
   );
   // ★ 선택은 프레임·경기를 따로 들고 있다 — 근거 프레임이 안 붙은 경기도 고칠 수 있어야 한다.
   //   규칙 자체는 `ck-selection.ts` 의 순수 함수에 있다(회귀 검사가 거기를 잰다).
+  const [rosterDirtyId, setRosterDirtyId] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked>({ matchId: initialMatchId });
   const rosterField = rosterFocus(initialFocus)?.focus;
   const [zoom, setZoom] = useState(false);
-  const [matchesOnly, setMatchesOnly] = useState(false);
+  const [matchesOnly, setMatchesOnly] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<"game" | "roster">(rosterFocus(initialFocus) ? "roster" : initialTab ?? "game");
 
   // ★ 탭(경기/로스터)은 여기서 강제로 바꾸지 않는다 — 로스터를 고치다가 다른 경기로 넘어가면
@@ -229,6 +237,12 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
     requestAnimationFrame(() => {
       document.getElementById(`ck-review-queue-match:${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
+  };
+  const nextAfterCompletion = (id: string) => {
+    const index = matches.findIndex(m => m.match_id === id);
+    const next = [...matches.slice(index + 1), ...matches.slice(0, index)].find(m => !m.review_completed_at && (!reviewQueueIds || reviewQueueIds.includes(m.match_id)));
+    if (next) pickMatch(next.match_id);
+    else router.replace(adminReturn(params.get('from'), '/admin/ck'));
   };
   /** 썸네일·좌우 키는 선택한 큐 항목 안에서만 움직인다. 큐 자체는 모든 항목을 유지한다. */
   const focusFrames = useMemo(
@@ -302,7 +316,7 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
 
           {/* 원본 크기 모드에서는 스크롤로 이름 칸을 들여다본다 —
               긴 이름이 잘렸는지, 닉네임을 잘못 읽었는지는 확대해야 보인다. */}
-          <div className={`ck-review-frame bg-ink-950 ${zoom ? "max-h-[70vh] overflow-auto" : ""}`}>
+          <div data-zoom={zoom} className={`ck-review-frame bg-ink-950 ${zoom ? "max-h-[70vh] overflow-auto" : ""}`}>
             {selected ? (
               // eslint-disable-next-line @next/next/no-img-element -- out/ 밖의 로컬 파일이라 next/image 로 최적화하지 않는다
               <img
@@ -356,7 +370,7 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
 
         <aside className="ck-review-inspector" aria-label="검수 인스펙터">
           <div className="ck-review-inspector-shell">
-            <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보">
+            <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보" onKeyDown={adminTabKeys}>
               <button type="button" role="tab" aria-selected={inspectorTab === "game"}
                 onClick={() => setInspectorTab("game")}>경기</button>
               <button type="button" role="tab" aria-selected={inspectorTab === "roster"}
@@ -376,16 +390,14 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
                 <div className="ck-review-panel p-4 text-xs leading-relaxed text-ink-400">
                   {selected ? "미연결 프레임입니다. 프레임 아래에서 기존 경기에 연결하거나 새 경기를 만드세요." : "아직 경기로 반영된 항목이 없습니다."}
                 </div>
-              ) : inspectorTab === "game" ? (
-                <div className="ck-review-tab-stack">
-                  <MatchInspector key={`meta:${selectedMatch.match_id}`} leadId={leadId} match={selectedMatch} events={events} />
-
+              ) : <>
+                <div hidden={inspectorTab !== "game"} className="ck-review-tab-stack">
+                  <MatchInspector key={`meta:${selectedMatch.match_id}`} leadId={leadId} match={selectedMatch} events={events} otherDirty={rosterDirtyId === selectedMatch.match_id} onCompleted={() => nextAfterCompletion(selectedMatch.match_id)} />
                 </div>
-              ) : (
-                <div className="ck-review-tab-stack">
-                  <RosterInspector key={`roster:${selectedMatch.match_id}`} leadId={leadId} match={selectedMatch} streamers={streamers} focus={rosterField} />
+                <div hidden={inspectorTab !== "roster"} className="ck-review-tab-stack">
+                  <RosterInspector key={`roster:${selectedMatch.match_id}`} leadId={leadId} match={selectedMatch} streamers={streamers} focus={rosterField} onDirty={setRosterDirtyId} />
                 </div>
-              )}
+              </>}
             </div>
           </div>
         </aside>
@@ -609,13 +621,13 @@ function FrameStrip({ frames, selectedId, onPick }: { frames: ReviewFrame[]; sel
 function MatchInspector({
   leadId,
   match,
-  events,
+  events, otherDirty, onCompleted,
 }: {
   leadId: string;
   match: ReviewMatch;
-  events: ReviewEvent[];
+  events: ReviewEvent[]; otherDirty: boolean; onCompleted: () => void;
 }) {
-  const { base, draft, setDraft, field, state, action, pending, reload } = useCkForm(metaFormValues(match), saveMatchMetaAction);
+  const { base, draft, setDraft, field, state, action, pending, reload, dirty, stale } = useCkForm(`lol-meta:${match.match_id}`, metaFormValues(match), saveMatchMetaAction);
   const hidden = match.visibility === "hidden";
   const formRef = useRef<HTMLFormElement>(null);
   const [activeField, setActiveField] = useState<MatchMetaField | null>(null);
@@ -623,9 +635,6 @@ function MatchInspector({
 
   const openField = (name: MatchMetaField) => {
     if (pending) return;
-    if (activeField && activeField !== name) {
-      setDraft((current) => ({ ...current, [activeField]: base[activeField] }));
-    }
     setActiveField(name);
   };
   const cancelField = (name: MatchMetaField) => {
@@ -676,7 +685,8 @@ function MatchInspector({
 
           </p>
           <div className="flex flex-wrap items-center gap-2">
-          <ReviewCompletion matchId={match.match_id} version={match.review_version} completed={!!match.review_completed_at} disabled={pending || activeField != null} />
+          <AdminHistory key={match.match_id} scope="match" id={match.match_id} />
+          <ReviewCompletion matchId={match.match_id} version={match.review_version} completed={!!match.review_completed_at} disabled={pending || dirty || otherDirty || activeField != null} onCompleted={onCompleted} />
           <form action={setMatchVisibilityAction}>
             <input type="hidden" name="lead_id" value={leadId} />
             <input type="hidden" name="match_id" value={match.match_id} />
@@ -704,6 +714,7 @@ function MatchInspector({
       )}
 
       <form ref={formRef} action={action} className="grid gap-2">
+        {dirty && <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300"><span>{stale ? "다른 변경이 있습니다. 저장 시 변경 전 값을 대조합니다." : "미저장 초안"}</span><SubmitButton>변경사항 저장</SubmitButton><button type="button" onClick={reload} className="text-ink-400">초안 버리고 최신 값</button></div>}
         <input type="hidden" name="base" value={JSON.stringify(base)} />
         <input type="hidden" name="lead_id" value={leadId} />
         <input type="hidden" name="match_id" value={match.match_id} />
@@ -874,27 +885,24 @@ function RosterInspector({
   leadId,
   match,
   streamers,
-  focus,
+  focus, onDirty,
 }: {
   leadId: string;
   match: ReviewMatch;
   streamers: ReviewStreamer[];
-  focus?: RosterFocus;
+  focus?: RosterFocus; onDirty: (id: string | null) => void;
 }) {
   const bySlug = useMemo(() => new Map(streamers.map((s) => [s.id, s.slug])), [streamers]);
   const signature = JSON.stringify(match.participants);
   const makeRows = () => rosterRows(match, bySlug);
-  const [rows, setRows] = useState<RosterDraftRow[]>(makeRows);
+  const { draft: rows, setDraft: setRows, reset, dirty, stale } = useReviewDraft(`lol-roster:${match.match_id}`, makeRows());
+  useEffect(() => { onDirty(dirty ? match.match_id : null); }, [dirty, match.match_id, onDirty]);
   const [activeCell, setActiveCell] = useState<string | null>(null);
-  const [state, action, pending] = useActionState(saveRosterAction, IDLE);
-
-  // 서버 액션 뒤 갱신된 로스터가 들어오면 그 값을 새 편집 기준으로 삼는다.
-  useEffect(() => {
-    setRows(makeRows());
-    setActiveCell(null);
-    // signature는 참가자 값이 실제로 바뀌었을 때만 달라진다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature]);
+  const [state, action, pending] = useActionState(async (prev: CkActionState, form: FormData) => {
+    const result = await saveRosterAction(prev, form);
+    if (result.ok && result.savedRoster) { reset(rosterRows({ participants: result.savedRoster }, bySlug)); setActiveCell(null); }
+    return result;
+  }, IDLE);
 
   useEffect(() => {
     const field = rosterFocus(focus);
@@ -937,6 +945,7 @@ function RosterInspector({
         </fieldset>
         <div className="sticky bottom-0 -mx-1 flex items-center gap-3 border-t border-ink-800 bg-ink-900/95 px-1 pt-3">
           <SubmitButton>변경사항 저장</SubmitButton>
+          {dirty && <><span className="text-xs text-amber-300">{stale ? "최신 값과 다른 초안" : "미저장 초안"}</span><button type="button" onClick={() => reset()} className="text-xs text-ink-400">초안 버리기</button></>}
           <ActionMessage state={state} />
         </div>
       </form>
@@ -962,7 +971,7 @@ type RosterDraftRow = {
   remove: boolean;
 };
 
-function rosterRows(match: ReviewMatch, bySlug: Map<string, string>): RosterDraftRow[] {
+function rosterRows(match: Pick<ReviewMatch, "participants">, bySlug: Map<string, string>): RosterDraftRow[] {
   const taken = new Set(match.participants.map((participant) => participant.participant_id));
   const spareIds = Array.from({ length: 10 }, (_, index) => index + 1).filter((id) => !taken.has(id));
   let spare = 0;

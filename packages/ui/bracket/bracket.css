@@ -1,0 +1,149 @@
+/* 공통 대진표. 강조색은 부모가 --bk-accent / --bk-accent-soft 로 준다. 클래스는 bk- 접두사다. */
+.bk-wrap { --bk-line: #334154; --bk-panel: #17212e; --bk-muted: #93a7c1; display: grid; gap: 12px; color: #e2e9f3; }
+.bk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-size: 11px; color: var(--bk-muted); }
+.bk-legend { display: inline-flex; align-items: center; gap: 6px; }
+.bk-legend input { accent-color: var(--bk-accent, #ffad78); margin: 0; }
+.bk-legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--bk-accent, #ffad78); }
+.bk-legend i.bk-legend-lose { border-top: 2px dotted #8c9bb0; }
+.bk-hint { margin-left: auto; font-size: 10px; }
+@media (max-width: 760px) { .bk-hint { display: none; } .bk-zoom { margin-left: auto; } }
+/* 창(viewport) 안에서 대진표를 transform 으로 옮기고 키운다 — 지도처럼 */
+.bk-viewport {
+  position: relative; overflow: hidden; border-radius: 8px; background: var(--bk-canvas, #0d131b);
+  border: 1px solid var(--bk-line); cursor: grab; touch-action: none; overscroll-behavior: contain;
+}
+.bk-viewport.bk-dragging { cursor: grabbing; user-select: none; }
+.bk-viewport.bk-dragging .bk-slot { pointer-events: none; }
+.bk-board { position: absolute; top: 0; left: 0; width: max-content; padding: 0 12px; transform-origin: 0 0; will-change: transform; }
+.bk-zoom { display: inline-flex; align-items: center; gap: 4px; }
+.bk-zoom button {
+  min-width: 28px; height: 28px; padding: 0 9px; border: 1px solid var(--bk-line); border-radius: 6px;
+  background: #182331; color: #d9e3f1; font-size: 12px; cursor: pointer;
+}
+.bk-zoom button:hover { border-color: var(--bk-accent, #ffad78); color: var(--bk-accent-soft, #ffd1b3); }
+.bk-zoom output { min-width: 42px; text-align: center; font-size: 11px; color: #cfd9e6; font-variant-numeric: tabular-nums; }
+.bk-lines { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.bk-lines path { fill: none; stroke-width: 1.5; }
+.bk-line-winner { stroke: color-mix(in srgb, var(--bk-accent, #ffad78) 70%, transparent); }
+.bk-line-loser { stroke: #6f7f96; stroke-dasharray: 2 4; opacity: .75; }
+.bk-lane { position: relative; padding: 16px 0 20px; border-top: 1px solid var(--bk-line); }
+.bk-lane:first-of-type { border-top: 0; }
+.bk-lane h3 { margin: 0 0 12px; font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--bk-accent-soft, #ffd1b3); }
+.bk-lane-grid { display: grid; grid-template-columns: repeat(var(--bk-cols), 208px); column-gap: 40px; align-items: center; }
+.bk-col { display: flex; flex-direction: column; justify-content: space-around; gap: 14px; min-height: 100%; }
+.bk-slot {
+  position: relative; z-index: 1; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
+  border: 1px solid var(--bk-line); border-radius: 7px; background: var(--bk-panel); font-size: 11px; color: inherit; text-decoration: none;
+}
+a.bk-slot:hover, button.bk-slot:hover { border-color: var(--bk-accent, #ffad78); }
+button.bk-slot { width: 100%; text-align: left; font: inherit; cursor: pointer; }
+.bk-slot-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--bk-muted); margin-bottom: 2px; }
+.bk-slot-head b { font-weight: 650; color: #cfd9e6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-slot-foot em {
+  padding: 1px 5px; border-radius: 3px; font-size: 9px; font-style: normal; white-space: nowrap;
+  border: 1px solid #ffffff26; color: #cdd6e2;
+}
+.bk-slot-foot em[data-badge="추론"], .bk-slot-foot em[data-badge="기록 없음"] { border-style: dashed; color: #e2c98d; border-color: #e2c98d66; }
+.bk-slot-foot em[data-badge="공식 발표"], .bk-slot-foot em[data-badge="방송 확인"] { color: var(--bk-accent-soft, #ffd1b3); border-color: color-mix(in srgb, var(--bk-accent, #ffad78) 50%, transparent); }
+.bk-slot-foot em[data-badge="주최측 결정"] { color: #c7b4ff; border-color: #c7b4ff66; }
+.bk-slot-foot em[data-badge="미정"], .bk-slot-foot em[data-badge="취소"] { color: #8c9bb0; }
+.bk-side { display: flex; align-items: center; gap: 9px; min-height: 28px; color: #a9b8ca; font-size: 13px; }
+.bk-side-won { color: #f3f7fc; }
+.bk-side-won .bk-name { font-weight: 700; }
+.bk-side-unknown { color: #6f7f96; }
+.bk-face { display: inline-flex; flex-shrink: 0; }
+.bk-face .arena-avatar { width: 24px; height: 24px; font-size: 9px; }
+.bk-face-empty { width: 24px; height: 24px; border-radius: 50%; border: 1px dashed #56657a; align-items: center; justify-content: center; font-size: 9px; }
+.bk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-side strong { min-width: 16px; text-align: right; font: 750 16px/1 Arial, sans-serif; }
+.bk-side-won strong { color: var(--bk-accent, #ffad78); }
+.bk-pick { font-style: normal; font-size: 9px; color: #c7b4ff; }
+.bk-slot-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 10px; color: #8c9bb0; }
+.bk-slot-foot > span { margin-left: auto; white-space: nowrap; }
+.bk-slot-foot small { font-size: 9px; color: var(--bk-muted); }
+
+/* 최종 순위 */
+.bk-places { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bk-places li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--bk-line, #334154); border-radius: 7px; background: var(--bk-panel, #17212e); }
+.bk-places .bk-face .arena-avatar { width: 30px; height: 30px; font-size: 9px; }
+.bk-place-top { border-color: color-mix(in srgb, var(--bk-accent, #ffad78) 55%, transparent) !important; }
+.bk-place-rank { min-width: 36px; font: 750 14px/1 Arial, sans-serif; color: #dbe4ef; font-variant-numeric: tabular-nums; }
+.bk-place-top .bk-place-rank { color: var(--bk-accent, #ffad78); }
+.bk-place-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bk-place-name strong { font-size: 12px; font-weight: 650; }
+.bk-place-name strong a:hover { color: var(--bk-accent-soft, #ffd1b3); }
+.bk-place-name small { font-size: 10px; color: #9fb0c6; }
+.bk-place-name small[data-from="official"] { color: var(--bk-accent-soft, #ffd1b3); }
+.bk-place-name small[data-certainty="inferred"] { color: #e2c98d; }
+
+
+/* 참가자 필터: 칩으로 고르면 그 사람이 없는 칸·선을 흐리게, 지나간 선을 굵게 */
+.bk-people { display: flex; flex-wrap: wrap; gap: 6px; }
+.bk-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px 0 5px; border-radius: 999px;
+  border: 1px solid var(--bk-line); background: #162130; color: #cfd9e6; font-size: 12px; cursor: pointer;
+}
+.bk-chip:first-child { padding-left: 12px; }
+.bk-chip .arena-avatar { width: 22px; height: 22px; font-size: 8px; }
+.bk-chip:hover { border-color: #5b7090; }
+.bk-chip[aria-pressed="true"] {
+  border-color: var(--bk-accent, #ffad78); color: #fff;
+  background: color-mix(in srgb, var(--bk-accent, #ffad78) 18%, #162130);
+}
+.bk-slot { transition: opacity .15s, border-color .15s; }
+.bk-slot-dim { opacity: .22; }
+.bk-slot-focus { border-color: var(--bk-accent, #ffad78); box-shadow: 0 0 0 1px color-mix(in srgb, var(--bk-accent, #ffad78) 40%, transparent); }
+.bk-side-focus { margin: 0 -6px; padding: 0 6px; border-radius: 4px; background: color-mix(in srgb, var(--bk-accent, #ffad78) 14%, transparent); }
+.bk-lines path { transition: opacity .15s; }
+.bk-line-dim { opacity: .12; }
+.bk-line-focus { stroke: var(--bk-accent, #ffad78) !important; stroke-width: 3; opacity: 1; }
+.bk-line-loser.bk-line-focus { stroke-dasharray: 5 4; }
+.bk-pk { margin-left: 3px; font: 600 11px/1 Arial, sans-serif; color: #9fb0c6; }
+.bk-side-won .bk-pk { color: var(--bk-accent-soft, #ffd1b3); }
+
+/* 경로 패널: 참가자 · 합계 · 단계 타임라인 */
+/* 대진표 창 하단에 떠 있다 — 고를 때 대진표가 밀리지 않게 */
+.bk-path {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5;
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 0;
+  border: 1px solid color-mix(in srgb, var(--bk-accent, #ffad78) 35%, var(--bk-line)); border-radius: 10px;
+  background: color-mix(in srgb, var(--bk-panel) 88%, transparent); backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px #000a; cursor: default; user-select: none;
+}
+.bk-path > * { padding: 12px 18px; }
+.bk-path > * + * { border-left: 1px solid var(--bk-line); }
+.bk-path-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bk-path-who .arena-avatar { width: 36px; height: 36px; font-size: 11px; }
+.bk-path-who > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.bk-path-who strong { font-size: 14px; font-weight: 750; color: #f1f5fb; white-space: nowrap; }
+.bk-path-who small { font-size: 11px; font-weight: 650; color: var(--bk-accent-soft, #ffd1b3); white-space: nowrap; }
+.bk-path-record { display: flex; gap: 14px; margin: 0; }
+.bk-path-record div { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 22px; }
+.bk-path-record dt { font-size: 10px; color: var(--bk-muted); }
+.bk-path-record dd { margin: 0; font: 750 18px/1 Arial, sans-serif; color: #e8eef6; font-variant-numeric: tabular-nums; }
+.bk-path-record div:first-child dd { color: var(--bk-accent, #ffad78); }
+.bk-path-record div:nth-child(3) dd { color: #ff8b8b; }
+.bk-path-steps {
+  display: flex; align-items: center; gap: 0; margin: 0; list-style: none;
+  overflow-x: auto; scrollbar-width: thin; scrollbar-color: #4d617d transparent;
+}
+.bk-path-steps li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 0 0 auto; padding: 0 9px; }
+/* 단계 사이 연결선 — 칩 가운데 높이 */
+.bk-path-steps li + li::before {
+  content: ""; position: absolute; left: -9px; right: calc(100% - 9px); bottom: 11px; height: 1px; background: #3b4a5f;
+}
+.bk-path-steps small { font-size: 10px; color: var(--bk-muted); white-space: nowrap; }
+.bk-path-steps b {
+  display: inline-grid; place-items: center; min-width: 28px; height: 22px; padding: 0 6px; border-radius: 6px;
+  font-size: 11px; font-weight: 750; background: #ffffff0f; color: #cfd9e6; border: 1px solid transparent;
+}
+.bk-path-steps li[data-result="승"] b, .bk-path-steps li[data-result="선택"] b {
+  color: var(--bk-accent, #ffad78); background: color-mix(in srgb, var(--bk-accent, #ffad78) 16%, transparent);
+}
+.bk-path-steps li[data-result="패"] b, .bk-path-steps li[data-result="탈락"] b { color: #ff9a9a; background: #ff6b6b1f; }
+.bk-path-steps li.bk-step-inferred b { border-style: dashed; border-color: currentColor; }
+.bk-step-final b { color: #0d141d !important; background: var(--bk-accent, #ffad78) !important; padding: 0 8px; }
+@media (max-width: 760px) {
+  .bk-path { grid-template-columns: auto minmax(0, 1fr); }
+  .bk-path-steps { grid-column: 1 / -1; border-left: 0 !important; border-top: 1px solid var(--bk-line); }
+}

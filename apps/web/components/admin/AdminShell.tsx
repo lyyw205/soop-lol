@@ -1,17 +1,16 @@
 "use client";
 
+import { AdminScrollMemory } from "./AdminScrollMemory";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardCheck, Database, LayoutDashboard, ListChecks, Radio, Trophy, Users, CalendarDays } from "lucide-react";
-import type { ReactNode } from "react";
+import { ClipboardCheck, LayoutDashboard, Radio, Trophy, Users, CalendarDays } from "lucide-react";
+import { Suspense, type ReactNode } from "react";
 
 const NAV = [
-  { href: "/admin", label: "대시보드", icon: LayoutDashboard, match: (path: string) => path === "/admin" },
-  { href: "/admin/streamers", label: "스트리머", icon: Users, match: (path: string) => path.startsWith("/admin/streamers") },
-  { href: "/admin/candidates", label: "계정 후보", icon: Database, match: (path: string) => path.startsWith("/admin/candidates") },
-  { href: "/admin/ck", label: "경기 검수", icon: ClipboardCheck, match: (path: string) => path.startsWith("/admin/ck") },
-  { href: "/admin/overview", label: "경기 확인", icon: ListChecks, match: (path: string) => path.startsWith("/admin/overview") },
-  { href: "/admin/fco", label: "FC 맥락 검수", icon: Trophy, match: (path: string) => path.startsWith("/admin/fco") },
+  { href: "/admin", label: "검수 대기", icon: LayoutDashboard, match: (path: string) => path === "/admin" },
+  { href: "/admin/ck", label: "LoL 경기", icon: ClipboardCheck, match: (path: string) => path.startsWith("/admin/ck") || path.startsWith("/admin/overview") },
+  { href: "/admin/fco", label: "FC 경기", icon: Trophy, match: (path: string) => path.startsWith("/admin/fco") },
+  { href: "/admin/streamers", label: "스트리머·계정", icon: Users, match: (path: string) => path.startsWith("/admin/streamers") || path.startsWith("/admin/candidates") },
   { href: "/admin/schedule", label: "편성표", icon: CalendarDays, match: (path: string) => path.startsWith("/admin/schedule") },
 ] as const;
 
@@ -21,6 +20,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="admin-shell" data-admin-shell>
+      <Suspense fallback={null}><AdminScrollMemory /></Suspense>
       <aside className="admin-sidebar" aria-label="관리자 메뉴">
         <Link href="/admin" className="admin-brand">
           <span className="admin-brand-mark"><Radio size={15} aria-hidden /></span>
@@ -49,7 +49,15 @@ export function AdminShell({ children }: { children: ReactNode }) {
       </header>
 
       <main className="admin-workspace" data-admin-workspace>
-        <div className="admin-content">{children}</div>
+        <div className="admin-content">
+          {(current.href === "/admin/ck" || current.href === "/admin/streamers") && <nav className="admin-section-tabs" aria-label={`${current.label} 보기`}>
+            {(current.href === "/admin/ck" ? [
+              ["/admin/ck", "검수 목록"], ["/admin/overview", "시리즈 비교"], ["/admin/ck/unknown", "참가자 연결"],
+            ] : [["/admin/streamers", "스트리머"], ["/admin/candidates", "계정 후보"]]).map(([href, label]) =>
+              <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}>{label}</Link>)}
+          </nav>}
+          {children}
+        </div>
       </main>
     </div>
   );

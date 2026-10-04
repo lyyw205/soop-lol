@@ -229,7 +229,7 @@ export interface FcoTopPair {
 }
 
 /** 공개 계정이 확인된 스트리머끼리의 경기만 집계한다. */
-export async function listFcoTopPairs(limit = 8): Promise<FcoTopPair[]> {
+export async function listFcoTopPairs(limit = 8, streamerId?: string): Promise<FcoTopPair[]> {
   return db().unsafe<FcoTopPair[]>(`
     SELECT LEAST(a.streamer_id, b.streamer_id) AS a_id,
            GREATEST(a.streamer_id, b.streamer_id) AS b_id,
@@ -245,10 +245,11 @@ export async function listFcoTopPairs(limit = 8): Promise<FcoTopPair[]> {
       JOIN streamer sa ON sa.id = a.streamer_id AND sa.visibility = 'public'
       JOIN streamer sb ON sb.id = b.streamer_id AND sb.visibility = 'public'
      WHERE a.streamer_id IS NOT NULL AND b.streamer_id IS NOT NULL AND a.streamer_id <> b.streamer_id
+       AND ($2::uuid IS NULL OR a.streamer_id = $2::uuid OR b.streamer_id = $2::uuid)
      GROUP BY LEAST(a.streamer_id, b.streamer_id), GREATEST(a.streamer_id, b.streamer_id)
      ORDER BY games DESC, a_id, b_id
      LIMIT $1
-  `, [limit]);
+  `, [limit, streamerId ?? null]);
 }
 
 /** 전적 검색 첫 화면에서 보여 줄, 실제 맞대결이 가장 많은 공개 스트리머 쌍. */
@@ -325,32 +326,3 @@ export async function listFcoEventGames(eventId: string): Promise<FcoGame[]> {
   return games(rows);
 }
 
-export interface FcoRankRow extends FcoPerson {
-  games: number;
-  wins: number;
-  draws: number;
-  losses: number;
-  goals: number;
-}
-
-export async function listFcoLeaderboard(): Promise<FcoRankRow[]> {
-  return db()<FcoRankRow[]>`
-    SELECT s.id, s.slug, s.display_name AS name, s.profile_image_url AS image,
-           min(a.nickname) AS nickname,
-           count(*)::int AS games,
-           count(*) FILTER (WHERE p.outcome = 'win')::int AS wins,
-           count(*) FILTER (WHERE p.outcome = 'draw')::int AS draws,
-           count(*) FILTER (WHERE p.outcome = 'loss')::int AS losses,
-           coalesce(sum(p.goals), 0)::int AS goals
-      FROM fco_match_participant p
-      JOIN match m ON m.match_id = p.match_id AND m.game_code = 'fconline'
-                  AND m.visibility = 'public'
-      JOIN streamer s ON s.id = p.streamer_id AND s.visibility = 'public'
-      JOIN streamer_fco_account link ON link.streamer_id = s.id
-                                     AND link.ouid = p.ouid AND link.visibility = 'public'
-      JOIN fco_account a ON a.ouid = link.ouid
-     GROUP BY s.id
-     -- 순위 정책(무엇이 먼저인가)은 리더보드 모듈의 것이다. 여기는 집계만 한다.
-     ORDER BY name
-  `;
-}

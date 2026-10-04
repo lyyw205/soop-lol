@@ -92,8 +92,7 @@ export function fromKstInputValue(value: string): Date | null {
  * ★ 화면마다 따로 판단하면 한쪽은 "19:00" 을 내고 다른 쪽은 날짜만 낸다 — 규칙은 여기 하나다.
  */
 export function kstPlayedAt(at: Date, precision: "datetime" | "date"): string {
-  const opts: Intl.DateTimeFormatOptions = precision === "datetime"
-    ? { timeZone: "Asia/Seoul", dateStyle: "short", timeStyle: "short" }
-    : { timeZone: "Asia/Seoul", dateStyle: "short" };
-  return at.toLocaleString("ko-KR", opts);
+  const wall = new Date(at.getTime() + KST_OFFSET_MS).toISOString();
+  const date = wall.slice(2, 10).replaceAll("-", ".");
+  return precision === "datetime" ? `${date} ${wall.slice(11, 16)}` : date;
 }

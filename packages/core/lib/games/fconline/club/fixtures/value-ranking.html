@@ -1,0 +1,2713 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta charset="utf-8" />
+        <title>선수 검색 | FC온라인 데이터센터</title>
+    <meta name="viewport" content="width=1200" />
+    <meta name="robots" content="index,follow" />
+    <meta name="description" content="FC온라인 전체 선수의 능력치, 스탯, 클래스 특성 시세 정보를 검색하고 비교해 보세요." />
+    <meta name="author" content="NEXON Korea" />
+    <meta name="keywords" content="NEXON, 넥슨, NEXON Korea, 넥슨코리아, FC ONLINE, FC 온라인, FC, EA, EA Sports, 스포츠" />
+
+    <meta property="og:title" content="선수 검색 | FC온라인 데이터센터" />
+    <meta property="og:description" content="FC온라인 전체 선수의 능력치, 스탯, 클래스 특성 시세 정보를 검색하고 비교해 보세요.." />
+    <meta property="og:image" content="https://ssl.nexon.com/s2/game/fc/online/obt/banner_facebook.jpg">
+    <meta property="og:url" content="http://fconline.nexon.com/datacenter/dailyrank">
+
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="선수 검색 | FC온라인 데이터센터">
+    <meta name="twitter:url" content="http://fconline.nexon.com/datacenter/dailyrank">
+    <meta name="twitter:image" content="https://ssl.nexon.com/s2/game/fc/online/obt/mobile_180.png">
+    <meta name="twitter:description" content="FC온라인 전체 선수의 능력치, 스탯, 클래스 특성 시세 정보를 검색하고 비교해 보세요.">
+
+    <link rel="shortcut Icon" href="https://ssl.nexon.com/s2/game/fc/online/common/favicon.ico" type="image/x-icon" />
+    <link rel="icon" href="https://ssl.nexon.com/s2/game/fc/online/common/favicon.ico" type="image/x-icon" />
+    <link rel="canonical" href="http://fconline.nexon.com/datacenter/dailyrank">
+
+    <script src="https://signin.nexon.com/sdk/inface.js"></script>
+
+    <script type="text/javascript" src="https://js.nexon.com/s1/global/ngb_head.js"></script>
+
+    <script src="https://js.nexon.com/s1/fc/online/common/ga.js"></script>
+    <script src="https://js.nexon.com/s1/fc/online/common/gtm.js"></script>
+    <script src="https://js.nexon.com/s1/fc/online/library/jquery.min.js"></script>
+    <script src="https://js.nexon.com/s1/fc/online/library/TweenMax.min.js"></script>
+    <!--[if lte IE 10]>
+    <script>location.href = "https://fconline.nexon.com/common/ie9";</script>
+    <![endif]-->
+
+    <script src="https://js.nexon.com/s1/fc/online/obt/fObject.min.js"></script>
+    <script src="https://js.nexon.com/s1/fc/online/obt/fo4.min.js"></script>
+
+    <script type="text/javascript" src="https://js.nexon.com/s1/p2/ps.min.js" charset="utf-8" data-name="PS" data-ngm="true" data-nxlogin="true"></script>
+    <script type="text/javascript" src="https://js.nexon.com/s1/global/ngb_activex.js"></script>
+
+    <link rel="stylesheet" type="text/css" href="https://js.nexon.com/s3/fc/online/obt/fonts_ssl.css" media="all" />
+    <link rel="stylesheet" type="text/css" href="https://js.nexon.com/s3/fc/online/obt/fo4_ssl.css?2026100214" media="all" />
+    <link rel="stylesheet" type="text/css" href="https://js.nexon.com/s3/fc/online/obt/seasons_ssl.css?2026100214" media="all" />
+
+    <link rel="stylesheet" href="https://js.nexon.com/s3/fc/online/obt/swiper.min.css">
+    <script src="https://js.nexon.com/s1/fc/online/obt/swiper.min.js"></script>
+    <script src="https://js.nexon.com/s1/fc/online/obt/masonry.pkgd.min.js"></script>
+
+    <script type="text/javascript" src="/Scripts/boardnew.js?202610021431"></script>
+    <script type="text/javascript" src="/Scripts/event.js"></script>
+    
+
+    <!-- Criteo 로더 파일 -->
+    <script type="text/javascript" src="//dynamic.criteo.com/js/ld/ld.js?a=93167" async="true"></script>
+    <!-- END Criteo 로더 파일 -->
+
+    <script type="text/javascript" charset="UTF-8" src="//t1.daumcdn.net/kas/static/kp.js"></script>
+    <script type="text/javascript">
+        kakaoPixel('1192263020173609587').pageView();
+        kakaoPixel('6182444101096946025').pageView();        
+    </script>
+
+    
+    <script>
+        (function () {
+            try {
+                var KEY = '__hop__';
+                var data = {};
+                try {
+                    data = JSON.parse(window.name || '{}');
+                } catch (e) {
+                    data = {};
+                }
+                var hop = data[KEY] || { previous: null, current: null, t: 0 };
+                var cur = location.origin;
+                data[KEY] = { previous: hop.current || null, current: cur, t: Date.now() };
+                window.name = JSON.stringify(data);
+            } catch (e) {
+                // fail-safe: 아무 것도 하지 않음
+            }
+        })();
+    </script>
+</head>
+<body class="default">
+    <script type="text/javascript" src="https://js.nexon.com/s1/global/ngb_bodystart.js" charset="euc-kr"></script>
+
+    <!-- Criteo 홈페이지 태그 -->
+    <script type="text/javascript">
+        window.criteo_q = window.criteo_q || [];
+        var deviceType = /iPad/.test(navigator.userAgent) ? "t" : /Mobile|iP(hone|od)|Android|BlackBerry|IEMobile|Silk/.test(navigator.userAgent) ? "m" : "d";
+        window.criteo_q.push(
+            { event: "setAccount", account: 93167 },
+            { event: "setEmail", email: "", hash_method: "" },
+            { event: "setZipcode", zipcode: "" },
+            { event: "setSiteType", type: deviceType },
+            { event: "viewHome" });
+
+        function GameStart_Criteo() {
+            window.criteo_q.push(
+                { event: "setAccount", account: 93167 },
+                { event: "setEmail", email: "", hash_method: "" },
+                { event: "setZipcode", zipcode: "" },
+                { event: "setSiteType", type: deviceType },
+                { event: "trackTransaction", id: Math.floor(Math.random() * 99999999999), item: [{ id: "FC_GAMESTART", price: 1, quantity: 1 }] }
+            );
+        }
+
+    </script>
+    <!-- END Criteo 홈페이지 태그 -->
+
+    
+
+    <div id="wrapper" class="sub">
+        <!-- 공통 GNB -->
+        
+
+
+<header id="header" class="after_0517">
+    <h1 class="logo"><a href="/main/index" data-weblog-object="gnb-logo">FC ONLINE</a></h1>
+    <div class="header_nav">
+        <div class="header_nav_wrap">
+            <ul>
+                <li class="depth1 nav_cate1 ">
+                    <a href="/Profile/squad" class="btn_depth1" data-weblog-object="gnb-main-navi-01"><span>프로필</span></a>
+                </li>
+                <li class="depth1 nav_cate2 ">
+                    <a href="/news/notice/list" class="btn_depth1" data-weblog-object="gnb-main-navi-02"><span>게임소식</span></a>
+                </li>
+                <li class="depth1 nav_cate3 ">
+                    <a href="/community/recommend" class="btn_depth1" data-weblog-object="gnb-main-navi-03"><span>커뮤니티</span></a>
+                </li>
+                <li class="depth1 nav_cate5">
+                    <a href="https://shop.fconline.nexon.com" target="_blank" class="btn_depth1" data-weblog-object="gnb-main-navi-05"><span>웹 상점</span></a>
+                </li>
+                <li class="depth1 nav_cate6 active">
+                    <a href="/datacenter/dailysquad" class="btn_depth1" data-weblog-object="gnb-main-navi-06"><span>데이터센터</span></a>
+                </li>
+                <li class="depth1 nav_cate7 ">
+                    <a href="/pds/download" class="btn_depth1" data-weblog-object="gnb-main-navi-07"><span>자료실</span></a>
+                </li>
+                <li class="depth1 nav_cate8">
+                    <a href="https://esports.fconline.nexon.com/FSL/Index" target="_blank" class="btn_depth1" data-weblog-object="gnb-main-navi-08"><span>SPORTS</span></a>
+                </li>
+            </ul>
+        </div>
+    </div>
+    <div class="slide_menu">
+        <div class="slide_menu_wrap">
+            <ul>
+                <li class="nav_cate_wrap" data-target="nav_cate1">
+                    <ul>
+                        <li class="depth2 nav_cate1"><a href="/profile/squad" data-weblog-object="gnb-sub-navi-01-01">스쿼드</a></li>
+                        <li class="depth2 nav_cate1"><a href="/profile/stat" data-weblog-object="gnb-sub-navi-01-02">경기 기록</a></li>
+                        <li class="depth2 nav_cate1"><a href="/profile/trade" data-weblog-object="gnb-sub-navi-01-03">이적시장</a></li>
+                        <li class="depth2 nav_cate1"><a href="/profile/community" data-weblog-object="gnb-sub-navi-01-04">커뮤니티</a></li>
+                        <li class="depth2 nav_cate1"><a href="/profile/friends" data-weblog-object="gnb-sub-navi-01-05">친구</a></li>
+                        <li class="depth2 nav_cate1"><a href="/profile/guestbook" data-weblog-object="gnb-sub-navi-01-06">방명록</a></li>
+                        <li class="depth2 nav_cate1"><a href="/profile/owner" data-weblog-object="gnb-sub-navi-01-07">구단주 정보</a></li>
+                        <li class="depth2 nav_cate1"><a href="/profile/setting" data-weblog-object="gnb-sub-navi-01-08">설정</a></li>
+                    </ul>
+                </li>
+
+                <li class="nav_cate_wrap" data-target="nav_cate2">
+                    <ul>
+                        <li class="depth2 nav_cate2"><a href="/news/notice/list" data-weblog-object="gnb-sub-navi-02-01">공지사항</a></li>
+                        <li class="depth2 nav_cate2"><a href="/news/play/list" data-weblog-object="gnb-sub-navi-02-02">개발자 노트</a></li>
+                        <li class="depth2 nav_cate2"><a href="/news/nf/list" data-weblog-object="gnb-sub-navi-02-03">NEXT FIELD</a></li>
+                        <li class="depth2 nav_cate2"><a href="/news/update/list" data-weblog-object="gnb-sub-navi-02-04">업데이트</a></li>
+                        <li class="depth2 nav_cate2"><a href="/news/events/list" data-weblog-object="gnb-sub-navi-02-05">이벤트</a></li>
+                        <li class="depth2 nav_cate2"><a href="/news/guide/list" data-weblog-object="gnb-sub-navi-02-06">유저 가이드</a></li>
+                        <li class="depth2 nav_cate2"><a href="https://fco.vod.nexoncdn.co.kr/list/2023/9/note_FCO_202307_sdkfjcv3423.html" data-weblog-object="gnb-sub-navi-02-07" target="_blank">신규 전술 가이드<span class="ico ico_outlink"></span></a></li>
+                        <li class="depth2 nav_cate2"><a href="https://yourfield.nexon.com/" target="_blank" data-weblog-object="gnb-sub-navi-02-08">YOUR FIELD<span class="ico ico_outlink"></span></a></li>
+                    </ul>
+                </li>
+                <li class="nav_cate_wrap" data-target="nav_cate3">
+                    <ul>
+                        <li class="depth2 nav_cate3"><a href="/community/recommend" data-weblog-object="gnb-sub-navi-03-01">추천</a></li>
+                        <li class="depth2 nav_cate3"><a href="/community/free/list" data-weblog-object="gnb-sub-navi-03-02">자유</a></li>
+                        <li class="depth2 nav_cate3"><a href="/community/tip/list" data-weblog-object="gnb-sub-navi-03-03">팁</a></li>
+                        <li class="depth2 nav_cate3"><a href="/community/qa/list" data-weblog-object="gnb-sub-navi-03-04">질문</a></li>
+                        <li class="depth2 nav_cate3"><a href="/community/club/list" data-weblog-object="gnb-sub-navi-03-05">클럽홍보</a></li>
+                        <li class="depth2 nav_cate3"><a href="/community/bug/list" data-weblog-object="gnb-sub-navi-03-06">게임 플레이 버그 제보</a></li>
+                        <li class="depth2 nav_cate3"><a href="https://new-playtalk.nexon.com/list/2396" data-weblog-object="gnb-sub-navi-03-07" target="_blank">FC톡<span class="ico ico_outlink"></span></a></li>
+                        <li class="depth2 nav_cate3"><a href="/community/webevent" data-weblog-object="gnb-sub-navi-03-08">친구 초대 게시판</a></li>
+                    </ul>
+                </li>
+                <li class="nav_cate_wrap" data-target="nav_cate5">
+                    <ul>
+                        <li class="depth2 nav_cate5"><a href="https://shop.fconline.nexon.com/" target="_blank" data-weblog-object="gnb-sub-navi-05-01">웹 상점</a></li>
+                        <li class="depth2 nav_cate5"><a href="https://shop.fconline.nexon.com/Membership" target="_blank" data-weblog-object="gnb-sub-navi-05-02">멤버십</a></li>
+                        <li class="depth2 nav_cate5"><a href="https://shop.fconline.nexon.com/ShopEvent/Index" target="_blank" data-weblog-object="gnb-sub-navi-05-03">스페셜 상점</a></li>
+                        <li class="depth2 nav_cate5"><a href="https://shop.fconline.nexon.com/mypage" target="_blank" data-weblog-object="gnb-sub-navi-05-04">마이페이지</a></li>
+                        <li class="depth2 nav_cate5"><a href="https://shop.fconline.nexon.com/shop/PaidItemPolicy" target="_blank" data-weblog-object="gnb-sub-navi-05-05">추가 정보</a></li>
+                    </ul>
+                </li>
+                <li class="nav_cate_wrap" data-target="nav_cate6">
+                    <ul>
+                        <li class="depth2 nav_cate6"><a href="/datacenter/dailysquad" data-weblog-object="gnb-sub-navi-06-01">데일리 차트</a></li>
+                        <li class="depth2 nav_cate6"><a href="/datacenter" data-weblog-object="gnb-sub-navi-06-02">선수</a></li>
+                        <li class="depth2 nav_cate6"><a href="/datacenter/teamcolor" data-weblog-object="gnb-sub-navi-06-03">팀컬러/감독</a></li>
+                        <li class="depth2 nav_cate6"><a href="/datacenter/rank" data-weblog-object="gnb-sub-navi-06-04">랭킹</a></li>
+                        <li class="depth2 nav_cate6"><a href="/datacenter/playergrow" data-weblog-object="gnb-sub-navi-06-05">강화 부스트 도우미</a></li>
+                        <li class="depth2 nav_cate6"><a href="/datacenter/coachhelper" data-weblog-object="gnb-sub-navi-06-06">훈련코치/특성 도우미</a></li>
+                        <li class="depth2 nav_cate6"><a href="/squadmaker" target="_blank" data-weblog-object="gnb-sub-navi-06-07">스쿼드 메이커<span class="ico ico_outlink"></span></a></li>
+                        <li class="depth2 nav_cate6"><a href="/SquadMaker/feed" target="_blank" data-weblog-object="gnb-sub-navi-06-08">스쿼드 피드<span class="ico ico_outlink"></span></a></li>
+                    </ul>
+                </li>
+                <li class="nav_cate_wrap" data-target="nav_cate7">
+                    <ul>
+                        <li class="depth2 nav_cate7"><a href="http://fconline.nexon.com/pds/download" data-weblog-object="gnb-sub-navi-07-01">다운로드/설치</a></li>
+                        <li class="depth2 nav_cate7"><a href="https://fconline.nexon.com/testarena" target="_blank">테스트 구장</a></li>
+                        <li class="depth2 nav_cate7"><a href="https://openapi.nexon.com/ko/game/fconline/" target="_blank" data-weblog-object="gnb-sub-navi-07-06">Nexon Open API<span class="ico ico_outlink"></span></a></li>
+                    </ul>
+                </li>
+                <li class="nav_cate_wrap" data-target="nav_cate8">
+                    <ul>
+                        <li class="depth2 nav_cate8"><a href="https://esports.fconline.nexon.com/FSL/Index" target="_blank" data-weblog-object="gnb-sub-navi-08-01">FSL</a></li>
+                        <li class="depth2 nav_cate8"><a href="https://fconline.nexon.com/NexonFootball" data-weblog-object="gnb-sub-navi-08-02">넥슨 풋볼</a></li>
+                        <li class="depth2 nav_cate8"><a href="https://esports.fconline.nexon.com/_260507/FcaApply" target="_blank" data-weblog-object="gnb-sub-navi-08-03">FCA 대회 신청</a></li>
+
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+    
+    <a href="https://events.fconline.nexon.com/260910/Join?utm_source=pc&utm_medium=maingnb_event&utm_campaign=260910_join" class="btn_out_event" id="btnOutEvent0910" target="_blank">
+        <span class="img"></span>
+        <span class="txt" style="font-weight:600">
+            <span>포동 포동 살찌우고<br>지금 바로 보상받기!</span>
+        </span>
+    </a>
+    <style>
+        #btnOutEvent0910 .img {background: url('https://ssl.nexon.com/s2/game/fc/online/obt/banner/main/260910_intro/banner_top_intro1.png') 22px center no-repeat;background-size: 100px auto;}
+        #btnOutEvent0910:hover .img {background: url(https://ssl.nexon.com/s2/game/fc/online/obt/banner/main/260910_intro/banner_top_intro_hover.png) 50px center no-repeat;background-size: 50px auto;}
+    </style>
+
+    <a href="/customer" class="btn_cc"><span class="hidden">고객센터</span></a>
+
+    <button class="btnGamestart" onclick="GnxGameStartOnClick();" data-clickbtn="btn_Gamestart">
+        <span class="txt"></span>
+        <span class="bg"></span>
+        <video
+            class="hoverVideoLarge"
+            muted
+            playsinline
+            loop
+            preload="metadata"
+        >
+            <source src="https://ssl.nexon.com/s2/game/fc/online/obt/gamestart/animation/home_GameStart.webm" type="video/webm" />
+            <source src="https://ssl.nexon.com/s2/game/fc/online/obt/gamestart/animation/home_GameStart.mp4" type="video/mp4" />
+        </video>
+        <video
+            class="hoverVideoSmall"
+            muted
+            playsinline
+            loop
+            preload="metadata"
+        >
+            <source src="https://ssl.nexon.com/s2/game/fc/online/obt/gamestart/animation/home_GameStart_short.webm" type="video/webm" />
+            <source src="https://ssl.nexon.com/s2/game/fc/online/obt/gamestart/animation/home_GameStart_short.mp4" type="video/mp4" />
+        </video>
+    </button>
+    
+    <script type="text/javascript">
+
+        $(function () {
+            $(".nav_cate_wrap li a").each(function () {
+                if(",게임소식,공지사항,이벤트,데일리 차트,랭킹,YOUR FIELD,데이터센터,자유,추천,업데이트,스쿼드 메이커,스쿼드 피드,".indexOf("," + $(this).html().replace("<i class=\"ico ico_web_shop\"></i>","").replace("<span class=\"ico ico_outlink\"></span>","") + ",") > -1)
+                {
+
+                    $(this).addClass("new");
+                }
+
+            });
+
+            $(".header_nav_wrap li a span").each(function () {
+                if (",게임소식,공지사항,이벤트,데일리 차트,랭킹,YOUR FIELD,데이터센터,자유,추천,업데이트,스쿼드 메이커,스쿼드 피드,".indexOf("," + $(this).html().replace("<i class=\"ico ico_web_shop\"></i>", "").replace("<span class=\"ico ico_outlink\"></span>","") + ",") > -1) {
+                    $(this).parent().addClass("new");
+                }
+
+            });
+
+
+            // depth1 a 태그에 a2s 로깅 속성 추가
+            $(".header_nav_wrap .depth1 > a.btn_depth1").each(function () {
+                var $a = $(this);
+                var menuName = $a.find("span").clone().children().remove().end().text().trim();
+                var hasNewBadge = $a.hasClass("new");
+                $a.attr("data-a2s", "main_gnb_category_click");
+                $a.attr("data-a2s-opt", JSON.stringify({ menu_name: menuName, has_new_badge: hasNewBadge }));
+            });
+
+            // depth2 a 태그에 a2s 로깅 속성 추가
+            $(".slide_menu .depth2 > a").each(function () {
+                var $a = $(this);
+                var menuName = $a.clone().children().remove().end().text().trim();
+                var hasNewBadge = $a.hasClass("new");
+                $a.attr("data-a2s", "main_gnb_category_click");
+                $a.attr("data-a2s-opt", JSON.stringify({ menu_name: menuName, has_new_badge: hasNewBadge }));
+            });
+
+        });
+
+        function GnxGameStartOnClick(argument) {
+                
+                inface.auth.gotoSignIn();
+                
+        }
+        
+
+    </script>
+</header>
+        <!-- //공통 GNB -->
+        <!-- 띠 공지 배너-->
+        
+
+
+
+
+        <!-- 띠 공지 배너-->
+        <!-- MAIN -->
+        
+
+
+
+<script type="text/javascript">
+    $(document).ready(function () {
+
+    });
+</script>
+
+
+
+<!-- MAIN -->
+<main id="middle" class="sub">
+
+    <!-- 데이터센터 -->
+    <div class="datacenter">
+        <div class="wrap">
+            <div class="board_header">
+                
+
+<div class="tit">
+    <h1>데이터센터</h1>
+    <div class="desc">EA SPORTS FC ONLINE의 다양한 데이터를 만나보세요.</div>
+    
+
+<script type="text/javascript">
+</script>
+
+<div class="coach_area">
+</div>
+</div>
+
+<div class="tab_list large">
+    <ul>
+        <li class="tab7 active"><a href="/datacenter/dailysquad">데일리차트</a></li>
+        <li class="tab7 "><a href="/datacenter">선수</a></li>
+        <li class="tab7 "><a href="/datacenter/teamcolor">팀컬러/감독</a></li>
+        <li class="tab7 "><a href="/datacenter/rank">랭킹</a></li>
+        
+        <li class="tab7 "><a href="/datacenter/playergrow">강화 부스트 도우미</a></li>
+        <li class="tab7 "><a href="/datacenter/coachhelper">훈련코치/특성 도우미</a></li>
+        <li class="tab7 "><a href="/datacenter/squadmaker">스쿼드 메이커</a></li>
+    </ul>
+</div>
+            </div>
+
+            <div class="player_view">
+                
+<script src="https://js.nexon.com/s1/fc/online/library/jquery-ui.js"></script>
+<link rel="stylesheet" href="https://js.nexon.com/s3/fc/online/obt/swiper.min.new.css">
+<script src="https://js.nexon.com/s1/fc/online/obt/swiper.min.new.js"></script>
+<script src="https://js.nexon.com/s1/fc/online/obt/masonry.pkgd.min.js"></script>
+<script src="https://ssl.nexon.com/s1/fc/online/obt/Chart.min.js?rd=20261002 023431"></script>
+<script src="/Scripts/datacenter/dailychart.js?rd=20261002 023431"></script>
+<script src="/Scripts/datacenter/dailychart_ui.js?rd=20261002 023431"></script>
+
+
+
+<div class="header">
+    <div class="tit">EA SPORTS FC ONLINE의 일 단위 기록</div>
+
+    <div class="date_picker">
+        <a href="#" class="btn_prev"><span class="hidden">어제</span></a>
+        <div class="picker"><input data-toggle="datepicker" placeholder="2026.10.01" value="2026.10.01" id="strDate"><span class="plus"></span></div>
+        <a href="#" class="btn_next"><span class="hidden">내일</span></a>
+    </div>
+    
+    <script src="https://js.nexon.com/s1/fc/online/obt/plugin/datepicker.min.js"></script>
+    <script>
+        $(".date_picker").on("click", ".btn_prev", function (e) {
+            e.preventDefault();
+            var date = $('[data-toggle="datepicker"]').datepicker('getDate');
+            date.setDate(date.getDate() - 1);
+            $('[data-toggle="datepicker"]').datepicker('setDate', date);
+        });
+
+        $(".date_picker").on("click", ".btn_next", function (e) {
+            e.preventDefault();
+            var date = $('[data-toggle="datepicker"]').datepicker('getDate');
+            date.setDate(date.getDate() + 1);
+            $('[data-toggle="datepicker"]').datepicker('setDate', date);           
+        });
+
+        $('[data-toggle="datepicker"]').datepicker({
+            format: 'yyyy.mm.dd',
+            daysMin: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+            yearSuffix: '.',
+            months: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
+            yearFirst: true
+        });
+
+        $(".date_picker input").on('pick.datepicker', function (e) {
+
+            //var start_date = new Date(2020, 4, 23);
+            //var end_date = getdate();
+            //end_date.setDate(end_date.getho)
+
+            var d = e.date, month = '' + (d.getMonth() + 1), day = '' + d.getDate(), year = d.getFullYear();
+            if (month.length < 2) month = '0' + month;
+            if (day.length < 2) day = '0' + day;
+
+            location.href = "?strDate=" + year + "." + month + "." + day;
+        });
+    </script>
+</div>
+<div class="tab_list medium">
+    <ul>
+        <li class="tab4 "><a href="/datacenter/dailysquad">스쿼드</a></li>
+        <li class="tab4 "><a href="/datacenter/dailyrecord">경기 데이터</a></li>
+        <li class="tab4 "><a href="/datacenter/dailytrade">이적시장/강화</a></li>
+        <li class="tab4 active"><a href="/datacenter/dailyrank">구단주 랭킹</a></li>
+    </ul>
+</div>
+
+<div class="cover" style="display: none;">
+    <div class="loading">
+        <div class="wrap_loading">
+            <span class="ico ico_load_dot1"></span>
+            <span class="ico ico_load_dot2"></span>
+            <span class="ico ico_load_dot3"></span>
+            <span class="ico ico_load_dot4"></span>
+        </div>
+        <p class="txt">
+            기록을 불러오는 중입니다.
+        </p>
+    </div>
+</div>
+            </div>
+            <p class="advice">※ 데일리차트는 매일 오후 12시 기준으로 전일 기록이 업데이트됩니다.</p>
+            <div id="rankWin" class="rank_box">
+                <div class="rank_slider_wrap">
+                    <div class="tit">
+                        <div class="txt">공식 경기 최다승 구단주 랭킹</div>
+                        <div class="select_target_small">
+                            <a href="#" class="selector_target">공식 경기 1 ON 1</a>
+                            <ul class="selector_target_list">
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(50, 'win');">공식 경기 1 ON 1</a></li>
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(51, 'win');">공식 경기 2 ON 2</a></li>
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(52, 'win');">감독 모드</a></li>
+                            </ul>
+                        </div>
+
+                        <div class="guide">
+                            <a href="#" class="btn_guide_data">
+                                데이터 가이드
+                                <span class="ico ico_info_gray">
+                                    <span class="desc_pop" data-width="385">
+                                        <span class="listitem">하루에 기록한 승수 기준으로 산정됩니다.</span>
+                                        <span class="listitem">3개월 이상 접속하지 않거나 탈퇴하신 구단주님은 순위에서 제외됩니다.</span>
+                                    </span>
+                                </span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="content item_list_wrap">
+                        <div class="item_list_wrap__user__new">
+                            <div class="swiper-container">
+                                <div class="swiper-wrapper" id="divRankUserArea_win">
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank15.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="2011728774"> 코너만올려</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="1,769,160,000" title="1,769,160,000">17억 6,916만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>1위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    34승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1290534374"> 찬이짱친</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="2,535,253,450" title="2,535,253,450">25억 3,525만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>2위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    33승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank8.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1827007230"> 휴면919475052093</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="111,645,220" title="111,645,220">1억 1,164만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>3위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    32승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1525153518"> 주경호</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="614,252,700" title="614,252,700">6억 1,425만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>4위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    31승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank8.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="954296275"> 조땡7</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="449,846,590" title="449,846,590">4억 4,984만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>5위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    30승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank4.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1994904559"> ssyO</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="2,317,307,310" title="2,317,307,310">23억 1,730만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>6위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    29승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank7.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="351506235"> 낭만드리블</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="141,369,140" title="141,369,140">1억 4,136만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>7위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    29승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank7.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1877073501"> 정철우다</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="5,969,024,150" title="5,969,024,150">59억 6,902만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>8위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    28승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank7.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="2028605889"> 된장님사장국</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="334,019,020" title="334,019,020">3억 3,401만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>9위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    27승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank6.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1223116946"> 성운짱</span>
+                                                    </div>
+                                            <div class="coach_info_bottom_wrap">
+                                                <span class="value" alt="12,444,317,700" title="12,444,317,700">124억 4,431만</span>
+                                            </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>10위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    27승
+                                                </div>
+                                            </div>
+                                        </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="slider">
+                            <div id="slider1" class="rank_slider">
+                                <div class="wrap_slider">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="rankWinSt" class="rank_box">
+                <div class="rank_slider_wrap">
+                    <div class="tit">
+                        <div class="txt">공식 경기 최다 연승 구단주 랭킹</div>
+                        <div class="select_target_small">
+                            <a href="#" class="selector_target">공식 경기 1 ON 1</a>
+                            <ul class="selector_target_list">
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(50, 'streak');">공식 경기 1 ON 1</a></li>
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(51, 'streak');">공식 경기 2 ON 2</a></li>
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(52, 'streak');">감독 모드</a></li>
+                            </ul>
+                        </div>
+                        <div class="guide">
+                            <a href="#" class="btn_guide_data">
+                                데이터 가이드
+                                <span class="ico ico_info_gray">
+                                    <span class="desc_pop" data-width="385">
+                                        <span class="listitem">하루 기록한 최다 연승 수 기준이며 자정 기준으로 초기화됩니다.</span>
+                                        <span class="listitem">3개월 이상 접속하지 않거나 탈퇴하신 구단주님은 순위에서 제외됩니다.</span>
+                                    </span>
+                                </span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="content item_list_wrap">
+                        <div class="item_list_wrap__user__new">
+                            <div class="swiper-container">
+                                <div class="swiper-wrapper" id="divRankUserArea_streak">
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1692588762"> ANDI</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="25,182,992,140" title="25,182,992,140">251억 8,299만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>1위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    19승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank2.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1927285294"> T1정성민</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="221,528,430,180" title="221,528,430,180">2,215억 2,843만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>2위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    17승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank8.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1928463815"> 실험소</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="3,686,161,110" title="3,686,161,110">36억 8,616만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>3위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    17승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1105884201"> nbrthrqw</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="166,070,180" title="166,070,180">1억 6,607만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>4위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    15승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank10.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1239809481"> 메기맨</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="9,331,304,050" title="9,331,304,050">93억 3,130만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>5위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    15승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank8.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="15346958"> 웰컴tohell</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="8,005,910,580" title="8,005,910,580">80억 591만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>6위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    13승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank10.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="937512056"> 바넛</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="1,382,509,680" title="1,382,509,680">13억 8,250만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>7위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    12승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="837143098"> 브라질꼴초</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="4,503,334,000" title="4,503,334,000">45억 333만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>8위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    12승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="619335262"> 휴면07012345678</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="2,174,686,300" title="2,174,686,300">21억 7,468만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>9위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    12승
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank0.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1609014958"> Edith이구치리</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="13,876,568,310" title="13,876,568,310">138억 7,656만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>10위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    11승
+                                                </div>
+                                            </div>
+                                        </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="slider">
+                            <div id="slider2" class="rank_slider">
+                                <div class="wrap_slider">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="rankMatch" class="rank_box">
+                <div class="rank_slider_wrap">
+                    <div class="tit">
+                        <div class="txt">공식 경기 최다 판수 구단주 랭킹</div>
+                        <div class="select_target_small">
+                            <a href="#" class="selector_target">공식 경기 1 ON 1</a>
+                            <ul class="selector_target_list">
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(50, 'match');">공식 경기 1 ON 1</a></li>
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(51, 'match');">공식 경기 2 ON 2</a></li>
+                                <li class="selector_target_listitem"><a href="javascript:;" onclick="DailyChart.GetBestRankUser(52, 'match');">감독 모드</a></li>
+                            </ul>
+                        </div>
+                        <div class="guide">
+                            <a href="#" class="btn_guide_data">
+                                데이터 가이드
+                                <span class="ico ico_info_gray">
+                                    <span class="desc_pop" data-width="385">
+                                        <span class="listitem">하루에 기록한 판수 기준이며 몰수패 경기는 포함되지 않습니다.</span>
+                                        <span class="listitem">3개월 이상 접속하지 않거나 탈퇴하신 구단주님은 순위에서 제외됩니다.</span>
+                                    </span>
+                                </span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="content item_list_wrap">
+                        <div class="item_list_wrap__user__new">
+                            <div class="swiper-container">
+                                <div class="swiper-wrapper" id="divRankUserArea_match">
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank7.png" alt="rank1800"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="351506235"> 낭만드리블</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="141,369,140" title="141,369,140">1억 4,136만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>1위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    29승 10무 40패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank15.png" alt="rank2600"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="2011728774"> 코너만올려</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="1,769,160,000" title="1,769,160,000">17억 6,916만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>2위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    34승 5무 31패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank2200"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1525153518"> 주경호</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="614,252,700" title="614,252,700">6억 1,425만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>3위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    31승 11무 27패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank2200"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1290534374"> 찬이짱친</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="2,535,253,450" title="2,535,253,450">25억 3,525만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>4위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    33승 6무 25패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank14.png" alt="rank2500"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1122255623"> 먹장대초</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="755,388,000" title="755,388,000">7억 5,538만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>5위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    26승 9무 26패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank10.png" alt="rank2100"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="971694630"> 힘들어항상</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="964,333,780" title="964,333,780">9억 6,433만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>6위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    24승 11무 26패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank2200"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1173095042"> 대깨돌</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="150,887,630" title="150,887,630">1억 5,088만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>7위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    25승 12무 23패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank1300"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="99509529"> lilliliililil</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="5,320,764,540" title="5,320,764,540">53억 2,076만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>8위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    25승 6무 27패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank6.png" alt="rank1700"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1525537121"> 용네딘용단</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="3,873,802,000" title="3,873,802,000">38억 7,380만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>9위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    20승 13무 26패
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank7.png" alt="rank1800"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1877073501"> 정철우다</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="5,969,024,150" title="5,969,024,150">59억 6,902만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_1vs1">
+                                                    <span>10위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                    
+                                                    28승 12무 19패
+                                                </div>
+                                            </div>
+                                        </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="slider">
+                            <div id="slider3" class="rank_slider">
+                                <div class="wrap_slider">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+            <div id="rankValue" class="rank_box">
+                <div class="rank_slider_wrap">
+                    <div class="tit">
+                        <div class="txt">구단가치 랭킹</div>
+                        <div class="guide">
+                            <a href="#" class="btn_guide_data">
+                                데이터 가이드
+                                <span class="ico ico_info_gray">
+                                    <span class="desc_pop" data-width="385">
+                                        <span class="listitem">전일 자정 기준 정보로 게임 내 정보와 차이가 있을 수 있습니다.</span>
+                                        <span class="listitem">3개월 이상 접속하지 않거나 탈퇴하신 구단주님은 순위에서 제외됩니다.</span>
+                                    </span>
+                                </span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="content item_list_wrap">
+                        <div class="item_list_wrap__user">
+                            <div class="swiper-container">
+                                <div class="swiper-wrapper">
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank8.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="551977356"> 센스</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="943,713,970,000" title="943,713,970,000">9,437억 1,397만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>1위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank6.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="2045038028"> 타래퀸존맛탱</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="470,194,626,700" title="470,194,626,700">4,701억 9,462만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>2위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">6</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank2.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1809854163"> 호날두</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="461,265,317,000" title="461,265,317,000">4,612억 6,531만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>3위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-1</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank3.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="551794390"> SOXL100불</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="414,039,431,410" title="414,039,431,410">4,140억 3,943만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>4위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank7.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1709702359"> Alete</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="408,223,142,850" title="408,223,142,850">4,082억 2,314만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>5위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-2</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank9.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="401075123"> 9라탄</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="385,066,822,000" title="385,066,822,000">3,850억 6,682만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>6위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">5</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank10.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1744031045"> 씬원따잇</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="373,911,580,000" title="373,911,580,000">3,739억 1,158만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>7위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank4.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1004878834"> 안해야행복한게임</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="363,618,685,000" title="363,618,685,000">3,636억 1,868만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>8위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-3</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1793317565"> 무헨</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="355,419,615,510" title="355,419,615,510">3,554억 1,961만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>9위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">1</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank_default.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1692734206"> 천북궁포리소사장</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="346,909,145,700" title="346,909,145,700">3,469억 914만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>10위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-3</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank3.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1122145927"> 교로텔리</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="345,290,999,700" title="345,290,999,700">3,452억 9,099만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>11위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">2</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank9.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="65381634"> 바나나원뚱이</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="342,910,425,000" title="342,910,425,000">3,429억 1,042만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>12위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-6</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank6.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="870427234"> 에뛰드</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="341,680,503,470" title="341,680,503,470">3,416억 8,050만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>13위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-1</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank7.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="485119171"> 서해바다낚시꾼</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="315,584,600,000" title="315,584,600,000">3,155억 8,460만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>14위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank8.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="837782564"> 좋아염</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="310,247,350,000" title="310,247,350,000">3,102억 4,735만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>15위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-6</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank3.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="300392551"> 유미유미</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="298,873,006,460" title="298,873,006,460">2,988억 7,300만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>16위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">9</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank8.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1323473681"> 소희남편</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="292,972,990,850" title="292,972,990,850">2,929억 7,299만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>17위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-2</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="618710428"> 미드필더</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="287,809,547,000" title="287,809,547,000">2,878억 954만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>18위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">8</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank9.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="820311454"> 패배</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="278,203,062,410" title="278,203,062,410">2,782억 306만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>19위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-3</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank10.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="585313629"> 더블케이섭</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="274,111,666,000" title="274,111,666,000">2,741억 1,166만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>20위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="182526396"> 쌈바장인</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="270,120,332,000" title="270,120,332,000">2,701억 2,033만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>21위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-1</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank11.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1977992673"> 립립</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="263,536,034,300" title="263,536,034,300">2,635억 3,603만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>22위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-5</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="115613302"> 흐르그르드</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="262,632,646,100" title="262,632,646,100">2,626억 3,264만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>23위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">5</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank8.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1323472036"> MOCHE</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="258,941,915,090" title="258,941,915,090">2,589억 4,191만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>24위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="954445668"> 헹오버</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="256,966,502,990" title="256,966,502,990">2,569억 6,650만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>25위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank2.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1424271131"> 마크마테쉬츠</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="254,924,850,000" title="254,924,850,000">2,549억 2,485만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>26위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-7</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank4.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="468033766"> 푸린</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="248,694,512,390" title="248,694,512,390">2,486억 9,451만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>27위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="65107654"> 강화는못해요</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="246,027,608,000" title="246,027,608,000">2,460억 2,760만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>28위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">7</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank6.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="115621587"> GJHOYAA</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="242,109,364,810" title="242,109,364,810">2,421억 936만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>29위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank2.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="333715684"> 사치</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="240,817,695,100" title="240,817,695,100">2,408억 1,769만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>30위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-9</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank3.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="132700593"> 여행과인생</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="236,354,240,000" title="236,354,240,000">2,363억 5,424만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>31위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">1</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank0.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="400643111"> 코로나19</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="229,745,301,740" title="229,745,301,740">2,297억 4,530만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>32위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-10</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="568668930"> 메시연</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="227,458,793,300" title="227,458,793,300">2,274억 5,879만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>33위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-2</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank2.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1743339430"> 레전드교과서</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="227,266,028,000" title="227,266,028,000">2,272억 6,602만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>34위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-11</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank2.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1927285294"> T1정성민</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="221,528,430,180" title="221,528,430,180">2,215억 2,843만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>35위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-8</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank_default.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="903900506"> 시스타</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="220,845,332,080" title="220,845,332,080">2,208억 4,533만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>36위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank9.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1575251862"> 호동굴</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="216,870,378,610" title="216,870,378,610">2,168억 7,037만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>37위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-23</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1877219558"> Rbs케인</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="215,816,791,200" title="215,816,791,200">2,158억 1,679만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>38위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank_default.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="266473740"> 장거리슛터</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="215,767,062,630" title="215,767,062,630">2,157억 6,706만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>39위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank_default.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1156455927"> 춤추는발아니르</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="214,772,354,000" title="214,772,354,000">2,147억 7,235만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>40위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank4.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1894340407"> 구단가치반만하자</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="213,070,909,160" title="213,070,909,160">2,130억 7,090만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>41위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank15.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1323963986"> minimi02</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="212,840,347,900" title="212,840,347,900">2,128억 4,034만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>42위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="518001520"> 웨스트월드</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="212,724,425,150" title="212,724,425,150">2,127억 2,442만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>43위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1977710213"> 저창FC</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="212,235,711,090" title="212,235,711,090">2,122억 3,571만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>44위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-10</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="216511164"> 너는나의태양우주</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="211,870,004,050" title="211,870,004,050">2,118억 7,000만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>45위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank0.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1709629962"> zI존파워란도슛12</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="207,720,160,730" title="207,720,160,730">2,077억 2,016만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>46위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-9</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="904380603"> MUYONG</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="203,045,068,600" title="203,045,068,600">2,030억 4,506만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>47위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-8</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank4.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1172761288"> 기행문</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="202,584,474,990" title="202,584,474,990">2,025억 8,447만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>48위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-8</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank13.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="820564698"> 날치알덮밥</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="201,993,001,000" title="201,993,001,000">2,019억 9,300만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>49위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank5.png" alt="rank0"></span>
+                                                </div>
+                                                    <div class="coach_info_middle">
+                                                        <span class="name profile_pointer" data-sn="1608884479"> 천재삼촌</span>
+                                                    </div>
+                                                <div class="coach_info_bottom_wrap">
+                                                    <span class="value" alt="200,565,888,820" title="200,565,888,820">2,005억 6,588만</span>
+                                                </div>
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_bp">
+                                                    <span>50위</span>
+                                                </div>
+                                                <div class="rank_win">
+                                                        <span class="ico_down">-20</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="slider">
+                            <div id="slider4" class="rank_slider">
+                                <div class="wrap_slider">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="rankProfile" class="rank_box">
+                <div class="rank_slider_wrap">
+                    <div class="tit">
+                        <div class="txt">인기 프로필 구단주 랭킹</div>
+                        <div class="guide">
+                            <a href="#" class="btn_guide_data">
+                                데이터 가이드
+                                <span class="ico ico_info_gray">
+                                    <span class="desc_pop" data-width="385">
+                                        <span class="listitem">프로필 하루 방문자 수 기준으로 산정됩니다.</span>
+                                    </span>
+                                </span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="content item_list_wrap">
+                        <div class="item_list_wrap__user__new">
+                            <div class="swiper-container">
+                                <div class="swiper-wrapper" id="divRankUserArea_profile">
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank9.png" alt="rank2000"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="551977356"> 센스</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>1위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    2,265 방문
+
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank7.png" alt="rank1800"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="1709702359"> Alete</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>2위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    543 방문
+
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank0.png" alt="rank800"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="887939894"> T1Pierce</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>3위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    409 방문
+
+                                                        <span class="ico_down">-1</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank3.png" alt="rank1100"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="1122094900"> 탁재훈</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>4위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    297 방문
+
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank3.png" alt="rank1100"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="2128814237"> KRXSUN</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>5위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    292 방문
+
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank0.png" alt="rank800"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="988464912"> 수침</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>6위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    247 방문
+
+                                                        <span class="ico_down">-3</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank4.png" alt="rank1200"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="1004878834"> 안해야행복한게임</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>7위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    246 방문
+
+                                                        <span class="ico_down">-2</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank0.png" alt="rank800"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="552195522"> KRXONE</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>8위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    232 방문
+
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank3.png" alt="rank1100"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="384496394"> 크몽신경섭</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>9위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    225 방문
+
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="item_list swiper-slide">
+                                            <div class="coach_info">
+                                                <div class="coach_info_top_wrap">
+                                                    <span class="icon_rank"><img src="https://ssl.nexon.com/s2/game/fo4/obt/rank/large/update_2026/ico_rank3.png" alt="rank1100"></span>
+                                                </div>
+                                                <div class="coach_info_middle">
+                                                    <span class="name profile_pointer" data-sn="720358855"> DKNova</span>
+                                                </div>                                        
+                                            </div>
+                                            <div class="rank_info">
+                                                <div class="rank rank_profile">
+                                                    <span>10위</span>
+                                                </div>
+                                                <div class="rank_win">
+
+                                                    222 방문
+
+                                                        <span class="ico_up">NEW</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="slider">
+                            <div id="slider5" class="rank_slider">
+                                <div class="wrap_slider">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    <!-- //데이터센터 -->
+
+</main>
+<!-- //MAIN -->
+
+<script>
+    DailyChartUi.UserRankingSwiPer();
+    $(document).on("click", ".select_target_small > a", function (e) {
+        e.preventDefault();
+        var $wrapper = $(this).closest(".select_target_small");
+        if ($wrapper.hasClass("active")) {
+            $wrapper.removeClass("active");
+            $(this).siblings(".selector_target_list").hide();
+        } else {
+            $wrapper.addClass("active");
+            $(this).siblings(".selector_target_list").show();
+        }
+    });
+    $(document).on("click", ".selector_target_list a", function (e) {
+        e.preventDefault();
+        var text = $(this).text();
+        //var value = $(this).data("no").split('/');
+        var $wrapper = $(this).closest(".select_target_small");
+        $wrapper.find(".selector_target").text(text);
+        $wrapper.find(".selector_target_list").hide();
+        $wrapper.removeClass("active");
+
+        //DailyChart.GetBestEnchance(value[0], value[1]);
+    });
+
+</script>
+        <!-- //MAIN -->
+        <!-- 공통 FOOTER -->
+        <footer id="footer" role="contentinfo">
+    <div class="inner">
+        <h2 class="logo"><a href="https://fconline.nexon.com"><img src="https://ssl.nexon.com/s2/game/fc/online/CBT/common/logo_fo4.png" alt="NEXON Korea - EA SPORTS FC ONLINE"></a></h2>
+        <nav class="nav">
+            <ul>
+                <li class="menu1"><a href="http://company.nexon.com/" target="_blank" title="새창">회사소개</a></li>
+                <li class="menu2"><a href="https://careers.nexon.com/" target="_blank" title="새창">채용안내</a></li>
+                <li class="menu3"><a href="https://member.nexon.com/policy/stipulation.aspx"  target="_blank">이용약관</a></li>
+                <li class="menu4"><a href="#none" title="새창" onclick="$f.popup('/Content/common/gameuser.html', 500, 440); return false;">게임이용등급안내</a></li>
+                <li class="menu5"><a href="https://member.nexon.com/policy/privacy.aspx" target="_blank" title="새창">개인정보처리방침</a></li>
+                <li class="menu6"><a href="https://member.nexon.com/policy/youthprotection.aspx" target="_blank" title="새창">청소년보호정책</a></li>
+                <li class="menu7"><a href="http://pcbang.nexon.com/" target="_blank" title="새창">넥슨PC방</a></li>
+                <li class="menu8"><a href="#none" title="새창" onclick="$f.popup('/Content/common/rule_operation.html', 800, 800); return false;">운영정책</a></li>
+            </ul>
+        </nav>
+        <address>
+            <span>(주)넥슨코리아 대표이사 강대현·김정욱 경기도 성남시 분당구 판교로 256번길 7 전화 : 1588-7701 팩스 : 0502-258-8322</span><br>
+            <span>E-mail : contact-us@nexon.co.kr 사업자등록번호 : 220-87-17483호 통신판매업 신고번호 : 제2013-경기성남-1659호 <a href="#none" onclick="$f.popup('http://www.ftc.go.kr/info/bizinfo/communicationViewPopup.jsp?wrkr_no=2208717483',800,480); return false;">사업자정보확인</a></span>
+        </address>
+        <p class="nx-copyright">ⓒ NEXON Korea Corporation All Rights Reserved.</p>
+        <p class="copyright">
+            © 2026 Electronic Arts Inc. Electronic Arts, EA, EA SPORTS, the EA SPORTS logo, EA SPORTS FC, and the EA SPORTS FC logo are trademarks of Electronic Arts Inc. Manufactured under license by Electronic Arts. The word(s) UEFA, CHAMPIONS LEAGUE, WOMEN’S CHAMPIONS LEAGUE, EUROPA LEAGUE, EUROPA CONFERENCE LEAGUE, SUPER CUP, the UEFA logo and all marks related to the UEFA Champions League,UEFA Women’s Champions League, UEFA Europa League, UEFA Europa Conference League and UEFA Super Cup (including, but not limited to, logos, designs, mascots, products, trophies and names) are owned and protected as registered trademarks, designs and/or as copyright works by UEFA. All rights reserved.
+        </p>
+        <div class="company">
+            <h2 class="hidden">관련사 링크</h2>
+            <a href="http://www.nexon.com/" target="_blank" class="btn-nexon"><img src="https://ssl.nexon.com/s2/game/fc/online/CBT/common/logo_nexon.png" alt="넥슨코리아"></a>
+            <a href="http://www.easports.com/" target="_blank" class="btn-ea"><img src="https://ssl.nexon.com/s2/game/fc/online/CBT/common/logo_ea.png" alt="EA SPORTS"></a>
+        </div>
+    </div>
+</footer>
+        <!-- //공통 FOOTER -->
+
+                <div class="list_aside">
+                    <ul>
+                        <li><a style="cursor:pointer;" class="btn_list_top"><span class="ico ico_btn_top">위로</span></a></li>
+                        <li><a style="cursor:pointer;" class="btn_list_bottom"><span class="ico ico_btn_down">목록으로</span></a></li>
+                    </ul>
+                </div>
+
+
+        <!-- 공통 레이어 프로필 -->
+        <div class="hidden_player_info" id="hiddenPopCommonPlayerInfoArea">
+
+        </div>
+
+        <script>
+            var IsFo4CommonCallOwnerProfileInfo = false;
+
+            function SetCoachProfileInfo(n8NexonSN) {
+                if (!IsFo4CommonCallOwnerProfileInfo) {
+                    IsFo4CommonCallOwnerProfileInfo = true;
+
+                    setTimeout(function () {
+                        $.ajax({
+                            url: '/Profile/Common/ToolTip/' + n8NexonSN,
+                            type: 'POST',
+                            data: ({ "rd": Math.random() }),
+                            success: function (result) {
+                                $("#hiddenPopCommonPlayerInfoArea").html(result);
+                                $(".hidden_player_info").show();
+                            },
+                            error: function (xhr, status, exception) {
+                                alert("유저 정보 호출에 실패하였습니다.");
+                            }
+                        });
+                    }, 300);
+
+                    setTimeout(function () {
+                        IsFo4CommonCallOwnerProfileInfo = false;
+                    }, 1000);
+                }
+            }
+
+            $(document).on("click", ".profile_pointer", function (e) {
+                var n8NexonSN = $(this).data("sn");
+                SetCoachProfileInfo(n8NexonSN);
+            });
+        </script>
+        <!-- 공통 레이어 프로필 -->
+
+        
+
+        <div class="hidden_info_popup">
+            <span>
+            </span>
+        </div>
+    </div>
+
+
+        <script src="https://rs.nxfs.nexon.com/common/js/gnb.min.js" data-gamecode="106566" data-ispublicbanner="false"></script>
+    <script>
+        function GetCashChargePop() {
+                
+                inface.auth.gotoSignIn();
+                
+        }
+    </script>
+
+    <script type="text/javascript" src="https://js.nexon.com/s1/global/ngb_bodyend.js" charset="euc-kr"></script>
+    <!-- WEBLOG -->
+    <script>
+        $f.weblog({
+            url: window.location.origin + window.location.pathname,
+            service: "STATIC",
+            title: "FO4",
+            date: "2018"
+        });
+    </script>
+    <!-- //WEBLOG -->
+
+    
+
+    <script type="text/javascript">
+        // AD trace
+        window.addEventListener('load', function () {
+
+            const params = window.location.pathname.toLowerCase() + window.location.search.toLowerCase();
+
+            $.ajax({
+                type: "POST",
+                url: "/ad/trace",
+                dataType: "json",
+                data: { param: encodeURIComponent(params) }, 
+                success: function (data) {
+                },
+                error: function (xhr, status, error) {
+                }
+            });
+        });
+    </script>
+
+</body>
+</html>

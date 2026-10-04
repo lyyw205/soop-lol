@@ -17,6 +17,8 @@ export interface ChallengeStart { tier: string; division?: string; lp: number; d
 export interface ChallengeMember { streamer: string; name: string; role: string; color: string; puuid: string; start?: ChallengeStart }
 export interface ChallengeDef {
   slug: string; title: string; summary: string;
+  /** Optional poster; keep the main subject in the right 55% of the image. */
+  heroImage?: string;
   goal: { tier: string; division?: string };
   since: string;
   members: ChallengeMember[];
@@ -228,27 +230,18 @@ function buildRecords(def: ChallengeDef, games: GameRow[], rows: PublicRankedGam
     top("deaths", "최다 데스", (r) => r.deaths, (v, r) => `${v}데스 · ${kdaText(r)}`),
     top("assists", "최다 어시스트", (r) => r.assists, (v, r) => `${v}어시 · ${kdaText(r)}`),
     top("kda", "최고 KDA", (r) => kdaOf(r.kills, r.deaths, r.assists), (v, r) => `${v.toFixed(1)} · ${kdaText(r)}`),
-    top("damage", "최다 딜", (r) => r.damage_to_champions, (v) => `${v.toLocaleString("ko-KR")}`),
     top("dpm", "분당 딜 최고", ch("damagePerMinute"), (v) => `${Math.round(v).toLocaleString("ko-KR")}/분`),
     top("solo", "최다 솔로킬", ch("soloKills"), (v) => `솔킬 ${v}`, { min: 1 }),
-    top("cs", "최다 CS", (r) => r.cs, (v, r) => `${v}개 (${(v / Math.max(1, r.game_duration / 60)).toFixed(1)}/분)`),
-    top("csLead", "최대 CS 격차(맞라인)", ch("maxCsAdvantageOnLaneOpponent"), (v) => `${Math.round(v)}개 앞섬`, { min: 1 }),
-    top("comeback", "최대 역전승(킬 열세)", (r) => (r.outcome === "win" ? r.challenges.maxKillDeficit ?? null : null), (v) => `킬 ${v}개 뒤졌다 승리`, { min: 1 }),
-    top("hp", "체력 한 자릿수로 살아남음", ch("survivedSingleDigitHpCount"), (v) => `${v}번`, { min: 1 }),
     top("multi", "최다 멀티킬(더블 이상)", ch("multikills"), (v) => `${v}번`, { min: 1 }),
     top("spree", "최다 연속 킬 행진", ch("killingSprees"), (v) => `${v}번`, { min: 1 }),
-    top("outnumbered", "수적 열세에서 킬", ch("outnumberedKills"), (v) => `${v}킬`, { min: 1 }),
     top("steal", "에픽 몬스터 스틸", ch("epicMonsterSteals"), (v) => `${v}번`, { min: 1 }),
     top("plates", "포탑 방패 최다", ch("turretPlatesTaken"), (v) => `${v}개`, { min: 1 }),
-    top("vision", "분당 시야 점수 최고", ch("visionScorePerMinute"), (v) => `${v.toFixed(2)}/분`),
     top("long", "최장 경기", (r) => r.game_duration, (v, r) => `${Math.floor(v / 60)}분 ${v % 60}초 · ${r.outcome === "win" ? "승" : "패"}`),
     top("shortWin", "최단 승리", (r) => (r.outcome === "win" ? r.game_duration : null), (v) => `${Math.floor(v / 60)}분 ${v % 60}초`, { lowest: true }),
     top("shortLoss", "최단 패배", (r) => (r.outcome !== "win" ? r.game_duration : null), (v, r) => `${Math.floor(v / 60)}분 ${v % 60}초${r.ended_in_surrender ? " · 서렌" : ""}`, { lowest: true }),
   ];
   const perfect = rows.filter((r) => (r.challenges.perfectGame ?? 0) > 0);
   out.push({ key: "perfect", label: "무결점 판(노데스 승리)", value: `${perfect.length}판`, who: perfect[0] ? who(perfect[0]) : null, champ: perfect[0] ? champ(perfect[0]) : null, matchId: perfect[0]?.match_id ?? null, at: perfect[0] ? at(perfect[0].match_id) : null, note: perfect.length > 1 ? "첫 판" : undefined });
-  const ffLoss = games.filter((g) => g.surrender && !g.win);
-  out.push({ key: "ffLoss", label: "서렌으로 진 판", value: `${ffLoss.length}판`, who: null, champ: null, matchId: ffLoss[0]?.matchId ?? null, at: ffLoss[0]?.at ?? null });
   out.push({ key: "streakW", label: "최장 연승", value: `${best}연승`, who: null, champ: null, matchId: null, at: null });
   out.push({ key: "streakL", label: "최장 연패", value: `${-worst}연패`, who: null, champ: null, matchId: null, at: null });
   return out;

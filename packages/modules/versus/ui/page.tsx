@@ -18,7 +18,6 @@ import {
 
 import { VersusDetail, type VersusSet } from "./detail.tsx";
 import { VersusPicker } from "./picker.tsx";
-import { TopPairs } from "./top-pairs.tsx";
 import { topPairs } from "../server/index.ts";
 import { ProfileSidebar } from "./sidebar.tsx";
 import { RecordLayout } from "../../../ui/record-layout.tsx";
@@ -81,7 +80,7 @@ export default async function VersusModulePage(
     const options = await listPublicStreamerOptions();
     const notFound = [aSlug && !x ? aSlug : null, bSlug && !y ? bSlug : null].filter(Boolean) as string[];
     return (
-      <RecordLayout sidebar={x ? <ProfileSidebar person={x} /> : <aside className="arena-rail"><section className="arena-panel"><h2>스트리머 정보</h2><p className="text-xs text-ink-400">스트리머를 선택하면 프로필과 수상 경력을 함께 볼 수 있습니다.</p></section><TopPairs /></aside>}>
+      <RecordLayout sidebar={x ? <ProfileSidebar person={x} /> : <aside className="arena-rail"><section className="arena-panel"><h2>스트리머 정보</h2><p className="text-xs text-ink-400">스트리머를 선택하면 프로필과 수상 경력을 함께 볼 수 있습니다.</p></section></aside>}>
         <VersusPicker options={options} a={x?.slug} b={y?.slug} category={category} year={year} />
         {x && y && x.streamer_id === y.streamer_id && (
           <p className="mt-2 text-[11px] text-amber-300">같은 사람 둘을 고를 수는 없습니다.</p>

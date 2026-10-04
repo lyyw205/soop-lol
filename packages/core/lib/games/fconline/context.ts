@@ -70,6 +70,7 @@ export interface FcoContextInput {
    * 화면 경기(VOD 결과 화면에서 읽은 경기)는 넥슨 번호가 없어 내부 id 로만 찾는다. 두 값은 겹치지 않는다.
    */
   provider_match_id: string;
+  expectedVersion?: number;
   /** 없으면 근거만 쌓는다 — 결론 없이 중간 반영해도 된다. */
   conclusion?: "casual" | "unresolved" | "event";
   /** casual/unresolved 의 근거 또는 남은 질문. 필수 — 빈 도장은 못 찍는다. */
@@ -113,13 +114,13 @@ const ROLLBACK = Symbol("dry-run rollback");
 export async function applyFcoMatchContext(
   input: FcoContextInput,
   /** relink: 이미 붙은 행사를 **사람이 화면에서 의도적으로** 바꿀 때만 (admin 전용). */
-  opts: { createdBy?: "auto" | "admin"; dryRun?: boolean; relink?: boolean } = {},
+  opts: { createdBy?: "auto" | "admin"; dryRun?: boolean; relink?: boolean; transaction?: Tx } = {},
 ): Promise<FcoContextOutcome> {
   const createdBy = opts.createdBy ?? "auto";
   const out: FcoContextOutcome = { provider_match_id: input.provider_match_id, actions: [], skipped: [] };
   const sql = db();
   try {
-    await sql.begin(async (tx) => {
+    const run = async (tx: Tx) => {
       const games = await tx<{ match_id: string; event_id: string | null; series_id: string | null; series_event_id: string | null }[]>`
         SELECT m.match_id, m.event_id, m.series_id, ms.event_id AS series_event_id
           FROM match m
@@ -131,6 +132,7 @@ export async function applyFcoMatchContext(
       `;
       const game = games[0];
       if (!game) throw new Error(`수집되지 않은 경기입니다: ${input.provider_match_id} — 먼저 FC 수집을 돌린다`);
+      await assertFcoContextVersion(tx, game.match_id, input.expectedVersion);
       const linkedEventId = game.series_event_id ?? game.event_id;
 
       // ── 근거 — 결론과 무관하게 먼저 쌓는다. 판단이 바뀌어도 근거는 남는다.
@@ -375,12 +377,44 @@ export async function applyFcoMatchContext(
       }
 
       if (opts.dryRun) throw ROLLBACK;
-    });
+    };
+    if (opts.transaction) await run(opts.transaction); else await sql.begin(run);
   } catch (e) {
     if (e !== ROLLBACK) throw e;
     out.actions = out.actions.map((a) => `(dry-run) ${a}`);
   }
   return out;
+}
+
+/** Check the exact context snapshot while holding the match lock. CLI callers may omit the token. */
+async function assertFcoContextVersion(tx: Tx, matchId: string, expected?: number) {
+  const [row] = await tx<{ context_review_version: number }[]>`
+    SELECT context_review_version FROM match WHERE match_id = ${matchId} AND game_code = 'fconline' FOR UPDATE`;
+  if (!row) throw new Error("경기를 찾지 못했습니다.");
+  if (expected !== undefined && (!Number.isSafeInteger(expected) || expected < 0 || row.context_review_version !== expected)) {
+    throw new Error("대회·분류 정보가 변경되었습니다. 새로고침 후 다시 확인해 주세요.");
+  }
+}
+
+/** One transaction for the entire selection: a failure never leaves a partially classified session. */
+export async function applyFcoMatchContexts(inputs: FcoContextInput[], opts: { relink?: boolean } = {}) {
+  if (!inputs.length) throw new Error("선택한 경기가 없습니다.");
+  return db().begin(async tx => {
+    // Acquire and validate all rows first: updating one series may change sibling context versions.
+    for (const input of [...inputs].sort((a, b) => a.provider_match_id.localeCompare(b.provider_match_id))) {
+      const [m] = await tx<{ match_id: string }[]>`
+        SELECT m.match_id FROM match m LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
+         WHERE m.game_code = 'fconline' AND (m.match_id = ${input.provider_match_id} OR d.provider_match_id = ${input.provider_match_id}) FOR UPDATE OF m`;
+      if (!m) throw new Error("선택한 경기를 찾지 못했습니다.");
+      await assertFcoContextVersion(tx, m.match_id, input.expectedVersion);
+    }
+    const out: FcoContextOutcome = { provider_match_id: inputs[0].provider_match_id, actions: [], skipped: [] };
+    for (const input of inputs) {
+      const next = await applyFcoMatchContext({ ...input, expectedVersion: undefined }, { ...opts, createdBy: "admin", transaction: tx });
+      out.actions.push(...next.actions); out.skipped.push(...next.skipped);
+    }
+    return out;
+  });
 }
 
 // ── 조회 ─────────────────────────────────────────────────────────────
@@ -397,7 +431,7 @@ export interface FcoContextQueueRow {
   judgment_note: string | null;
   /** 최신 판단의 주체. 'auto' 면 승인 대기 후보다. */
   judgment_by: string | null;
-  /** 사람이 확인(완료)했나 (match.review_completed_at). 조사 완료와는 별개다. */
+  /** 대회·분류 판단을 확인했나 (match.context_review_completed_at). 조사 완료와는 별개다. */
   confirmed: boolean;
   evidence_count: number;
 }
@@ -421,7 +455,7 @@ export async function listFcoContextQueue(
                       ' vs ' ORDER BY p.side_no) AS players,
            e.name AS event_name, e.kind AS event_kind,
            ctx.judgment, ctx.note AS judgment_note, ctx.created_by AS judgment_by,
-           (m.review_completed_at IS NOT NULL) AS confirmed,
+           (m.context_review_completed_at IS NOT NULL) AS confirmed,
            (SELECT count(*)::int FROM fco_context_evidence fe WHERE fe.match_id = m.match_id) AS evidence_count
       FROM match m
       JOIN fco_match_detail d ON d.match_id = m.match_id
@@ -466,7 +500,7 @@ export interface FcoContextDetail {
   played_at: string;
   mode_key: string | null;
   status: FcoContextStatus;
-  /** 사람이 확인(완료)했나 (match.review_completed_at). */
+  /** 대회·분류 판단을 확인했나 (match.context_review_completed_at). */
   confirmed: boolean;
   event: { slug: string | null; name: string; kind: string; source_url: string | null } | null;
   participants: { slug: string | null; nickname: string; outcome: string; score: number | null }[];
@@ -486,7 +520,7 @@ export async function getFcoContextDetail(providerMatchId: string): Promise<FcoC
     slug: string | null; name: string | null; kind: string | null; source_url: string | null;
   }[]>`
     SELECT m.match_id, m.game_creation AS played_at, m.mode_key,
-           (m.review_completed_at IS NOT NULL) AS confirmed,
+           (m.context_review_completed_at IS NOT NULL) AS confirmed,
            e.slug, e.name, e.kind, e.source_url
       FROM match m
       JOIN fco_match_detail d ON d.match_id = m.match_id
@@ -534,7 +568,7 @@ export async function getFcoContextDetail(providerMatchId: string): Promise<FcoC
  * 승인할 것이 없으면(미조사) 거부한다 — 도장은 조사를 대신하지 못한다.
  */
 export async function approveFcoContext(
-  providerMatchId: string,
+  providerMatchId: string, expectedVersion?: number,
 ): Promise<FcoContextOutcome> {
   const out: FcoContextOutcome = { provider_match_id: providerMatchId, actions: [], skipped: [] };
   const sql = db();
@@ -549,6 +583,7 @@ export async function approveFcoContext(
     `;
     const game = games[0];
     if (!game) throw new Error(`수집되지 않은 경기입니다: ${providerMatchId}`);
+    await assertFcoContextVersion(tx, game.match_id, expectedVersion);
     const latest = await tx<{ judgment: string; note: string; created_by: string }[]>`
       SELECT judgment, note, created_by FROM fco_match_context
        WHERE match_id = ${game.match_id} ORDER BY created_at DESC LIMIT 1
@@ -568,7 +603,7 @@ export async function approveFcoContext(
         out.actions.push(`판단 승인 ${latest[0].judgment} — 자동 반영이 못 덮는다`);
       }
     }
-    if (await stampFcoReview(tx, game.match_id)) out.actions.push("확인 도장 (검수 완료)");
+    if (await stampFcoContextReview(tx, game.match_id)) out.actions.push("대회·분류 판단 확정");
     else out.skipped.push("확인 도장 — 이미 찍혀 있다");
   });
   return out;
@@ -595,12 +630,22 @@ export async function stampFcoReview(tx: Tx, matchId: string): Promise<boolean> 
 
 // ── 검수 작업대 — 행사 단위로 묶어서 본다 ────────────────────────────
 
+/** Context confirmation is independent from match-value review and automatic value protection. */
+export async function stampFcoContextReview(tx: Tx, matchId: string): Promise<boolean> {
+  const rows = await tx<{ match_id: string }[]>`
+    UPDATE match SET context_review_completed_at = now(), context_review_version = context_review_version + 1
+     WHERE match_id = ${matchId} AND game_code = 'fconline' AND context_review_completed_at IS NULL RETURNING match_id`;
+  return rows.length > 0;
+}
+
 export interface FcoWorkspaceMatch {
   provider_match_id: string;
   match_id: string;
   played_at: string;
   mode_key: string | null;
   confirmed: boolean;
+  context_version: number;
+  value_completed: boolean;
   /** 다전제에 묶였으면 그 시리즈. 승패는 세트에서 파생한다(series.ts). */
   series_id: string | null;
   series_game_no: number | null;
@@ -651,7 +696,7 @@ export interface FcoReviewUnit {
   pending: boolean;
   event: {
     id: string; slug: string | null; name: string; kind: string; organizer: string | null; source_url: string | null;
-    starts_at: string | null; ends_at: string | null;
+    starts_at: string | null; ends_at: string | null; admin_version: number;
   } | null;
   judgment: { judgment: string; note: string; created_by: string; created_at: string } | null;
   /** 행사면 포함(브래킷 번호순) → 미정 → 제외 순. 제외한 경기도 사라지지 않고 남는다. */
@@ -664,9 +709,21 @@ const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : Strin
 
 export async function getFcoReviewWorkspace(
   /** 하나만 열 때 좁힌다 — 작업대는 단위 하나만 읽는다(2층 구조). */
-  opts: { eventId?: string; providerMatchId?: string } = {},
+  opts: { eventId?: string; providerMatchId?: string; onlyEvents?: boolean } = {},
 ): Promise<FcoReviewUnit[]> {
   const sql = db();
+  if (opts.eventId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(opts.eventId)) return [];
+  let targetEvent = opts.eventId;
+  let targetMatch: string | undefined;
+  if (opts.providerMatchId) {
+    const [r] = await sql<{ match_id: string; event_id: string | null }[]>`SELECT m.match_id,
+      COALESCE(ms.event_id, m.event_id, (SELECT d.event_id FROM fco_event_match_decision d WHERE d.match_id = m.match_id ORDER BY d.created_at DESC LIMIT 1)) AS event_id
+      FROM match m LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+      LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
+      WHERE m.game_code = 'fconline' AND (d.provider_match_id = ${opts.providerMatchId} OR m.match_id = ${opts.providerMatchId})`;
+    if (!r) return [];
+    targetMatch = r.match_id; targetEvent = r.event_id ?? undefined;
+  }
   // ── 대회 후보. 연결된 경기만이 아니다 — 제외한 경기도(결정 행), 행사 기간 안인데 아직 아무도
   //    안 정한 경기도(그 행사 참가자가 뛴 판) 후보로 남아야 「안 붙인 건지 뺀 건지」가 보인다.
   const latestDecisions = await sql<{
@@ -676,6 +733,7 @@ export async function getFcoReviewWorkspace(
     SELECT DISTINCT ON (event_id, match_id) event_id, match_id, decision, created_by,
            bracket_no, bracket_label, note, created_at
       FROM fco_event_match_decision
+     WHERE ${targetEvent ? sql`event_id = ${targetEvent}::uuid` : sql`true`}
      ORDER BY event_id, match_id, created_at DESC
   `;
   const windowed = await sql<{ event_id: string; match_id: string }[]>`
@@ -692,32 +750,34 @@ export async function getFcoReviewWorkspace(
       FROM event e
       JOIN match m ON m.game_code = 'fconline' AND m.game_creation BETWEEN e.starts_at AND e.ends_at
       LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-     WHERE e.game_code = 'fconline' AND e.starts_at IS NOT NULL AND e.ends_at IS NOT NULL
+     WHERE e.game_code = 'fconline' AND ${targetEvent ? sql`e.id = ${targetEvent}::uuid` : sql`true`} AND e.starts_at IS NOT NULL AND e.ends_at IS NOT NULL
        AND COALESCE(ms.event_id, m.event_id) IS NULL
        AND EXISTS (SELECT 1 FROM fco_match_participant p
                      JOIN roster r ON r.streamer_id = p.streamer_id AND r.event_id = e.id
                     WHERE p.match_id = m.match_id)
   `;
+  if (!targetEvent && targetMatch) targetEvent = windowed.find(w => w.match_id === targetMatch)?.event_id;
   const candidateIds = [...new Set([...latestDecisions.map((d) => d.match_id), ...windowed.map((w) => w.match_id)])];
 
   // 행사에 붙은 경기는 매핑과 무관하게 전부 보여 준다 — 대회 흐름에 구멍을 내지 않는다.
   // 행사가 없는 경기는 공개 스트리머 간 1:1 만 검수 대상이다(큐와 같은 기준).
   const matches = await sql<{
     provider_match_id: string; match_id: string; played_at: Date; mode_key: string | null;
-    confirmed: boolean; event_id: string | null;
+    confirmed: boolean; context_version: number; value_completed: boolean; event_id: string | null;
     series_id: string | null; series_game_no: number | null; best_of: number | null;
     judgment: string | null; note: string | null; judgment_by: string | null; judged_at: Date | null;
     participants: FcoWorkspaceMatch["participants"];
     public_n: number;
   }[]>`
-    SELECT d.provider_match_id, m.match_id, m.game_creation AS played_at, m.mode_key,
-           (m.review_completed_at IS NOT NULL) AS confirmed,
+    SELECT COALESCE(d.provider_match_id, m.match_id) AS provider_match_id, m.match_id, m.game_creation AS played_at, m.mode_key,
+           (m.context_review_completed_at IS NOT NULL) AS confirmed,
+           m.context_review_version AS context_version, (m.review_completed_at IS NOT NULL) AS value_completed,
            COALESCE(ms.event_id, m.event_id) AS event_id,
            m.series_id, m.series_game_no, ms.best_of,
            ctx.judgment, ctx.note, ctx.created_by AS judgment_by, ctx.created_at AS judged_at,
            parts.list AS participants, parts.public_n
       FROM match m
-      JOIN fco_match_detail d ON d.match_id = m.match_id
+      LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
       LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
       LEFT JOIN LATERAL (
         SELECT judgment, note, created_by, created_at FROM fco_match_context c
@@ -736,6 +796,8 @@ export async function getFcoReviewWorkspace(
          WHERE p.match_id = m.match_id
       ) parts
      WHERE m.game_code = 'fconline'
+       AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
+       AND ${targetEvent ? sql`(COALESCE(ms.event_id, m.event_id) = ${targetEvent}::uuid OR m.match_id = ANY(${candidateIds}))` : targetMatch ? sql`m.match_id = ${targetMatch}` : opts.onlyEvents ? sql`(COALESCE(ms.event_id, m.event_id) IS NOT NULL OR m.match_id = ANY(${candidateIds}))` : sql`true`}
        AND (COALESCE(ms.event_id, m.event_id) IS NOT NULL OR parts.public_n = 2
             OR m.match_id = ANY(${candidateIds}))
      ORDER BY m.game_creation
@@ -749,6 +811,7 @@ export async function getFcoReviewWorkspace(
   }
   const windowByMatch = new Map(windowed.map((w) => [w.match_id, w.event_id]));
   const unitEventOf = (m: (typeof matches)[number]): string | null => {
+    if (targetEvent && (m.event_id === targetEvent || decisionsByMatch.get(m.match_id)?.some(d => d.event_id === targetEvent) || windowed.some(w => w.match_id === m.match_id && w.event_id === targetEvent))) return targetEvent;
     if (m.event_id) return m.event_id;
     const ds = decisionsByMatch.get(m.match_id);
     if (ds?.length) return [...ds].sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0].event_id;
@@ -759,15 +822,15 @@ export async function getFcoReviewWorkspace(
   const eventIds = [...new Set(matches.map(unitEventOf).filter((v): v is string => v != null))];
   const events = eventIds.length ? await sql<{
     id: string; slug: string | null; name: string; kind: string; organizer: string | null; source_url: string | null;
-    starts_at: Date | null; ends_at: Date | null;
-  }[]>`SELECT id, slug, name, kind, organizer, source_url, starts_at, ends_at
+    starts_at: Date | null; ends_at: Date | null; admin_version: number;
+  }[]>`SELECT id, slug, name, kind, organizer, source_url, starts_at, ends_at, admin_version
          FROM event WHERE id = ANY(${eventIds}::uuid[])` : [];
   const evidences = matchIds.length ? await sql<(FcoWorkspaceEvidence & { match_id: string })[]>`
-    SELECT fe.evidence_key, d.provider_match_id, fe.match_id, fe.kind,
+    SELECT fe.evidence_key, COALESCE(d.provider_match_id, fe.match_id) AS provider_match_id, fe.match_id, fe.kind,
            fe.vod_title_no::int AS vod_title_no, fe.channel_id, fe.at_sec, fe.end_sec,
            fe.url, fe.frame_path, fe.role, fe.observed, fe.why, fe.created_by
       FROM fco_context_evidence fe
-      JOIN fco_match_detail d ON d.match_id = fe.match_id
+      LEFT JOIN fco_match_detail d ON d.match_id = fe.match_id
      WHERE fe.match_id = ANY(${matchIds})
      ORDER BY fe.vod_title_no NULLS LAST, fe.at_sec NULLS LAST, fe.evidence_key
   ` : [];
@@ -782,7 +845,7 @@ export async function getFcoReviewWorkspace(
     const linkedHere = eventId != null && m.event_id === eventId;
     return {
       provider_match_id: m.provider_match_id, match_id: m.match_id, played_at: iso(m.played_at),
-      mode_key: m.mode_key, confirmed: m.confirmed,
+      mode_key: m.mode_key, confirmed: m.confirmed, context_version: m.context_version, value_completed: m.value_completed,
       series_id: m.series_id, series_game_no: m.series_game_no, best_of: m.best_of,
       participants: m.participants ?? [],
       decision: d ? d.decision : linkedHere ? "include" : null,
@@ -804,7 +867,7 @@ export async function getFcoReviewWorkspace(
     const mine = matches.filter((m) => unitEventOf(m) === event.id).map((m) => toMatch(m, event.id)).sort(order);
     const included = mine.filter((m) => m.decision === "include");
     const unitEvidences = mine.flatMap((m) => evidenceByMatch.get(m.match_id) ?? []);
-    const confirmed = included.length > 0 && included.every((m) => m.confirmed);
+    const confirmed = mine.length > 0 && mine.every((m) => m.decision != null && m.confirmed);
     units.push({
       id: `event:${event.id}`, kind: "event",
       title: event.name, status: "event",
@@ -837,7 +900,7 @@ export async function getFcoReviewWorkspace(
   const sorted = units.sort((a, b) => lastPlayed(b).localeCompare(lastPlayed(a)));
   // 좁히기 — 경기로 열면 그 경기가 속한 단위(행사면 행사 전체)를 준다.
   if (opts.eventId) return sorted.filter((u) => u.id === `event:${opts.eventId}`);
-  if (opts.providerMatchId) return sorted.filter((u) => u.matches.some((m) => m.provider_match_id === opts.providerMatchId));
+  if (opts.providerMatchId) return sorted.filter((u) => u.matches.some((m) => m.provider_match_id === opts.providerMatchId || m.match_id === opts.providerMatchId));
   return sorted;
 }
 
@@ -846,6 +909,7 @@ export async function getFcoReviewWorkspace(
 export interface FcoEventDecisionInput {
   eventId: string;
   providerMatchId: string;
+  expectedVersion?: number;
   decision: "include" | "exclude";
   bracketNo?: number | null;
   bracketLabel?: string | null;
@@ -880,6 +944,7 @@ export async function decideFcoEventMatch(
        FOR UPDATE OF m
     `;
     if (!game) throw new Error(`수집되지 않은 경기입니다: ${input.providerMatchId}`);
+    await assertFcoContextVersion(tx, game.match_id, input.expectedVersion);
     const [ev] = await tx<{ game_code: string }[]>`SELECT game_code FROM event WHERE id = ${input.eventId}::uuid`;
     if (!ev) throw new Error("행사를 찾을 수 없다");
     if (ev.game_code !== "fconline") throw new Error("FC 행사가 아니다");
@@ -937,15 +1002,15 @@ export async function decideFcoEventMatch(
       await tx`UPDATE match SET event_id = NULL WHERE match_id = ${game.match_id}`;
       out.actions.push("행사 연결 해제 — 공개 화면의 대회 경기에서 빠진다");
     }
-    // 사람이 이 경기의 포함·제외를 정했다 = 그 경기를 봤다. 기존 동작 그대로 확인 도장을 찍는다(같은 함수 하나로).
-    if (createdBy === "admin") await stampFcoReview(tx, game.match_id);
+    // 포함·제외 판단만 확정한다. 경기값 검수 상태는 변경하지 않는다.
+    if (createdBy === "admin") await stampFcoContextReview(tx, game.match_id);
   });
   return out;
 }
 
 /** 행사 정보 수정 — 검수 화면 [대회] 탭. 사람이 명시적으로 고치는 경로다. */
 export async function updateFcoEvent(eventId: string, patch: {
-  name?: string; kind?: string; organizer?: string | null; source_url?: string | null;
+  name?: string; kind?: string; organizer?: string | null; source_url?: string | null; expectedVersion?: number;
 }): Promise<void> {
   if (patch.name != null && !patch.name.trim()) throw new Error("행사 이름은 비울 수 없다");
   if (patch.kind != null && !["ck", "scrim", "tournament", "showmatch", "other"].includes(patch.kind)) {
@@ -959,9 +1024,10 @@ export async function updateFcoEvent(eventId: string, patch: {
       organizer = ${patch.organizer === undefined ? sql`organizer` : (patch.organizer?.trim() || null)},
       source_url = ${patch.source_url === undefined ? sql`source_url` : (patch.source_url?.trim() || null)}
      WHERE id = ${eventId}::uuid AND game_code = 'fconline'
+       AND ${patch.expectedVersion === undefined ? sql`true` : sql`admin_version = ${patch.expectedVersion}`}
     RETURNING id
   `;
-  if (!rows.length) throw new Error("FC 행사를 찾을 수 없다");
+  if (!rows.length) throw new Error("행사 정보가 변경되었거나 삭제되었습니다. 새로고침 후 다시 확인해 주세요.");
 }
 
 /**
@@ -970,34 +1036,45 @@ export async function updateFcoEvent(eventId: string, patch: {
  *   판단은 그대로 남는다 — 「사람이 한 번 봤다」는 사실이 사라지면 안 되기 때문이다.
  *   판단 자체를 되돌리려면 새 판단을 기록한다(그게 이력이다).
  */
-export async function holdFcoContext(providerMatchId: string): Promise<FcoContextOutcome> {
-  const out: FcoContextOutcome = { provider_match_id: providerMatchId, actions: [], skipped: [] };
-  const sql = db();
-  const rows = await sql<{ match_id: string }[]>`
-    UPDATE match SET reviewed_at = NULL, review_completed_at = NULL
-     WHERE game_code = 'fconline' AND (reviewed_at IS NOT NULL OR review_completed_at IS NOT NULL)
-       AND match_id IN (
-         SELECT m.match_id FROM match m LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
-          WHERE (d.provider_match_id = ${providerMatchId} OR m.match_id = ${providerMatchId}) AND m.game_code = 'fconline')
-    RETURNING match_id
-  `;
-  if (rows.length) out.actions.push("확인 도장 해제 — 다시 승인 대기로");
-  else out.skipped.push("확인 도장 — 원래 없다");
-  return out;
+export async function holdFcoContext(providerMatchId: string, expectedVersion?: number): Promise<FcoContextOutcome> {
+  return db().begin(async tx => {
+    const [m] = await tx<{ match_id: string }[]>`SELECT m.match_id FROM match m LEFT JOIN fco_match_detail d ON d.match_id = m.match_id
+      WHERE m.game_code = 'fconline' AND (m.match_id = ${providerMatchId} OR d.provider_match_id = ${providerMatchId}) FOR UPDATE OF m`;
+    if (!m) throw new Error("경기를 찾지 못했습니다.");
+    await assertFcoContextVersion(tx, m.match_id, expectedVersion);
+    const rows = await tx`UPDATE match SET context_review_completed_at = NULL, context_review_version = context_review_version + 1
+      WHERE match_id = ${m.match_id} AND context_review_completed_at IS NOT NULL RETURNING match_id`;
+    return { provider_match_id: providerMatchId, actions: rows.length ? ["대회·분류 확정 해제"] : [], skipped: rows.length ? [] : ["이미 대기 상태입니다."] };
+  });
 }
 
-/** 행사 단위 보류 — 소속 경기 전부의 도장을 뗀다. */
-export async function holdFcoEvent(eventId: string): Promise<{ cleared: number }> {
-  const sql = db();
-  const rows = await sql<{ match_id: string }[]>`
-    UPDATE match m SET reviewed_at = NULL, review_completed_at = NULL
-      FROM (SELECT mm.match_id FROM match mm
-              LEFT JOIN match_series ms ON ms.id = mm.series_id AND ms.game_code = mm.game_code
-             WHERE COALESCE(ms.event_id, mm.event_id) = ${eventId}::uuid AND mm.game_code = 'fconline') target
-     WHERE m.match_id = target.match_id AND (m.reviewed_at IS NOT NULL OR m.review_completed_at IS NOT NULL)
-    RETURNING m.match_id
-  `;
-  return { cleared: rows.length };
+export type FcoContextSnapshot = Record<string, number>;
+async function eventContextMatches(tx: Tx, eventId: string, expected?: FcoContextSnapshot) {
+  const rows = await tx<{ match_id: string; included: boolean; context_review_version: number }[]>`
+    SELECT m.match_id, COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid AS included, m.context_review_version
+    FROM match m LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+    WHERE m.game_code = 'fconline'
+      AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
+      AND (COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid
+      OR EXISTS (SELECT 1 FROM fco_event_match_decision d WHERE d.event_id = ${eventId}::uuid AND d.match_id = m.match_id))
+    ORDER BY m.match_id FOR UPDATE OF m`;
+  if (expected) {
+    if (rows.some(r => expected[r.match_id] !== r.context_review_version)
+        || Object.keys(expected).some(id => !rows.some(r => r.match_id === id))) {
+      throw new Error("대회 후보나 판단이 변경되었습니다. 새로고침 후 다시 확인해 주세요.");
+    }
+  }
+  return rows;
+}
+
+/** Holds only the context confirmation, including explicit exclusions. */
+export async function holdFcoEvent(eventId: string, expected?: FcoContextSnapshot): Promise<{ cleared: number }> {
+  return db().begin(async tx => {
+    const ids = await eventContextMatches(tx, eventId, expected);
+    const rows = await tx`UPDATE match SET context_review_completed_at = NULL, context_review_version = context_review_version + 1
+      WHERE match_id = ANY(${ids.map(r => r.match_id)}) AND context_review_completed_at IS NOT NULL RETURNING match_id`;
+    return { cleared: rows.length };
+  });
 }
 
 export interface FcoEventOption {
@@ -1025,26 +1102,23 @@ export async function listFcoEventOptions(): Promise<FcoEventOption[]> {
 }
 
 /**
- * 행사 단위 승인 — 소속 경기 전부에 확인 도장(reviewed_at + review_completed_at)을 찍는다.
+ * 행사 단위 승인 — 포함·제외 결정을 확정한다. 경기값 완료와 보호 시각은 유지한다.
  * 행사 연결 자체가 결론이므로 판단 행은 만들지 않는다.
  */
-export async function approveFcoEvent(eventId: string): Promise<{
+export async function approveFcoEvent(eventId: string, expected?: FcoContextSnapshot): Promise<{
   stamped: number; already: number; included: number; excluded: number; promoted: number;
 }> {
   const sql = db();
   return sql.begin(async (tx) => {
-    const ids = await tx<{ match_id: string }[]>`
-      SELECT m.match_id FROM match m
-      LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-      WHERE COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid AND m.game_code = 'fconline'
-      FOR UPDATE OF m
-    `;
-    if (!ids.length) throw new Error("이 행사에 연결된 FC 경기가 없다");
+    const decidedMatches = await eventContextMatches(tx, eventId, expected);
+    const ids = decidedMatches.filter(m => m.included);
+    if (!decidedMatches.length) throw new Error("확정할 대회 판단이 없습니다.");
     // ★ 조사 제안을 사람 결정으로 굳힌다 — 사람이 안 건드린 경기는 「조사대로 맞다」는 뜻이다.
     //   굳히지 않으면 다음 자동 조사가 그 경기를 뒤집을 수 있다.
     const latest = await tx<{ match_id: string; decision: string; created_by: string; bracket_no: number | null; bracket_label: string | null; note: string | null }[]>`
       SELECT DISTINCT ON (match_id) match_id, decision, created_by, bracket_no, bracket_label, note
         FROM fco_event_match_decision WHERE event_id = ${eventId}::uuid
+         AND match_id = ANY(${decidedMatches.map(m => m.match_id)})
        ORDER BY match_id, created_at DESC
     `;
     let promoted = 0;
@@ -1063,12 +1137,12 @@ export async function approveFcoEvent(eventId: string): Promise<{
       promoted++;
     }
     const stamped = await tx<{ match_id: string }[]>`
-      UPDATE match SET reviewed_at = COALESCE(reviewed_at, now()), review_completed_at = now()
-       WHERE match_id = ANY(${ids.map((r) => r.match_id)}) AND review_completed_at IS NULL
+      UPDATE match SET context_review_completed_at = now(), context_review_version = context_review_version + 1
+       WHERE match_id = ANY(${decidedMatches.map((r) => r.match_id)}) AND context_review_completed_at IS NULL
        RETURNING match_id
     `;
     return {
-      stamped: stamped.length, already: ids.length - stamped.length, promoted,
+      stamped: stamped.length, already: decidedMatches.length - stamped.length, promoted,
       included: ids.length, excluded: latest.filter((x) => x.decision === "exclude").length,
     };
   });
@@ -1131,7 +1205,7 @@ export interface FcoCrossClueRow {
 }
 
 /** LoL 조사가 남긴 FC 교차 단서. 기본은 미처리(state=new)만 — 조사 후보에 합류시키는 입구다. */
-export async function listFcoCrossClues(opts: { all?: boolean } = {}): Promise<FcoCrossClueRow[]> {
+export async function listFcoCrossClues(opts: { all?: boolean; who?: string; vod?: string; q?: string } = {}): Promise<FcoCrossClueRow[]> {
   const sql = db();
   return sql<FcoCrossClueRow[]>`
     -- ::int — postgres.js 는 bigint 를 문자열로 돌려준다. title_no 는 int4 로 충분하다.
@@ -1141,6 +1215,9 @@ export async function listFcoCrossClues(opts: { all?: boolean } = {}): Promise<F
       FROM event_lead
      WHERE source = 'fc_screen'
        AND (${opts.all ?? false} OR state = 'new')
+       AND ${opts.vod ? sql`raw ->> 'vod_title_no' = ${opts.vod}` : sql`true`}
+       AND ${opts.q ? sql`concat_ws(' ', title, raw ->> 'observed') ILIKE ${`%${opts.q}%`}` : sql`true`}
+       AND ${opts.who ? sql`EXISTS (SELECT 1 FROM streamer_channel sc JOIN streamer st ON st.id = sc.streamer_id WHERE st.slug = ${opts.who} AND sc.channel_id = event_lead.channel_id)` : sql`true`}
      ORDER BY observed_at DESC
   `;
 }

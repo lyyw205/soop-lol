@@ -1,111 +1,32 @@
 import Link from "next/link";
-
 import { adminCounts } from "@soop-lol/core/lib/db/streamers";
-
-import { Card, StatTile, Tag } from "@/components/ui";
-import { hasRiotKey } from "@/lib/riot";
+import { countOverviewSeries } from "@soop-lol/core/lib/db/match-overview";
+import { countUnidentifiedNames } from "@soop-lol/core/lib/db/ck";
+import { listFcoSessions } from "@soop-lol/core/lib/games/fconline/sessions";
+import { getFcoReviewWorkspace } from "@soop-lol/core/lib/games/fconline/context";
+import { listScheduleForAdmin } from "@soop-lol/core/lib/db/schedule";
+import { kstDateString } from "@soop-lol/core/lib/time";
 import { SetupNotice } from "@/components/admin/SetupNotice";
-
+import { Card } from "@/components/ui";
+import { hasRiotKey } from "@/lib/riot";
+import { listFcoReviewPriorities } from "@soop-lol/core/lib/db/review-priority";
 export const dynamic = "force-dynamic";
-
 export default async function AdminDashboard() {
-  let counts;
   try {
-    counts = await adminCounts();
-  } catch (e) {
-    return <SetupNotice error={e} />;
-  }
-
-  const keyReady = hasRiotKey();
-
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-4">
-        <StatTile label="스트리머" value={counts.streamers} />
-        <StatTile
-          label="연결된 계정"
-          value={counts.accounts}
-          hint={`확인됨 ${counts.verified_accounts}개`}
-        />
-        <StatTile label="수집된 경기" value={counts.matches.toLocaleString("ko-KR")} />
-        <StatTile
-          label="스트리머 조우"
-          value={counts.encounters.toLocaleString("ko-KR")}
-          hint="상대전적의 원천"
-        />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatTile label="티어 스냅샷" value={counts.rank_snapshots.toLocaleString("ko-KR")} />
-        <StatTile label="백필 대기" value={counts.backfill_pending} hint="아직 과거를 다 못 긁은 계정" />
-        <StatTile label="후보 대기" value={counts.pending_candidates} hint="승인 대기 중인 계정 후보" />
-      </div>
-
-      <Card
-        title="지금 해야 할 일"
-        description="데이터가 흐르기 시작하려면 아래가 순서대로 채워져야 합니다."
-      >
-        <ol className="space-y-3 text-sm">
-          <Step
-            done={counts.streamers > 0}
-            label="스트리머 등록"
-            detail="관리할 스트리머를 먼저 넣습니다."
-            href="/admin/streamers"
-          />
-          <Step
-            done={counts.accounts > 0}
-            label="라이엇 계정 연결"
-            detail="근거를 남기면서 puuid 를 붙입니다. 연결하는 순간 백필 대기열에 올라갑니다."
-            href="/admin/streamers"
-          />
-          <Step
-            done={keyReady}
-            label="RIOT_API_KEY 설정"
-            detail={
-              keyReady
-                ? "설정되어 있습니다."
-                : "키가 없으면 Riot ID 조회와 수집이 전부 멈춥니다. Development 키는 24시간마다 만료됩니다."
-            }
-          />
-          <Step
-            done={counts.rank_snapshots > 0}
-            label="워커 가동 (티어 스냅샷)"
-            detail="★ 과거 티어는 API 에 없습니다. 오늘 안 쌓으면 오늘치는 영원히 구멍입니다."
-          />
-        </ol>
-      </Card>
-    </div>
-  );
-}
-
-function Step({
-  done,
-  label,
-  detail,
-  href,
-}: {
-  done: boolean;
-  label: string;
-  detail: string;
-  href?: string;
-}) {
-  return (
-    <li className="flex gap-3">
-      <span className={`mt-0.5 select-none text-sm ${done ? "text-win" : "text-ink-400"}`}>
-        {done ? "●" : "○"}
-      </span>
-      <div>
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-ink-200">{label}</span>
-          {!done && <Tag tone="warn">대기</Tag>}
-          {href && (
-            <Link href={href} className="text-xs text-accent-500 hover:underline">
-              바로가기
-            </Link>
-          )}
-        </div>
-        <p className="mt-0.5 text-xs leading-relaxed text-ink-400">{detail}</p>
-      </div>
-    </li>
-  );
+    const [counts, lol, unknown, sessions, units, schedule, priorities, generalLol] = await Promise.all([adminCounts(), countOverviewSeries({ unreviewed: true, queue: 'priority' }), countUnidentifiedNames(), listFcoSessions(), getFcoReviewWorkspace({ onlyEvents: true }), listScheduleForAdmin(), listFcoReviewPriorities(), countOverviewSeries({ unreviewed: true, queue: 'general' })]);
+    const events = units.filter(u => u.kind === "event");
+    const fcIds = new Set([...sessions.flatMap(s => s.match_ids), ...events.flatMap(u => u.matches.filter(m => m.decision === 'include').map(m => m.match_id))]);
+    const fcValues = [...fcIds].filter(id => (priorities.get(id)?.length ?? 0) > 0).length;
+    const generalFc = [...fcIds].filter(id => priorities.has(id) && !priorities.get(id)!.length).length;
+    const context = events.filter(u => !u.confirmed).length + sessions.filter(s => s.kind === "meet" && s.context_completed < s.total).length;
+    const overdue = schedule.filter(r => ["upcoming", "in_progress"].includes(r.state) && r.period && r.period.to < kstDateString(new Date())).length;
+    const tasks = [
+      ["LoL 우선 검수", `${lol}시리즈`, "/admin/ck?queue=priority"], ["LoL 참가자 연결", `${unknown}이름`, "/admin/ck/unknown"],
+      ["FC 우선 검수", `${fcValues}경기`, "/admin/fco?view=priority"], ["FC 대회·분류 판단", `${context}묶음`, "/admin/fco?view=context"],
+      ["계정 후보 연결", `${counts.pending_candidates}계정`, "/admin/candidates"], ["날짜 지난 일정 확인", `${overdue}일정`, "/admin/schedule?overdue=1"],
+    ];
+    return <div className="grid gap-5"><Card title="검수 대기" description="데이터는 계속 수집·공개됩니다. 확인이 필요한 항목부터 이어서 처리하세요.">
+      <ul className="divide-y divide-ink-800">{tasks.map(([label,count,href]) => <li key={href}><Link href={href} className="flex items-center justify-between gap-3 py-4 text-sm hover:text-accent-400"><span>{label}</span><span className="tabular-nums">{count} →</span></Link></li>)}</ul>
+    </Card><Card title="시간 있을 때 · 일반 검수" description="우선 검수 조건에 걸리지 않은 미검수 경기입니다. 사람이 확인한 완료 상태와는 다릅니다."><div className="flex flex-wrap gap-5 text-sm"><Link href="/admin/ck?queue=general">LoL {generalLol}시리즈 →</Link><Link href="/admin/fco?view=general">FC {generalFc}경기 →</Link></div></Card><details className="rounded border border-ink-800 p-4 text-xs text-ink-400"><summary className="cursor-pointer">수집·설정 현황</summary><div className="mt-3 grid gap-2"><p>스트리머 {counts.streamers}명 · 연결 계정 {counts.accounts}개 · 수집 경기 {counts.matches.toLocaleString()}개</p><p>과거 경기 수집 대기 {counts.backfill_pending}계정 · 티어 기록 {counts.rank_snapshots.toLocaleString()}개</p><p>Riot API 키 {hasRiotKey() ? "설정됨" : "미설정"}</p></div></details></div>;
+  } catch (error) { return <SetupNotice error={error} />; }
 }

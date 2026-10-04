@@ -70,6 +70,8 @@ export interface FcoMatchUnit {
   editable: boolean;
   sides: FcoSide[];
   context: FcoContextView;
+  context_completed_at: string | null;
+  context_version: number;
   review_completed_at: string | null;
   review_version: number;
   views: FcoMatchView[];
@@ -112,11 +114,12 @@ export async function buildMatchUnits(canon: string[]): Promise<FcoMatchUnit[]> 
   const sql = db();
   const matches = await sql<{
     match_id: string; provider_match_id: string | null; source: string; game_creation: Date; mode_key: string | null;
+    context_completed_at: Date | null; context_version: number;
     review_completed_at: Date | null; review_version: number;
     event_id: string | null; event_slug: string | null; event_name: string | null; event_kind: string | null; event_organizer: string | null; event_source_url: string | null;
     judgment: string | null; judgment_note: string | null; judgment_by: string | null;
   }[]>`
-    SELECT m.match_id, d.provider_match_id, m.source, m.game_creation, m.mode_key, m.review_completed_at, m.review_version,
+    SELECT m.match_id, d.provider_match_id, m.source, m.game_creation, m.mode_key, m.review_completed_at, m.review_version, m.context_review_completed_at AS context_completed_at, m.context_review_version AS context_version,
            e.id AS event_id, e.slug AS event_slug, e.name AS event_name, e.kind AS event_kind, e.organizer AS event_organizer, e.source_url AS event_source_url,
            ctx.judgment, ctx.note AS judgment_note, ctx.created_by AS judgment_by
       FROM match m
@@ -225,6 +228,7 @@ export async function buildMatchUnits(canon: string[]): Promise<FcoMatchUnit[]> 
         event: m.event_id ? { id: m.event_id, slug: m.event_slug, name: m.event_name ?? "", kind: m.event_kind ?? "other", organizer: m.event_organizer, source_url: m.event_source_url } : null,
         judgment: m.judgment ? { judgment: m.judgment, note: m.judgment_note ?? "", created_by: m.judgment_by ?? "auto" } : null,
       },
+      context_completed_at: m.context_completed_at?.toISOString() ?? null, context_version: m.context_version,
       review_completed_at: m.review_completed_at?.toISOString() ?? null, review_version: m.review_version,
       views, candidates,
       notes: notes.filter((n) => n.match_id === m.match_id || myScreens.some((x) => x.match_id === n.match_id))
@@ -259,7 +263,7 @@ export async function eventScreenMatchIds(eventId: string): Promise<string[]> {
 
 /**
  * 검수 완료 — 넥슨 기록이든 화면 기록이든 정본 경기 하나에 찍는다. 찍는 함수는 FC 승인과 같은 stampFcoReview 하나다.
- * 완료할 때 맥락의 최신 판단이 자동 조사(auto) 것이면 사람(admin) 판단으로 굳힌다 — 기존 「승인」과 같다(다음 자동 조사가 못 덮게).
+ * 경기값만 완료한다. 대회·분류 판단과 그 판단의 자동 갱신 보호는 별도 경로가 맡는다.
  * 취소는 완료만 뗀다(보호 reviewed_at 은 남는다 — LoL 과 같다).
  */
 export async function setFcoMatchCompleted(matchId: string, completed: boolean, expectedVersion: number, tx?: postgres.TransactionSql): Promise<void> {
@@ -273,13 +277,6 @@ export async function setFcoMatchCompleted(matchId: string, completed: boolean, 
     if (cur.review_version !== expectedVersion) throw new Error("경기 값이 바뀌었습니다. 새로고침 후 다시 확인해 주세요.");
     if ((cur.review_completed_at != null) === completed) return;
     if (completed) {
-      if (!cur.has_event) {
-        const [latest] = await t<{ judgment: string; note: string; created_by: string }[]>`
-          SELECT judgment, note, created_by FROM fco_match_context WHERE match_id = ${matchId} ORDER BY created_at DESC LIMIT 1`;
-        if (latest && latest.created_by !== "admin") {
-          await t`INSERT INTO fco_match_context (match_id, judgment, note, created_by) VALUES (${matchId}, ${latest.judgment}, ${latest.note}, 'admin')`;
-        }
-      }
       await stampFcoReview(t, matchId);
     } else {
       await t`UPDATE match SET review_completed_at = NULL WHERE match_id = ${matchId}`;
@@ -297,9 +294,10 @@ export async function setFcoMatchCompleted(matchId: string, completed: boolean, 
 export async function saveAndCompleteScreenMatch(
   matchId: string, expectedVersion: number,
   edits: Parameters<typeof updateScreenSides>[2], outcome: Parameters<typeof updateScreenSides>[3],
-): Promise<void> {
-  await db().begin(async (tx) => {
+): Promise<number> {
+  return db().begin(async (tx) => {
     const next = await updateScreenSides(matchId, expectedVersion, edits, outcome, tx);
     await setFcoMatchCompleted(matchId, true, next, tx);
+    return next;
   });
 }

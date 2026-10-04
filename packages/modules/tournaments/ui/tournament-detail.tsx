@@ -10,6 +10,8 @@ import {
   Users,
 } from "lucide-react";
 import {
+  laneDuels,
+  tournamentHighlights,
   tournamentPlayerRecords,
   type TournamentDetail,
   type TournamentSeries,
@@ -21,10 +23,12 @@ import {
   kstPlayedAt,
   placementRank,
   profileHref,
-} from "@soop-lol/core/lib/contract";
+} from "@soop-lol/core/lib/contract/client";
 import { tournamentsIndexHref } from "./paths.ts";
 import { Avatar } from "../../../ui/avatar.tsx";
+import { TeamLogo } from "./team-logo.tsx";
 import { MatchDetails } from "../../../ui/match-details.tsx";
+import { BracketBoard } from "../../../ui/bracket/bracket-board.tsx";
 import {
   TournamentHero,
   SectionHeading,
@@ -41,7 +45,6 @@ const tabs = [
   ["bracket", "대진표"],
   ["teams", "참가 팀"],
   ["records", "기록실"],
-  ["info", "대회 안내"],
 ];
 const score = (n: number | null) => n ?? "—";
 const stageLabel = (placement: string | null | undefined) => {
@@ -62,38 +65,29 @@ const rankedTeams = (data: TournamentDetail) =>
  * 대회 안내 사실(수기, core event_fact)은 구역으로 나뉜다. 아래 셋은 각 탭이 제자리에 끼워 그리고,
  * 나머지 구역은 [대회 안내] 탭이 구역마다 표 하나로 그린다.
  */
-const SUMMARY_SECTION = "대회 한눈에";
 const BRACKET_NOTE = "대진표 메모";
 const ROSTER_NOTE = "참가 팀 메모";
-const PLACED_SECTIONS = new Set([SUMMARY_SECTION, BRACKET_NOTE, ROSTER_NOTE]);
+const PLACED_SECTIONS = new Set([BRACKET_NOTE, ROSTER_NOTE]);
 const multiline = (value: string): ReactNode =>
   value.split("\n").map((line, i) => <Fragment key={i}>{i > 0 && <br />}{line}</Fragment>);
-const factRows = (data: TournamentDetail, section: string): [string, ReactNode][] =>
-  data.facts.filter((f) => f.section === section).map((f) => [f.label, multiline(f.value)]);
 function DataNotes({ data, section }: { data: TournamentDetail; section: string }) {
   return data.facts.filter((f) => f.section === section).map((f) => (
     <p className="tp-data-note" key={f.label}>{f.label} · {multiline(f.value)}</p>
   ));
 }
-const teamInitial = (name: string) => name.replace(/^TEAM\s*/, "").slice(0, 1);
-function Badge({ name }: { name: string }) {
-  return (
-    <span className="tp-team-badge" aria-hidden="true">
-      {teamInitial(name)}
-    </span>
-  );
-}
 function Panel({
   title,
   children,
   className = "",
+  id,
 }: {
   title: string;
   children: ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
-    <section className={`tp-panel ${className}`}>
+    <section className={`tp-panel ${className}`} id={id}>
       <h2>{title}</h2>
       {children}
     </section>
@@ -158,16 +152,14 @@ export function TournamentDetailView({
         ))}
       </nav>
       <div className="tp-content">
-        {active === "overview" ? (
-          <Overview data={data} open={open} />
-        ) : active === "bracket" ? (
+        {active === "bracket" ? (
           <Bracket data={data} open={open} />
         ) : active === "teams" ? (
           <Teams data={data} />
         ) : active === "records" ? (
-          <Records data={data} />
+          <Records data={data} open={open} />
         ) : (
-          <Info data={data} />
+          <Overview data={data} open={open} />
         )}
       </div>
       <dialog
@@ -286,13 +278,14 @@ function EventFacts({ data }: { data: TournamentDetail }) {
           ["주최", e.organizer ?? "미확인"],
           ["참가", `${e.teamCount}팀 기록`],
           ["수집 기록", `${e.seriesCount}경기 · ${e.setCount}세트`],
-          ...factRows(data, SUMMARY_SECTION),
         ]}
       />
-      <Link className="tp-panel-link" href={tournamentHref(e.slug, "info")}>
-        대회 안내 자세히
-        <ArrowRight size={14} />
-      </Link>
+      {hasEventInfo(data) && (
+        <a className="tp-panel-link" href="#tp-info">
+          대회 정보 자세히
+          <ArrowRight size={14} />
+        </a>
+      )}
     </Panel>
   );
 }
@@ -309,41 +302,64 @@ function Sources({ data }: { data: TournamentDetail }) {
     </Panel>
   );
 }
+/**
+ * 개요 사이드바의 참가 팀. 본선 팀만 기본으로 보이고 예선 팀은 펼친다(예선 팀은 투표 순위순).
+ * 카드는 링크가 아니다 — 팀 개별 화면이 없고 전부 같은 [참가 팀] 탭으로 가서, 잘못 누르기만 쉬웠다.
+ * 전체 명단으로 가는 길은 머리글의 링크 하나다.
+ */
 function TeamResults({ data }: { data: TournamentDetail }) {
+  const ranked = rankedTeams(data);
+  // 순위 표기가 하나도 없는 대회는 본선/예선을 가를 수 없다 — 전부 보인다
+  const known = ranked.some((t) => t.placement);
+  const isQualifier = (t: TournamentTeam) => known && (!t.placement || stageLabel(t.placement) === "예선");
+  const finals = ranked.filter((t) => !isQualifier(t));
+  const qualifiers = ranked.filter(isQualifier)
+    .sort((a, b) => (a.voteRank ?? 999) - (b.voteRank ?? 999) || a.name.localeCompare(b.name, "ko"));
+  const voted = qualifiers.some((t) => t.voteRank != null);
+  const [more, setMore] = useState(false);
+  const row = (t: TournamentTeam, showVote: boolean) => {
+    const placement = t.placement;
+    const chip = placement === "우승" || placement === "1위"
+      ? "우승"
+      : placement === "준우승" || placement === "2위"
+        ? "준우승"
+        : null;
+    return (
+      <div className="tp-team-results-row" key={t.id}>
+        <TeamLogo eventSlug={data.event.slug} name={t.name} />
+        <span className="tp-team-result-details">
+          <strong>
+            <span>{t.name}</span>
+            {chip && <em className={chip === "우승" ? "tp-team-result-winner" : "tp-team-result-runnerup"}>{chip}</em>}
+            {showVote && t.voteRank != null && <em className="tp-team-result-vote">투표 {t.voteRank}위</em>}
+          </strong>
+          <small>{[...t.members.map((m) => m.name), ...t.listed.map((l) => l.name)].join(" · ") || "등록 로스터 미수집"}</small>
+        </span>
+      </div>
+    );
+  };
   return (
     <section className="tp-section tp-team-results">
       <SectionHeading
         title="참가 팀"
-        subtitle={`총 ${data.teams.length}팀`}
+        subtitle={known && qualifiers.length ? `본선 ${finals.length}팀 · 전체 ${ranked.length}팀` : `총 ${ranked.length}팀`}
         action={
           <Link className="tp-text-link" href={tournamentHref(data.event.slug, "teams")}>
-            전체 보기 <ArrowRight size={14} />
+            전체 참가 명단 자세히 <ArrowRight size={14} />
           </Link>
         }
       />
       <div className="tp-team-results-list">
-        {rankedTeams(data).map((t) => {
-          const placement = t.placement;
-          const chip = placement === "우승" || placement === "1위"
-            ? "우승"
-            : placement === "준우승" || placement === "2위"
-              ? "준우승"
-              : null;
-          return (
-            <Link className="tp-team-results-row" key={t.id} href={tournamentHref(data.event.slug, "teams")}>
-              <Badge name={t.name} />
-              <span className="tp-team-result-details">
-                <strong>
-                  <span>{t.name}</span>
-                  {chip && <em className={chip === "우승" ? "tp-team-result-winner" : "tp-team-result-runnerup"}>{chip}</em>}
-                </strong>
-                <small>{t.members.map((m) => m.name).join(" · ") || "등록 로스터 미수집"}</small>
-              </span>
-              <ChevronRight size={14} />
-            </Link>
-          );
-        })}
+        {finals.map((t) => row(t, false))}
+        {more && qualifiers.map((t) => row(t, true))}
       </div>
+      {/* 버튼은 늘 목록 끝 — 펼치면 예선 팀(투표 순위순)이 이어 붙고 버튼은 그 아래로 간다 */}
+      {qualifiers.length > 0 && (
+        <button type="button" className="tp-team-results-more" aria-expanded={more}
+          title={voted ? "예선 팀 · 투표 순위순" : "예선 팀"} onClick={() => setMore(!more)}>
+          {more ? "접기" : `더보기 ${qualifiers.length}`}
+        </button>
+      )}
     </section>
   );
 }
@@ -378,7 +394,7 @@ function FinalCard({
           const captain = team?.members.find((m) => m.isCaptain);
           return (
             <div className="tp-final-side" key={side.id ?? i}>
-              <span className="tp-final-team-logo" aria-hidden="true" />
+              <TeamLogo eventSlug={data.event.slug} name={side.name} className="tp-final-team-logo" />
               <strong>{side.name}</strong>
               <small>
                 {captain ? (
@@ -482,6 +498,18 @@ function Overview({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
   );
   const winnerTeam = data.teams.find((t) => t.name === data.event.winner);
   const mvp = data.teams.flatMap((t) => t.members).find((m) => m.award);
+  // 우승팀 선수별로 이 대회에서 가장 많이 쓴 챔피언 3개(판수 → 챔피언 번호 순)
+  const topChampions = useMemo(() => {
+    const counts = new Map<string, Map<number, number>>();
+    for (const sr of data.series) for (const set of sr.sets) for (const p of set.players) {
+      if (!p.streamer_id || !p.champion_id) continue;
+      const m = counts.get(p.streamer_id) ?? new Map<number, number>();
+      m.set(p.champion_id, (m.get(p.champion_id) ?? 0) + 1);
+      counts.set(p.streamer_id, m);
+    }
+    return new Map([...counts].map(([id, m]) => [id,
+      [...m].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 3).map(([cid, games]) => ({ id: cid, games }))]));
+  }, [data.series]);
   const journeyCount = winnerTeam
     ? data.series.filter((s) => [s.aId, s.bId].includes(winnerTeam.id)).length
     : 0;
@@ -503,7 +531,7 @@ function Overview({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
           <FinalCard data={data} match={final} open={open} />
         ) : (
           <div className="tp-round-cards">
-            {data.series.slice(-4).map((s) => <MatchCard key={s.id} match={s} open={open} />)}
+            {data.series.slice(-4).map((s) => <MatchCard key={s.id} eventSlug={data.event.slug} match={s} open={open} />)}
           </div>
         )}
         {(winnerTeam || journeyCount > 0) && <div className="tp-overview-main-lower">
@@ -536,6 +564,14 @@ function Overview({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
                           {positions.find((p) => p[0] === m.position)?.[1] ?? "—"}
                         </small>
                       </span>
+                      <span className="tp-champion-picks" aria-label="이 대회에서 많이 쓴 챔피언">
+                        {(topChampions.get(m.id) ?? []).map((c) => {
+                          const champ = championById(c.id);
+                          return champ ? (
+                            <img key={c.id} src={championIconPath(champ)} alt={champ.name} title={`${champ.name} · ${c.games}판`} loading="lazy" />
+                          ) : null;
+                        })}
+                      </span>
                       <ChevronRight size={14} />
                     </Link>
                   ))}
@@ -548,6 +584,7 @@ function Overview({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
             </div>
         )}
         </div>}
+        <EventInfo data={data} />
       </div>
       <aside className="tp-overview-sidebar">
         {data.teams.length > 0 ? (
@@ -562,18 +599,17 @@ function Overview({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
   );
 }
 function MatchCard({
+  eventSlug,
   match,
   open,
-  muted = false,
 }: {
+  eventSlug: string;
   match: TournamentSeries;
   open: OpenMatch;
-  muted?: boolean;
 }) {
   return (
     <button
-      className={`tp-match-card ${muted ? "tp-match-muted" : ""}`}
-      data-match-id={match.id}
+      className="tp-match-card"
       onClick={() => open(match)}
     >
       <small>
@@ -592,7 +628,7 @@ function MatchCard({
               : ""
           }
         >
-          <Badge name={String(name)} />
+          <TeamLogo eventSlug={eventSlug} name={String(name)} />
           <b>{name}</b>
           <strong>{score(n as number | null)}</strong>
         </span>
@@ -604,108 +640,15 @@ function MatchCard({
 function Bracket({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
   const [round, setRound] = useState("all"),
     [team, setTeam] = useState("all");
-  const board = useRef<HTMLDivElement>(null);
-  const featured = data.event.slug === FEATURED_SLUG;
+  const bracket = data.bracket ?? null;
   const rounds = [...new Set(data.series.map((s) => s.round.split(" · ")[0]))];
   const matches = (s: TournamentSeries) =>
     (round === "all" || s.round.split(" · ")[0] === round) &&
     (team === "all" || [s.aId, s.bId].includes(team));
   const count = data.series.filter(matches);
-  const find = (id: string) =>
-    data.series.find((s) => s.id === `${data.event.slug}:${id}`);
-  useEffect(() => {
-    if (!board.current || !featured) return;
-    function draw() {
-      const root = board.current;
-      if (!root) return;
-      root.querySelectorAll(".tp-bracket-grid").forEach((grid) => {
-        grid.querySelector("svg.tp-connectors")?.remove();
-        const rect = grid.getBoundingClientRect();
-        const svg = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "svg",
-        );
-        svg.classList.add("tp-connectors");
-        svg.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
-        svg.setAttribute("aria-hidden", "true");
-        for (const [a, b] of [
-          ["g01", "g05"],
-          ["g02", "g05"],
-          ["g03", "g07"],
-          ["g04", "g07"],
-          ["g05", "g11"],
-          ["g07", "g11"],
-          ["g11", "g14"],
-          ["g06", "g09"],
-          ["g08", "g10"],
-          ["g09", "g12"],
-          ["g10", "g12"],
-          ["g12", "g13"],
-        ]) {
-          const first = grid.querySelector(
-              `[data-match-id="${data.event.slug}:${a}"]`,
-            ),
-            second = grid.querySelector(
-              `[data-match-id="${data.event.slug}:${b}"]`,
-            );
-          if (!first || !second) continue;
-          const x = first.getBoundingClientRect(),
-            y = second.getBoundingClientRect();
-          const x1 = x.right - rect.left,
-            x2 = y.left - rect.left,
-            y1 = x.top + x.height / 2 - rect.top,
-            y2 = y.top + y.height / 2 - rect.top;
-          const path = document.createElementNS(svg.namespaceURI, "path");
-          path.setAttribute(
-            "d",
-            `M${x1},${y1} H${(x1 + x2) / 2} V${y2} H${x2}`,
-          );
-          svg.append(path);
-        }
-        grid.prepend(svg);
-      });
-    }
-    draw();
-    const observer = new ResizeObserver(draw);
-    observer.observe(board.current);
-    return () => observer.disconnect();
-  }, [data.event.slug, featured]);
-  const columns = (groups: [string, string[]][]) => (
-    <div
-      className="tp-bracket-scroll"
-      role="region"
-      aria-label="대회 대진"
-      tabIndex={0}
-    >
-      <div className="tp-bracket-grid">
-        {groups.map(([label, ids]) => (
-          <section key={label}>
-            <h3>{label}</h3>
-            <div>
-              {ids.map((id) => {
-                const s = find(id);
-                return s ? (
-                  <MatchCard
-                    key={id}
-                    match={s}
-                    open={open}
-                    muted={!matches(s)}
-                  />
-                ) : (
-                  <div key={id} className="tp-uncollected">
-                    경기 미수집
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-      </div>
-    </div>
-  );
   return (
     <>
-      <div className="tp-bracket-filters">
+      {!bracket && <div className="tp-bracket-filters">
         <label>
           라운드
           <select
@@ -748,27 +691,23 @@ function Bracket({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
             초기화
           </button>
         )}
-      </div>
+      </div>}
       <DataNotes data={data} section={BRACKET_NOTE} />
-      <p className="tp-footnote tp-bracket-hint">
+      {!bracket && <p className="tp-footnote tp-bracket-hint">
         경기를 누르면 세트 상세를 볼 수 있습니다. 필터와 일치하는 경기를
         강조하며, 모바일에서는 좌우로 밀어 볼 수 있습니다.
-      </p>
-      <div ref={board}>
-        {featured ? (
+      </p>}
+      <div>
+        {bracket ? (
           <>
-            {columns([
-              ["승자조 1라운드", ["g01", "g02", "g03", "g04"]],
-              ["승자조 2라운드", ["g05", "g07"]],
-              ["승자조 결승", ["g11"]],
-              ["최종 결승", ["g14"]],
-            ])}
-            {columns([
-              ["패자조 1라운드", ["g06", "g08"]],
-              ["패자조 2라운드", ["g09", "g10"]],
-              ["패자조 3라운드", ["g12"]],
-              ["패자조 결승", ["g13"]],
-            ])}
+            {/* 공통 대진: 칸·화살표는 데이터(core 0061)다. 대회마다 연결선 코드를 짜지 않는다. */}
+            <BracketBoard
+              model={bracket}
+              onSelect={(slot) => {
+                const series = data.series.find((x) => x.sets.some((set) => slot.matchIds.includes(set.id)));
+                if (series) open(series);
+              }}
+            />
           </>
         ) : (
           <div className="tp-generic-bracket">
@@ -781,7 +720,7 @@ function Bracket({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
                   <h3>{r}</h3>
                   <div className="tp-round-cards">
                     {items.map((s) => (
-                      <MatchCard key={s.id} match={s} open={open} />
+                      <MatchCard key={s.id} eventSlug={data.event.slug} match={s} open={open} />
                     ))}
                   </div>
                 </section>
@@ -798,104 +737,103 @@ function Bracket({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
     </>
   );
 }
+/**
+ * 참가 팀 — 팀별 카드. 왼쪽에 순위·팀, 오른쪽에 탑·정글·미드·원딜·서폿 다섯 칸(팀장·대회 티어·연결 안 된 이름까지).
+ * 본선 팀은 성적순, 예선 팀은 투표 순위순(사이드바와 같은 규칙). 본선 팀만 있는 대회(투표로 본선을 뽑은 대회)는 투표순.
+ */
 function Teams({ data }: { data: TournamentDetail }) {
-  // 투표 순위·등급은 주최측이 발표한 대회에서만 있다(수기). 있으면 그 순서로 세운다.
   const voted = data.teams.some((t) => t.voteRank != null);
   const rated = data.teams.some((t) => t.members.some((m) => m.rating));
-  const teams = voted
-    ? [...data.teams].sort((a, b) => (a.voteRank ?? 99) - (b.voteRank ?? 99))
-    : data.teams;
+  const ranked = rankedTeams(data);
+  const known = ranked.some((x) => x.placement);
+  const qualifier = (t: TournamentTeam) => known && (!t.placement || stageLabel(t.placement) === "예선");
+  const byVote = (a: TournamentTeam, b: TournamentTeam) => (a.voteRank ?? 999) - (b.voteRank ?? 999) || a.name.localeCompare(b.name, "ko");
+  const finals = ranked.filter((t) => !qualifier(t));
+  const qualifiers = ranked.filter(qualifier).sort(byVote);
+  const groups: { title: string | null; teams: TournamentTeam[] }[] = qualifiers.length
+    ? [{ title: `본선 ${finals.length}팀`, teams: finals }, { title: `예선 ${qualifiers.length}팀${qualifiers.some((t) => t.voteRank != null) ? " · 투표 순위순" : ""}`, teams: qualifiers }]
+    : [{ title: null, teams: voted ? [...data.teams].sort(byVote) : ranked }];
+  /** label = 포지션 라벨(이름 위). 포지션 미확인 줄에서는 라벨이 없다 */
+  const person = (m: TournamentTeam["members"][number], label?: string) => (
+    <Link key={m.id} href={profileHref("lol", m.slug)} className="tp-team-slot-person">
+      <Avatar name={m.name} src={m.imageUrl} channelId={m.channelId} />
+      <span className="tp-team-slot-text">
+        {label && <span className="tp-team-slot-pos">{label}</span>}
+        <b>{m.name}{m.isCaptain && <i className="tp-captain" title="팀장">C</i>}</b>
+        {(m.rating || m.award) && (
+          <small>
+            {m.award && <em className="tp-team-slot-award"><Sparkles size={10} /> {m.award}</em>}
+            {m.rating && <span className="tp-team-slot-rating">{m.rating.label}{m.rating.points != null && <strong>{m.rating.points}점</strong>}</span>}
+          </small>
+        )}
+      </span>
+    </Link>
+  );
+
+  const card = (t: TournamentTeam, index: number, isQualifier: boolean) => {
+    const stage = stageLabel(t.placement ?? undefined);
+    const badge = isQualifier ? (t.voteRank != null ? `투표 ${t.voteRank}위` : "예선")
+      : t.placement ?? (voted && t.voteRank != null ? `투표 ${t.voteRank}위` : `${index + 1}`);
+    const unplaced = t.members.filter((m) => !m.position);
+    return (
+      <li key={t.id} className="tp-team-card">
+        <div className="tp-team-card-team">
+          <span className="tp-team-card-badge" data-stage={isQualifier ? "예선" : stage ?? undefined}>{badge}</span>
+          <TeamLogo eventSlug={data.event.slug} name={t.name} />
+          <strong>{t.name}</strong>
+        </div>
+        <div className="tp-team-card-slots">
+          {positions.map(([key, label]) => {
+            const members = t.members.filter((m) => m.position === key);
+            const listed = t.listed.find((l) => l.position === key);
+            return (
+              <div className="tp-team-slot" key={key}>
+                {members.map((m) => person(m, label))}
+                {!members.length && (listed ? (
+                  <span className="tp-listed" title={`스트리머로 연결되지 않은 이름 · 출처 ${listed.sourceUrl}`}>
+                    <span className="tp-listed-face" aria-hidden="true">{listed.name.slice(0, 1)}</span>
+                    <span className="tp-team-slot-text">
+                      <span className="tp-team-slot-pos">{label}</span>
+                      <b>{listed.name}</b><small><em>미연결</em></small>
+                    </span>
+                  </span>
+                ) : (
+                  <span className="tp-listed tp-team-slot-missing">
+                    <span className="tp-listed-face" aria-hidden="true" />
+                    <span className="tp-team-slot-text"><span className="tp-team-slot-pos">{label}</span><span className="tp-missing">미수집</span></span>
+                  </span>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+        {unplaced.length > 0 && (
+          <div className="tp-team-card-unplaced">
+            <span className="tp-team-card-unplaced-label">포지션 미확인</span>
+            {unplaced.map((m) => person(m))}
+          </div>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
       <SectionHeading
         title="참가 팀"
         subtitle={[
           `${data.teams.length}팀`,
-          voted ? "투표 순위순" : "등록된 로스터를 포지션별로 확인하세요.",
+          voted ? (qualifiers.length ? "본선 성적순 · 예선 투표 순위순" : "투표 순위순") : null,
           rated ? "티어와 포인트는 대회 참가 당시 기준 · 수기" : null,
         ].filter(Boolean).join(" · ")}
       />
-      {teams.length ? (
-        <div
-          className="tp-table-scroll tp-roster-wrap"
-          role="region"
-          tabIndex={0}
-          aria-label="참가 팀 포지션별 로스터"
-        >
-          <table className="tp-roster-table">
-            <thead>
-              <tr>
-                <th>{voted ? "투표" : "번호"}</th>
-                <th>팀</th>
-                {positions.map(([key, label]) => (
-                  <th key={key}>{label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {teams.map((t, i) => {
-                const stage = stageLabel(t.placement ?? undefined);
-                return (
-                <tr key={t.id}>
-                  <td>
-                    {voted ? (t.voteRank ?? "—") : i + 1}
-                  </td>
-                  <th scope="row">
-                    <div className="tp-roster-team">
-                      <Badge name={t.name} />
-                      <span className="tp-roster-team-name">
-                        <strong>{t.name}</strong>
-                        {stage && <em data-stage={stage}>{stage}</em>}
-                      </span>
-                    </div>
-                  </th>
-                  {positions.map(([key]) => (
-                    <td key={key}>
-                      {t.members
-                        .filter((m) => m.position === key)
-                        .map((m) => {
-                          const rating = m.rating;
-                          return (
-                            <div className="tp-roster-person" key={m.id}>
-                              <Link href={profileHref("lol", m.slug)}>
-                                <span className="tp-roster-person-photo">
-                                  <Avatar
-                                    name={m.name}
-                                    src={m.imageUrl}
-                                    channelId={m.channelId}
-                                  />
-                                </span>
-                                <span className="tp-roster-person-name">
-                                  <b>{m.name}</b>
-                                  {m.isCaptain && (
-                                    <i className="tp-captain" title="주장">
-                                      C
-                                    </i>
-                                  )}
-                                </span>
-                                {rating && (
-                                  <>
-                                    <span className="tp-roster-person-tier">{rating.label}</span>
-                                    {rating.points != null && (
-                                      <strong className="tp-roster-person-points">{rating.points}점</strong>
-                                    )}
-                                  </>
-                                )}
-                              </Link>
-                            </div>
-                          );
-                        })}
-                      {!t.members.some((m) => m.position === key) && (
-                        <span className="tp-missing">미수집</span>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      {data.teams.length ? (
+        groups.map((g) => (
+          <section key={g.title ?? "all"} className="tp-team-group">
+            {g.title && <h3>{g.title}</h3>}
+            <ul className="tp-team-cards">{g.teams.map((t, i) => card(t, i, g.teams === qualifiers))}</ul>
+          </section>
+        ))
       ) : (
         <div className="tp-empty">
           <Users />
@@ -906,32 +844,170 @@ function Teams({ data }: { data: TournamentDetail }) {
           </Link>
         </div>
       )}
-      {teams.some((t) => t.members.some((m) => !m.position)) && (
-        <Panel title="포지션 미확인">
-          {teams.flatMap((t) =>
-            t.members
-              .filter((m) => !m.position)
-              .map((m) => (
-                <p key={`${t.id}:${m.id}`}>
-                  {t.name} · <Link href={profileHref("lol", m.slug)}>{m.name}</Link>
-                </p>
-              )),
-          )}
-        </Panel>
-      )}
       <DataNotes data={data} section={ROSTER_NOTE} />
     </>
   );
 }
-function Records({ data }: { data: TournamentDetail }) {
+const POSITION_TABS: [string, string][] = [["TOP", "탑"], ["JUNGLE", "정글"], ["MIDDLE", "미드"], ["BOTTOM", "원딜"], ["UTILITY", "서폿"]];
+const minutes = (sec: number) => `${Math.floor(sec / 60)}분 ${String(sec % 60).padStart(2, "0")}초`;
+const kda = (x: { kills: number | null; deaths: number | null; assists: number | null }) =>
+  x.kills == null || x.deaths == null || x.assists == null ? "— / — / —" : `${x.kills} / ${x.deaths} / ${x.assists}`;
+
+function ChampIcon({ id, name }: { id: number; name: string | null }) {
+  const c = championById(id);
+  return c ? <img className="tp-duel-champ" src={championIconPath(c)} alt={c.name} title={c.name} loading="lazy" />
+    : <span className="tp-duel-champ tp-duel-champ-empty" title={name ?? ""}>?</span>;
+}
+
+/** 명기록 3장. 기록마다 그 세트(상세 팝업)로 이어진다. */
+function RecordHighlights({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
+  const h = useMemo(() => tournamentHighlights(data.series), [data.series]);
+  const go = (ref: { seriesId: string; setIndex: number }) => {
+    const s = data.series.find((x) => x.id === ref.seriesId);
+    if (s) open(s, ref.setIndex);
+  };
+  return (
+    <div className="tp-hl-grid">
+      {h.longest && (
+        <button type="button" className="tp-hl" onClick={() => go(h.longest!)}>
+          <span className="tp-hl-label">최장 경기</span>
+          <strong>{minutes(h.longest.seconds)}</strong>
+          <small>{h.longest.blue} vs {h.longest.red} · {h.longest.round.split(" · ")[0]}</small>
+          <em>경기 시간이 확인된 {h.longest.known}세트 기준{h.longest.known < h.longest.total ? ` (전체 ${h.longest.total}세트)` : ""}</em>
+        </button>
+      )}
+      {h.mostKills && (
+        <button type="button" className="tp-hl" onClick={() => go(h.mostKills!)}>
+          <span className="tp-hl-label">한 세트 최다 킬</span>
+          <strong className="tp-hl-with-icon"><ChampIcon id={h.mostKills.championId} name={h.mostKills.champion} />{h.mostKills.kills}킬</strong>
+          <small>{h.mostKills.name} · {kda(h.mostKills)} · {h.mostKills.round.split(" · ")[0]}</small>
+          <em>{h.mostKills.ties ? `같은 킬 수 ${h.mostKills.ties}건 더 있음 · ` : ""}킬이 확인된 기록 기준</em>
+        </button>
+      )}
+      {h.champions && (
+        <a className="tp-hl" href="#tp-champions">
+          <span className="tp-hl-label">챔피언 다양성</span>
+          <strong>{h.champions.kinds}종</strong>
+          <small>{h.champions.picks}픽 중 한 번만 나온 챔피언 {h.champions.once}종</small>
+          <em>출전 명단 기준 · 밴 기록은 없음</em>
+        </a>
+      )}
+    </div>
+  );
+}
+
+/** 포지션별 맞라인 대결 — 같은 포지션으로 출전한 세트의 팀 승패. 펼치면 세트별 챔피언·KDA. */
+function LaneDuels({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
+  const duels = useMemo(() => laneDuels(data.series), [data.series]);
+  const faces = useMemo(() => new Map(data.teams.flatMap((t) => t.members).map((m) => [m.id, m])), [data.teams]);
+  const [position, setPosition] = useState(POSITION_TABS.find(([key]) => duels.some((d) => d.position === key))?.[0] ?? "TOP");
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  if (!duels.length) return <p className="tp-footnote">양쪽 모두 등록된 스트리머이고 포지션이 확인된 맞대결이 없습니다.</p>;
+  const shown = duels.filter((d) => d.position === position);
+  const person = (p: { id: string; slug: string | null; name: string }) => {
+    const m = faces.get(p.id);
+    return (
+      <span className="tp-duel-person">
+        <Avatar name={p.name} src={m?.imageUrl ?? null} channelId={m?.channelId ?? null} />
+        {p.slug ? <Link href={profileHref("lol", p.slug)} onClick={(e) => e.stopPropagation()}>{p.name}</Link> : <b>{p.name}</b>}
+      </span>
+    );
+  };
+  return (
+    <>
+      <nav className="tp-duel-tabs" aria-label="포지션">
+        {POSITION_TABS.map(([key, label]) => {
+          const n = duels.filter((d) => d.position === key).length;
+          return (
+            <button key={key} type="button" aria-pressed={position === key} disabled={!n} onClick={() => { setPosition(key); setOpenKey(null); }}>
+              {label}<small>{n}</small>
+            </button>
+          );
+        })}
+      </nav>
+      <ul className="tp-duel-list">
+        {shown.map((d) => {
+          const key = `${d.position}:${d.a.id}:${d.b.id}`;
+          const expanded = openKey === key;
+          return (
+            <li key={key} className={expanded ? "tp-duel-open" : undefined}>
+              <button type="button" className="tp-duel-row" aria-expanded={expanded} onClick={() => setOpenKey(expanded ? null : key)}>
+                {person(d.a)}
+                <span className="tp-duel-score">
+                  <b className={d.aWins > d.bWins ? "tp-duel-lead" : undefined}>{d.aWins}</b>
+                  <i>:</i>
+                  <b className={d.bWins > d.aWins ? "tp-duel-lead" : undefined}>{d.bWins}</b>
+                  <small>맞대결 {d.sets.length}세트</small>
+                </span>
+                {person(d.b)}
+                <ChevronRight size={14} className="tp-duel-caret" />
+              </button>
+              {expanded && (
+                <ol className="tp-duel-sets">
+                  {d.sets.map((x) => (
+                    <li key={`${x.seriesId}:${x.setIndex}`}>
+                      <button type="button" onClick={() => { const s = data.series.find((y) => y.id === x.seriesId); if (s) open(s, x.setIndex); }}>
+                        <span className={`tp-duel-side ${x.winner === "a" ? "tp-duel-win" : ""}`}>
+                          <ChampIcon id={x.a.championId} name={x.a.championName} /><span>{kda(x.a)}</span>{x.winner === "a" && <em>승</em>}
+                        </span>
+                        <span className="tp-duel-round">{x.round.split(" · ")[0]}<small>{x.label === "세트" ? "" : x.label} · {dotted(x.date)}</small></span>
+                        <span className={`tp-duel-side tp-duel-side-b ${x.winner === "b" ? "tp-duel-win" : ""}`}>
+                          {x.winner === "b" && <em>승</em>}<span>{kda(x.b)}</span><ChampIcon id={x.b.championId} name={x.b.championName} />
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="tp-data-note">같은 포지션으로 출전한 세트의 <b>팀 승패</b> 기준입니다(라인전 결과가 아닙니다). 양쪽 모두 등록된 스트리머인 세트만 셉니다. 세트를 누르면 경기 상세를 봅니다.</p>
+    </>
+  );
+}
+
+/** 본선 선발 투표 순위와 최종 성적. 투표는 전력 예상이 아니라 선발 절차라 상승·하락 폭이나 이변을 계산하지 않는다. */
+function VoteVsResult({ data }: { data: TournamentDetail }) {
+  const teams = data.teams.filter((t) => t.voteRank != null).sort((a, b) => a.voteRank! - b.voteRank!);
+  if (!teams.length) return null;
+  const how = data.facts.find((f) => f.label === "본선 선발")?.value;
+  return (
+    <section className="tp-section">
+      <SectionHeading title="투표 순위와 최종 성적" subtitle={`본선 선발 투표${how ? `(${how})` : ""} 순위 → 대회 최종 성적`} />
+      <ol className="tp-vote-list">
+        {teams.map((t) => (
+          <li key={t.id}>
+            <span className="tp-vote-rank">투표 {t.voteRank}위</span>
+            <span className="tp-vote-team"><TeamLogo eventSlug={data.event.slug} name={t.name} /><b>{t.name}</b></span>
+            <span className="tp-vote-arrow" aria-hidden="true">→</span>
+            <span className="tp-vote-result" data-stage={stageLabel(t.placement) ?? undefined}>{t.placement ?? "미확인"}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="tp-data-note">투표는 본선 진출팀을 고르는 절차라 전력 예상과 같지 않습니다. 공동 순위(5–6위 등)는 그대로 둡니다.</p>
+    </section>
+  );
+}
+
+function Records({ data, open }: { data: TournamentDetail; open: OpenMatch }) {
   const stats = useMemo(
     () => tournamentPlayerRecords(data.series),
     [data.series],
   );
   return (
     <>
+      <SectionHeading title="대회 기록실" subtitle="이 대회에서 스트리머끼리 어떻게 맞붙었는가" />
+      <RecordHighlights data={data} open={open} />
+      <section className="tp-section">
+        <SectionHeading title="맞라인 대결" subtitle="같은 포지션으로 맞붙은 두 스트리머의 세트 승패" />
+        <LaneDuels data={data} open={open} />
+      </section>
+      <VoteVsResult data={data} />
+      <section className="tp-section">
       <SectionHeading
-        title="대회 기록실"
+        title="선수 기록"
         subtitle="확인된 출전과 챔피언 기록 · 세트 승수순"
       />
       <p className="tp-data-note">
@@ -985,7 +1061,7 @@ function Records({ data }: { data: TournamentDetail }) {
             )}
           </div>
         </Panel>
-        <Panel title="많이 선택한 챔피언">
+        <Panel title="많이 선택한 챔피언" className="tp-champions-panel" id="tp-champions">
           {stats.champions.slice(0, 15).map((c, i) => {
             const champion = championById(c.id);
             return (
@@ -1009,60 +1085,117 @@ function Records({ data }: { data: TournamentDetail }) {
           </p>
         </Panel>
       </div>
+      </section>
     </>
   );
 }
-function Info({ data }: { data: TournamentDetail }) {
-  const sections = [...new Set(data.facts.map((f) => f.section))].filter((sec) => !PLACED_SECTIONS.has(sec));
-  const awards = data.teams.flatMap((t) =>
-    t.members.filter((m) => m.award).map((m) => ({ ...m, award: m.award!, team: t.name })));
-  if (sections.length === 0 && awards.length === 0)
-    return (
-      <div className="tp-columns">
-        <EventFacts data={data} />
-        <Sources data={data} />
-      </div>
-    );
+/**
+ * 대회 정보(예전 [대회 안내] 탭) — 개요 아래 카드 한 장. 대회 사실은 여기 한 곳에서 관리한다
+ * (사이드바 「대회 한눈에」는 기간·주최·참가·수집 기록 — 데이터에서 저절로 나오는 값).
+ *
+ * ── 위계 ──
+ *   1. 맨 위 요약 한 줄(구역 '요약') — 10초 안에 이 대회를 이해하게 하는 문장. 가장 강하게.
+ *   2. 분류(구역 이름)별 줄 — 왼쪽 분류명, 오른쪽 항목. 분류는 정보 종류다(시간 순서의 단계가 아니다).
+ *   3. 항목 = 라벨 위, 값 아래. 값이 가장 밝다.
+ * ── 격자 ──
+ *   오른쪽은 공통 4열(휴대폰 2열). 항목 시작점을 맞춰 훑을 때 시선이 재탐색하지 않게 한다.
+ *   값이 길면 2칸·전체 폭을 쓴다(spanOf) — 긴 값을 좁은 칸에 가두지도, 폭을 내용에 맡기지도 않는다.
+ * ── 값 적는 규칙(데이터) ──
+ *   줄바꿈 = **동등한 여러 값**(본선 장소 / 결승 장소) — 같은 무게로 쌓는다.
+ *   괄호로 감싼 줄 '(두 번 지면 탈락)' = **보조 설명** — 작고 흐리게. 줄 위치가 아니라 의미로 구분한다.
+ * 상금·시상 분류에서 금액은 「상금」 한 항목(총액 + 순위별 보조 설명)으로 접고, 개인상을 그 옆 한 항목으로 붙인다.
+ * 그 분류가 없는데 개인상·팀 상금이 있으면 「상금·시상」 분류를 만든다.
+ */
+const SUMMARY_SECTION = "요약";
+const isPrize = (section: string) => /상금|시상/.test(section);
+const isAmount = (v: string) => /^[\d,.]+\s*(만|억)?\s*원$/.test(v.trim());
+type InfoItem = { label: string; lines: string[]; notes: string[]; body?: ReactNode };
+const parseValue = (label: string, value: string): InfoItem => {
+  // 'A · B' 의 점은 앞 단어에 붙인다 — 줄이 바뀔 때 다음 줄이 '· B' 로 시작하지 않게
+  const all = value.split("\n").map((l) => l.trim().replace(/ · /g, "\u00a0· ")).filter(Boolean);
+  const isNote = (l: string) => /^\(.*\)$/.test(l);
+  return { label, lines: all.filter((l) => !isNote(l)), notes: all.filter(isNote).map((l) => l.slice(1, -1)) };
+};
+/** 글자 폭 어림 — 한글은 1, 영문·숫자·기호는 0.6 */
+const textWidth = (t: string) => [...t].reduce((n, ch) => n + (/[가-힣]/.test(ch) ? 1 : 0.6), 0);
+/** 칸 수 — 가장 긴 줄의 폭으로 정한다. 값 12px 기준 데스크톱 4열(한 칸 ≈ 14자), 휴대폰 2열(한 칸 ≈ 12자) */
+const spanOf = (item: InfoItem) => {
+  const w = Math.max(textWidth(item.label), ...item.lines.map(textWidth), ...item.notes.map((l) => textWidth(l) * 0.9));
+  return { desktop: w > 30 ? 4 : w > 14 ? 2 : 1, mobile: w > 12 ? 2 : 1 };
+};
+const infoSections = (data: TournamentDetail) => [...new Set(data.facts.map((f) => f.section))]
+  .filter((sec) => !PLACED_SECTIONS.has(sec) && sec !== SUMMARY_SECTION);
+const eventAwards = (data: TournamentDetail) => data.teams.flatMap((t) =>
+  t.members.filter((m) => m.award).map((m) => ({ ...m, award: m.award!, team: t.name })));
+function hasEventInfo(data: TournamentDetail) {
+  return infoSections(data).length > 0 || eventAwards(data).length > 0 || data.teams.some((t) => t.prize);
+}
+function EventInfo({ data }: { data: TournamentDetail }) {
+  if (!hasEventInfo(data)) return null;
+  const summary = data.facts.find((f) => f.section === SUMMARY_SECTION)?.value;
+  const sections = infoSections(data);
+  const prizeItems = (facts: TournamentDetail["facts"]): InfoItem[] => {
+    const pool = facts.find((f) => f.label === "총 상금");
+    // 상금 안내가 없으면 팀별 상금으로 만든다
+    const split = facts.length
+      ? facts.filter((f) => f !== pool && isAmount(f.value)).map((f) => `${f.label} ${f.value.replace(/\s*원$/, "")}`)
+      : data.teams.filter((t) => t.prize).sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
+        .map((t) => `${`${t.placement ?? ""} ${t.name}`.trim()} ${t.prize}`);
+    const items: InfoItem[] = [];
+    if (pool || split.length) {
+      items.push(pool ? { label: "상금", lines: [pool.value], notes: split.length ? [split.join(" · ")] : [] }
+        : { label: "팀 상금", lines: split, notes: [] });
+    }
+    const awards = eventAwards(data);
+    if (awards.length) {
+      items.push({
+        label: "개인상",
+        lines: awards.map((m) => `${m.award} ${m.name}`),
+        notes: [],
+        body: awards.map((m) => (
+          <Fragment key={m.id}>
+            <span className="tp-info-line">{m.award} <Link className="tp-info-link" href={profileHref("lol", m.slug)}>{m.name}</Link></span>
+            <small>{m.team}</small>
+          </Fragment>
+        )),
+      });
+    }
+    return [...items, ...facts.filter((f) => f !== pool && !isAmount(f.value)).map((f) => parseValue(f.label, f.value))];
+  };
+  const groups = sections.map((section) => {
+    const facts = data.facts.filter((f) => f.section === section);
+    return { title: section, items: isPrize(section) ? prizeItems(facts) : facts.map((f) => parseValue(f.label, f.value)) };
+  });
+  if (!sections.some(isPrize)) {
+    const items = prizeItems([]);
+    if (items.length) groups.push({ title: "상금·시상", items });
+  }
   return (
-    <>
-      <SectionHeading
-        title="대회 안내"
-        subtitle="대회의 방식부터 시상까지, 알아두면 좋은 정보 · 수기 기록"
-      />
-      <div className="tp-info-grid">
-        <EventFacts data={data} />
-        {sections.map((section) => {
-          const facts = data.facts.filter((f) => f.section === section);
-          // '총 상금' 은 크게 보여준다 — 값은 데이터, 강조는 화면 규칙이다.
-          const pool = facts.find((f) => f.label === "총 상금");
-          const [amount, unit] = pool ? [pool.value.replace(/[^\d,.].*$/, ""), pool.value.replace(/^[\d,.]+\s*/, "")] : [];
-          return (
-            <Panel title={section} key={section}>
-              {pool && (
-                <div className="tp-prize">
-                  <span>TOTAL PRIZE POOL</span>
-                  <strong>{amount || pool.value}{amount && unit && <small>{unit}</small>}</strong>
+    <section className="tp-section" id="tp-info">
+      <SectionHeading title="대회 정보" />
+      <div className="tp-info-card">
+        {summary && <p className="tp-info-summary">{summary}</p>}
+        {groups.map((g) => (
+          <section className="tp-info-row" key={g.title}>
+            <h3>{g.title}</h3>
+            <dl>
+              {g.items.map((item) => (
+                <div key={item.label} data-span={spanOf(item).desktop} data-span-m={spanOf(item).mobile}>
+                  <dt>{item.label}</dt>
+                  <dd>
+                    {item.body ?? item.lines.map((l, i) => <span className="tp-info-line" key={i}>{l}</span>)}
+                    {item.notes.map((n, i) => <small key={i}>{n}</small>)}
+                  </dd>
                 </div>
-              )}
-              <Facts rows={facts.filter((f) => f !== pool).map((f) => [f.label, multiline(f.value)])} />
-            </Panel>
-          );
-        })}
-        {awards.length > 0 && (
-          <Panel title="개인상">
-            <Facts
-              rows={awards.map((m) => [m.award, <>{<Link href={profileHref("lol", m.slug)}>{m.name}</Link>} · {m.team}</>])}
-            />
-          </Panel>
-        )}
+              ))}
+            </dl>
+          </section>
+        ))}
       </div>
-      <section className="tp-section">
-        <Sources data={data} />
-        <p className="tp-footnote">
-          대회 안내는 출처 링크의 문서에서 옮긴 수기 기록입니다.
-          {data.event.slug === FEATURED_SLUG && " 사진 © SOOP."}
-        </p>
-      </section>
-    </>
+      <p className="tp-footnote">
+        출처 링크의 문서에서 옮긴 수기 기록입니다.
+        {data.event.slug === FEATURED_SLUG && " 사진 © SOOP."}
+      </p>
+    </section>
   );
 }

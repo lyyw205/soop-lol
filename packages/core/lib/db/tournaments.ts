@@ -12,6 +12,7 @@
 import type postgres from "postgres";
 
 import { db } from "./client.ts";
+import { normalizePlacement } from "../metrics/placement.ts";
 // 파생 갱신은 수집·검수 경로와 **같은 함수**를 쓴다. 분류가 바뀌면 여기도 책임진다.
 import { recomputeChampionStatsInTx, rederiveEncountersInTx } from "./ingest.ts";
 // 참가자 불변식은 VOD 판독 경로(ck.ts)와 **같은 것**을 쓴다. 두 벌이면 한쪽만 고쳐진다.
@@ -64,7 +65,7 @@ export async function saveEventTeams(
     for (const t of teams) {
       const [row] = await tx<{ id: string }[]>`
         INSERT INTO event_team (event_id, name, placement, placement_rank, prize, vote_rank)
-        VALUES (${eventId}::uuid, ${t.name}, ${t.placement ?? null}, ${t.placement_rank ?? null},
+        VALUES (${eventId}::uuid, ${t.name}, ${normalizePlacement(t.placement)}, ${t.placement_rank ?? null},
                 ${t.prize ?? null}, ${t.vote_rank ?? null})
         ON CONFLICT (event_id, name) DO UPDATE SET
           placement = EXCLUDED.placement, placement_rank = EXCLUDED.placement_rank,
@@ -103,6 +104,9 @@ export async function saveEventTeams(
                 WHERE (m.blue_team_id = event_team.id OR m.red_team_id = event_team.id)
                   AND (m.reviewed_at IS NOT NULL OR m.origin <> 'wiki_seed')
              )
+         -- 대진(0061)이 시드·결정으로 쓰는 팀도 지우지 않는다 — 지우면 외래키로 시드 전체가 실패한다.
+         AND NOT EXISTS (SELECT 1 FROM event_slot sl WHERE event_team.id IN (sl.seed_a, sl.seed_b))
+         AND NOT EXISTS (SELECT 1 FROM event_slot_decision d WHERE event_team.id = ANY(d.winners))
     `;
   });
   return byName;
@@ -480,4 +484,101 @@ export async function listEventGames(eventSlug: string): Promise<{ match_id: str
      WHERE e.slug = ${eventSlug}
      ORDER BY m.game_creation
   `;
+}
+
+/**
+ * 로스터 빈자리의 출처 표기 이름(0068)을 대회 단위로 다시 쓴다. 표시 전용 — 스트리머를 만들지 않는다.
+ * ★ 연결된 멤버(event_team_member)가 그 포지션에 이미 있으면 넣지 않는다 — 사람이 이름보다 우선이다.
+ * 같은 출처(source_url)로 넣었던 이름은 지우고 다시 쓴다 — 다른 출처로 채운 이름은 남긴다. 넣은·건너뛴 수를 돌려준다.
+ */
+export async function saveListedNames(
+  eventId: string,
+  rows: { team: string; position: "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY"; name: string; sourceUrl: string }[],
+): Promise<{ inserted: number; skippedLinked: number; unknownTeams: string[] }> {
+  const sql = db();
+  let inserted = 0, skippedLinked = 0;
+  const unknownTeams = new Set<string>();
+  await sql.begin(async (tx) => {
+    // 이 출처(같은 source_url)로 넣었던 것만 다시 쓴다 — 다른 출처(보조 자료)로 채운 이름은 지우지 않는다
+    const sources = [...new Set(rows.map((r) => r.sourceUrl))];
+    await tx`DELETE FROM event_team_listed_name WHERE event_id = ${eventId}::uuid AND source_url = ANY(${sources}::text[])`;
+    for (const r of rows) {
+      const [team] = await tx<{ id: string }[]>`SELECT id FROM event_team WHERE event_id = ${eventId}::uuid AND name = ${r.team}`;
+      if (!team) { unknownTeams.add(r.team); continue; }
+      const [linked] = await tx<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM event_team_member WHERE event_team_id = ${team.id}::uuid AND position = ${r.position}`;
+      if (linked.n > 0) { skippedLinked++; continue; }
+      const res = await tx`
+        INSERT INTO event_team_listed_name (event_team_id, event_id, position, name, source_url)
+        VALUES (${team.id}::uuid, ${eventId}::uuid, ${r.position}, ${r.name}, ${r.sourceUrl})
+        ON CONFLICT (event_team_id, position) DO UPDATE SET name = EXCLUDED.name, source_url = EXCLUDED.source_url
+        WHERE event_team_listed_name.source_url = EXCLUDED.source_url`;
+      inserted += res.count;
+    }
+  });
+  return { inserted, skippedLinked, unknownTeams: [...unknownTeams] };
+}
+
+type RosterPosition = "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY";
+
+/**
+ * 로스터 빈자리 채우기(보조 출처용). **기존 값을 덮지 않는다.**
+ *   positions: 포지션이 비어 있는(NULL) 연결 멤버에게만 포지션을 준다. 그 팀에 이미 그 포지션 멤버가 있으면 건너뛴다.
+ *   names:     연결 멤버도 표시 이름도 없는 자리에만 표시 이름(0068)을 넣는다.
+ * 대회 단위 한 트랜잭션. 실제로 바뀐 수를 돌려준다.
+ */
+export async function fillRosterGaps(
+  eventId: string,
+  input: {
+    positions: { teamId: string; streamerId: string; position: RosterPosition }[];
+    names: { teamId: string; position: RosterPosition; name: string; sourceUrl: string }[];
+  },
+): Promise<{ positioned: number; named: number }> {
+  let positioned = 0, named = 0;
+  await db().begin(async (tx) => {
+    for (const p of input.positions) {
+      const r = await tx`
+        UPDATE event_team_member m SET position = ${p.position}
+         WHERE m.event_id = ${eventId}::uuid AND m.event_team_id = ${p.teamId}::uuid AND m.streamer_id = ${p.streamerId}::uuid
+           AND m.position IS NULL
+           AND NOT EXISTS (SELECT 1 FROM event_team_member o WHERE o.event_team_id = m.event_team_id AND o.position = ${p.position})`;
+      positioned += r.count;
+      // 사람이 그 자리를 채웠으니 같은 자리의 표시 이름은 치운다(사람이 이름보다 우선 — 0068)
+      if (r.count) await tx`DELETE FROM event_team_listed_name WHERE event_team_id = ${p.teamId}::uuid AND position = ${p.position}`;
+    }
+    for (const n of input.names) {
+      const r = await tx`
+        INSERT INTO event_team_listed_name (event_team_id, event_id, position, name, source_url)
+        SELECT ${n.teamId}::uuid, ${eventId}::uuid, ${n.position}, ${n.name}, ${n.sourceUrl}
+         WHERE NOT EXISTS (SELECT 1 FROM event_team_member m WHERE m.event_team_id = ${n.teamId}::uuid AND m.position = ${n.position})
+        ON CONFLICT (event_team_id, position) DO NOTHING`;
+      named += r.count;
+    }
+  });
+  return { positioned, named };
+}
+
+/** 표시 이름(0068) 한 칸을 지운다 — 사람이 근거를 보고 내린 정정(잘못 옮긴 이름·일반인 이름). 지운 수를 돌려준다. */
+export async function removeListedName(eventId: string, teamName: string, position: RosterPosition): Promise<number> {
+  const r = await db()`
+    DELETE FROM event_team_listed_name l USING event_team t
+     WHERE t.id = l.event_team_id AND t.event_id = ${eventId}::uuid AND t.name = ${teamName} AND l.position = ${position}`;
+  return r.count;
+}
+
+/**
+ * 출처가 발표한 팀 투표 순위(event_team.vote_rank)를 넣는다. 이름이 맞는 팀만 — 없는 팀은 돌려준다.
+ * ★ 시드(seed:tournament)도 team_vote_ranks 로 같은 칸을 쓴다. 이 함수로 넣은 값은 시드 파일에도 적어야
+ *   재시드 때 지워지지 않는다(scripts/fill-vote-ranks.mjs 가 둘 다 한다).
+ */
+export async function saveVoteRanks(eventId: string, ranks: Record<string, number>): Promise<{ updated: number; unknownTeams: string[] }> {
+  let updated = 0;
+  const unknownTeams: string[] = [];
+  await db().begin(async (tx) => {
+    for (const [team, rank] of Object.entries(ranks)) {
+      const r = await tx`UPDATE event_team SET vote_rank = ${rank} WHERE event_id = ${eventId}::uuid AND name = ${team}`;
+      if (r.count) updated += r.count; else unknownTeams.push(team);
+    }
+  });
+  return { updated, unknownTeams };
 }

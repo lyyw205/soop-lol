@@ -1,0 +1,12 @@
+{
+  "retrieved": "2026-10-03",
+  "rank_assets": "LoL client assets owned by Riot Games, distributed by CommunityDragon; original files unmodified, displayed with CSS framing.",
+  "profile_sources": "Verified against existing /lol/s/seokwngud and /lol/s/kimmingyo pages.",
+  "assets": {
+    "emerald.png": "https://raw.communitydragon.org/16.3/plugins/rcp-fe-lol-static-assets/global/default/ranked-emblem/emblem-emerald.png",
+    "master.png": "https://raw.communitydragon.org/16.3/plugins/rcp-fe-lol-static-assets/global/default/ranked-emblem/emblem-master.png",
+    "silver.png": "https://raw.communitydragon.org/16.3/plugins/rcp-fe-lol-static-assets/global/default/ranked-emblem/emblem-silver.png",
+    "seokwngud.jpg": "https://stimg.sooplive.co.kr/LOGO/se/seokwngud/seokwngud.jpg",
+    "kimmingyo.jpg": "https://stimg.sooplive.co.kr/LOGO/ph/phonics1/phonics1.jpg"
+  }
+}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { profileHref, type FcoGame, type FcoPerson, type FcoTopPair } from "@soop-lol/core/lib/contract";
 import { Avatar } from "../../../ui/avatar.tsx";
 import { versusHref } from "./paths.ts";
+import { relatedPairs } from "./related-pairs.ts";
 
 /** LoL 상대전적과 같은 우측 프로필 레일. FC 지표만 슬롯 내용으로 다르게 보여 준다. */
 /** 대회 링크는 host 가 역할로 풀어 넘긴다 — 대회 모듈이 없으면 이름만 보인다. */
@@ -13,8 +14,7 @@ export function FcoVersusSidebar({ person, games, people, topPairs, opponentId, 
     .map((game) => [game.event_slug!, { slug: game.event_slug!, name: game.event_name! }])).values()];
   const results = games.flatMap((game) => game.participants.filter((participant) => participant.streamer_id === person.id));
   const byId = new Map(people.map((streamer) => [streamer.id, streamer]));
-  const pairs = topPairs.filter((pair) => !(pair.a_id === person.id && pair.b_id === opponentId)
-    && !(pair.a_id === opponentId && pair.b_id === person.id))
+  const pairs = relatedPairs(topPairs, person.id, opponentId)
     .map((pair) => ({ ...pair, a: byId.get(pair.a_id), b: byId.get(pair.b_id) }))
     .filter((pair) => pair.a && pair.b).slice(0, 3);
   return <aside className="arena-rail record-sidebar" aria-label="스트리머 정보">
@@ -42,7 +42,7 @@ export function FcoVersusSidebar({ person, games, people, topPairs, opponentId, 
       <h2>핵심 선수 <small className="record-sidebar-note">시세 TOP 5</small></h2>
       <p className="text-xs text-ink-400">선수 시세 데이터가 연결되면 가격순 TOP 5가 표시됩니다.</p>
     </section>
-    <section className="arena-panel arena-pairs-sidebar">
+    <section className="arena-panel arena-pairs-sidebar" aria-label={`${person.name}의 자주 만난 상대`}>
       <h2>자주 만난 매치업 <small className="record-sidebar-note">경기 기준</small></h2>
       {pairs.length ? <ul className="arena-pair-list">{pairs.map((pair) => {
         const { a, b } = pair;

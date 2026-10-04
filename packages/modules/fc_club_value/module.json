@@ -1,0 +1,18 @@
+{
+  "name": "fc_club_value",
+  "version": "0.1.0",
+  "title": "FC 구단가치",
+  "description": "core 의 FC 구단 원본(공식 구단가치·스쿼드·카드 시세)을 읽어 구단가치 순위와 스트리머 구단의 가치 변동·스쿼드 등록 선수를 보여준다.",
+  "schema": "mod_fc_club_value",
+  "site": "fconline",
+  "routes": [
+    {
+      "path": "/fc/club-value",
+      "title": "구단가치"
+    }
+  ],
+  "provides": [
+    "fc-club-value"
+  ],
+  "navOrder": 25
+}

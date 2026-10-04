@@ -1,4 +1,7 @@
-import Link from "next/link";
+import { lolReviewQueueIds } from "@soop-lol/core/lib/db/review-priority";
+import { cache } from "react";
+import { kstPlayedAt } from "@soop-lol/core/lib/time";
+import { AdminBackLink } from "@/components/admin/AdminBackLink";
 import { notFound } from "next/navigation";
 
 import { getLeadWorkspace } from "@soop-lol/core/lib/db/ck";
@@ -7,18 +10,20 @@ import { reviewMatchData } from "@/lib/ck-review-data";
 
 import { CkReviewer } from "@/components/admin/CkReviewer";
 
+const loadWorkspace = cache((id: string) => getLeadWorkspace(id, { records: false }));
+
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ leadId: string }> }) {
   const { leadId } = await params;
-  const ws = await getLeadWorkspace(leadId);
+  const ws = await loadWorkspace(leadId);
   return { title: ws ? `검수 · ${ws.lead.title}` : "검수" };
 }
 
-export default async function CkReviewPage({ params, searchParams }: { params: Promise<{ leadId: string }>; searchParams: Promise<{ match?: string; focus?: string; review?: string }> }) {
+export default async function CkReviewPage({ params, searchParams }: { params: Promise<{ leadId: string }>; searchParams: Promise<{ match?: string; focus?: string; review?: string; tab?: string; from?: string }> }) {
   const query = await searchParams;
   const { leadId } = await params;
-  const ws = await getLeadWorkspace(leadId);
+  const ws = await loadWorkspace(leadId);
   if (!ws) notFound();
 
   // ★ 사람 검수는 공개 값과 비교 프레임만 본다. 조사 기록(후보·탐색·관찰문)은 넘기지 않는다 —
@@ -38,12 +43,10 @@ export default async function CkReviewPage({ params, searchParams }: { params: P
     <div className="ck-review-page">
       <header className="ck-review-page-head">
         <div className="min-w-0">
-          <Link href="/admin/ck" className="text-xs text-ink-400 hover:text-ink-200">
-            ← 경기 검수
-          </Link>
+          <AdminBackLink fallback="/admin/ck">검수 목록</AdminBackLink>
           <h1 className="mt-1 truncate text-lg font-semibold text-ink-200">{lead.title}</h1>
           <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
-            <span>{new Date(lead.observed_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</span>
+            <span>{kstPlayedAt(new Date(lead.observed_at), "datetime")}</span>
             {lead.channel_id && <span className="font-mono">{lead.channel_id}</span>}
             {lead.url && (
               <a href={lead.url} target="_blank" rel="noreferrer" className="hover:text-ink-200">
@@ -54,12 +57,14 @@ export default async function CkReviewPage({ params, searchParams }: { params: P
         </div>
       </header>
 
-      <CkReviewer
-        key={`${query.match ?? ""}:${query.focus ?? ""}:${query.review ?? ""}`}
+      <CkReviewer reviewQueueIds={await lolReviewQueueIds(clientMatches.map(m => m.match_id), query.from)}
+        key={leadId}
         leadId={lead.id}
         vodUrl={lead.url}
         initialMatchId={initial?.match_id}
         initialFocus={query.focus}
+        initialTab={query.tab === "roster" ? "roster" : undefined}
+        syncUrl
         // 미연결 프레임도 앞뒤 탐색과 수동 연결에 사용한다.
         frames={frames.map((f) => ({
           id: f.id,

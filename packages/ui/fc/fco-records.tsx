@@ -3,7 +3,7 @@ import { Fragment } from "react";
 import {
   addFcoStats, EMPTY_FCO_STATS, fcMatchHref, fcoNumber, FCO_MODE_LABEL, kstDateString, profileHref,
   type FcoGame, type FcoParticipant, type FcoStatLine,
-} from "@soop-lol/core/lib/contract";
+} from "@soop-lol/core/lib/contract/client";
 import { RecordTimeline, RecordTimelineRow, RecordTimelineYear } from "../record-structure.tsx";
 
 export function fcDate(date: string): string {

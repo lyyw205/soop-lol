@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { placementBucket, placementRank } from "./placement.ts";
+import { placementBucket, normalizePlacement, placementRank } from "./placement.ts";
 
 test("우승·준우승", () => {
   assert.equal(placementRank("우승"), 1);
@@ -48,4 +48,17 @@ test("N-M위 범위는 대시 종류와 무관하게 앞 숫자", () => {
   for (const label of ["5-6위", "5–6위", "5—6위", "5~6위", "공동 7–8위"]) {
     assert.equal(placementRank(label), label.includes("7") ? 7 : 5, label);
   }
+});
+
+test("저장 표기 통일: N강 탈락은 N강, 예선 띄어쓰기 통일, 그 밖은 그대로", () => {
+  assert.equal(normalizePlacement("4강 탈락"), "4강");
+  assert.equal(normalizePlacement("8강탈락"), "8강");
+  assert.equal(normalizePlacement("4강"), "4강");
+  assert.equal(normalizePlacement("1차예선 탈락"), "1차 예선 탈락");
+  assert.equal(normalizePlacement("2차 예선 탈락"), "2차 예선 탈락");
+  assert.equal(normalizePlacement("예선 6강 or 4강 탈락"), "예선 6강 or 4강 탈락");
+  assert.equal(normalizePlacement("공동3위"), "공동3위");
+  assert.equal(normalizePlacement(null), null);
+  // 표기를 바꿔도 세는 값은 같다
+  assert.equal(placementRank(normalizePlacement("4강 탈락")), placementRank("4강 탈락"));
 });

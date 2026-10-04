@@ -5,8 +5,7 @@
  * ★ 이 모듈은 **공개 여부를 바꾸지 않는다.** 화면 경기는 계속 숨김(`visibility='hidden'`)이다.
  *   공개 표시(단계 4)는 별도 설계가 끝나기 전까지 하지 않는다 — 검수 완료는 "사람이 봤다"는 도장일 뿐이다.
  * ★ 완료·보호는 LoL 검수와 같은 칸을 쓴다 — `match.review_completed_at`·`review_version`·`reviewed_at`.
- *   LoL 은 참가자 트리거(0043)가 값이 바뀌면 완료를 풀지만 `fco_match_participant` 에는 그 트리거가 없다.
- *   그래서 여기서는 **값을 저장하는 같은 트랜잭션에서 직접** 완료를 풀고 변경 번호를 올린다.
+ *   참가자 트리거(0072)가 실제 값 변경 시 완료를 해제하고 변경 번호를 올린다.
  * ★ 사람이 고친 경기는 `reviewed_at` 이 찍혀 자동 조사(`saveFcoScreenMatch`)가 덮지 않는다.
  * ★ 모든 변경은 `review_change` 에 남긴다 — 완료가 왜 풀렸는지 나중에 알 수 있어야 한다(2026-10-02 의 교훈).
  */
@@ -103,11 +102,13 @@ export async function updateScreenSides(matchId: string, expectedVersion: number
       await log(tx, matchId, "participant", key, "identity_basis", b.identity_basis, r.basis);
       await log(tx, matchId, "participant", key, "outcome", b.outcome, outs[i]);
     }
-    // 값이 달라졌으니 완료를 푼다(참가자 트리거가 없는 FC 표라 여기서 직접). 사람이 고친 경기는 자동 조사가 덮지 못하게 보호한다.
-    await tx`UPDATE match SET review_completed_at = NULL, review_version = review_version + 1, reviewed_at = COALESCE(reviewed_at, now())
-              WHERE match_id = ${matchId}`;
-    await log(tx, matchId, "match", matchId, "review_completed", cur.review_completed_at != null, false);
-    return cur.review_version + 1;
+    // The participant trigger invalidates actual value changes from every write path.
+    // A no-op save keeps completion intact; manual edits remain protected.
+    const [saved] = await tx<{ review_version: number; review_completed_at: Date | null }[]>`
+      UPDATE match SET reviewed_at = COALESCE(reviewed_at, now()) WHERE match_id = ${matchId}
+      RETURNING review_version, review_completed_at`;
+    await log(tx, matchId, "match", matchId, "review_completed", cur.review_completed_at != null, saved.review_completed_at != null);
+    return saved.review_version;
   };
   return outer ? run(outer) : db().begin(run);
 }

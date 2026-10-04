@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
-  addCareerEvent,
+  addCareerEvent, updateCareerEvent,
   createStreamer,
+  getCandidate,
   deleteCareerEvent,
   linkAccount,
   setAccountVisibility,
@@ -110,6 +111,9 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
   const streamerId = text(form, "streamer_id");
   const riotId = text(form, "riot_id");
   const manualPuuid = text(form, "puuid");
+  const candidateId = text(form, "candidate_id");
+  const candidate = candidateId ? await getCandidate(candidateId) : null;
+  if (candidateId && !candidate) return fail("후보를 찾을 수 없습니다. 목록을 새로 불러오세요.");
   const evidenceUrl = text(form, "evidence_url");
   const evidenceNote = text(form, "evidence_note");
 
@@ -118,9 +122,9 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
     return fail("근거가 필요합니다. 본인이 밝힌 클립·공지 URL 이나 확인 메모를 남겨주세요.");
   }
 
-  let puuid = manualPuuid;
-  let gameName: string | null = null;
-  let tagLine: string | null = null;
+  let puuid = candidate?.puuid ?? manualPuuid;
+  let gameName: string | null = candidate?.game_name ?? null;
+  let tagLine: string | null = candidate?.tag_line ?? null;
   let summonerId: string | null = null;
   let summonerLevel: number | null = null;
   let profileIconId: number | null = null;
@@ -158,10 +162,12 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
     }
   }
 
+  const editing = text(form, "account_mode") === "edit";
+  let backfillQueued = false;
   const confidence = (text(form, "confidence") || "unverified") as Confidence;
 
   try {
-    await upsertRiotAccount({
+    if (!candidate && !editing) await upsertRiotAccount({
       puuid,
       game_name: gameName,
       tag_line: tagLine,
@@ -169,7 +175,9 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
       summoner_level: summonerLevel,
       profile_icon_id: profileIconId,
     });
-    await linkAccount({
+    const linked = await linkAccount({
+      edit: editing,
+      candidate_id: candidateId || undefined,
       streamer_id: streamerId,
       puuid,
       label: text(form, "label") || null,
@@ -181,12 +189,15 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
         note: evidenceNote || undefined,
       },
     });
+    backfillQueued = linked.backfillQueued;
   } catch (e) {
-    return fail(`연결 실패: ${e instanceof Error ? e.message : String(e)}`);
+    return fail(`저장 실패: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   revalidatePath(`/admin/streamers/${streamerId}`);
-  return { ok: true, message: `연결했습니다. 백필 대기열에 올렸습니다. (${gameName ?? puuid.slice(0, 12)}…)` };
+  revalidatePath("/admin/candidates");
+  revalidatePath("/admin/streamers");
+  return { ok: true, message: editing ? "계정 정보를 저장했습니다." : backfillQueued ? "계정을 연결했습니다. 백필 대기열에 올렸습니다." : "계정을 연결했습니다." };
 }
 
 export async function setMainAccountAction(form: FormData): Promise<void> {
@@ -214,6 +225,7 @@ export async function unlinkAccountAction(form: FormData): Promise<void> {
   const puuid = text(form, "puuid");
   if (!streamerId || !puuid) return;
   await unlinkAccount(streamerId, puuid);
+  revalidatePath("/admin/candidates");
   revalidatePath(`/admin/streamers/${streamerId}`);
 }
 
@@ -225,19 +237,22 @@ export async function addCareerEventAction(_prev: ActionState, form: FormData): 
   const title = text(form, "title");
   if (!streamerId || !title) return fail("대회/활동 이름은 필수입니다.");
 
-  await addCareerEvent({
-    streamer_id: streamerId,
-    title,
-    role: text(form, "role") || null,
-    team_name: text(form, "team_name") || null,
-    placement: text(form, "placement") || null,
-    date_from: text(form, "date_from") || null,
-    date_to: text(form, "date_to") || null,
-    source_url: text(form, "source_url") || null,
-  });
+  const input = {
+    title, role: text(form, "role") || null, team_name: text(form, "team_name") || null,
+    placement: text(form, "placement") || null, date_from: text(form, "date_from") || null,
+    date_to: text(form, "date_to") || null, source_url: text(form, "source_url") || null,
+  };
+  if (input.date_from && input.date_to && input.date_from > input.date_to) return fail("종료일은 시작일 이후여야 합니다.");
+  try {
+    if (text(form, "career_id")) {
+      const raw = text(form, "version"), version = Number(raw);
+      if (!raw || !Number.isSafeInteger(version) || version < 0) return fail("수정 기준값이 없습니다.");
+      await updateCareerEvent(text(form, "career_id"), streamerId, version, input);
+    } else await addCareerEvent({ streamer_id: streamerId, ...input });
+  } catch (error) { return fail(error instanceof Error ? error.message : "커리어를 저장하지 못했습니다."); }
 
   revalidatePath(`/admin/streamers/${streamerId}`);
-  return { ok: true, message: "커리어를 추가했습니다." };
+  return { ok: true, message: "커리어를 저장했습니다." };
 }
 
 export async function deleteCareerEventAction(form: FormData): Promise<void> {
@@ -258,12 +273,16 @@ export async function deleteCareerEventAction(form: FormData): Promise<void> {
  *   근거는 사람이 확인해서 적어야 한다. 그래서 이 액션은 큐를 정리만 하고,
  *   실제 연결은 스트리머 상세의 계정 연결 폼(근거 필수)에서 한다.
  */
-export async function setCandidateStateAction(form: FormData): Promise<void> {
+export async function setCandidateStateAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   await requireAdmin();
   const id = text(form, "id");
   const state = text(form, "state");
-  if (!id) return;
-  if (state !== "rejected" && state !== "ignored" && state !== "pending") return;
-  await setCandidateState(id, state);
+  if (!id || (state !== "rejected" && state !== "ignored" && state !== "pending")) return fail("대상과 처리 상태를 확인하세요.");
+  try {
+    const expected = text(form, "expected_state");
+    if (!["pending", "ignored", "rejected"].includes(expected)) return fail("처리 기준값이 없습니다. 목록을 새로 불러오세요.");
+    if (!await setCandidateState(id, state, expected)) return fail("후보가 이미 처리되었거나 삭제되었습니다. 목록을 새로 불러오세요.");
+  } catch { return fail("상태를 바꾸지 못했습니다. 최신 목록을 확인한 뒤 다시 시도하세요."); }
   revalidatePath("/admin/candidates");
+  return { ok: true, message: "처리했습니다." };
 }

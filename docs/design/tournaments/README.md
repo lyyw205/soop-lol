@@ -12,9 +12,9 @@
 - Gen.G 규칙·상금·투표·티어 등 출처 확인된 부가 정보는 `apps/web/lib/tournament-metadata.ts`에 보존했다. 목록과 상세는 `event.kind = 'tournament'`만 조회한다. CK·scrim·showmatch는 전체 탭에서도 제외한다. 이벤트 매치 탭은 tournament로 등록된 올스타·초청 대회 등을 구분하는 화면 분류다.
 - 아래의 A/B 시안은 초기 비교용으로 유지했다. 초기 시안의 30개 항목과 실제 DB의 수집 범위는 다르다.
 
-검증: `npm run build`, `npm run typecheck`, `npm run verify:db`, `npm run verify:modules`, `node --test packages/core/lib/metrics/tournament.test.ts`, `node scripts/verify-tournaments.mjs`, `node docs/design/tournaments/verify-production.mjs`.
+검증: `npm run build`, `npm run typecheck`, `npm run verify:db`, `npm run verify:modules`, `node --test packages/core/lib/metrics/tournament.test.ts`, `node scripts/verify-tournaments.mjs`.
 
-브라우저 검증은 1440/390/360px에서 목록·상세 5개 탭·필터·검색·세트 상세·기존 matches 링크 호환·가로 넘침을 확인한다. 실제 DB의 Gen.G 대회가 필요하다. 결과와 스크린샷은 `production/`에 저장한다. DB 질의 검증은 별도 PGlite에만 fixture를 만들며 숨김 경기/인물 제외, FC 분리, tournament 외 분류의 목록·상세 제외, KST 날짜를 검사한다.
+2026-09-25 당시의 브라우저 검증 스크립트(verify-production.mjs)는 지금 화면(대진 공통 뼈대·참가 팀 카드·대회 안내 탭 없음)과 맞지 않아 2026-10-02 지웠다. `production/`의 스크린샷은 그때 기록이다. DB 질의 검증은 별도 PGlite에만 fixture를 만들며 숨김 경기/인물 제외, FC 분리, tournament 외 분류의 목록·상세 제외, KST 날짜를 검사한다.
 
 ## 초기 두 가지 시안
 

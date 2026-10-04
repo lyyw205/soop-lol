@@ -7,6 +7,9 @@
  *   live      Engine B — 신규 매치 따라잡기 1회
  *   backfill  Engine C — 백필 한 조각 (--all 이면 대기열이 빌 때까지)
  *   derive    Engine D — 조우 재파생 (--stats 면 champion_stat 도)
+ *   fco       Engine E — FC 경기 수집 1회
+ *   fco-club  Engine F — FC 공식 구단가치·스쿼드 6칸 스냅샷 1회
+ *   fco-prices Engine G — 보유 카드 시세(최대 365일) 1회
  *   modules   등록된 모듈의 잡을 지금 한 번 돌린다
  *   loop      전부를 우선순위대로 상시 실행 (운영 기본값)
  *
@@ -22,6 +25,7 @@ import { createContext, isFatal, type WorkerContext } from "./context.ts";
 import { runBackfillSlice } from "./engines/backfill.ts";
 import { runDeriveEngine } from "./engines/derive.ts";
 import { runFcoEngine } from "./engines/fco.ts";
+import { runFcoClubEngine, runFcoPriceEngine } from "./engines/fco-club.ts";
 import { createLiveState, runLiveEngine } from "./engines/live.ts";
 import { runRankEngine } from "./engines/rank.ts";
 import { runJob } from "./job.ts";
@@ -93,6 +97,14 @@ async function main() {
       await runJob(ctx, "engine_e_fco", () => runFcoEngine(ctx));
       break;
 
+    case "fco-club":
+      await runJob(ctx, "engine_f_fco_club", () => runFcoClubEngine(ctx));
+      break;
+
+    case "fco-prices":
+      await runJob(ctx, "engine_g_fco_prices", () => runFcoPriceEngine(ctx));
+      break;
+
     case "modules":
       await runJob(ctx, "modules", () => runDueModuleJobs(ctx));
       break;
@@ -102,7 +114,7 @@ async function main() {
       break;
 
     default:
-      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | fco | modules | loop`);
+      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | fco | fco-club | fco-prices | modules | loop`);
       process.exitCode = 2;
   }
 }
@@ -125,6 +137,8 @@ async function loop(ctx: WorkerContext) {
   let nextStats = Date.now() + cfg.championStatIntervalMs;
   // Engine E 는 넥슨 버킷을 쓰므로 Riot 예산과 경쟁하지 않지만, 로그가 섞이지 않게 순서는 지킨다.
   let nextFco = ctx.nexon ? nextKstHour(new Date(), cfg.fcoHourKst).getTime() : Infinity;
+  // F(구단 스냅샷)는 시한부라 넥슨 키가 없어도 돈다. G(시세)는 F 가 남긴 보유 카드를 본다 — F 다음에.
+  let nextFcoClub = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
   let backfillPausedUntil = 0;
 
   log.info(SCOPE, "시작", {
@@ -150,6 +164,12 @@ async function loop(ctx: WorkerContext) {
       if (now >= nextFco) {
         await runJob(ctx, "engine_e_fco", () => runFcoEngine(ctx));
         nextFco = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
+        continue;
+      }
+      if (now >= nextFcoClub) {
+        await runJob(ctx, "engine_f_fco_club", () => runFcoClubEngine(ctx));
+        await runJob(ctx, "engine_g_fco_prices", () => runFcoPriceEngine(ctx));
+        nextFcoClub = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
         continue;
       }
       if (now >= nextDerive) {

@@ -2,8 +2,9 @@ import Link from "next/link";
 import { ArrowRight, ExternalLink, Trophy, CalendarDays } from "lucide-react";
 import type { TournamentSummary } from "../server/tournament.ts";
 import { tournamentDetailHref } from "./paths.ts";
+import { TournamentLogo } from "./tournament-logo.tsx";
 /**
- * ★ **연출만.** 이 대회는 전용 사진·제목 장식·대진표 배치를 쓴다. 사실(순위·팀장·등급·상금·
+ * ★ **연출만.** 이 대회는 전용 사진·제목 장식을 쓴다(대진표는 공통 대진 데이터 — seed/brackets/meljang-2026-geng.json). 사실(순위·팀장·등급·상금·
  *   안내·출처)은 전부 core DB 에서 온다 — 여기에 사실을 적지 않는다.
  */
 export const FEATURED_SLUG = "meljang-2026-geng";
@@ -97,17 +98,15 @@ export function TournamentHero({
         </div>
         {compact ? (
           <h2>
-            <Link href={tournamentHref(event.slug)}>{event.name}</Link>
+            <Link href={tournamentHref(event.slug)}>
+              <TournamentLogo slug={event.slug} className="tp-event-hero-logo" eager />
+              <span className="tp-event-name">{event.name}</span>
+            </Link>
           </h2>
         ) : (
           <h1>
-            {featured ? (
-              <>
-                <span>2026 LoL</span> 멸망전 <em>with Gen.G</em>
-              </>
-            ) : (
-              event.name
-            )}
+            <TournamentLogo slug={event.slug} className="tp-event-hero-logo" eager />
+            <span className="tp-event-name">{event.name}</span>
           </h1>
         )}
         <p className="tp-hero-date">

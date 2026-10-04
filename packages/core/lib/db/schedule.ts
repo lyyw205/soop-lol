@@ -9,6 +9,7 @@
  *   폼이 열 때 받은 version(updated_at 의 텍스트)을 같이 보낸다. 그 사이 다른 저장이 있었으면 거부한다 — 덮어쓰지 않는다.
  */
 
+import type postgres from "postgres";
 import { db } from "./client.ts";
 import { kstDateString } from "../time.ts";
 import {
@@ -28,6 +29,15 @@ export class ScheduleSaveError extends Error {
 }
 
 export const STALE_VERSION_MESSAGE = "다른 수정이 먼저 저장됐습니다. 새로 불러온 뒤 다시 저장하세요.";
+
+async function scheduleSnapshot(tx: postgres.TransactionSql, id: string) {
+  const [row] = await tx<{ value: unknown }[]>`SELECT jsonb_build_object('entry', to_jsonb(e),
+    'slots', COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.on_date, s.starts_at) FROM schedule_slot s WHERE s.entry_id = e.id), '[]'),
+    'participants', COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.streamer_id) FROM schedule_participant p WHERE p.entry_id = e.id), '[]'),
+    'sources', COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.url) FROM schedule_source s WHERE s.entry_id = e.id), '[]')) AS value
+    FROM schedule_entry e WHERE e.id = ${id}::uuid`;
+  return row?.value ?? null;
+}
 
 export async function saveScheduleEntry(
   input: ScheduleInput,
@@ -54,6 +64,7 @@ export async function saveScheduleEntry(
         SELECT on_date::text AS on_date, starts_at, ends_at, label FROM schedule_slot WHERE entry_id = ${opts.id}::uuid`;
       previous = { title: prev.title, status: prev.status, slots: slotSummary([...prevSlots]) };
     }
+    const auditBefore = opts.id ? await scheduleSnapshot(tx, opts.id) : null;
     if (input.event_id) {
       const [ev] = await tx<{ game_code: string }[]>`SELECT game_code FROM event WHERE id = ${input.event_id}::uuid`;
       if (!ev) throw new ScheduleSaveError(["연결하려는 결과 경기(event)가 없습니다."]);
@@ -97,6 +108,9 @@ export async function saveScheduleEntry(
                  VALUES (${row.id}::uuid, ${c.field}, ${tx.json(c.before as never)}, ${tx.json(c.after as never)})`;
       }
     }
+    const auditAfter = await scheduleSnapshot(tx, row.id);
+    await tx`INSERT INTO admin_audit (scope, scope_key, entity, operation, before, after)
+      VALUES ('schedule', ${row.id}, 'schedule', ${opts.id ? "UPDATE" : "INSERT"}, ${tx.json(auditBefore as never)}, ${tx.json(auditAfter as never)})`;
     return row;
   });
 }
@@ -108,6 +122,8 @@ export async function deleteScheduleEntry(id: string, version: string): Promise<
       SELECT updated_at::text AS version FROM schedule_entry WHERE id = ${id}::uuid FOR UPDATE`;
     if (!cur) return;
     if (cur.version !== version) throw new ScheduleSaveError([STALE_VERSION_MESSAGE]);
+    const before = await scheduleSnapshot(tx, id);
+    await tx`INSERT INTO admin_audit (scope, scope_key, entity, operation, before) VALUES ('schedule', ${id}, 'schedule', 'DELETE', ${tx.json(before as never)})`;
     await tx`DELETE FROM schedule_entry WHERE id = ${id}::uuid`;
   });
 }
@@ -163,6 +179,7 @@ export interface AdminScheduleDetail {
 }
 
 export async function getScheduleForAdmin(id: string): Promise<AdminScheduleDetail | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
   const sql = db();
   const [e] = await sql<(Omit<ScheduleInput, "slots" | "participants" | "sources"> & { id: string; version: string })[]>`
     SELECT id, updated_at::text AS version, game_code, title, planned_kind, sponsor, description, admin_note,
@@ -192,7 +209,7 @@ export async function listEventsForScheduleLink(game: ScheduleGame): Promise<{ i
     SELECT id, slug, name, kind, starts_at FROM event
      WHERE game_code = ${game}
      ORDER BY starts_at DESC NULLS LAST, created_at DESC
-     LIMIT 300`;
+    `;
 }
 
 /** slug → streamer id. 관리자 폼이 참가자를 slug 로 받는다. 없는 slug 는 빠진다. */

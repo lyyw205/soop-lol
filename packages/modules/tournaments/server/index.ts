@@ -3,8 +3,10 @@
  * 자기 테이블은 아직 없다 — 전부 요청 때 계산한다. 그래서 잡도 마이그레이션도 없다.
  */
 import {
-  getPublicTournamentFacts, kstDateString, listMatchRosters, listPublicTournamentEvents,
+  getEventBracket, getPublicTournamentFacts, kstDateString, listMatchRosters, listPublicTournamentEvents, resolveBracket,
 } from "@soop-lol/core/lib/contract";
+import { bracketBoard } from "../../../ui/bracket/bracket-model.ts";
+import { teamLogoPath } from "../ui/team-logo-path.ts";
 import {
   tournamentCategory, tournamentSeries,
   type TournamentDetail, type TournamentSummary, type TournamentTeam,
@@ -36,7 +38,7 @@ export async function listTournaments(): Promise<TournamentSummary[]> {
 export async function getTournament(slug: string): Promise<TournamentDetail | null> {
   const event = (await listTournaments()).find((e) => e.slug === slug);
   if (!event) return null;
-  const { teams: teamRows, members, matches, links, facts } = await getPublicTournamentFacts(event.id);
+  const { teams: teamRows, members, matches, links, facts, listed } = await getPublicTournamentFacts(event.id);
   const roster = await listMatchRosters(matches.map((m) => m.match_id));
   const teams: TournamentTeam[] = teamRows.map((t) => ({
     id: t.event_team_id,
@@ -58,6 +60,14 @@ export async function getTournament(slug: string): Promise<TournamentDetail | nu
         rating: m.rating_label ? { label: m.rating_label, points: m.rating_points } : null,
         award: m.award,
       })),
+    listed: listed
+      .filter((l) => l.event_team_id === t.event_team_id)
+      .map((l) => ({ position: l.position, name: l.name, sourceUrl: l.source_url })),
   }));
-  return { event, teams, series: tournamentSeries(matches, roster), links, facts };
+  // 공통 대진. 칸을 누르면 화면이 세트 상세 팝업을 연다(롤 대회 경기에는 따로 주소가 없다).
+  const raw = await getEventBracket(event.id);
+  const bracket = raw
+    ? bracketBoard(raw, resolveBracket(raw.input), () => null, { image: (e) => teamLogoPath(event.slug, e.name) })
+    : null;
+  return { event, teams, series: tournamentSeries(matches, roster), links, facts, bracket };
 }

@@ -1,0 +1,243 @@
+{
+  "//": "로스터 빈자리의 표시 이름(0068) — 나무위키 표를 읽는 스크립트(fill-listed-names)가 못 읽은 형식을 사람이 읽어 옮긴 것. scripts/apply-listed-names.mjs 로 반영한다. 연결된 스트리머가 포지션 없이 있으면 이름이 같을 때 그 사람의 포지션을 채운다.",
+  "//일반인": "2014 천하제패는 BJ 1명 + 일반인 팀원 구성이다. 일반인 팀원 이름은 싣지 않는다(일반인 참가자는 공개 화면에 노출하지 않는다). BJ 로 확인되는 사람만 싣는다.",
+  "names": [
+    {
+      "event": "meljang-2015-s1",
+      "team": "쿨하지못해미안해",
+      "position": "BOTTOM",
+      "name": "인천드레이븐",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 A조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "평균키182cm",
+      "position": "TOP",
+      "name": "woongplayer",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 A조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "평균키182cm",
+      "position": "JUNGLE",
+      "name": "BJ롤교수",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 A조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "평균키182cm",
+      "position": "MIDDLE",
+      "name": "\"암살자\"",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 A조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "평균키182cm",
+      "position": "UTILITY",
+      "name": "타하하님",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 A조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "MIRACLE",
+      "position": "JUNGLE",
+      "name": "홀스형",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 B조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "MIRACLE",
+      "position": "BOTTOM",
+      "name": "츄러쓰",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 B조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "가게두어라",
+      "position": "TOP",
+      "name": "Lego77",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 B조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "가게두어라",
+      "position": "JUNGLE",
+      "name": "BJ마디제이",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 B조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "가게두어라",
+      "position": "BOTTOM",
+      "name": "BJ닭쳐",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 B조 표"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "불양한녀석들",
+      "position": "BOTTOM",
+      "name": "페코2",
+      "source": "https://namu.wiki/w/%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202015",
+      "note": "8강 B조 표 — sooplol 스냅샷은 haltol 이었다. 나무위키 우선"
+    },
+    {
+      "event": "meljang-2014-s1",
+      "team": "커맨더지코 팀",
+      "position": "UTILITY",
+      "name": "인간젤리",
+      "source": "https://namu.wiki/w/%EC%B2%9C%ED%95%98%EC%A0%9C%ED%8C%A8%20BJ%20%EB%A9%B8%EB%A7%9D%EC%A0%84",
+      "note": "참가 BJ 3.1 — 2015 참가 BJ 40인 명단에도 있는 BJ"
+    },
+    {
+      "event": "meljang-2014-s1",
+      "team": "홀스형 팀",
+      "position": "JUNGLE",
+      "name": "홀스형",
+      "source": "https://namu.wiki/w/%EC%B2%9C%ED%95%98%EC%A0%9C%ED%8C%A8%20BJ%20%EB%A9%B8%EB%A7%9D%EC%A0%84",
+      "note": "참가 BJ 3.8 — BJ 포지션 정글(팀장 본인)"
+    },
+    {
+      "event": "meljang-2014-allstar",
+      "team": "천하 팀",
+      "position": "TOP",
+      "name": "홀스형",
+      "source": "https://namu.wiki/w/%EC%B2%9C%ED%95%98%EC%A0%9C%ED%8C%A8%20BJ%20%EB%A9%B8%EB%A7%9D%EC%A0%84",
+      "note": "올스타전 팀 구성 표"
+    },
+    {
+      "event": "meljang-2023-s2",
+      "team": "앵Z세대",
+      "position": "TOP",
+      "name": "BJ신동혁",
+      "source": "https://namu.wiki/w/2023%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C2",
+      "note": "참가팀 표"
+    },
+    {
+      "event": "meljang-2025-s1",
+      "team": "황금고블린",
+      "position": "UTILITY",
+      "name": "홍주아",
+      "source": "https://namu.wiki/w/2025%20LoL%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C1",
+      "note": "참가팀 표에 [홍주아] 로 괄호 표기"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 백호구",
+      "position": "TOP",
+      "name": "BJ수찬",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84",
+      "note": "이벤트 매치 팀 구성 표"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 백호구",
+      "position": "JUNGLE",
+      "name": "Fly",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84",
+      "note": "프로게이머"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 백호구",
+      "position": "MIDDLE",
+      "name": "Bang",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84",
+      "note": "프로게이머"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 백호구",
+      "position": "BOTTOM",
+      "name": "나는상윤",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 백호구",
+      "position": "UTILITY",
+      "name": "라콩",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84",
+      "slug": "supporterakong",
+      "note": "연결된 스트리머 서포터라콩(나무위키 표기 라콩)"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 사이다",
+      "position": "JUNGLE",
+      "name": "무진-",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 사이다",
+      "position": "MIDDLE",
+      "name": "강만식",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 사이다",
+      "position": "BOTTOM",
+      "name": "Dread",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84",
+      "note": "프로게이머"
+    },
+    {
+      "event": "meljang-2020-freecs",
+      "team": "TEAM 사이다",
+      "position": "UTILITY",
+      "name": "Kiin",
+      "source": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%95%99%EC%BD%94%EB%A5%B4%20%EC%9D%B4%EB%B2%A4%ED%8A%B8%EC%A0%84",
+      "note": "프로게이머"
+    }
+  ],
+  "remove": [
+    {
+      "event": "meljang-2014-s1",
+      "team": "로이조 팀",
+      "position": "TOP",
+      "reason": "sooplol 스냅샷 이름(엉덩국 곰) — 나무위키상 일반인 팀원(엉덩국 복구)"
+    },
+    {
+      "event": "meljang-2014-s1",
+      "team": "홀스형 팀",
+      "position": "TOP",
+      "reason": "일반인 팀원(뚱후니)"
+    },
+    {
+      "event": "meljang-2014-s1",
+      "team": "홀스형 팀",
+      "position": "JUNGLE",
+      "reason": "sooplol 은 나이스게임 — 나무위키상 정글은 BJ 홀스형 본인"
+    },
+    {
+      "event": "meljang-2014-s1",
+      "team": "홀스형 팀",
+      "position": "MIDDLE",
+      "reason": "일반인 팀원(보갓)"
+    },
+    {
+      "event": "meljang-2014-s1",
+      "team": "홀스형 팀",
+      "position": "BOTTOM",
+      "reason": "일반인 팀원(갓승)"
+    },
+    {
+      "event": "meljang-2015-s1",
+      "team": "불양한녀석들",
+      "position": "BOTTOM",
+      "reason": "sooplol 값 haltol → 나무위키 페코2 로 교체"
+    }
+  ],
+  "//slug": "slug 를 적은 항목은 이름 대신 그 스트리머로 잇는다(표기가 달라 이름으로 못 맞출 때)."
+}

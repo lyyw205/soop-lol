@@ -452,6 +452,32 @@ try {
       && latestPersonal[0]?.match_ids.length === 2
       && !latestPersonal[0]?.match_ids.some((id) => nextPersonal[0]?.match_ids.includes(id)));
   const publicContract = await import("../packages/core/lib/contract/index.ts");
+  const pairEncounters = await publicContract.listEncountersBetween(s1.id, s2.id);
+  const laneCount = pairEncounters.filter((g) => g.relation === "opponent" && g.is_lane_matchup).length;
+  const lanePairs = await publicContract.listPublicPairs(20, true);
+  const lanePair = lanePairs.find((p) => [p.a_slug, p.b_slug].includes("alpha") && [p.a_slug, p.b_slug].includes("beta"));
+  check("자주 만난 매치업: 검색한 스트리머가 저장된 쌍의 어느 쪽이든 본인의 상대를 찾는다",
+    (await publicContract.listPublicPairs(1, true, "alpha"))[0]?.lane_sets === laneCount
+      && (await publicContract.listPublicPairs(1, true, "beta"))[0]?.lane_sets === laneCount);
+  const noEncounters = await streamers.createStreamer({ slug: "no-encounters", display_name: "기록 없음" });
+  try {
+    check("자주 만난 매치업: 검색한 스트리머의 기록이 없으면 전체 인기 쌍으로 대체하지 않는다",
+      (await publicContract.listPublicPairs(1, true, "no-encounters")).length === 0);
+  } finally {
+    await sqlClient()`DELETE FROM streamer WHERE id = ${noEncounters.id}::uuid`;
+  }
+  check("자주 만난 매치업: 포지션 불명·다른 라인·같은 팀 세트를 집계에서 제외한다",
+    laneCount > 0 && laneCount < pairEncounters.length
+      && lanePair?.sets === laneCount && lanePair.vs_sets === laneCount && lanePair.lane_sets === laneCount);
+  const laneMatchIds = pairEncounters.filter((g) => g.is_lane_matchup).map((g) => g.match_id);
+  try {
+    await sqlClient()`UPDATE streamer_encounter SET is_lane_matchup = false WHERE match_id = ANY(${laneMatchIds})`;
+    check("자주 만난 매치업: 맞라인 기록이 없는 쌍은 제외하지만 일반 맞대결 목록에는 남는다",
+      !(await publicContract.listPublicPairs(20, true)).some((p) => [p.a_slug, p.b_slug].includes("alpha") && [p.a_slug, p.b_slug].includes("beta"))
+        && (await publicContract.listPublicPairs()).some((p) => [p.a_slug, p.b_slug].includes("alpha") && [p.a_slug, p.b_slug].includes("beta")));
+  } finally {
+    await ingestDb.rederiveEncounters(laneMatchIds);
+  }
   const [opponentVisibility] = await sqlClient()`SELECT visibility FROM streamer WHERE slug = 'beta'`;
   await sqlClient()`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'beta'`;
   const withoutPublicOpponent = await personalDb.listPersonalMatches(s1.id, {category: "tournament", year: 2026});
@@ -573,7 +599,8 @@ try {
   ]);
   const noGame = (await publicDb.listStreamerEvents(s2.id)).find((r) => r.team_name === "예선팀");
   check("★ 경기가 0건이어도 예선 탈락한 회차는 성적에 남는다",
-    noGame?.placement === "1차예선 탈락" && noGame?.matches === 0 && noGame?.sets === 0,
+    // 저장할 때 표기를 통일한다('1차예선' → '1차 예선', normalizePlacement)
+    noGame?.placement === "1차 예선 탈락" && noGame?.matches === 0 && noGame?.sets === 0,
     JSON.stringify(noGame));
 
   const tally3 = await publicDb.summarizePlacements(s2.id);

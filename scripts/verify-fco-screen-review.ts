@@ -88,7 +88,7 @@ try {
   await V.updateScreenSides(S1, done1.v, [{ nickname: "알파감독", score: 2, person: "auto" }, { nickname: "일반감독2", score: 2, person: "auto" }], "first_win");
   const after = await ver(S1);
   assert.equal(after.c, null, "값이 바뀌면 완료가 풀린다");
-  assert.equal(after.v, done1.v + 1);
+  assert.ok(after.v > done1.v, "실제 값이 바뀌면 변경 번호가 증가한다");
   const row = (await sql<{ nickname: string; outcome: string; score_display: number }[]>`SELECT nickname, outcome, score_display FROM fco_match_participant WHERE match_id = ${S1} ORDER BY side_no`);
   assert.deepEqual(row.map((r) => r.outcome), ["win", "loss"], "직접 정한 결과가 점수보다 우선(승부차기)");
   assert.equal(row[1].nickname, "일반감독2");
@@ -177,30 +177,32 @@ try {
   assert.equal(await C.listFcoEventOptions().then((o) => o.some((e) => e.slug === "scr-cup")), true, "행사 목록에도 나온다");
 
   // 4-3) 도장 한 가지 — 승인·보류·완료가 같은 두 칸을 만진다. 화면 경기와 API 경기가 똑같다.
-  const stamps = async (id: string) => (await sql<{ r: Date | null; c: Date | null }[]>`SELECT reviewed_at r, review_completed_at c FROM match WHERE match_id = ${id}`)[0];
+  const stamps = async (id: string) => (await sql<{ r: Date | null; c: Date | null }[]>`SELECT reviewed_at r, context_review_completed_at c FROM match WHERE match_id = ${id}`)[0];
   const a1 = await C.approveFcoContext(S2);
-  assert.ok(a1.actions.some((x) => x.includes("확인 도장")));
+  assert.ok(a1.actions.some((x) => x.includes("판단 확정")));
   const st = await stamps(S2);
-  assert.ok(st.r && st.c, "승인은 보호와 완료를 같이 찍는다");
+  assert.ok(st.c, "대회 판단 승인 도장을 찍는다");
   const a2 = await C.approveFcoContext(S2);
   assert.ok(a2.skipped.some((x) => x.includes("이미")), "다시 승인해도 그대로(멱등)");
   await C.holdFcoContext(S2);
   const held = await stamps(S2);
-  assert.deepEqual([held.r, held.c], [null, null], "보류는 두 칸 모두 뗀다");
+  assert.equal(held.c, null, "보류는 맥락 완료만 해제한다");
+  assert.deepEqual(held.r, st.r, "보류해도 경기값 보호는 유지한다");
   // API 경기도 같은 도장 — 맥락 검수 큐의 「확인됨」은 완료(review_completed_at) 기준이다
   await C.applyFcoMatchContext({ provider_match_id: "api-link", conclusion: "casual", note: "API 경기 맥락" }, { createdBy: "admin" });
   assert.equal((await C.getFcoContextDetail("api-link"))!.confirmed, false, "승인 전에는 확인됨이 아니다");
   await C.approveFcoContext("api-link");
   assert.equal((await C.getFcoContextDetail("api-link"))!.confirmed, true, "승인하면 확인됨");
   const api = await stamps(API);
-  assert.ok(api.r && api.c, "API 경기 승인도 같은 두 칸");
+  assert.ok(api.c, "API 경기도 맥락을 확정한다");
   await sql`UPDATE match SET review_completed_at = NULL WHERE match_id = ${API}`;
-  assert.equal((await C.getFcoContextDetail("api-link"))!.confirmed, false, "보호(reviewed_at)만 있으면 확인됨이 아니다 — 두 뜻을 섞지 않는다");
+  assert.equal((await C.getFcoContextDetail("api-link"))!.confirmed, true, "경기값 완료를 풀어도 맥락 확정은 유지한다");
   // 화면 경기 완료 버튼도 같은 함수 — 같은 두 칸
   const vNow = await ver(S2);
   await B.setFcoMatchCompleted(S2, true, vNow.v);
   const viaScreen = await stamps(S2);
-  assert.ok(viaScreen.r && viaScreen.c, "화면 경기 완료도 같은 두 칸");
+  assert.ok(viaScreen.r, "경기값 완료는 값을 보호한다");
+  assert.equal(viaScreen.c, null, "경기값 완료가 맥락을 확정하지 않는다");
 
   // 4-4) ★ 사람이 푼 연결은 자동 합침(reconcile)이 다시 잇지 않는다
   //   S3 은 위에서 사람이 풀었다. API 경기와 닉네임까지 맞게 고쳐 두면 원래 자동 합침 대상이다.
@@ -241,7 +243,7 @@ try {
   await B.setFcoMatchCompleted("fco:api-x", true, mx.review_version);
   const after6 = (await unitOf("fco:api-x"))!;
   assert.ok(after6.review_completed_at, "완료");
-  assert.equal(after6.context.judgment?.created_by, "admin", "완료하면 자동 판단이 사람 판단으로 굳는다");
+  assert.equal(after6.context.judgment?.created_by, "auto", "경기값 완료가 자동 분류 판단을 승인하지 않는다");
 
   // 저장하고 완료 — 한 트랜잭션: 고친 값에 완료가 붙는다
   const v1now = await ver(S1);
@@ -313,7 +315,7 @@ try {
   assert.ok(m10[0].pairs.length >= 4, "모임 안 대전 목록");
 
   // 5) 검수해도 공개 조회는 그대로 — 화면 경기가 공개 쪽에 새지 않는다
-  const dump = JSON.stringify([await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoLeaderboard(), await R.listFcoEvents()]);
+  const dump = JSON.stringify([await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoEvents()]);
   assert.ok(!dump.includes("fcs:") && !dump.includes("일반감독") && !dump.includes("낯선감독"), "공개 조회에 화면 경기가 샜다");
   console.log("FC 화면 경기 검수(값 고치기·잇기·풀기·완료·보호·로그·공개 불변) 검증 통과");
 } finally {

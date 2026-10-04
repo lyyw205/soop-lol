@@ -11,6 +11,8 @@
  */
 
 import { db } from "./client.ts";
+import { REVIEW_PROGRESS_JOIN } from "./review-progress.ts";
+import { LOL_PRIORITY_REASONS } from "./review-priority.ts";
 import type { LeadEventKind } from "./ck.ts";
 
 export interface OverviewSetSummary {
@@ -20,6 +22,9 @@ export interface OverviewSetSummary {
   blue_team: string | null;
   red_team: string | null;
   completed: boolean;
+  game_creation: Date; game_creation_precision: "datetime" | "date"; review_version: number; visibility: string;
+  position_count: number; linked_count: number; champion_count: number; kda_count: number;
+  priority_reasons: string[];
 }
 
 export interface OverviewSeriesRow {
@@ -27,6 +32,7 @@ export interface OverviewSeriesRow {
   key: string;
   kind: LeadEventKind;
   event_name: string | null;
+  event_id: string | null;
   round_label: string | null;
   best_of: number | null;
   set_order_known: boolean;
@@ -39,47 +45,72 @@ const SERIES_EVENT_JOIN = `
   LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
   LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id)`;
 
-/**
- * 분류 하나(없으면 전체)의 시리즈 목록.
- * 대회끼리는 **최근 대회가 위**(대회 시작일 기준), 대회 안에서는 **첫 경기부터**(결승이 맨 아래) 읽히게 세운다.
- * ★ 같은 날의 순서는 시리즈 ID(시드의 경기 번호 g03)로 정한다. 날짜만 아는 경기의 시각은
- *   생성기가 지어낸 값이라 정렬 키로 쓰지 않는다 — 검수큐 대회 보기(event-review)와 같은 규칙.
- */
-export async function listOverviewSeries(opts: { kind?: LeadEventKind; unreviewed?: boolean; limit?: number } = {}): Promise<OverviewSeriesRow[]> {
+export interface OverviewOptions {
+  kind?: LeadEventKind; unreviewed?: boolean; limit?: number; offset?: number; q?: string; event?: string; focus?: string; queue?: "priority" | "general";
+}
+function overviewWhere(opts: OverviewOptions) {
+  const sql = db();
+  return sql`m.game_code = 'lol' AND m.source <> 'public_queue'
+    AND (${opts.kind ?? null}::text IS NULL OR COALESCE(e.kind, 'other') = ${opts.kind ?? null})
+    AND (${opts.event ?? null}::text IS NULL OR e.slug = ${opts.event ?? null}
+      OR (${opts.event ?? null} = 'unlinked' AND COALESCE(ms.event_id, m.event_id) IS NULL))`;
+}
+function overviewHaving(opts: OverviewOptions) {
+  const sql = db(), q = opts.q?.trim();
+  return sql`(${opts.unreviewed ?? false} = false OR bool_or(m.review_completed_at IS NULL))
+    AND (${opts.queue ?? null}::text IS NULL OR bool_or(m.review_completed_at IS NULL
+      AND CASE WHEN ${opts.queue ?? null} = 'priority' THEN cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) > 0
+        ELSE cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) = 0 END))
+    AND (${q || null}::text IS NULL OR bool_or(concat_ws(' ', e.name, ms.round_label, m.match_id, m.series_id) ILIKE ${'%' + (q ?? '') + '%'}
+      OR EXISTS (SELECT 1 FROM match_participant mp LEFT JOIN streamer person ON person.id = mp.streamer_id
+        WHERE mp.match_id = m.match_id AND concat_ws(' ', person.display_name, mp.observed_name) ILIKE ${'%' + (q ?? '') + '%'})))
+    AND CASE ${opts.focus ?? ''} WHEN 'position' THEN bool_or(rp.position_count < 10)
+      WHEN 'identity' THEN bool_or(rp.linked_count < 10) WHEN 'champion' THEN bool_or(rp.champion_count < 10)
+      WHEN 'kda' THEN bool_or(rp.kda_count < 10) ELSE true END`;
+}
+export async function countOverviewSeries(opts: OverviewOptions = {}): Promise<number> {
+  const sql = db();
+  const [row] = await sql`SELECT count(*)::int AS n FROM (
+    SELECT COALESCE(m.series_id, m.match_id) FROM match m ${sql.unsafe(SERIES_EVENT_JOIN)} ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
+    WHERE ${overviewWhere(opts)} GROUP BY COALESCE(m.series_id, m.match_id) HAVING ${overviewHaving(opts)}
+  ) counted`;
+  return row.n;
+}
+
+/** Bounded series summaries; all sets stay together even when a person/missing-field filter matches one set. */
+export async function listOverviewSeries(opts: OverviewOptions = {}): Promise<OverviewSeriesRow[]> {
   const sql = db();
   return sql<OverviewSeriesRow[]>`
-    SELECT key, kind, event_name, round_label, best_of, set_order_known, first_played, game_creation_precision, sets
+    SELECT key, kind, event_id, event_name, round_label, best_of, set_order_known, first_played, game_creation_precision, sets
       FROM (
     SELECT COALESCE(m.series_id, m.match_id) AS key,
            COALESCE(min(e.id::text), COALESCE(m.series_id, m.match_id)) AS group_key,
-           min(e.starts_at) AS event_start,
+           min(e.id::text) AS event_id, min(e.starts_at) AS event_start,
            min((m.game_creation AT TIME ZONE 'Asia/Seoul')::date) AS played_day,
            min(m.game_creation) FILTER (WHERE m.game_creation_precision = 'datetime') AS played_at,
-           COALESCE(min(e.kind), 'other') AS kind,
-           min(e.name) AS event_name,
-           min(ms.round_label) AS round_label,
-           min(ms.best_of) AS best_of,
+           COALESCE(min(e.kind), 'other') AS kind, min(e.name) AS event_name,
+           min(ms.round_label) AS round_label, min(ms.best_of) AS best_of,
            COALESCE(bool_or(ms.set_order_known), false) AS set_order_known,
            min(m.game_creation) AS first_played,
            CASE WHEN bool_and(m.game_creation_precision = 'datetime') THEN 'datetime' ELSE 'date' END AS game_creation_precision,
            json_agg(json_build_object(
              'match_id', m.match_id, 'series_game_no', m.series_game_no, 'winning_team', m.winning_team,
-             'blue_team', bt.name, 'red_team', rt.name, 'completed', m.review_completed_at IS NOT NULL
-           ) ORDER BY m.series_game_no NULLS LAST, m.game_creation) AS sets
-      FROM match m
-      ${sql.unsafe(SERIES_EVENT_JOIN)}
+             'blue_team', bt.name, 'red_team', rt.name, 'completed', m.review_completed_at IS NOT NULL,
+             'game_creation', m.game_creation, 'game_creation_precision', m.game_creation_precision,
+             'review_version', m.review_version, 'visibility', m.visibility,
+             'priority_reasons', ${sql.unsafe(LOL_PRIORITY_REASONS)},
+             'position_count', rp.position_count, 'linked_count', rp.linked_count,
+             'champion_count', rp.champion_count, 'kda_count', rp.kda_count
+           ) ORDER BY m.series_game_no NULLS LAST, m.game_creation, m.match_id) AS sets
+      FROM match m ${sql.unsafe(SERIES_EVENT_JOIN)} ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
       LEFT JOIN event_team bt ON bt.id = m.blue_team_id
       LEFT JOIN event_team rt ON rt.id = m.red_team_id
-     WHERE m.game_code = 'lol' AND m.source <> 'public_queue'
-       AND (${opts.kind ?? null}::text IS NULL OR COALESCE(e.kind, 'other') = ${opts.kind ?? null})
-     GROUP BY COALESCE(m.series_id, m.match_id)
-    HAVING (${opts.unreviewed ?? false} = false OR bool_or(m.review_completed_at IS NULL))
+     WHERE ${overviewWhere(opts)}
+     GROUP BY COALESCE(m.series_id, m.match_id) HAVING ${overviewHaving(opts)}
       ) s
-     -- 대회의 날짜는 대회 행에 있다. 경기 날짜는 틀릴 수 있어(2024 시즌에 2026 날짜로 들어간 시드)
-     -- 그걸로 대회 순서를 정하면 옛 대회가 위로 올라간다. 시작일이 없을 때만 경기 날짜로 대신한다.
      ORDER BY COALESCE(event_start, max(first_played) OVER (PARTITION BY group_key)) DESC NULLS LAST, group_key,
               played_day, played_at NULLS LAST, key
-     LIMIT ${opts.limit ?? 1000}
+     LIMIT ${opts.limit ?? 1000} OFFSET ${opts.offset ?? 0}
   `;
 }
 

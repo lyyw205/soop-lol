@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { PersonPicker } from "./PersonPicker";
 import { useActionState, useState } from "react";
 import type { UnidentifiedSeat } from "@soop-lol/core/lib/db/ck";
 import { linkUnknownAction } from "@/app/admin/ck/actions";
@@ -11,7 +13,7 @@ import { REVIEWED_HINT, REVIEWED_LABEL } from "@/lib/admin-labels";
 const seatKey = (seat: UnidentifiedSeat) => JSON.stringify([seat.match_id, seat.participant_id]);
 
 /** 선택한 자리와 기준값을 고정한다. 저장할 때 새로운 동명 행을 찾지 않는다. */
-export function LinkUnknownForm({ targets }: { targets: UnidentifiedSeat[] }) {
+export function LinkUnknownForm({ targets, people }: { targets: UnidentifiedSeat[]; people: {slug: string; display_name: string}[] }) {
   // RSC refresh during another form's save must not alter this form's selection/baseline.
   const [snapshot, setSnapshot] = useState(targets);
   const [selected, setSelected] = useState<string[]>([]);
@@ -35,7 +37,8 @@ export function LinkUnknownForm({ targets }: { targets: UnidentifiedSeat[] }) {
         <legend className="mb-2 text-xs text-ink-400">같은 사람으로 확인한 자리를 선택하세요.</legend>
         {[...groups].map(([group, seats]) => {
           const available = seats.filter(t => !t.reviewed_at).map(seatKey);
-          return <div key={group} className="grid gap-2 rounded border border-ink-800 p-2">
+          return <details key={group} className="grid gap-2 rounded border border-ink-800 p-2">
+            <summary className="cursor-pointer text-xs text-ink-200">{kstDateString(new Date(seats[0].played_at))} · {seats.length}자리</summary>
             <label className="flex gap-2 text-xs text-ink-200">
               <input type="checkbox" checked={available.length > 0 && available.every(id => selected.includes(id))}
                 disabled={!available.length} onChange={e => toggle(available, e.target.checked)} />
@@ -44,16 +47,13 @@ export function LinkUnknownForm({ targets }: { targets: UnidentifiedSeat[] }) {
             {seats.map(t => <label key={seatKey(t)} className="flex gap-2 pl-4 text-xs text-ink-400">
               <input type="checkbox" name="targets" value={JSON.stringify(t)} checked={selected.includes(seatKey(t))}
                 disabled={t.reviewed_at !== null} onChange={e => toggle([seatKey(t)], e.target.checked)} />
-              <span>{kstDateString(new Date(t.played_at))} · {t.match_id} · {t.participant_id}번 · {t.champion_name ?? "챔피언 미상"}
+              <span>{kstDateString(new Date(t.played_at))} · <Link href={`/admin/ck/match/${encodeURIComponent(t.match_id)}?focus=identity&from=${encodeURIComponent("/admin/ck/unknown")}`} className="text-accent-400">경기 근거 보기 ↗</Link> · {t.participant_id}번 · {t.champion_name ?? "챔피언 미상"}
                 {t.reviewed_at !== null && <span title={REVIEWED_HINT}>{` · ${REVIEWED_LABEL} (경기 검수 화면에서 수정)`}</span>}</span>
             </label>)}
-          </div>;
+          </details>;
         })}
         <div className="flex flex-wrap items-center gap-2">
-          <input name="streamer_slug" list="admin-streamers" placeholder="이 사람의 slug" value={slug}
-            onChange={e => setSlug(e.target.value)} required
-            className="w-56 rounded border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-ink-200"
-            title="등록된 스트리머의 slug" />
+          <PersonPicker name="streamer_slug" people={people} value={slug} onChange={setSlug} required />
           <button type="submit" disabled={!selected.length || pending} className="rounded border border-ink-700 px-3 py-2 text-sm disabled:opacity-50">
             {pending ? "처리 중…" : `선택한 ${selected.length}자리 연결`}
           </button>

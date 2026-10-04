@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { profileHref as personHref } from "@soop-lol/core/lib/contract";
+import { profileHref as personHref } from "@soop-lol/core/lib/contract/client";
 
 import { Avatar } from "../../../ui/avatar.tsx";
 

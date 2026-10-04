@@ -1,4 +1,6 @@
-import Link from "next/link";
+import { ConfirmSubmitButton } from "@/components/admin/ConfirmSubmitButton";
+import { AdminHistory } from "@/components/admin/AdminHistory";
+import { AdminBackLink } from "@/components/admin/AdminBackLink";
 import { notFound } from "next/navigation";
 
 import {
@@ -43,9 +45,7 @@ export default async function StreamerDetailPage({ params }: { params: Promise<{
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/admin/streamers" className="text-xs text-ink-400 hover:text-ink-200">
-          ← 목록
-        </Link>
+        <AdminBackLink fallback="/admin/streamers">스트리머 목록</AdminBackLink>
         <h1 className="text-xl font-semibold text-ink-200">{streamer.display_name}</h1>
         {streamer.visibility === "hidden" && <Tag tone="warn">숨김</Tag>}
       </div>
@@ -56,7 +56,7 @@ export default async function StreamerDetailPage({ params }: { params: Promise<{
 
       <Card
         title={`라이엇 계정 ${accounts.length}개`}
-        description="근거 없는 매핑은 등록되지 않습니다. 부계정 노출은 실제 분쟁이 됩니다 — 확신이 없으면 신뢰도를 낮게 잡으세요."
+        description="계정 연결에는 확인 근거가 필요합니다."
       >
         {accounts.length === 0 ? (
           <EmptyState>연결된 계정이 없습니다. 아래에서 추가하세요.</EmptyState>
@@ -118,19 +118,16 @@ export default async function StreamerDetailPage({ params }: { params: Promise<{
                   <form action={unlinkAccountAction}>
                     <input type="hidden" name="streamer_id" value={streamer.id} />
                     <input type="hidden" name="puuid" value={a.puuid} />
-                    <button className="rounded-md border border-lose/40 px-2 py-1 text-xs text-lose hover:bg-lose/10">
-                      해제
-                    </button>
+                    <ConfirmSubmitButton message="이 계정의 스트리머 연결을 해제할까요? 경기 원본은 유지됩니다.">연결 해제</ConfirmSubmitButton>
                   </form>
                 </div>
+                <details className="w-full"><summary className="cursor-pointer text-xs text-accent-400">계정 정보·근거 수정</summary><div className="mt-3"><AccountLinkForm streamerId={streamer.id} hasKey={hasRiotKey()} account={a} /></div></details>
               </li>
             ))}
           </ul>
         )}
 
-        <div className="mt-5 border-t border-ink-800 pt-5">
-          <AccountLinkForm streamerId={streamer.id} hasKey={hasRiotKey()} />
-        </div>
+        <details className="mt-4 border-t border-ink-800 pt-4" open={accounts.length === 0}><summary className="cursor-pointer text-sm text-accent-400">계정 추가</summary><div className="mt-3"><AccountLinkForm streamerId={streamer.id} hasKey={hasRiotKey()} /></div></details>
       </Card>
 
       <Card
@@ -142,7 +139,7 @@ export default async function StreamerDetailPage({ params }: { params: Promise<{
         ) : (
           <ul className="divide-y divide-ink-800">
             {career.map((c) => (
-              <li key={c.id} className="flex items-center justify-between gap-3 py-3">
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-ink-200">{c.title}</span>
@@ -151,24 +148,23 @@ export default async function StreamerDetailPage({ params }: { params: Promise<{
                   </div>
                   <div className="mt-0.5 text-xs text-ink-400">
                     {[c.role, c.team_name, c.date_from].filter(Boolean).join(" · ") || "—"}
+                    {c.source_url && <a href={c.source_url} target="_blank" rel="noreferrer" className="ml-3 text-accent-400">출처 열기 ↗</a>}
                   </div>
                 </div>
+                <details className="order-last w-full"><summary className="cursor-pointer text-xs text-accent-400">커리어 수정</summary><div className="mt-3"><CareerEventForm streamerId={streamer.id} career={c} /></div></details>
                 <form action={deleteCareerEventAction}>
                   <input type="hidden" name="id" value={c.id} />
                   <input type="hidden" name="streamer_id" value={streamer.id} />
-                  <button className="rounded-md border border-lose/40 px-2 py-1 text-xs text-lose hover:bg-lose/10">
-                    삭제
-                  </button>
+                  <ConfirmSubmitButton message="이 커리어를 삭제할까요? 내부 이력에는 이전 값이 남습니다.">삭제</ConfirmSubmitButton>
                 </form>
               </li>
             ))}
           </ul>
         )}
 
-        <div className="mt-5 border-t border-ink-800 pt-5">
-          <CareerEventForm streamerId={streamer.id} />
-        </div>
+        <details className="mt-4 border-t border-ink-800 pt-4"><summary className="cursor-pointer text-sm text-accent-400">커리어 추가</summary><div className="mt-3"><CareerEventForm streamerId={streamer.id} /></div></details>
       </Card>
+      <AdminHistory scope="streamer" id={streamer.id} />
     </div>
   );
 }

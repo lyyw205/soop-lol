@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import {
-  championById, championIconPath, POSITION_LABEL, profileHref, type MatchOutcome, type PublicRosterEntry,
-} from "@soop-lol/core/lib/contract";
+import type { MatchOutcome, PublicRosterEntry } from "@soop-lol/core/lib/contract";
+import { championById, championIconPath, POSITION_LABEL, profileHref } from "@soop-lol/core/lib/contract/client";
 import {
   participantKey, participantKda, teamPlayers, type MatchDetailSet,
 } from "./match-details-model.ts";

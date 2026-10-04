@@ -31,9 +31,29 @@ export interface StreamerListItem extends StreamerRow {
   channel_count: number;
 }
 
-export async function listStreamers(opts: { q?: string; limit?: number } = {}): Promise<StreamerListItem[]> {
+export interface StreamerListOptions { q?: string; limit?: number; offset?: number; visibility?: string; unlinked?: boolean }
+
+function streamerFilter(opts: StreamerListOptions) {
+  const sql = db(), q = opts.q?.trim();
+  return sql`(${q ? sql`(s.display_name ILIKE ${"%" + q + "%"} OR s.slug ILIKE ${"%" + q + "%"}
+    OR EXISTS (SELECT 1 FROM streamer_channel c WHERE c.streamer_id = s.id AND c.channel_id ILIKE ${"%" + q + "%"})
+    OR EXISTS (SELECT 1 FROM unnest(s.aliases) a WHERE a ILIKE ${"%" + q + "%"}))` : sql`true`})
+    AND (${opts.visibility ?? null}::text IS NULL OR s.visibility = ${opts.visibility ?? null})
+    AND (${opts.unlinked ?? false} = false OR NOT EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.streamer_id = s.id AND sa.active_to IS NULL))`;
+}
+
+export async function countStreamers(opts: StreamerListOptions = {}): Promise<number> {
+  const [row] = await db()`SELECT count(*)::int AS n FROM streamer s WHERE ${streamerFilter(opts)}`;
+  return row.n;
+}
+
+/** Lightweight complete choices; never reuse the paginated management list for a picker. */
+export async function listAdminStreamerChoices(): Promise<{ id: string; slug: string; display_name: string }[]> {
+  return db()`SELECT id, slug, display_name FROM streamer ORDER BY display_name, id`;
+}
+
+export async function listStreamers(opts: StreamerListOptions = {}): Promise<StreamerListItem[]> {
   const sql = db();
-  const q = opts.q?.trim();
   const limit = opts.limit ?? 200;
   return sql<StreamerListItem[]>`
     SELECT s.*,
@@ -60,16 +80,10 @@ export async function listStreamers(opts: { q?: string; limit?: number } = {}): 
              SELECT count(*) AS n FROM streamer_channel
               WHERE streamer_id = s.id AND active_to IS NULL
            ) cc ON true
-     WHERE ${q
-       ? sql`(s.display_name ILIKE ${"%" + q + "%"}
-              OR s.slug ILIKE ${"%" + q + "%"}
-              OR EXISTS (SELECT 1 FROM streamer_channel c
-                          WHERE c.streamer_id = s.id AND c.channel_id ILIKE ${"%" + q + "%"})
-              OR EXISTS (SELECT 1 FROM unnest(s.aliases) a WHERE a ILIKE ${"%" + q + "%"}))`
-       : sql`true`}
+     WHERE ${streamerFilter(opts)}
      GROUP BY s.id, m.match_count, ch.platform, ch.channel_id, ch.channel_url, cc.n
-     ORDER BY s.display_name
-     LIMIT ${limit}
+     ORDER BY s.display_name, s.id
+     LIMIT ${limit} OFFSET ${opts.offset ?? 0}
   `;
 }
 
@@ -294,6 +308,8 @@ export interface LinkAccountInput {
   is_main?: boolean;
   evidence: AccountEvidence;
   confidence: Confidence;
+  candidate_id?: string;
+  edit?: boolean;
 }
 
 /**
@@ -303,13 +319,25 @@ export interface LinkAccountInput {
  *   "근거 없이 붙일 수 있는 경로를 코드에 아예 두지 않기" 위해서다.
  *   관리자 UI 가 실수로 빈 값을 보내도 여기서 걸린다.
  */
-export async function linkAccount(input: LinkAccountInput): Promise<void> {
+export async function linkAccount(input: LinkAccountInput): Promise<{ backfillQueued: boolean }> {
   const hasEvidence = Boolean(input.evidence?.url || input.evidence?.note);
   if (!hasEvidence) {
     throw new Error("계정 매핑에는 근거(URL 또는 메모)가 필요하다. docs/PLAN.md §11-2");
   }
   const sql = db();
-  await sql.begin(async (tx) => {
+  return sql.begin(async (tx) => {
+    if (input.candidate_id) {
+      const [candidate] = await tx`SELECT puuid, state, game_name, tag_line FROM account_candidate WHERE id = ${input.candidate_id}::uuid FOR UPDATE`;
+      if (!candidate || candidate.puuid !== input.puuid) throw new Error("계정 후보가 바뀌었습니다. 목록을 새로 불러오세요.");
+      if (candidate.state === "approved") throw new Error("이미 연결 완료한 후보입니다. 최신 상태를 확인하세요.");
+      // Candidate names are historical sightings, never newer than an existing account cache.
+      await tx`INSERT INTO riot_account (puuid, game_name, tag_line)
+        VALUES (${candidate.puuid}, ${candidate.game_name}, ${candidate.tag_line}) ON CONFLICT (puuid) DO NOTHING`;
+    }
+    if (input.edit) {
+      const [link] = await tx`SELECT puuid FROM streamer_account WHERE streamer_id = ${input.streamer_id}::uuid AND puuid = ${input.puuid} FOR UPDATE`;
+      if (!link) throw new Error("계정 연결이 삭제되었습니다. 목록을 새로 불러오세요.");
+    }
     if (input.is_main) {
       await tx`UPDATE streamer_account SET is_main = false WHERE streamer_id = ${input.streamer_id}::uuid`;
     }
@@ -325,10 +353,12 @@ export async function linkAccount(input: LinkAccountInput): Promise<void> {
         updated_at = now()
     `;
     // 백필 대상으로 큐에 올린다. 이미 있으면 건드리지 않는다.
-    await tx`
+    const queued = input.edit ? [] : await tx`
       INSERT INTO ingest_cursor (puuid) VALUES (${input.puuid})
-      ON CONFLICT (puuid) DO NOTHING
+      ON CONFLICT (puuid) DO NOTHING RETURNING puuid
     `;
+    await tx`UPDATE account_candidate SET state = 'approved' WHERE puuid = ${input.puuid} AND state <> 'approved'`;
+    return { backfillQueued: queued.length > 0 };
   });
 }
 
@@ -356,13 +386,15 @@ export async function setAccountVisibility(
 }
 
 export async function unlinkAccount(streamerId: string, puuid: string): Promise<boolean> {
-  const sql = db();
-  const rows = await sql`
-    DELETE FROM streamer_account
-     WHERE streamer_id = ${streamerId}::uuid AND puuid = ${puuid}
-    RETURNING puuid
-  `;
-  return rows.length > 0;
+  return db().begin(async tx => {
+    // Match linkAccount's lock order so candidate state stays consistent with its mapping.
+    await tx`SELECT id FROM account_candidate WHERE puuid = ${puuid} FOR UPDATE`;
+    const rows = await tx`DELETE FROM streamer_account WHERE streamer_id = ${streamerId}::uuid AND puuid = ${puuid} RETURNING puuid`;
+    if (rows.length) await tx`UPDATE account_candidate SET state = 'pending'
+      WHERE puuid = ${puuid} AND state = 'approved'
+        AND NOT EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.puuid = ${puuid} AND sa.active_to IS NULL)`;
+    return rows.length > 0;
+  });
 }
 
 // ── 커리어 (수기) ────────────────────────────────────────────────────
@@ -403,6 +435,18 @@ export async function addCareerEvent(input: {
   return rows[0];
 }
 
+export async function updateCareerEvent(id: string, streamerId: string, expectedVersion: number, patch: {
+  title: string; role: string | null; team_name: string | null; placement: string | null;
+  date_from: string | null; date_to: string | null; source_url: string | null;
+}): Promise<void> {
+  if (!patch.title.trim()) throw new Error("대회/활동 이름은 필수입니다.");
+  if (patch.date_from && patch.date_to && patch.date_from > patch.date_to) throw new Error("종료일은 시작일 이후여야 합니다.");
+  const sql = db();
+  const rows = await sql`UPDATE career_event SET ${sql(patch)}, admin_version = admin_version + 1
+    WHERE id = ${id}::uuid AND streamer_id = ${streamerId}::uuid AND admin_version = ${expectedVersion} RETURNING id`;
+  if (!rows.length) throw new Error("커리어가 변경되었거나 삭제되었습니다. 새로고침 후 다시 확인해 주세요.");
+}
+
 export async function deleteCareerEvent(id: string): Promise<boolean> {
   const sql = db();
   const rows = await sql`DELETE FROM career_event WHERE id = ${id}::uuid RETURNING id`;
@@ -420,6 +464,8 @@ export interface CandidateRow {
   first_seen_at: string;
   last_seen_at: string;
   seen_with_names: string[];
+  companions: { id: string; slug: string; name: string }[];
+  owners: { id: string; slug: string; name: string }[];
   state: string;
 }
 
@@ -429,11 +475,13 @@ export interface CandidateRow {
  * ★ `seen_count` 가 신호다. 솔랭 로비 동료는 대부분 무작위 유저라 1회짜리는 거의 노이즈다.
  *   스트리머끼리 듀오·자유랭·내전을 돌면 숫자가 올라간다. 그래서 많이 본 순으로 정렬한다.
  */
-export async function listCandidates(state = "pending", limit = 200): Promise<CandidateRow[]> {
+export async function listCandidates(state = "pending", limit = 200, opts: { q?: string; offset?: number; sort?: string } = {}): Promise<CandidateRow[]> {
   const sql = db();
   return sql<CandidateRow[]>`
     SELECT ac.id, ac.puuid, ac.game_name, ac.tag_line, ac.seen_count,
            ac.first_seen_at, ac.last_seen_at, ac.state,
+           COALESCE((SELECT json_agg(json_build_object('id', s.id, 'slug', s.slug, 'name', s.display_name)) FROM streamer s WHERE s.id = ANY(ac.seen_with)), '[]') AS companions,
+           COALESCE((SELECT json_agg(json_build_object('id', s.id, 'slug', s.slug, 'name', s.display_name)) FROM streamer_account sa JOIN streamer s ON s.id = sa.streamer_id WHERE sa.puuid = ac.puuid AND sa.active_to IS NULL), '[]') AS owners,
            coalesce(
              (SELECT array_agg(s.display_name ORDER BY s.display_name)
                 FROM streamer s WHERE s.id = ANY(ac.seen_with)),
@@ -441,19 +489,41 @@ export async function listCandidates(state = "pending", limit = 200): Promise<Ca
            ) AS seen_with_names
       FROM account_candidate ac
      WHERE ac.state = ${state}
-     ORDER BY ac.seen_count DESC, ac.last_seen_at DESC
-     LIMIT ${limit}
+       AND (${opts.q || null}::text IS NULL OR concat_ws('#', ac.game_name, ac.tag_line) ILIKE ${"%" + (opts.q ?? "") + "%"} OR ac.puuid = ${opts.q ?? ""})
+     ORDER BY CASE WHEN ${opts.sort ?? "seen"} = 'recent' THEN ac.last_seen_at END DESC,
+              ac.seen_count DESC, ac.last_seen_at DESC, ac.id
+     LIMIT ${limit} OFFSET ${opts.offset ?? 0}
   `;
+}
+
+export async function countCandidates(state: string, q = ""): Promise<number> {
+  const [row] = await db()`SELECT count(*)::int AS n FROM account_candidate ac WHERE state = ${state}
+    AND (${q || null}::text IS NULL OR concat_ws('#', ac.game_name, ac.tag_line) ILIKE ${"%" + q + "%"} OR ac.puuid = ${q})`;
+  return row.n;
+}
+
+export async function candidateCounts(): Promise<Record<string, number>> {
+  const rows = await db()`SELECT state, count(*)::int AS n FROM account_candidate GROUP BY state`;
+  return Object.fromEntries(rows.map(row => [row.state, row.n]));
+}
+
+export async function getCandidate(id: string): Promise<{ id: string; puuid: string; game_name: string | null; tag_line: string | null } | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const [row] = await db()`SELECT id, puuid, game_name, tag_line FROM account_candidate WHERE id = ${id}::uuid`;
+  return row as Awaited<ReturnType<typeof getCandidate>> ?? null;
 }
 
 /** 후보를 치운다. **승인은 여기서 하지 않는다** — 매핑은 근거를 받아야 하므로 계정 연결 폼을 쓴다. */
 export async function setCandidateState(
   id: string,
   state: "pending" | "approved" | "rejected" | "ignored",
+  expectedState?: string,
 ): Promise<boolean> {
   const sql = db();
   const rows = await sql`
-    UPDATE account_candidate SET state = ${state} WHERE id = ${id}::uuid RETURNING id
+    UPDATE account_candidate SET state = ${state} WHERE id = ${id}::uuid
+      AND ${expectedState === undefined ? sql`true` : sql`state = ${expectedState}`}
+      AND (${state} <> 'approved' OR EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.puuid = account_candidate.puuid AND sa.active_to IS NULL)) RETURNING id
   `;
   return rows.length > 0;
 }

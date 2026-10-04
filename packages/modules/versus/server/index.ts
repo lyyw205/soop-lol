@@ -52,6 +52,6 @@ export async function recompute(limit = 200): Promise<number> {
  * ★ 모듈은 코어를 계약으로만 읽는다 — `listPublicPairs` 가 `core_public` 뷰를 지나므로
  *   경기 숨김·사람 숨김이 **질의 시점에** 반영된다.
  */
-export async function topPairs(limit = 20, laneOnly = false): Promise<PublicPair[]> {
-  return listPublicPairs(limit, laneOnly);
+export async function topPairs(limit = 20, laneOnly = false, streamerSlug?: string): Promise<PublicPair[]> {
+  return listPublicPairs(limit, laneOnly, streamerSlug);
 }

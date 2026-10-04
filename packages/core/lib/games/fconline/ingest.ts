@@ -28,7 +28,7 @@ function displayScore(player: FcoMatchPlayer): number | null {
 
 /** 제공자 원본과 조회용 요약을 같은 트랜잭션에서 기록한다. 1:1 외 모드는 별도 모델이 필요하다. */
 export async function saveFcoMatch(detail: FcoMatchDetail): Promise<"saved" | "unsupported"> {
-  if (detail.matchInfo.length !== 2 || detail.matchInfo.some((p) => !p.ouid)) return "unsupported";
+  if (detail.matchInfo.length !== 2 || detail.matchInfo.some((p) => !p.ouid) || new Set(detail.matchInfo.map(p => p.ouid)).size !== 2) return "unsupported";
   const sql = db();
   const id = `fco:${detail.matchId}`;
   const playedAt = fcoMatchTimestamp(detail.matchDate);
@@ -52,8 +52,16 @@ export async function saveFcoMatch(detail: FcoMatchDetail): Promise<"saved" | "u
       VALUES (${id}, ${detail.matchId}, ${tx.json(detail as unknown as postgres.JSONValue)}, now())
       ON CONFLICT (match_id) DO UPDATE SET payload = EXCLUDED.payload, fetched_at = now()
     `;
-    await tx`DELETE FROM fco_match_participant WHERE match_id = ${id}`;
-    for (const [index, player] of detail.matchInfo.entries()) {
+    // Preserve participant identity and side when the provider merely changes array order.
+    // The match upsert above holds the parent lock through this transaction.
+    const ouids = detail.matchInfo.map(p => p.ouid);
+    await tx`DELETE FROM fco_match_participant WHERE match_id = ${id} AND (ouid IS NULL OR NOT (ouid = ANY(${ouids})))`;
+    const kept = await tx<{ ouid: string; side_no: number }[]>`SELECT ouid, side_no FROM fco_match_participant WHERE match_id = ${id}`;
+    const sides = new Map(kept.map(p => [p.ouid, p.side_no]));
+    const used = new Set(kept.map(p => p.side_no));
+    for (const player of detail.matchInfo) {
+      const side = sides.get(player.ouid) ?? ([1, 2].find(n => !used.has(n))!);
+      used.add(side);
       const owner = await tx<{ streamer_id: string }[]>`
         SELECT link.streamer_id FROM streamer_fco_account link
         JOIN streamer s ON s.id = link.streamer_id AND s.visibility = 'public'
@@ -63,7 +71,7 @@ export async function saveFcoMatch(detail: FcoMatchDetail): Promise<"saved" | "u
         INSERT INTO fco_match_participant
           (match_id, ouid, nickname, streamer_id, side_no, outcome, goals, score_display, division, match_info)
         VALUES (${id}, ${player.ouid}, ${player.nickname}, ${owner[0]?.streamer_id ?? null},
-                ${index + 1}, ${outcome(player.matchDetail.matchResult)}, ${goals(player)},
+                ${side}, ${outcome(player.matchDetail.matchResult)}, ${goals(player)},
                 ${displayScore(player)},
                 ${player.division ?? null}, ${tx.json(player as unknown as postgres.JSONValue)})
         ON CONFLICT (match_id, ouid) DO UPDATE SET

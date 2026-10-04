@@ -37,7 +37,7 @@ export default async function FcVersus({ searchParams: sp, roleHref }: Props) {
       <section className="arena-panel"><h2>스트리머 정보</h2><p className="text-xs text-ink-400">두 스트리머를 선택하면 프로필과 맞대결 기록을 볼 수 있습니다.</p></section>
     </aside>}><FcRecordSearch people={people} a={a?.slug} b={b?.slug} mode="versus" versusPath={versusHref()} /></RecordLayout>;
   }
-  const [games, topPairs] = await Promise.all([listFcoVersus(a.id, b.id), listFcoTopPairs()]);
+  const [games, topPairs] = await Promise.all([listFcoVersus(a.id, b.id), listFcoTopPairs(4, a.id)]);
   const names = tab === "players" && games.length ? (await fcoMetadata()).names : new Map<number, string>();
   // 필터·정렬용 클라이언트에는 경기 상세 원본(선수/슛 JSON)을 보내지 않는다.
   // 전체 지표와 선수 표는 서버에서 원본 games로 계산한다.

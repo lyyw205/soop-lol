@@ -1,5 +1,7 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { adminReturn } from "@/lib/admin-navigation";
 import { redirect } from "next/navigation";
 
 import {
@@ -68,7 +70,7 @@ async function toInput(p: ScheduleFormPayload): Promise<{ input: ScheduleInput }
   };
 }
 
-export async function saveScheduleAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+export async function saveScheduleAction(_prev: ActionState, form: FormData): Promise<ActionState & { savedId?: string; savedVersion?: string }> {
   await requireAdmin();
   let payload: ScheduleFormPayload;
   try {
@@ -76,16 +78,20 @@ export async function saveScheduleAction(_prev: ActionState, form: FormData): Pr
   } catch {
     return { ok: false, message: "폼 값을 읽지 못했습니다." };
   }
-  const converted = await toInput(payload);
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.slots) || !Array.isArray(payload.sources) || !Array.isArray(payload.participants) || ["title", "sponsor", "description", "admin_note", "event_id"].some(k => typeof (payload as unknown as Record<string, unknown>)[k] !== "string")) return { ok: false, message: "입력 형식이 올바르지 않습니다. 새로고침 후 다시 입력해 주세요." };
+  let converted;
+  try { converted = await toInput(payload); } catch { return { ok: false, message: "날짜·참가자·출처 입력을 확인해 주세요." }; }
   if ("errors" in converted) return { ok: false, message: converted.errors.join(" / ") };
-  let saved: { id: string };
+  let saved: { id: string; version: string };
   try {
     saved = await saveScheduleEntry(converted.input, { id: payload.id, version: payload.version, recordHistory: !payload.typo });
   } catch (e) {
     if (e instanceof ScheduleSaveError) return { ok: false, message: e.reasons.join(" / ") };
     throw e;
   }
-  redirect(`/admin/schedule/${saved.id}?saved=1`);
+  revalidatePath("/admin/schedule", "layout");
+  revalidatePath("/schedule", "layout");
+  return { ok: true, message: "저장했습니다.", savedId: saved.id, savedVersion: saved.version };
 }
 
 export async function deleteScheduleAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -96,5 +102,7 @@ export async function deleteScheduleAction(_prev: ActionState, form: FormData): 
     if (e instanceof ScheduleSaveError) return { ok: false, message: e.reasons.join(" / ") };
     throw e;
   }
-  redirect("/admin/schedule");
+  revalidatePath("/admin/schedule", "layout");
+  revalidatePath("/schedule", "layout");
+  redirect(adminReturn(String(form.get("from") ?? ""), "/admin/schedule"));
 }

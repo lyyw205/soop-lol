@@ -1,7 +1,8 @@
 /**
  * 모듈 계약 — 모듈이 core 에서 쓸 수 있는 **전부**.
  *
- * 모듈은 이 파일만 import 한다. `core/lib/db/*` 를 직접 부르면 안 된다.
+ * 모듈은 이 계약 디렉터리만 import 한다. 브라우저는 DB를 불러오지 않는 client.ts를 쓴다.
+ * `core/lib/db/*` 를 직접 부르면 안 된다.
  * 이유는 두 가지다:
  *
  *  1. **안전.** core/lib/db 는 raw 테이블을 쓴다. 거기엔 visibility='hidden' 인
@@ -260,8 +261,9 @@ export async function listMatchRosters(matchIds: string[]): Promise<PublicRoster
 /**
  * 많이 붙은 쌍. 정렬은 **맞대결 세트** 다 — 총 조우로 정렬하면 같은 팀으로만
  * 만난 쌍이 위에 올라와서, 이 사이트가 무엇을 세는 곳인지 첫 화면부터 어긋난다.
+ * laneOnly이면 집계와 LIMIT 전에 맞라인 세트만 남겨 순위·횟수 모두 맞라인 기준으로 낸다.
  */
-export async function listPublicPairs(limit = 20, laneOnly = false): Promise<PublicPair[]> {
+export async function listPublicPairs(limit = 20, laneOnly = false, streamerSlug?: string): Promise<PublicPair[]> {
   return db()<PublicPair[]>`
     SELECT a.slug AS a_slug, a.display_name AS a_name,
            b.slug AS b_slug, b.display_name AS b_name,
@@ -273,9 +275,10 @@ export async function listPublicPairs(limit = 20, laneOnly = false): Promise<Pub
       JOIN core_public.streamer a ON a.streamer_id = e.streamer_a_id
       JOIN core_public.streamer b ON b.streamer_id = e.streamer_b_id
      WHERE (NOT ${laneOnly} OR (e.relation = 'opponent' AND e.is_lane_matchup))
+       AND (${streamerSlug ?? null}::text IS NULL OR a.slug = ${streamerSlug ?? null} OR b.slug = ${streamerSlug ?? null})
      GROUP BY 1, 2, 3, 4
     HAVING count(*) FILTER (WHERE e.relation = 'opponent') > 0
-     ORDER BY vs_sets DESC, sets DESC
+     ORDER BY vs_sets DESC, sets DESC, a.slug, b.slug
      LIMIT ${limit}
   `;
 }
@@ -303,14 +306,19 @@ export { placementRank } from "../metrics/placement.ts";
 // FC 온라인 공개 조회. FC 는 아직 core_public 뷰가 없어 조회 안에서 공개 범위를 걸고,
 // 넥슨 원본(match_info)은 허용 목록 키만 내보낸다 — 숨긴 신원이 안 새는지는 verify:fco 가 본다.
 export {
-  listFcoPeople, getFcoPerson, listFcoVersus, listFcoTopPairs, getFeaturedFcoPair, listFcoLeaderboard,
+  listFcoPeople, getFcoPerson, listFcoVersus, listFcoTopPairs, getFeaturedFcoPair,
   listFcoEvents, getFcoEvent, listFcoEventGames, getFcoGame, FCO_PUBLIC_MATCH_INFO_KEYS,
 } from "../db/fconline.ts";
-export type { FcoGame, FcoParticipant, FcoPerson, FcoEvent, FcoTopPair, FcoRankRow } from "../db/fconline.ts";
+export type { FcoGame, FcoParticipant, FcoPerson, FcoEvent, FcoTopPair } from "../db/fconline.ts";
 export { addFcoStats, EMPTY_FCO_STATS, fcoNumber, FCO_MODE_LABEL } from "../games/fconline/view.ts";
 export type { FcoStatLine } from "../games/fconline/view.ts";
 export { fcoSeriesScore, groupFcoSeries } from "../games/fconline/series.ts";
 export { fcoMetadata } from "../games/fconline/meta.ts";
+// FC 구단(공식 구단가치·스쿼드 등록 선수·가치 이력). 원본 셋에서 계산만 한다 — docs/FCO-CLUB-VALUE-PLAN.md.
+export { listFcoClubBoard, getFcoClub } from "../db/fconline-club.ts";
+export type { FcoClubBoardRow, FcoClub, FcoClubAccountSummary, FcoClubSquad, FcoClubPoint } from "../db/fconline-club.ts";
+export { cardKey, changeOver, formatWon, squadLabel, SQUAD_LABEL } from "../metrics/club-value.ts";
+export type { HeldCard, HoldingRow, ValuePoint, ValueChange } from "../metrics/club-value.ts";
 
 // 공개 대회 사실. 분류·집계·화면은 대회 모듈이 한다.
 export { listPublicTournamentEvents, getPublicTournamentFacts } from "../db/public-tournaments.ts";
@@ -318,6 +326,11 @@ export type {
   PublicTournamentEventRow, PublicTournamentTeamRow, PublicTournamentMemberRow, PublicTournamentMatchRow,
   PublicTournamentLinkRow, PublicTournamentFactRow,
 } from "../db/public-tournaments.ts";
+// 대진(칸·화살표·결정). 계산은 core 한 곳 — 롤·FC 모듈이 같은 함수로 대진표와 순위를 그린다(docs/TOURNAMENT-FORMAT-PLAN.md).
+export { getEventBracket } from "../db/event-bracket.ts";
+export type { EventBracket } from "../db/event-bracket.ts";
+export { resolveBracket, displayRank, rankText, slotDepths } from "../tournament/bracket.ts";
+export type { BracketResult, ResolvedSlot, Certainty } from "../tournament/bracket.ts";
 export { championById, championIconPath, CHAMPION_DATA_VERSION } from "../riot/champions.ts";
 
 export { MATCH_CATEGORIES, RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, isMatchCategoryFilter, expandCategory } from "../metrics/category.ts";

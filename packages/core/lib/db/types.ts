@@ -122,6 +122,7 @@ export interface RankSnapshotRow {
 }
 
 export interface CareerEventRow {
+  admin_version: number;
   id: string;
   streamer_id: string;
   event_id: string | null;

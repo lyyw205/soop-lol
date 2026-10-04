@@ -1,10 +1,12 @@
 import { toKstInputValue } from '@soop-lol/core/lib/time';
+import type { ReviewMatch } from '@/components/admin/CkReviewer';
 import type { ActionState } from './action-state';
 
 /** CK 폼이 편집을 시작할 때 본 값. DB 값과 입력값의 왕복에 같은 매퍼를 쓴다. */
 export type CkFormValues = Record<string, string>;
 export interface CkActionState extends ActionState {
   saved?: CkFormValues;
+  savedRoster?: ReviewMatch["participants"];
   latest?: CkFormValues;
   conflict?: { field: string; mine: unknown; theirs: unknown };
 }

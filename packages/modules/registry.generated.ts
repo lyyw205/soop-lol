@@ -39,14 +39,14 @@ import * as versus_server from "./versus/server/index.ts";
 
 export const MODULES: RegisteredModule[] = [
   {
-    name: "fc_leaderboard",
+    name: "fc_club_value",
     version: "0.1.0",
-    title: "FC 리더보드",
-    description: "등록 스트리머의 수집 FC 경기를 승·골·경기 수로 줄 세운다.",
-    schema: "mod_fc_leaderboard",
-    routes: [{"path":"/fc/leaderboard","title":"리더보드"}],
-    provides: [],
-    navOrder: 20,
+    title: "FC 구단가치",
+    description: "core 의 FC 구단 원본(공식 구단가치·스쿼드·카드 시세)을 읽어 구단가치 순위와 스트리머 구단의 가치 변동·스쿼드 등록 선수를 보여준다.",
+    schema: "mod_fc_club_value",
+    routes: [{"path":"/fc/club-value","title":"구단가치"}],
+    provides: ["fc-club-value"],
+    navOrder: 25,
     site: "fconline",
     jobs: [
 

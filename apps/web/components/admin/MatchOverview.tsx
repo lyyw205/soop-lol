@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { BulkReviewCompletion } from "./BulkReviewCompletion";
+import type { ReviewTarget } from "@soop-lol/core/lib/db/review-batch";
 import { useEffect, useLayoutEffect, useState, useTransition } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -12,6 +14,9 @@ import { kstPlayedAt } from "@soop-lol/core/lib/time";
 import { profileHref } from "@soop-lol/core/lib/site-paths";
 
 import { loadOverviewSetsAction, toggleOverviewReviewAction } from "@/app/admin/overview/actions";
+import { adminHref } from "@/lib/admin-navigation";
+import { EventMatchRow } from "./EventMatchRow";
+import { ReviewProgressHeaders } from "./ReviewProgress";
 import { EVENT_KIND_LABEL } from "@/lib/admin-labels";
 
 type Side = 100 | 200;
@@ -46,21 +51,10 @@ function loadFoldedFromStorage(): Set<string> {
  * 스크롤 위치는 주소별로 따로 둔다(분류·미검수 필터가 다르면 다른 화면이다).
  * 새로고침에서만 살아남으면 되므로 sessionStorage — 접기 상태(오래 유지하고 싶은 설정)와는 성격이 다르다.
  */
-const scrollStorageKey = () => `ck-overview-scroll:${location.pathname}${location.search}`;
-
-/**
- * 실제로 스크롤되는 요소를 찾는다. `window` 가 아니다 — 어드민 레이아웃(AdminShell)이
- * 화면 폭에 따라 `.admin-content` 또는 `.admin-workspace` 를 스크롤 컨테이너로 쓴다
- * (admin.css 768px·1080px 분기). `document.scrollingElement` 는 좁은 화면(모바일)용 fallback.
- */
-function getScrollEl(): Element | null {
-  const candidates = [document.querySelector(".admin-content"), document.querySelector(".admin-workspace"), document.scrollingElement]
-    .filter((el): el is Element => el != null);
-  return candidates.find(el => el.scrollHeight > el.clientHeight + 1) ?? candidates[0] ?? null;
-}
-
-export function MatchOverview({ series }: { series: OverviewSeriesRow[] }) {
+export function MatchOverview({ series, mode = "compare", returnTo = "/admin/overview", focus }: { series: OverviewSeriesRow[]; mode?: "queue" | "compare"; returnTo?: string; focus?: string }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [chosen, setChosen] = useState<Map<string, ReviewTarget>>(new Map());
+  const choose = (id: string, version: number, checked: boolean) => setChosen(old => { const next = new Map(old); if (checked) next.set(id, { id, version }); else next.delete(id); return next; });
   const [sets, setSets] = useState<Map<string, OverviewSetDetail[]>>(new Map());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [loading, startLoading] = useTransition();
@@ -68,6 +62,24 @@ export function MatchOverview({ series }: { series: OverviewSeriesRow[] }) {
   // 서버 렌더와 맞추려고 처음엔 빈 채로 시작하고, 마운트 후 저장된 값으로 맞춘다(하이드레이션 불일치 방지).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [foldReady, setFoldReady] = useState(false);
+  const openKey = `admin-series-open:${returnTo}`;
+  const [openReady, setOpenReady] = useState(false);
+  useEffect(() => {
+    let keys: string[] = [];
+    try { keys = JSON.parse(sessionStorage.getItem(openKey) ?? "[]").filter((key: string) => series.some(s => s.key === key)); } catch { /* fresh list */ }
+    setOpen(new Set(keys)); setOpenReady(true);
+    if (mode === "compare" && keys.length) startLoading(async () => {
+      for (const key of keys) {
+        try { update(setSets, key, await loadOverviewSetsAction(key)); }
+        catch { update(setErrors, key, "세트를 불러오지 못했습니다. 다시 펼쳐 주세요."); }
+      }
+    });
+    // The parent keys this component by the complete list URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openKey]);
+  useEffect(() => {
+    if (openReady) try { sessionStorage.setItem(openKey, JSON.stringify([...open])); } catch { /* optional storage */ }
+  }, [open, openKey, openReady]);
 
   // useLayoutEffect — 페인트 전에 접힌 상태를 반영해야 화면 높이가 접힌 채로 확정된다.
   // useEffect 로 하면 "전부 펼친 모습"이 한 프레임 그려진 뒤 접혀서, 그 사이 스크롤 위치가 튄다.
@@ -77,37 +89,6 @@ export function MatchOverview({ series }: { series: OverviewSeriesRow[] }) {
     try { localStorage.setItem(FOLD_STORAGE_KEY, JSON.stringify([...collapsed])); } catch { /* 무시 — 접기는 편의 기능일 뿐 */ }
   }, [collapsed, foldReady]);
 
-  // 스크롤 위치 복원 — 접기 상태가 화면에 반영된 뒤(foldReady) 여야 높이가 확정돼 있다.
-  // 한 번만 한다: 사용자가 나중에 직접 접었다 펴도 그때마다 다시 스크롤시키면 안 된다.
-  useLayoutEffect(() => {
-    if (!foldReady) return;
-    try {
-      const saved = sessionStorage.getItem(scrollStorageKey());
-      const el = saved != null ? getScrollEl() : null;
-      if (el) el.scrollTop = Number(saved);
-    } catch { /* 무시 */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [foldReady]);
-
-  // 스크롤할 때마다(rAF 로 묶어서) 위치를 저장 — 새로고침 순간의 위치가 아니라 마지막으로 본 위치를 남긴다.
-  // 실제 스크롤 컨테이너가 화면 폭에 따라 달라지므로 후보 전부에 리스너를 건다.
-  useEffect(() => {
-    let ticking = false;
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        const el = getScrollEl();
-        if (el) { try { sessionStorage.setItem(scrollStorageKey(), String(el.scrollTop)); } catch { /* 무시 */ } }
-        ticking = false;
-      });
-    };
-    const targets = [document.querySelector(".admin-content"), document.querySelector(".admin-workspace"), window]
-      .filter((t): t is Element | typeof window => t != null);
-    targets.forEach(t => t.addEventListener("scroll", onScroll, { passive: true }));
-    return () => targets.forEach(t => t.removeEventListener("scroll", onScroll));
-  }, []);
-
   const update = <T,>(setter: (fn: (m: Map<string, T>) => Map<string, T>) => void, key: string, value: T | undefined) =>
     setter(m => { const next = new Map(m); if (value === undefined) next.delete(key); else next.set(key, value); return next; });
 
@@ -115,7 +96,7 @@ export function MatchOverview({ series }: { series: OverviewSeriesRow[] }) {
     const next = new Set(open);
     if (next.has(key)) { next.delete(key); setOpen(next); return; }
     next.add(key); setOpen(next);
-    if (sets.has(key)) return;
+    if (mode === "queue" || sets.has(key)) return;
     setLoadingKey(key);
     startLoading(async () => {
       try { update(setSets, key, await loadOverviewSetsAction(key)); update(setErrors, key, undefined); }
@@ -132,18 +113,22 @@ export function MatchOverview({ series }: { series: OverviewSeriesRow[] }) {
   // 목록은 이미 대회 단위로 붙어서 온다(listOverviewSeries 의 정렬). 이어지는 같은 대회를 한 묶음으로.
   const groups: { id: string; name: string | null; kind: string; series: OverviewSeriesRow[] }[] = [];
   for (const s of series) {
-    const last = groups.at(-1);
-    if (last && last.name === s.event_name) last.series.push(s);
-    else groups.push({ id: `${groups.length}:${s.event_name ?? ""}`, name: s.event_name, kind: s.kind, series: [s] });
+    const last = groups.find(g => g.id === (s.event_id ?? "unlinked"));
+    if (last && last.id === (s.event_id ?? "unlinked")) last.series.push(s);
+    else groups.push({ id: s.event_id ?? "unlinked", name: s.event_name, kind: s.kind, series: [s] });
   }
   // 접기 상태의 키는 대회 이름이다(g.id 는 목록 위치를 포함해 새로고침마다 안 바뀐다는 보장이 없다).
-  const foldKey = (g: { name: string | null }) => g.name ?? "";
-  const toggleGroup = (g: { name: string | null }) => setCollapsed(c => {
+  const foldKey = (g: { id: string }) => g.id;
+  const toggleGroup = (g: { id: string }) => setCollapsed(c => {
     const key = foldKey(g);
     const next = new Set(c); if (next.has(key)) next.delete(key); else next.add(key); return next;
   });
 
   return <>
+    <BulkReviewCompletion game="lol" targets={[...chosen.values()]} onDone={() => {
+      setSets(old => new Map([...old].map(([key, rows]) => [key, rows.map(row => chosen.has(row.match_id) ? { ...row, review_completed_at: new Date() } : row)])));
+      setChosen(new Map());
+    }} />
     {groups.length > 1 && <p className="mb-2 flex justify-end gap-3 text-xs">
       <button type="button" className="text-ink-400 hover:text-accent-400" onClick={() => setCollapsed(new Set(groups.map(foldKey)))}>대회 모두 접기</button>
       <button type="button" className="text-ink-400 hover:text-accent-400" onClick={() => setCollapsed(new Set())}>대회 모두 펼치기</button>
@@ -161,9 +146,17 @@ export function MatchOverview({ series }: { series: OverviewSeriesRow[] }) {
           <span className="overview-event-meta">시리즈 {g.series.length} · 세트 {setCount}</span>
           <span className={`overview-series-review ${done === setCount ? "text-win" : done ? "text-amber-300" : "text-ink-400"}`}>검수 {done}/{setCount}</span>
         </button>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-ink-800 px-4 py-2 text-[11px] text-ink-400" aria-label="현재 목록 참가자 정보 진행">
+          <span>현재 목록 · 10명 정보 완료</span>
+          {([['position_count', '포지션'], ['linked_count', '참가자 연결'], ['champion_count', '챔피언'], ['kda_count', 'KDA']] as const).map(([key, label]) => {
+            const complete = g.series.flatMap(s => s.sets).filter(set => set[key] >= 10).length;
+            return <span key={key} className={complete === setCount ? 'text-win' : 'text-amber-300'}>{label} {complete}/{setCount}경기</span>;
+          })}
+        </div>
         {!folded && <ul aria-label={`${g.name ?? "대회 미연결"} 경기`}>
-          {g.series.map(s => <SeriesItem key={s.key} s={s} isOpen={open.has(s.key)} onToggle={() => toggle(s.key)}
+          {g.series.map(s => <SeriesItem key={s.key} s={s} mode={mode} returnTo={returnTo} focus={focus} isOpen={open.has(s.key)} onToggle={() => toggle(s.key)}
             sets={sets.get(s.key)} error={errors.get(s.key)} loading={loading && loadingKey === s.key}
+            chosen={chosen} choose={choose}
             onToggleReview={set => toggleReview(s.key, set)} />)}
         </ul>}
       </section>;
@@ -172,19 +165,24 @@ export function MatchOverview({ series }: { series: OverviewSeriesRow[] }) {
   </>;
 }
 
-function SeriesItem({ s, isOpen, onToggle, sets, error, loading, onToggleReview }: {
+function SeriesItem({ s, isOpen, onToggle, sets, error, loading, onToggleReview, mode, returnTo, focus, chosen, choose }: {
+  chosen: Map<string, ReviewTarget>; choose: (id: string, version: number, checked: boolean) => void;
+  mode: "queue" | "compare"; returnTo: string; focus?: string;
   s: OverviewSeriesRow; isOpen: boolean; onToggle: () => void; sets?: OverviewSetDetail[]; error?: string; loading: boolean;
   onToggleReview: (set: OverviewSetDetail) => Promise<void>;
 }) {
   const done = s.sets.filter(x => x.completed).length;
   const sc = score(s);
   const subs = sets ? substitutions(sets) : null;
+  const queue = new URL(returnTo, 'https://admin.invalid').searchParams.get('queue');
+  const next = s.sets.find(set => !set.completed && (queue === 'priority' ? set.priority_reasons.length > 0 : queue === 'general' ? !set.priority_reasons.length : true)) ?? s.sets[0];
+  const reviewHref = (id: string) => adminHref(`/admin/ck/match/${encodeURIComponent(id)}`, { from: returnTo, focus });
   return <li className="overview-series" data-open={isOpen || undefined}>
-    <button type="button" className="overview-series-head" aria-expanded={isOpen} onClick={onToggle}>
+    <div className="overview-series-row"><button type="button" className="overview-series-head" aria-expanded={isOpen} onClick={onToggle}>
       {isOpen ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
       <span className="overview-series-date">{kstPlayedAt(new Date(s.first_played), s.game_creation_precision)}</span>
       <span className="overview-series-round">{s.round_label ?? (s.sets.length === 1 && isStandaloneSet(s.sets[0].match_id, s.key) ? "단판" : "라운드 미기재")}</span>
-      <span className="overview-series-score">{sc ?? <span className="text-ink-500">팀 이름 없음</span>}</span>
+      <span className="overview-series-score">{sc ?? <span className="text-ink-500">팀 이름 없음</span>}<span className="block text-[11px] text-amber-300">{[...new Set(s.sets.filter(set => !set.completed).flatMap(set => set.priority_reasons))].join(' · ')}</span></span>
       <span className="overview-series-meta">
         {s.best_of && s.best_of > 1 && <span>{s.best_of}판 {Math.ceil(s.best_of / 2)}선승 · </span>}
         <span>{s.sets.length}세트</span>
@@ -193,11 +191,23 @@ function SeriesItem({ s, isOpen, onToggle, sets, error, loading, onToggleReview 
         검수 {done}/{s.sets.length}
       </span>
     </button>
-    {isOpen && <div className="overview-sets">
+      {next && <Link href={reviewHref(next.match_id)} className="overview-start">{mode === "queue" ? "검수 →" : "수정 →"}</Link>}
+    </div>
+    {isOpen && mode === "queue" && <div className="ck-progress-scroll"><table className="ck-progress-table ck-progress-table--event">
+      <thead><tr><th scope="col">확인</th><th scope="col">경기</th><ReviewProgressHeaders includeRegistration={false} /></tr></thead>
+      <tbody>{s.sets.map(set => <tr key={set.match_id}><td><input type="checkbox" aria-label={`${set.match_id} 확인한 경기 선택`} disabled={set.completed} checked={chosen.has(set.match_id)} onChange={e => choose(set.match_id, set.review_version, e.target.checked)} /></td><EventMatchRow cellsOnly href={reviewHref(set.match_id)} match={{ ...set,
+        review_completed_at: set.completed ? "completed" : null,
+        label: setLabel({ standalone: isStandaloneSet(set.match_id, s.key), best_of: s.best_of, set_order_known: s.set_order_known, series_game_no: set.series_game_no }),
+        playedAt: kstPlayedAt(new Date(set.game_creation), set.game_creation_precision),
+        winner: (set.winning_team === 100 ? set.blue_team ?? "1팀" : set.winning_team === 200 ? set.red_team ?? "2팀" : "승자 미정"), hidden: set.visibility === "hidden",
+      }} /></tr>)}</tbody>
+    </table></div>}
+    {isOpen && mode === "compare" && <div className="overview-sets">
       {error && <p role="alert" className="text-xs text-lose">{error}</p>}
       {!sets
         ? <p className="text-xs text-ink-400">{loading ? "불러오는 중…" : "세트를 불러오지 못했습니다."}</p>
-        : sets.map(set => <SetCard key={set.match_id} series={s} set={set} subs={subs!.get(set.match_id)}
+        : sets.map(set => <SetCard key={set.match_id} series={s} set={set} returnTo={returnTo} subs={subs!.get(set.match_id)}
+          selected={chosen.has(set.match_id)} choose={checked => choose(set.match_id, set.review_version, checked)}
           onToggleReview={() => onToggleReview(set)} />)}
     </div>}
   </li>;
@@ -245,8 +255,9 @@ function substitutions(sets: OverviewSetDetail[]): Map<string, Set<number>> {
   return out;
 }
 
-function SetCard({ series, set, subs, onToggleReview }: {
-  series: OverviewSeriesRow; set: OverviewSetDetail; subs?: Set<number>; onToggleReview: () => Promise<void>;
+function SetCard({ series, set, subs, onToggleReview, returnTo, selected, choose }: {
+  selected: boolean; choose: (checked: boolean) => void;
+  returnTo: string; series: OverviewSeriesRow; set: OverviewSetDetail; subs?: Set<number>; onToggleReview: () => Promise<void>;
 }) {
   const [pending, startPending] = useTransition();
   const label = setLabel({ standalone: isStandaloneSet(set.match_id, series.key), best_of: series.best_of,
@@ -260,6 +271,7 @@ function SetCard({ series, set, subs, onToggleReview }: {
   const tone = (side: Side) => set.winning_team == null ? "" : set.winning_team === side ? "is-win" : "is-lose";
   return <article className="overview-set">
     <header className="overview-set-head">
+      <input type="checkbox" aria-label={`${set.match_id} 확인한 경기 선택`} checked={selected} disabled={completed} onChange={e => choose(e.target.checked)} />
       <b className="text-ink-200">{label}</b>
       <span>{kstPlayedAt(new Date(set.game_creation), set.game_creation_precision)}</span>
       <span>{duration(set.game_duration) ?? "시간 미상"}</span>
@@ -272,7 +284,7 @@ function SetCard({ series, set, subs, onToggleReview }: {
         className={`ck-review-completion-button ml-auto rounded border px-1.5 text-[11px] hover:border-accent-400 disabled:opacity-50 ${completed ? "is-complete" : "is-pending"}`}>
         {pending ? "저장 중" : completed ? "검수 완료" : "미검수"}
       </button>
-      <Link href={`/admin/ck/match/${encodeURIComponent(set.match_id)}`} className="hover:text-accent-400" title="검수 화면에서 열기">검수 →</Link>
+      <Link href={adminHref(`/admin/ck/match/${encodeURIComponent(set.match_id)}`, { from: returnTo })} className="hover:text-accent-400" title="검수 화면에서 열기">검수 →</Link>
     </header>
     <table className="overview-match">
       <colgroup><col /><col className="c-champ" /><col className="c-kda" /><col className="c-lane" /><col className="c-kda" /><col className="c-champ" /><col /></colgroup>
@@ -322,7 +334,7 @@ function TeamHead({ side, name, players, tone }: { side: Side; name: string; pla
   const total = <span className="c-kda" title={missing ? `${missing}명 KDA 미입력 — 합계가 모자랍니다` : "KDA 총합"}>
     {missing === players.length ? <Missing /> : <>{sum("kills")} / {sum("deaths")} / {sum("assists")}{missing > 0 && <span className="text-amber-300">*</span>}</>}
   </span>;
-  const team = <span className="overview-team-name">{name}{players.length < 5 && <span className="text-amber-300"> ({players.length}/5)</span>}</span>;
+  const team = <span className="overview-team-name">{name}{tone && <span className="ml-1 text-xs">{tone === "is-win" ? "승" : "패"}</span>}{players.length < 5 && <span className="text-amber-300"> ({players.length}/5)</span>}</span>;
   return <th scope="colgroup" colSpan={3} className={`${tone} ${side === 200 ? "is-mirror" : ""}`}>
     <span className="overview-team-head">{side === 100 ? <>{team}{total}</> : <>{total}{team}</>}</span>
   </th>;

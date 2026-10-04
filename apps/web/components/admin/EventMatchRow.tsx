@@ -16,8 +16,8 @@ type MatchRow = {
   hidden: boolean;
 };
 
-export function EventMatchRow({ match, href }: { match: MatchRow; href: string }) {
-  return <tr className="ck-event-match-row">
+export function EventMatchRow({ match, href, cellsOnly = false }: { match: MatchRow; href: string; cellsOnly?: boolean }) {
+  const cells = <>
     <th scope="row" className="ck-progress-title">
       <Link href={href} className="ck-event-match-link">
         <span className="ck-event-match-main">
@@ -35,5 +35,6 @@ export function EventMatchRow({ match, href }: { match: MatchRow; href: string }
     </td>
     <ReviewProgressCells href={href} matches={1} includeRegistration={false} includeReview={false} completed={match.review_completed_at ? 1 : 0}
       positions={match.position_count} linked={match.linked_count} champions={match.champion_count} kda={match.kda_count} />
-  </tr>;
+  </>;
+  return cellsOnly ? cells : <tr className="ck-event-match-row">{cells}</tr>;
 }

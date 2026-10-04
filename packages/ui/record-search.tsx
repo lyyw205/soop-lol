@@ -3,7 +3,7 @@
 // Shared presentation only: the host and optional modules supply public search options.
 import { useId, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { profileHref, type SiteGame } from "@soop-lol/core/lib/contract";
+import { profileHref, type SiteGame } from "@soop-lol/core/lib/contract/client";
 
 export interface RecordSearchOption {
   slug: string;

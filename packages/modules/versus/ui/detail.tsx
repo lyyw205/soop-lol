@@ -33,7 +33,7 @@ import { formatBadge, isRepeatedDate, matchOutcome } from "../../../ui/match-row
 import {
   withinRecordPeriod, resolveRecordPeriod, recordPeriodLabel, type RecordPeriod, type PublicRosterEntry, QUEUE_LABEL, RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, expandCategory, kstDateString, kstYear, type MatchCategoryFilter,
   setLabel, isStandaloneSet, profileHref as contractProfileHref,
-} from "@soop-lol/core/lib/contract";
+} from "@soop-lol/core/lib/contract/client";
 import { versusHref } from "./paths.ts";
 
 // ── 화면에 오는 모양 ─────────────────────────────────────────────────

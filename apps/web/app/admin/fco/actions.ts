@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import {
-  applyFcoMatchContext, approveFcoContext, approveFcoEvent, holdFcoContext, holdFcoEvent,
+  applyFcoMatchContext, applyFcoMatchContexts, approveFcoContext, approveFcoEvent, holdFcoContext, holdFcoEvent,
   listFcoEventOptions, decideFcoEventMatch, updateFcoEvent,
 } from "@soop-lol/core/lib/games/fconline/context";
 
@@ -16,6 +16,18 @@ import { requireAdmin } from "@/lib/admin-auth";
  */
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
+
+function version(form: FormData) {
+  const raw = text(form, "context_version");
+  const n = Number(raw);
+  if (!raw || !Number.isSafeInteger(n) || n < 0) throw new Error("검수 기준값이 없습니다. 새로고침해 주세요.");
+  return n;
+}
+function versions(form: FormData): Record<string, number> {
+  const parsed = JSON.parse(text(form, "context_versions") || "null");
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object" || Object.values(parsed).some(v => !Number.isSafeInteger(v) || Number(v) < 0)) throw new Error("검수 기준값이 없습니다. 새로고침해 주세요.");
+  return parsed;
+}
 
 function fail(error: unknown): ActionState {
   return { ok: false, message: error instanceof Error ? error.message : String(error) };
@@ -45,15 +57,15 @@ export async function reviewToggleAction(_prev: ActionState, form: FormData): Pr
     const hold = text(form, "state") === "hold";
     if (eventId) {
       if (hold) {
-        const out = await holdFcoEvent(eventId);
+        const out = await holdFcoEvent(eventId, versions(form));
         refresh();
         return { ok: true, message: out.cleared ? `경기 ${out.cleared}건 보류로 되돌림` : "⏭ 이미 보류다" };
       }
-      const out = await approveFcoEvent(eventId);
+      const out = await approveFcoEvent(eventId, versions(form));
       refresh();
       return { ok: true, message: `포함 ${out.included}건 · 제외 ${out.excluded}건 확정 — 조사 제안 ${out.promoted}건을 사람 결정으로 굳혔다` };
     }
-    const out = hold ? await holdFcoContext(providerMatchId) : await approveFcoContext(providerMatchId);
+    const out = hold ? await holdFcoContext(providerMatchId, version(form)) : await approveFcoContext(providerMatchId, version(form));
     refresh();
     return summarize(out);
   } catch (error) {
@@ -65,27 +77,20 @@ export async function reviewToggleAction(_prev: ActionState, form: FormData): Pr
  * 분류 변경 — 미해결/단순 친선(판단) 과 CK/대회(행사 연결)를 한 창구에서 받는다.
  * 화면은 토글 하나로 보이지만 저장 규칙은 그대로다: 근거 없는 도장은 거부된다.
  */
-export async function setClassAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+export async function setClassAction(_prev: ActionState, form: FormData): Promise<ActionState & { nextHref?: string }> {
   await requireAdmin();
   try {
-    // 여러 경기에 한 번에(대전 전체) — 같은 저장 함수를 경기마다 부른다. 하나라도 실패하면 거기서 멈추고 알린다.
+    // 여러 경기에 한 번에(대전 전체) — 선택 전체를 한 트랜잭션으로 저장한다. 하나라도 실패하면 모두 취소한다.
     const ids = [...new Set(form.getAll("provider_match_id").map((v) => String(v).trim()).filter(Boolean))];
     if (!ids.length) throw new Error("경기가 없습니다.");
-    const merged = { actions: [] as string[], skipped: [] as string[] };
-    const each = async (fn: (id: string) => Promise<{ actions: string[]; skipped: string[] }>) => {
-      for (const id of ids) {
-        const out = await fn(id);
-        merged.actions.push(...out.actions.map((x) => (ids.length > 1 ? `${id.slice(-6)}: ${x}` : x)));
-        merged.skipped.push(...out.skipped.map((x) => (ids.length > 1 ? `${id.slice(-6)}: ${x}` : x)));
-      }
-      return merged;
-    };
+    const expected = versions(form);
+    if (ids.some(id => expected[id] === undefined)) throw new Error("선택한 경기의 기준값이 없습니다. 새로고침해 주세요.");
     const target = text(form, "target");
     if (target === "unresolved" || target === "casual") {
       // 사람이 고를 때 메모는 선택이다. 판단 표(0032)는 빈 메모를 받지 않으므로 "메모 없음"임을 그대로 적는다
       // (지어내지 않는다 — 자동 조사(auto)는 여전히 근거가 필수다. 이 경로는 admin 뿐이다).
       const note = text(form, "note") || "검수자 판단(메모 없음)";
-      const out = await each((id) => applyFcoMatchContext({ provider_match_id: id, conclusion: target, note }, { createdBy: "admin" }));
+      const out = await applyFcoMatchContexts(ids.map(id => ({ provider_match_id: id, expectedVersion: expected[id], conclusion: target, note })));
       refresh();
       return summarize(out);
     }
@@ -113,16 +118,14 @@ export async function setClassAction(_prev: ActionState, form: FormData): Promis
     const series = text(form, "series_id")
       ? { id: text(form, "series_id"), game_no: Number(text(form, "series_game_no") || "1") }
       : undefined;
-    const out = await each((id) => applyFcoMatchContext(
-      {
-        provider_match_id: id, conclusion: "event",
-        event: meta as Parameters<typeof applyFcoMatchContext>[0]["event"],
-        ...(series ? { series } : {}),
-      },
-      { createdBy: "admin", relink: true },
-    ));
-    refresh();
-    return summarize(out);
+    if (series && ids.length > 1) throw new Error("세트 번호는 경기별로 지정해 주세요.");
+    const out = await applyFcoMatchContexts(ids.map(id => ({
+      provider_match_id: id, expectedVersion: expected[id], conclusion: "event" as const,
+      event: meta as NonNullable<Parameters<typeof applyFcoMatchContext>[0]["event"]>, ...(series ? { series } : {}),
+    })), { relink: true });
+    const destination = await listFcoEventOptions().then(events => events.find(event => event.slug === meta.slug)).catch(() => undefined);
+    revalidatePath("/admin/fco");
+    return { ...summarize(out), nextHref: destination ? `/admin/fco/event-${destination.id}` : "/admin/fco" };
   } catch (error) {
     return fail(error);
   }
@@ -144,11 +147,12 @@ export async function addEvidenceAction(_prev: ActionState, form: FormData): Pro
     // 멱등 키는 CLI 와 같은 관례로 만든다 — 같은 근거를 화면과 CLI 로 두 번 넣어도 한 행이다.
     const key = text(form, "evidence_key")
       || (kind === "vod_frame" && vodNo != null ? `vod:${vodNo}@${atSec ?? 0}` : "")
-      || (kind === "url" && url ? `url:${url}` : "");
-    if (!key) throw new Error("evidence_key 를 만들 수 없다 — 직접 입력하라");
+      || ((kind === "url" || kind === "notice") && url ? `${kind}:${url}` : "")
+      || ((kind === "chat" || kind === "audio") && vodNo != null && atSec != null ? `${kind}:${vodNo}@${atSec}` : "");
+    if (!key) throw new Error("화면·채팅·음성은 VOD 번호와 전체 초를, 공지·외부 링크는 URL을 입력해 주세요.");
     const out = await applyFcoMatchContext(
       {
-        provider_match_id: providerMatchId,
+        provider_match_id: providerMatchId, expectedVersion: version(form),
         evidences: [{
           evidence_key: key,
           kind: kind as "vod_frame" | "chat" | "audio" | "notice" | "url",
@@ -179,7 +183,7 @@ export async function decideMatchAction(_prev: ActionState, form: FormData): Pro
     const out = await decideFcoEventMatch({
       eventId: text(form, "event_id"),
       providerMatchId: text(form, "provider_match_id"),
-      decision,
+      decision, expectedVersion: version(form),
       bracketNo: no ? Number(no) : null,
       bracketLabel: text(form, "bracket_label") || null,
       note: text(form, "note") || null,
@@ -196,7 +200,7 @@ export async function updateEventAction(_prev: ActionState, form: FormData): Pro
   await requireAdmin();
   try {
     await updateFcoEvent(text(form, "event_id"), {
-      name: text(form, "name"),
+      expectedVersion: version(form), name: text(form, "name"),
       kind: text(form, "kind") || undefined,
       organizer: text(form, "organizer"),
       source_url: text(form, "source_url"),

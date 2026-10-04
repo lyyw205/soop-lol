@@ -37,3 +37,6 @@ seed/lineups/
 
 # 개인 계정 연결 조사 기록은 다른 시드 명단과 같이 로컬에만 보관한다.
 seed/fco-account-sweep.json
+
+# Next.js 검증용 빌드 캐시
+apps/web/.next-*/

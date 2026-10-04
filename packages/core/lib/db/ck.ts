@@ -1345,9 +1345,9 @@ export async function markMatchReviewed(matchId: string, reviewed: boolean): Pro
 }
 
 /** 빈칸 여부와 무관하게 사람이 현재 값을 확인했다. 완료 해제는 자동 갱신 보호를 풀지 않는다. */
-export async function setMatchReviewCompleted(matchId: string, completed: boolean, expectedVersion: number): Promise<void> {
+export async function setMatchReviewCompleted(matchId: string, completed: boolean, expectedVersion: number, transaction?: postgres.TransactionSql): Promise<void> {
   if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0) throw new Error("검수 기준값이 없습니다. 새로고침해 주세요.");
-  await db().begin(async tx => {
+  const run = async (tx: postgres.TransactionSql) => {
     const [current] = await tx<{ review_completed_at: Date | null; review_version: number; reviewed_at: Date | null }[]>`
       SELECT review_completed_at, review_version, reviewed_at FROM match
        WHERE match_id = ${matchId} AND game_code = 'lol' FOR UPDATE`;
@@ -1361,7 +1361,8 @@ export async function setMatchReviewCompleted(matchId: string, completed: boolea
       { match_id: matchId, entity: "match", entity_key: matchId, field: "review_completed", before: current.review_completed_at != null, after: completed },
       ...(completed && !current.reviewed_at ? [{ match_id: matchId, entity: "match" as const, entity_key: matchId, field: "admin_protected", before: false, after: true }] : []),
     ]);
-  });
+  };
+  if (transaction) await run(transaction); else await db().begin(run);
 }
 
 /** 이미 있는 자리에 **사람·계정만** 붙인다. 판독값(챔피언·KDA·포지션)은 건드리지 않는다. */
@@ -1499,7 +1500,7 @@ export interface LeadWorkspace {
  *   이 화면의 골자이므로(요구사항 1 — 지점별 체크), 프레임은 **매치별로 나누지 않고
  *   통째로** 준다 — 화면이 트랙으로 나누고, 안 붙은 것도 한 트랙으로 보여야 한다.
  */
-export async function getLeadWorkspace(leadId: string): Promise<LeadWorkspace | null> {
+export async function getLeadWorkspace(leadId: string, opts: { records?: boolean } = {}): Promise<LeadWorkspace | null> {
   const lead = await getEventLead(leadId);
   if (!lead) return null;
 
@@ -1541,9 +1542,8 @@ export async function getLeadWorkspace(leadId: string): Promise<LeadWorkspace | 
     ];
 
   const events = await sql<{ id: string; slug: string | null; name: string; kind: string }[]>`
-    SELECT id, slug, name, kind FROM event
+    SELECT id, slug, name, kind FROM event WHERE game_code = 'lol'
      ORDER BY starts_at DESC NULLS LAST, created_at DESC
-     LIMIT 200
   `;
 
   const framesByMatch = new Map<string, EvidenceFrameRow[]>();
@@ -1556,7 +1556,7 @@ export async function getLeadWorkspace(leadId: string): Promise<LeadWorkspace | 
     partsByMatch.set(p.match_id, [...(partsByMatch.get(p.match_id) ?? []), p]);
   }
 
-  const reviews = matchIds.length
+  const reviews = opts.records === false ? [] : matchIds.length
     ? await sql<ReviewRecordRow[]>`
         SELECT * FROM review_record
          WHERE lead_id = ${leadId}::uuid
@@ -1575,7 +1575,7 @@ export async function getLeadWorkspace(leadId: string): Promise<LeadWorkspace | 
     evidence_frames: framesByMatch.get(match.match_id) ?? [],
   }));
 
-  return { lead, frames, matches, candidates: lead.raw.candidates ?? [], reviews, streamers, events };
+  return { lead, frames, matches, candidates: opts.records === false ? [] : lead.raw.candidates ?? [], reviews, streamers, events };
 }
 
 // ── 미확인 참가자 — 「조사해서 채울 목록」 ───────────────────────────
@@ -1621,16 +1621,17 @@ export interface UnidentifiedParticipant {
  * 미확인 이름 수. 목록은 페이지로 끊어 보여 주므로 전체가 몇인지 따로 센다.
  * ★ 예전엔 100명에서 조용히 잘렸다 — 3판에 나온 '붕어에몽' 이 102번째라 화면에 없었다.
  */
-export async function countUnidentifiedNames(): Promise<number> {
+export async function countUnidentifiedNames(q = ""): Promise<number> {
   const [r] = await db()<{ n: number }[]>`
     SELECT count(DISTINCT mp.observed_name)::int AS n
       FROM match_participant mp
       JOIN match m ON m.match_id = mp.match_id AND m.visibility = 'public'
-     WHERE mp.streamer_id IS NULL AND mp.puuid IS NULL AND mp.observed_name IS NOT NULL`;
+     WHERE mp.streamer_id IS NULL AND mp.puuid IS NULL AND mp.observed_name IS NOT NULL
+       AND mp.observed_name ILIKE ${`%${q}%`}`;
   return r.n;
 }
 
-export async function listUnidentifiedParticipants(limit = 100, offset = 0): Promise<UnidentifiedParticipant[]> {
+export async function listUnidentifiedParticipants(limit = 100, offset = 0, q = ""): Promise<UnidentifiedParticipant[]> {
   const sql = db();
   return sql<UnidentifiedParticipant[]>`
     WITH seat AS (
@@ -1639,6 +1640,7 @@ export async function listUnidentifiedParticipants(limit = 100, offset = 0): Pro
         FROM match_participant mp
         JOIN match m ON m.match_id = mp.match_id AND m.visibility = 'public'
        WHERE mp.streamer_id IS NULL AND mp.puuid IS NULL AND mp.observed_name IS NOT NULL
+       AND mp.observed_name ILIKE ${`%${q}%`}
     )
     SELECT seat.observed_name,
            count(*)::int                                          AS seats,

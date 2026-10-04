@@ -1,0 +1,87 @@
+{
+  "checkedAt": "2026-10-02",
+  "collected": [
+    "meljang-2026-geng",
+    "meljang-2026-s1",
+    "meljang-2025-s2",
+    "meljang-2025-s1",
+    "meljang-2024-allstar",
+    "meljang-2024-s1",
+    "meljang-2023-s2",
+    "meljang-2023-s1",
+    "meljang-2022-s2",
+    "meljang-2022-s1",
+    "meljang-2021-encore",
+    "meljang-2021-s2",
+    "meljang-2021-s1",
+    "meljang-2020-freecs",
+    "meljang-2020-encore",
+    "meljang-2020-s3",
+    "meljang-2018-s1",
+    "meljang-2017-allstar",
+    "meljang-2017-s1",
+    "meljang-2015-allstar",
+    "meljang-2015-s1",
+    "meljang-2014-allstar",
+    "meljang-2014-s1"
+  ],
+  "missing": [
+    {
+      "eventSlug": "meljang-2020-s2",
+      "name": "2020 LoL BJ멸망전 시즌2",
+      "sourceUrl": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C2",
+      "reason": "시즌별 로고 원본 미확보. 다른 시즌 또는 공통 로고로 대체하지 않는다."
+    },
+    {
+      "eventSlug": "meljang-2020-s1",
+      "name": "2020 LoL BJ멸망전 시즌1",
+      "sourceUrl": "https://namu.wiki/w/2020%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C1",
+      "reason": "시즌별 로고 원본 미확보. 다른 시즌 또는 공통 로고로 대체하지 않는다."
+    },
+    {
+      "eventSlug": "meljang-2019-allstar",
+      "name": "2019 LoL BJ멸망전 올스타전",
+      "sourceUrl": "https://namu.wiki/w/KT%205G%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202019%EC%8B%9C%EC%A6%8C%203",
+      "reason": "시즌별 로고 원본 미확보. 다른 시즌 또는 공통 로고로 대체하지 않는다."
+    },
+    {
+      "eventSlug": "meljang-2019-s3",
+      "name": "2019 LoL BJ멸망전 시즌3",
+      "sourceUrl": "https://namu.wiki/w/KT%205G%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202019%EC%8B%9C%EC%A6%8C%203",
+      "reason": "시즌별 로고 원본 미확보. 다른 시즌 또는 공통 로고로 대체하지 않는다."
+    },
+    {
+      "eventSlug": "meljang-2019-s2",
+      "name": "2019 LoL BJ멸망전 시즌2",
+      "sourceUrl": "https://namu.wiki/w/KT%2010GiGA%20%EB%A9%B8%EB%A7%9D%EC%A0%84%20LoL%202019%EC%8B%9C%EC%A6%8C%202",
+      "reason": "시즌별 로고 원본 미확보. 다른 시즌 또는 공통 로고로 대체하지 않는다.",
+      "checkedNoticeUrl": "https://afwbbs1.sooplive.com/app/index.php?b_no=6228&board=notice&control=view"
+    },
+    {
+      "eventSlug": "meljang-2019-s1",
+      "name": "2019 LoL BJ멸망전 시즌1",
+      "sourceUrl": "https://namu.wiki/w/2019%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C1",
+      "reason": "시즌별 로고 원본 미확보. 다른 시즌 또는 공통 로고로 대체하지 않는다.",
+      "checkedNoticeUrl": "https://afwbbs1.sooplive.com/app/index.php?b_no=6032&board=notice&control=view"
+    },
+    {
+      "eventSlug": "meljang-2018-s3",
+      "name": "2018 LoL BJ멸망전 시즌3",
+      "sourceUrl": "https://namu.wiki/w/2018%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C3",
+      "reason": "시즌별 로고 원본 미확보. 다른 시즌 또는 공통 로고로 대체하지 않는다."
+    },
+    {
+      "eventSlug": "meljang-2018-s2",
+      "name": "2018 LoL BJ멸망전 시즌2",
+      "sourceUrl": "https://namu.wiki/w/2018%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C2",
+      "reason": "시즌별 로고 원본 미확보. 다른 시즌 또는 공통 로고로 대체하지 않는다.",
+      "checkedNoticeUrl": "https://afwbbs1.sooplive.com/app/index.php?b_no=5699&board=notice&control=view"
+    },
+    {
+      "eventSlug": "meljang-2018-allstar",
+      "name": "2018 LoL BJ멸망전 올스타전",
+      "sourceUrl": "https://namu.wiki/w/2018%20LoL%20BJ%EB%A9%B8%EB%A7%9D%EC%A0%84%20%EC%8B%9C%EC%A6%8C3",
+      "reason": "2018 시즌3 올스타전의 로고 원본 미확보. 시즌1 로고를 빌려 쓰지 않는다."
+    }
+  ]
+}

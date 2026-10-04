@@ -11,7 +11,7 @@ core 는 **데이터와 계산**을 소유하고, 모듈은 **그걸로 만드�
   시리즈 점수·선수 기록 …).
 - **핵심 기능도 모듈일 수 있다.** 기준은 "사이트에 중요한가" 가 아니라 "그 기능의 정책과 화면을
   떼어낼 수 있어야 하는가" 다. 상대전적(versus)·대회(tournaments)가 모두 모듈이다.
-  FC 도 같다 — 상대전적(fc_versus)·대회(fc_tournaments)·리더보드(fc_leaderboard)가 모듈이고,
+  FC 도 같다 — 상대전적(fc_versus)·대회(fc_tournaments)·구단가치(fc_club_value)가 모듈이고,
   FC 명부·프로필(`/fc/s`)·경기 상세(`/fc/m`)·검색 홈(`/fc`)은 core 다.
 - 남은 부채(알고 두는 것):
   - FC 공개 조회는 아직 `core_public` 뷰가 없다 — 조회 안에서 공개 범위를 걸고 `verify:fco` 가 지킨다(§3).

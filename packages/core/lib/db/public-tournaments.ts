@@ -56,6 +56,13 @@ export interface PublicTournamentLinkRow {
   url: string;
 }
 
+/** 스트리머로 연결되지 않은 로스터 자리의 출처 표기 이름(0068). 표시 전용 — 사람이 아니다. */
+export interface PublicTournamentListedNameRow {
+  event_team_id: string;
+  position: "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY";
+  name: string;
+  source_url: string;
+}
 export interface PublicTournamentFactRow {
   section: string;
   label: string;
@@ -80,7 +87,7 @@ export interface PublicTournamentMatchRow {
   source_url: string | null;
 }
 
-/** 공개 경기나 참가자가 하나라도 있는 대회(kind='tournament'). 최근 것부터. */
+/** 공개 경기나 참가자가 하나라도 있는 **롤** 대회(kind='tournament'). 최근 것부터. */
 export async function listPublicTournamentEvents(): Promise<PublicTournamentEventRow[]> {
   return db()<PublicTournamentEventRow[]>`
     WITH games AS (
@@ -106,7 +113,8 @@ export async function listPublicTournamentEvents(): Promise<PublicTournamentEven
            t.winner,COALESCE(t.names,ARRAY[]::text[])||COALESCE(p.names,ARRAY[]::text[]) AS search_names
       FROM core_public.event e LEFT JOIN games g ON g.event_id=e.event_id
       LEFT JOIN teams t ON t.event_id=e.event_id LEFT JOIN people p ON p.event_id=e.event_id
-     WHERE e.kind = 'tournament' AND (g.event_id IS NOT NULL OR p.event_id IS NOT NULL)
+     -- ★ 롤 대회만. FC 대회도 참가 단위를 가진다(0061·0062) — 게임을 안 걸면 FC 대회가 섞인다.
+     WHERE e.game_code = 'lol' AND e.kind = 'tournament' AND (g.event_id IS NOT NULL OR p.event_id IS NOT NULL)
      ORDER BY COALESCE(e.starts_at,g.first_match) DESC NULLS LAST,e.slug
   `;
 }
@@ -118,9 +126,10 @@ export async function getPublicTournamentFacts(eventId: string): Promise<{
   matches: PublicTournamentMatchRow[];
   links: PublicTournamentLinkRow[];
   facts: PublicTournamentFactRow[];
+  listed: PublicTournamentListedNameRow[];
 }> {
   const sql = db();
-  const [teams, members, matches, links, facts] = await Promise.all([
+  const [teams, members, matches, links, facts, listed] = await Promise.all([
     sql<PublicTournamentTeamRow[]>`
       SELECT event_team_id,name,placement,placement_rank,prize,vote_rank FROM core_public.event_team
        WHERE event_id=${eventId}::uuid ORDER BY placement_rank NULLS LAST,name`,
@@ -142,6 +151,8 @@ export async function getPublicTournamentFacts(eventId: string): Promise<{
       SELECT label,url FROM core_public.event_link WHERE event_id=${eventId}::uuid ORDER BY sort,label`,
     sql<PublicTournamentFactRow[]>`
       SELECT section,label,value FROM core_public.event_fact WHERE event_id=${eventId}::uuid ORDER BY sort,section,label`,
+    sql<PublicTournamentListedNameRow[]>`
+      SELECT event_team_id,position,name,source_url FROM core_public.event_team_listed_name WHERE event_id=${eventId}::uuid`,
   ]);
-  return { teams, members, matches, links, facts };
+  return { teams, members, matches, links, facts, listed };
 }

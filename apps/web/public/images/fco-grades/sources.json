@@ -1,0 +1,23 @@
+{
+  "sourcePage": "https://fconline.nexon.com/datacenter",
+  "stylesheet": "https://js.nexon.com/s3/fc/online/obt/fo4_ssl.css",
+  "font": "https://fco.vod.nexoncdn.co.kr/fonts/YoonGothic540.woff2",
+  "platinumBackground": "https://ssl.nexon.com/s2/game/fc/online/obt/datacenter/bg_plt.png",
+  "method": "Official en_level0..13 CSS rendered with INGAME font at 3x; zero uses the numeral 0.",
+  "grades": [
+    "0.png",
+    "1.png",
+    "2.png",
+    "3.png",
+    "4.png",
+    "5.png",
+    "6.png",
+    "7.png",
+    "8.png",
+    "9.png",
+    "10.png",
+    "11.png",
+    "12.png",
+    "13.png"
+  ]
+}

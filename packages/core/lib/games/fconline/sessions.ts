@@ -28,8 +28,10 @@ export const SESSION_GAP_MIN = 40;
 export type FcoSessionKind = "meet" | "solo" | "names";
 
 export interface FcoSession {
-  /** `<kind>~<키>~<첫 경기 유닉스 초>` — 주소에 쓴다 */
+  /** `match~<기준 경기 ID>` — 구성이 달라져도 같은 경기가 속한 대전을 찾는다. */
   id: string;
+  legacy_id?: string;
+  context_completed: number;
   kind: FcoSessionKind;
   /** 화면에 쓸 이름 — 「스맵임 vs 서도일」·「키리콩 · 일반 유저전」 */
   title: string;
@@ -51,7 +53,7 @@ export interface FcoSession {
 }
 
 interface Row {
-  match_id: string; source: string; game_creation: Date; review_completed_at: Date | null; investigated: boolean;
+  match_id: string; source: string; game_creation: Date; review_completed_at: Date | null; context_review_completed_at: Date | null; investigated: boolean;
   parts: { nickname: string; streamer_id: string | null; slug: string | null; name: string | null }[] | null;
   owners: { slug: string; name: string }[] | null;
   vods: string[] | null;
@@ -74,7 +76,7 @@ async function loadCandidates(): Promise<Row[]> {
               OR (m.source = 'provider_api' AND (SELECT count(*) FROM fco_match_participant p JOIN streamer s ON s.id = p.streamer_id AND s.visibility = 'public'
                                                   WHERE p.match_id = m.match_id) >= 2))
     )
-    SELECT m.match_id, m.source, m.game_creation, m.review_completed_at,
+    SELECT m.match_id, m.source, m.game_creation, m.review_completed_at, m.context_review_completed_at,
            (EXISTS (SELECT 1 FROM fco_context_evidence e WHERE e.match_id = m.match_id)
             OR EXISTS (SELECT 1 FROM fco_match_context c WHERE c.match_id = m.match_id)
             OR m.source = 'manual') AS investigated,
@@ -134,7 +136,8 @@ export async function listFcoSessions(): Promise<FcoSession[]> {
         for (const o of r.owners ?? []) people.set(o.slug, o.name);
       }
       out.push({
-        id: `${base}~${Math.floor(cur[0].game_creation.getTime() / 1000)}`, kind: k.kind as FcoSessionKind, pairs: [], title: k.title,
+        id: `match~${cur[0].match_id}`, legacy_id: `${base}~${Math.floor(cur[0].game_creation.getTime() / 1000)}`,
+        context_completed: cur.filter(r => r.context_review_completed_at).length, kind: k.kind as FcoSessionKind, pairs: [], title: k.title,
         people: [...people].map(([slug, name]) => ({ slug, name })),
         from: cur[0].game_creation.toISOString(), to: cur[cur.length - 1].game_creation.toISOString(),
         total: cur.length, completed: cur.filter((r) => r.review_completed_at).length,
@@ -185,7 +188,8 @@ function gatherMeets(list: FcoSession[]): FcoSession[] {
     const ids = g.flatMap((x) => x.match_ids);
     const players = new Set(g.flatMap((x) => x.title.split(" vs ")));
     return {
-      id: `meet~${Math.floor(Date.parse(from) / 1000)}~${ids.length}`,
+      id: `match~${ids[0]}`, legacy_id: `meet~${Math.floor(Date.parse(from) / 1000)}~${ids.length}`,
+      context_completed: g.reduce((n, x) => n + x.context_completed, 0),
       kind: "meet" as const,
       title: g.length === 1 ? g[0].title : `${players.size}명 모임 · ${[...players].slice(0, 4).join(", ")}${players.size > 4 ? " 외" : ""}`,
       people: [...people].map(([slug, name]) => ({ slug, name })),
@@ -202,21 +206,23 @@ function gatherMeets(list: FcoSession[]): FcoSession[] {
   });
 }
 
-/**
- * 주소의 대전 id 로 대전 하나. 그 사이 경기가 더해져 첫 경기가 바뀌었을 수 있다 —
- * 같은 묶음 키에서 그 시각을 포함하는(또는 가장 가까운) 대전을 준다.
- */
+/** 근거 경기 ID 또는 정확히 일치하는 예전 주소로만 연다. 가까운 다른 대전으로 추측하지 않는다. */
+export function resolveFcoSession(all: FcoSession[], id: string): FcoSession | null {
+  const candidates = [id];
+  try { candidates.push(decodeURIComponent(id)); } catch { return null; }
+  for (const candidate of candidates) {
+    const found = candidate.startsWith("match~") ? all.find(s => s.match_ids.includes(candidate.slice(6))) : all.find(s => s.legacy_id === candidate);
+    if (found) return found;
+  }
+  return null;
+}
 export async function getFcoSession(id: string): Promise<FcoSession | null> {
-  const m = /^(meet|solo|names)~(.+?)~?(\d{9,11})?$/.exec(id);
-  if (!m) return null;
+  if (!/^(match|meet|solo|names)~/.test(id)) return null;
   const all = await listFcoSessions();
-  const exact = all.find((x) => x.id === id);
+  const exact = resolveFcoSession(all, id);
   if (exact) return exact;
-  // 그 사이 경기가 더해지거나 묶음이 바뀌었으면 — 같은 종류에서 그 시각을 포함하는 것(없으면 가장 가까운 것)
-  const at = Number((/~(\d{9,11})(?:~|$)/.exec(id) ?? [])[1] ?? NaN) * 1000;
-  if (!Number.isFinite(at)) return null;
-  const same = all.filter((x) => x.kind === m[1] && (m[1] === "meet" || x.id.startsWith(`${m[1]}~${id.split("~")[1]}~`)));
-  if (!same.length) return null;
-  return same.find((x) => Date.parse(x.from) <= at && at <= Date.parse(x.to))
-    ?? same.sort((a, b) => Math.abs(Date.parse(a.from) - at) - Math.abs(Date.parse(b.from) - at))[0];
+  let decoded: string; try { decoded = decodeURIComponent(id); } catch { return null; }
+  if (!decoded.startsWith("match~")) return null;
+  const [link] = await db()<{ api_match_id: string }[]>`SELECT api_match_id FROM fco_screen_link WHERE screen_match_id = ${decoded.slice(6)}`;
+  return link ? all.find(s => s.match_ids.includes(link.api_match_id)) ?? null : null;
 }

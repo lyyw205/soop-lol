@@ -20,7 +20,7 @@ const S = await import("../packages/core/lib/games/fconline/screen.ts");
 
 /** 공개 조회 전부의 직렬화 — 화면 경기를 넣어도 이게 안 바뀌어야 한다(설계 §10 단계 1). */
 async function publicDump(ids: string[]): Promise<string> {
-  const out: unknown[] = [await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.listFcoLeaderboard(), await R.getFeaturedFcoPair(), await R.listFcoEvents()];
+  const out: unknown[] = [await R.listFcoPeople(), await R.listFcoTopPairs(50), await R.getFeaturedFcoPair(), await R.listFcoEvents()];
   for (const e of await R.listFcoEvents()) out.push(await R.listFcoEventGames(e.id));
   for (const id of ids) {
     out.push(await R.listFcoGamesForPerson(id, 500), await R.listFcoStreamerGamesForPerson(id, 500), await R.listFcoModesForPerson(id));

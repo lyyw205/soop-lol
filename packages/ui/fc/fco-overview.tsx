@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fcMatchHref, profileHref, type FcoGame, type FcoPerson } from "@soop-lol/core/lib/contract";
+import { fcMatchHref, profileHref, type FcoGame, type FcoPerson } from "@soop-lol/core/lib/contract/client";
 import { Avatar } from "../avatar.tsx";
 import { RecordOverviewCard } from "../record-structure.tsx";
 import { fcDate, statsForGames } from "./fco-records.tsx";

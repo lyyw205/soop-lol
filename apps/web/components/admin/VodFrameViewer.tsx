@@ -175,7 +175,7 @@ export function VodFrameViewer({ evidence, vods, resultSecs = {}, headerExtra, e
       </header>
 
       {/* 원본 크기에서는 스크롤로 닉네임 칸을 들여다본다 — 오독은 확대해야 보인다. */}
-      <div className={`ck-review-frame bg-ink-950 ${zoom ? "max-h-[75vh] overflow-auto" : ""}`}>
+      <div data-zoom={zoom} className={`ck-review-frame bg-ink-950 ${zoom ? "max-h-[75vh] overflow-auto" : ""}`}>
         {src && !failed.has(src) ? (
           // eslint-disable-next-line @next/next/no-img-element -- out/ 밖의 로컬 파일이라 next/image 로 최적화하지 않는다
           <img src={src} alt={`${hms(sec)} 프레임`} onError={() => setFailed((p) => new Set(p).add(src))}
@@ -183,8 +183,8 @@ export function VodFrameViewer({ evidence, vods, resultSecs = {}, headerExtra, e
         ) : src ? (
           <div className="grid gap-2 px-6 py-14 text-center text-sm text-ink-400">
             <p className="text-ink-200">{hms(sec)} 의 {fullRes ? "원본 프레임 파일" : "썸네일 칸"}을 불러오지 못했습니다.</p>
-            <p className="text-xs">{fullRes ? "파일이 지워졌거나 경로가 바뀌었습니다." : "이 칸이 들어 있는 썸네일 시트가 지워졌거나 범위 밖입니다."} 같은 지점을 다시 뽑으려면:</p>
-            {vod && <code className="mx-auto rounded bg-ink-800 px-2 py-1 text-xs">npm run ck:probe -- --vod {vod} --at {sec}</code>}
+            <p className="text-xs">다른 근거 프레임을 선택하거나 위의 ‘이 시점 VOD’에서 확인하세요.</p>
+            {vod && <details className="text-xs"><summary className="cursor-pointer">프레임 복구 방법</summary><code className="mt-2 block rounded bg-ink-800 px-2 py-1">npm run ck:probe -- --vod {vod} --at {sec}</code></details>}
           </div>
         ) : <p className="px-4 py-16 text-center text-sm text-ink-400">{emptyText}</p>}
       </div>
@@ -218,17 +218,16 @@ export function VodFrameViewer({ evidence, vods, resultSecs = {}, headerExtra, e
               ))}
             </div>
           )}
-          {step > 0 && !cellsOk && <p className="text-[11px] text-amber-400">이 VOD 의 썸네일 시트가 없어 시간 간격 띠는 못 보여 줍니다. 「원본」·「근거」로 넘겨 보세요.</p>}
+          {step > 0 && !cellsOk && <p className="text-[11px] text-amber-400">미리보기가 없습니다. 원본이나 근거 프레임을 선택하세요.</p>}
           {onEvidence && ev!.observed && (
             <div className="grid gap-1">
-              <p className="text-[13px] text-ink-200"><b className="text-ink-400">조사가 읽은 것</b> — {ev!.observed}</p>
+              <p className="text-[13px] text-ink-200"><b className="text-ink-400">근거 내용</b> — {ev!.observed}</p>
               {ev!.why && <p className="text-ink-400">판단: {ev!.why}</p>}
             </div>
           )}
-          <p className="text-[11px]">
-            키보드 ← →. 「원본」은 받아 둔 원본만 넘깁니다. 썸네일 칸은 저해상도라 닉네임·점수는 읽기 어렵습니다
-            {vod && <> — 원본이 더 필요하면 <code className="rounded bg-ink-800 px-1">npm run fco:frames -- --vod {vod}</code></>}
-          </p>
+          <details className="text-[11px]"><summary className="cursor-pointer">프레임 조작 도움말</summary>
+            <p className="mt-1">← →로 이동합니다. 닉네임·점수는 원본 크기로 확인하세요. ‘원본’은 저장된 원본 프레임만 표시합니다.</p>
+          </details>
         </footer>
       )}
     </section>

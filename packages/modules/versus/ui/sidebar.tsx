@@ -10,6 +10,6 @@ export async function ProfileSidebar({ person, exclude }: { person: PublicStream
   return <RecordSidebar name={person.display_name} slug={person.slug} isPro={person.is_pro} portrait={<Portrait person={person} />} placements={placements}
     awards={events.filter((e)=>e.counts_toward_titles && (e.placement_rank===1 || e.placement_rank===2)).slice(0,3).map((e)=>({id:e.event_slug,title:e.event_name,placement:e.placement,year:kstYear(new Date(e.starts_at)),team:e.team_name}))}
     champions={champions.slice(0,4).map((c)=>{const champion=championById(c.champion_id);return {id:c.champion_id,name:champion?.name ?? c.champion_name ?? '챔피언',image:champion ? championIconPath(champion) : undefined,games:c.games};})}>
-    <TopPairs exclude={exclude} />
+    <TopPairs person={person} exclude={exclude} />
   </RecordSidebar>;
 }

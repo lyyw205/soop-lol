@@ -14,7 +14,7 @@
  */
 
 import { useState } from "react";
-import { RECORD_PERIODS, resolveRecordPeriod, type RecordPeriod } from "@soop-lol/core/lib/contract";
+import { RECORD_PERIODS, resolveRecordPeriod, type RecordPeriod } from "@soop-lol/core/lib/contract/client";
 import { DateField } from "./date-field.tsx";
 
 /** `all` 은 빼 둔다 — 해제는 초기화 단추가 맡는다. 프리셋에 '전체' 를 또 두면 말이 겹친다. */

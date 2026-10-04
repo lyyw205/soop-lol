@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import type { BrowserContext } from 'playwright';
+import { db } from '../../packages/core/lib/db/client.ts';
+import { setMatchReviewCompleted } from '../../packages/core/lib/db/ck.ts';
+export async function verifyPriorityBrowser(context: BrowserContext, base: string, lead: string) {
+  const p = await context.newPage(); p.on('dialog', d => d.accept()); p.setDefaultTimeout(20_000);
+  const errors: string[] = []; p.on('pageerror', e => errors.push(e.message));
+  const sql = db();
+  await p.goto(base + '/admin/ck/' + lead + '?match=browser%3AM1');
+  await p.getByRole('tab', { name: '경기', exact: true }).click();
+  await p.getByRole('button', { name: '검수 완료로 표시', exact: true }).click();
+  await p.getByRole('heading', { name: 'browser:M2', exact: true }).waitFor();
+  const [first] = await sql`SELECT review_version, review_completed_at FROM match WHERE match_id='browser:M1'`;
+  assert.ok(first.review_completed_at, 'LoL completion advances only after saving');
+  await setMatchReviewCompleted('browser:M1', false, first.review_version);
+  await p.goto(base + '/admin/overview?queue=priority&q=browser');
+  await p.locator('.overview-series-head').first().click();
+  for (const id of ['browser:M1','browser:M2']) await p.getByRole('checkbox', { name: `${id} 확인한 경기 선택`, exact: true }).check();
+  await p.screenshot({ path: '/tmp/soop-admin-implemented/priority-lol-list.png' });
+  await sql`UPDATE match SET game_duration=1900 WHERE match_id='browser:M2'`;
+  await p.getByRole('button', { name: '선택한 2경기 완료', exact: true }).click();
+  await p.getByRole('alert').filter({ hasText: '모두 취소' }).waitFor();
+  assert.equal((await sql`SELECT count(*)::int n FROM match WHERE match_id LIKE 'browser:%' AND review_completed_at IS NOT NULL`)[0].n, 0);
+  await p.reload();
+  for (const id of ['browser:M1','browser:M2']) await p.getByRole('checkbox', { name: `${id} 확인한 경기 선택`, exact: true }).check();
+  await p.getByRole('button', { name: '선택한 2경기 완료', exact: true }).click();
+  await p.getByRole('status').filter({ hasText: '확인한 2경기를 완료' }).waitFor();
+  assert.equal((await sql`SELECT count(*)::int n FROM match WHERE match_id LIKE 'browser:%' AND review_completed_at IS NOT NULL`)[0].n, 2);
+  await p.getByRole('link', { name: '일반 검수', exact: true }).click();
+  await p.waitForURL(/queue=general/);
+  await p.getByText('조건에 맞는 경기가 없습니다.', { exact: true }).waitFor();
+  assert.deepEqual(errors, []);
+  await p.close();
+  console.log('Priority browser passed: LoL auto advance, selected bulk completion, stale atomic rollback, queue switch.');
+}

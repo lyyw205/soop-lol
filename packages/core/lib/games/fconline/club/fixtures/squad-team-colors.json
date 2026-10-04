@@ -1,0 +1,129 @@
+{
+  "totalTeamColor": {
+    "affiliation": {
+      "2002": {
+        "lv": 4,
+        "name": "프랑스",
+        "skill": "전체 능력치 +4|드리블 +3|짧은 패스 +3|",
+        "playerlist": [
+          828215698,
+          866210008,
+          866231443,
+          866247827,
+          877228093,
+          856231747,
+          815241486,
+          856243715,
+          866229558,
+          815232656,
+          868001419
+        ],
+        "playerImg": [
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p215698_25.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866210008.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866231443.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866247827.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/players/p228093.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p856231747.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p241486_25.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p856243715.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866229558.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p232656_25.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p868001419.png"
+        ],
+        "image": "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/countries/largeflags/f_18.png",
+        "playercnt": 11
+      }
+    },
+    "feature": {
+      "40515": {
+        "lv": 1,
+        "name": "2024 프랑스",
+        "skill": "골 결정력 +3|위치 선정 +3|가속력 +2|속력 +2|",
+        "playerlist": [
+          877228093,
+          856231747,
+          815241486,
+          866229558,
+          815232656
+        ],
+        "playerImg": [
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/players/p228093.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p856231747.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p241486_25.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866229558.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p232656_25.png"
+        ],
+        "image": "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/teamcolorboost/icon/medium/4_l2418.png",
+        "playercnt": 5
+      },
+      "40686": {
+        "lv": 1,
+        "name": "2026 프랑스",
+        "skill": "위치 선정 +3|시야 +3|중거리 슛 +2|드리블 +2|",
+        "playerlist": [
+          828215698,
+          866210008,
+          866231443,
+          866247827,
+          856243715
+        ],
+        "playerImg": [
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p215698_25.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866210008.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866231443.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866247827.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p856243715.png"
+        ],
+        "image": "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/teamcolorboost/icon/medium/4_l3018.png",
+        "playercnt": 5
+      }
+    },
+    "enhance": {
+      "10001": {
+        "lv": 2,
+        "name": "금빛 물결",
+        "skill": "전체 능력치 +4|",
+        "playerlist": [
+          828215698
+        ],
+        "playerImg": [
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p215698_25.png"
+        ],
+        "image": "https://ssl.nexon.com/s2/game/fc/online/obt/datacenter/teamcolor/tc_u_g.png",
+        "playercnt": 1
+      },
+      "10004": {
+        "lv": 2,
+        "name": "백금빛 물결",
+        "skill": "전체 능력치 +5|",
+        "playerlist": [
+          866210008,
+          866231443,
+          866247827,
+          877228093,
+          856231747,
+          815241486,
+          856243715,
+          866229558,
+          815232656,
+          868001419
+        ],
+        "playerImg": [
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866210008.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866231443.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866247827.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/players/p228093.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p856231747.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p241486_25.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p856243715.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p866229558.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p232656_25.png",
+          "https://fco.dn.nexoncdn.co.kr/live/externalAssets/common/playersAction/p868001419.png"
+        ],
+        "image": "https://ssl.nexon.com/s2/game/fc/online/obt/datacenter/teamcolor/tc_u_p.png",
+        "playercnt": 10
+      }
+    }
+  }
+}
