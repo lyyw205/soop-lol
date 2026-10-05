@@ -65,6 +65,14 @@ export async function backfillContext(vod: number, game: BackfillGame = 'lol') {
     ORDER BY s.display_name, mp.observed_name` : [];
   return {
     source_key: lead.source_key,
+    // 매 next/context 호출 때 생성한다. 이미 실행 중인 셸의 다음 세션도 최신 완료 규칙을 받는다.
+    ...(game === 'lol' ? { completion_policy: {
+      done: '전 범위의 필수 탐색·결과창 보완 탐색·교차검증 처리를 마쳤다면, 큐 종류·신원·승패가 미해결이어도 후보와 질문을 보존하고 done으로 저장한다. done은 모든 값 확정이 아니라 탐색 완료다.',
+      running: '아직 수행할 필수 탐색이나 실패 범위가 있으면 running으로 남기고 구체적인 남은 위치·행동을 적는다. 이미지/비용 예산 소진과 추가로 볼 것이 없다는 메모만으로 done을 만들지 않는다.',
+      evidence: '완료 전 후보별 확인 구간·결과창 탐색 종료 사유·교차검증 시도와 한계를 확인한다. 근거 부족을 not_target으로 바꾸거나 후보를 삭제하지 않는다. 미해결 상세 근거는 detail_command로 조회한다.',
+      rebroadcast: '방송 주인이 참가하지 않은 다른 방송의 결과창도 직접 읽어 rebroadcast 근거로 쓸 수 있다. 본인 VOD에서만 읽어야 한다는 이유로 보류하지 않는다. 판 식별·신원이 불명확하면 관찰과 질문을 보존한다.',
+      previous_resume: '이전 인계의 사용자 판단 필요·미해결이라 완료 불가라는 결론을 그대로 따르지 않는다. 사실·근거는 재사용하되 위 조건으로 남은 필수 탐색과 검수 질문을 구분한다.',
+    } } : {}),
     scan: scan ? { status: scan.status, requested: scan.requested, failed: scan.failed,
       opened_count: new Set(scan.opened ?? []).size, resume: scan.resume ?? null,
       // 구형 조사에는 resume가 없다. 메모는 힌트로만 제공하고 전체 기록 조회 경로를 남긴다.

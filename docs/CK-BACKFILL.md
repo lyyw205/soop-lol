@@ -11,6 +11,7 @@ scripts/ck-backfill.sh --streamer 이상호 --from 2026-08-20 --to 2026-09-25   
 scripts/ck-backfill.sh --streamer 이상호                                    # 마지막 기간 이어서
 scripts/ck-backfill.sh --streamer 이상호 --model haiku                      # 조사 세션(claude -p)만 다른 모델로
 scripts/ck-backfill.sh --streamer 이상호 --session-games 5                   # 시험용 세션 분할(기본 0: 분할 목표 끔)
+scripts/ck-backfill.sh --streamer 임아니 --from 2026-09-10 --to 2026-09-10 --vod 206719759 --image-limit-mib 12 # 이미지 제한 시험
 scripts/ck-backfill.sh --stop                                               # 현재 세션의 저장 경계에서 멈춤
 npm run ck:backfill -- context --vod 123456                                  # DB에서 만든 짧은 재개 요약
 ```
@@ -34,10 +35,37 @@ npm run ck:backfill -- context --vod 123456                                  # D
 로그·큐·현재 VOD 는 `out/ck/backfill/run-*/`, 마지막 계획은 `out/ck/backfill/last-<채널>.json` 에 남는다.
 
 `done`은 필수 탐색을 마쳤다는 뜻이다. 미해결 후보는 `review_pending`과 `review_pending_vods`로 별도 보고한다.
+재개 요약의 `completion_policy`는 매 `next`/`context` 호출 때 생성한다. 이전 인계가 ‘미해결이라 완료 불가’라고 해도
+후보별 확인 구간·결과창 보완 탐색·교차검증 시도와 한계로 다시 판단한다. 필수 수행이 끝났으면 질문을 보존하고 `done`,
+남은 필수 수행이 있으면 구체적인 다음 행동과 `running`이다. 미해결 수만 보고 자동 완료하거나 후보를 삭제하지 않는다.
+다른 방송을 비춘 결과창도 직접 판독한 `rebroadcast` 근거로 사용할 수 있다. 방송 주인의 참가 여부만으로 보류하지 않는다.
+실행 중 셸도 다음 재개 요약부터 최신 규칙을 받는다. 이미 종료된 워커의 자동 재시작이나 기존 도장의 변경은 하지 않는다.
 이 수는 경기의 빈 칸이나 시점 간 불일치 총수가 아니다. 저장 경기의 불일치는 기존 검수 화면과 `ck:record --match`에서 확인한다.
 대체 후보의 부모(`supersedes`)는 이력으로 남지만 미해결 수에서 제외한다.
 
 ## 짧은 세션과 사용량
+
+이미지 제한은 `--image-limit-mib 12`로 켜는 시험 기능이며 기본은 꺼져 있다. LoL 백필과 Claude Code 2.1.285에서 검증한다.
+기본 8 MiB에서 저장·종료를 안내하고 12 MiB 초과 열람은 거부한다. `--image-warn-mib`로 안내 지점을 조절할 수 있다.
+많은 작은 사진은 60회에서 끊는다. 원본 파일은 바꾸지 않으며, 계수는 JPEG/PNG의 base64 크기 상한을 사용한다.
+현재 검증 범위는 가로·세로 각각 2000px 이하, 파일 3 MiB 이하의 JPEG/PNG다. 다른 형식·큰 이미지는 변환하지 않고 거부한다.
+
+이 모드에서는 백필 자식만 기본 거부 권한과 `PermissionRequest` 훅을 사용한다. 훅 정상 승인 없이는 도구가 실행되지 않아
+훅 오류·타임아웃·누락도 열람 허용으로 바뀌지 않는다. 도구는 조사에 필요한 기본 도구로 제한하고 MCP는 싣지 않는다.
+8 MiB 안내는 권고이며, 실제 저장 여부는 세션 종료 후 기존 DB 재조회로 확인한다.
+12 MiB 차단 뒤에는 Write/Edit와 저장·텍스트 조회 명령만 허용한다. 저장·종료는 기본 180초 또는 30회 도구 요청까지이며,
+`CK_BACKFILL_IMAGE_FLUSH_SECONDS`로 시간만 조절할 수 있다. 강제 종료 후에도 저장 진척이 없으면 기존 규칙으로 중단한다.
+
+`--vod <번호>`는 요청 채널·기간 안에서 해당 영상 하나만 고른다. 다른 채널·기간의 번호나 없는 번호로 전체 백필을 시작하지 않는다.
+세션별 `image-*.json`, 이미지 승인·거부 기록, `session-*.json.stream.jsonl`, 종료 사유 `.exit.json`을 실행 폴더에 남긴다.
+강제 종료로 최종 사용량이 없으면 0으로 보고하지 않는다. 상세 계획과 검증 기록은 [이미지 누적 개선 계획](CK-BACKFILL-SESSION-PLAN.md)을 본다.
+
+운영 DB에 쓰지 않는 유료 비교 시험은 아래 명령으로 실행한다. 새 PGlite와 별도 작업 폴더를 만들고 과거 판독 결과를 입력에서 제외한다.
+운영 DB는 이름 자료·평가 정답을 SELECT로만 읽으며, 정답은 판독 작업 폴더 밖에 둔다.
+
+```bash
+node --env-file-if-exists=apps/web/.env.local scripts/benchmark-ck-image-budget.ts --run --vod 206719759 --budget 12
+```
 
 기본 실행 모델은 `sonnet`이다. `--model` 또는 `CK_BACKFILL_MODEL`로 바꾸며 전역 Claude 설정을 바꾸지 않는다.
 `--session-games`/`CK_BACKFILL_SESSION_GAMES`는 **지시문상의 목표**로서 강제 중단 한도가 아니다.

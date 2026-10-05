@@ -174,5 +174,39 @@ try {
  assert.ok(!plan().queue.includes(302),'FC 도장이 찍히면 FC 큐에서 빠진다(기간은 FC 마지막 요청을 쓴다)');
  assert.equal((await cli('plan','--streamer','백필CLI','--write',queue)).code,0);
  assert.equal(plan().from,'2026-09-01','롤 이어 하기는 롤의 마지막 요청 기간을 쓴다');
- console.log('백필 DB 검증 통과: 게임별 감시 명단 이관·옛 기록 정리·실제 SOOP 날짜 규칙·페이지·공통 판정·목록 밖 대조·진척 판정·재개·접근 상태·게임별(FC) 큐와 요청 기간');
+ // 이미지 차단 시 개요만 봤거나 판독 중이어도 기존 ck:merge가 저장·재개를 지원한다.
+ const partialFile=join(dir,'partial.json');
+ const mergePartial=async(value:unknown)=>{
+  writeFileSync(partialFile,JSON.stringify(value));await closeDb();
+  return new Promise<{code:number;out:string}>(resolve=>execFile(process.execPath,
+   [join(import.meta.dirname,'ck-merge.mjs'),'--result',partialFile],{cwd:join(import.meta.dirname,'..'),env:process.env,timeout:30000},
+   (e,stdout,stderr)=>resolve({code:e?Number((e as any).code??1):0,out:stdout+stderr})));
+ };
+ const partial={resultType:'scan',lead:{source_key:'vod:999999990',title:'이미지 제한 시험',observed_at:'2026-09-20T00:00:00Z'},
+  scan:{status:'running',requested:[[0,600]],opened:[],note:'개요 1페이지에서 게임 구간 확인. 원본은 아직 안 봄',
+   resume:{next_action:'600초 이후 개요와 원본 확인',next_at:600}}};
+ const firstPartial=await mergePartial(partial);assert.equal(firstPartial.code,0,firstPartial.out);
+ const initial=await b.backfillContext(999999990);assert.equal(initial?.scan?.status,'running');assert.equal(initial?.scan?.opened_count,0);
+ assert.equal(initial?.scan?.resume?.next_at,600);
+ const secondPartial=await mergePartial({...partial,candidates:[{id:'partial-name',at:[550,600],conclusion:'unresolved',
+  observed:'경기 화면이 있으나 이름 두 칸은 아직 확인 못함',why:'이미지 한도로 추가 확인 중단',open_questions:['다음 세션에 이름 확인']} ]});
+ assert.equal(secondPartial.code,0,secondPartial.out);
+ const reread=await b.backfillContext(999999990);assert.equal(reread?.candidates[0].conclusion,'unresolved');
+ assert.equal(reread?.saved_matches.length,0,'모르는 값으로 경기를 만들지 않는다');
+ assert.ok((await db()`SELECT body FROM review_record WHERE candidate_id='partial-name' AND type='question'`).some((r:any)=>r.body==='다음 세션에 이름 확인'));
+ assert.equal(vodWork((await b.vodRaws([999999990])).get(999999990),1200).reason,'running');
+ // 탐색 완료와 값 확정은 별개다. done 저장이 미해결 후보·질문을 지우지 않는다.
+ assert.ok(reread?.completion_policy?.done);
+ assert.equal((await b.backfillContext(999999990,'fconline'))?.completion_policy,undefined);
+ const finishedPartial=await mergePartial({...partial,scan:{status:'done',requested:[[0,1200]],opened:[600],
+  note:'시험: 필수 탐색과 교차검증 처리 완료. 이름은 식별 근거가 없어 검수 질문으로 보존',resume:null}});
+ assert.equal(finishedPartial.code,0,finishedPartial.out);
+ const completeWithQuestions=vodWork((await b.vodRaws([999999990])).get(999999990),1200);
+ assert.equal(completeWithQuestions.reason,null);assert.equal(completeWithQuestions.unresolved,1);
+ assert.equal((await b.backfillContext(999999990))?.candidates[0].conclusion,'unresolved');
+ assert.ok((await db()`SELECT body FROM review_record WHERE candidate_id='partial-name' AND type='question'`).length);
+ assert.equal((await cli('plan','--streamer','백필CLI','--from','2026-09-18','--to','2026-09-20','--vod','301','--write',queue)).code,0);
+ assert.deepEqual(plan().vods.map((v:any)=>v.title_no),[301],'단일 VOD 시험이 같은 날 다른 VOD를 실행하지 않는다');
+ assert.equal((await cli('plan','--streamer','백필CLI','--vod','999999991','--write',queue)).code,1,'없는 VOD를 전체 큐로 해석하지 않는다');
+ console.log('백필 DB 검증 통과: 게임별 큐·완료·재개·반복 제한·개요/부분 판독의 실제 ck:merge 저장');
 } finally {rmSync(dir,{recursive:true,force:true});await closeDb();await server.stop();await database.close();}

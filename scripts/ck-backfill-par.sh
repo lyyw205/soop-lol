@@ -23,7 +23,7 @@ while (( $# )); do
   case "$1" in
     --jobs) (( $# >= 2 )) || { echo '--jobs 값 필요' >&2; exit 1; }; JOBS="$2"; shift 2;;
     --streamer) (( $# >= 2 )) || { echo '--streamer 값 필요' >&2; exit 1; }; STREAMERS+=("$2"); shift 2;;
-    --from|--to|--model|--game|--session-games|--max-sessions) (( $# >= 2 )) || { echo "$1 값 필요" >&2; exit 1; }; PASS+=("$1" "$2"); shift 2;;
+    --from|--to|--vod|--model|--game|--session-games|--max-sessions|--max-budget|--image-limit-mib|--image-warn-mib) (( $# >= 2 )) || { echo "$1 값 필요" >&2; exit 1; }; PASS+=("$1" "$2"); shift 2;;
     --stop) mkdir -p "$(dirname "$STOP_FILE")"; touch "$STOP_FILE"; echo '멈춤 요청을 남겼다. 각 워커가 현재 세션을 저장한 뒤 멈춘다.'; exit 0;;
     --help) sed -n 2,17p "$0"; exit 0;;
     *) echo "알 수 없는 인자: $1" >&2; exit 1;;

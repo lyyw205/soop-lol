@@ -73,8 +73,13 @@ npm run ck:local -- --finish --vod <번호> --run <run_id> --opened <연 원본 
 npm run ck:merge -- --result out/ck/<번호>/local/final.json
 ```
 - 경기마다 저장한다. 다음 세션에는 DB 저장이 확인된 결과를 다시 제출하지 않고 이번에 새로 읽거나 정정한 결과만 넘긴다.
+- 백필의 이미지 예산 안내를 받으면 지금까지의 관찰·미해결 질문을 저장하고 종료한다. 필수 탐색이 남으면 `running`과 `scan.resume`를 남기며, 이미 필수 수행을 끝냈으면 아래 `done` 조건을 따른다. 이미지 차단 뒤에는 새 탐색을 하지 않는다. JSON은 `out/ck/<번호>/` 아래에 Write/Edit로 작성하고, 저장·조회 Bash 명령은 한 번에 하나씩 실행한다.
+- 개요만 확인해 `--opened` 원본이 없으면 `--finish`에 가짜 시각을 넣지 않는다. 기존 `resultType: "scan"` 입력을 `ck:merge`로 저장하고, 개요 확인 내용은 `scan.note`·다음 행동은 `scan.resume`에 남긴다. 부분 기록은 `running`이며 이미지 한도는 완료 조건이 아니다.
 - 경기가 있으면 `games.json` 에 **읽은 결과만** 쓴다: `{"candidates":[ck-research 후보…], "results":[match·identify…]}` (형식은 ck-research 「입력 창구」).
 - `opened` 는 원본을 연 시각만이다(이 실험의 정책). `status: done` 조건은 ck-research 그대로.
+- **탐색 완료와 값 확정을 구분한다.** 전 범위 필수 탐색·가려진 결과창 보완·교차검증 처리를 마쳤으면 큐 종류·신원·승패가 미해결이어도 후보와 질문을 보존하고 `done`으로 저장한다. 완료 전 후보별 확인 구간·탐색 종료 사유·교차검증 시도와 한계를 확인한다. 아직 할 탐색이 있으면 `running`과 구체적인 다음 위치·행동을 남긴다. 예산 소진·추가로 볼 것이 없다는 메모만으로 완료하지 않는다.
+- 재개 요약의 `completion_policy`를 적용한다. 이전 메모가 ‘미해결이라 사용자 판단 전까지 완료 불가’라고 해도 사실·근거와 완료 판단을 분리한다. 미해결을 억지로 `not_target`으로 바꾸거나 삭제하지 않는다.
+- 다른 방송을 비춘 결과창도 직접 읽어 `rebroadcast` 근거로 쓸 수 있다. 방송 주인이 참가하지 않았다는 이유나 본인 VOD에서만 읽어야 한다는 이유로 보류하지 않는다. 판 식별·신원이 부족하면 읽은 관찰·질문을 보존한다.
 - 썸네일을 못 받은 범위(`failed`)를 원본으로 메웠으면 `--finish ... --resolved <시작-끝,…>` (VOD 전체 초)로 넘긴다.
   도구가 이번 `scan.failed` 에서 빼고 `scan.resolved_failed` 에도 넣는다 — 이미 DB 에 저장된 실패까지 닫으려면 둘 다 필요하다.
 - 마지막에 `npm run ck:local -- --review --vod <번호> --run <run_id> --merged done|running|failed --note "…"` (실험 장부).

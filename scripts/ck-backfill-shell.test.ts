@@ -15,13 +15,15 @@ function fixture(mode:string, env:Record<string,string>={}) {
  copyFileSync(join(import.meta.dirname,'ck-backfill-par.sh'),join(dir,'scripts/ck-backfill-par.sh'));
  copyFileSync(join(import.meta.dirname,'ck-session-usage.ts'),join(dir,'scripts/ck-session-usage.ts'));
  copyFileSync(join(import.meta.dirname,'lib/ck-session-usage.ts'),join(dir,'scripts/lib/ck-session-usage.ts'));
+ copyFileSync(join(import.meta.dirname,'ck-image-budget.ts'),join(dir,'scripts/ck-image-budget.ts'));
+ copyFileSync(join(import.meta.dirname,'lib/ck-image-budget.ts'),join(dir,'scripts/lib/ck-image-budget.ts'));
  // node: -e 는 진짜 node 로, ck-backfill.ts 명령은 흉내 낸다. next 는 NEXT_N 번까지 VOD 를 주고 3 으로 끝낸다.
  writeFileSync(join(dir,'bin/node'),`#!${process.execPath}\n`+String.raw`
  const fs=require('fs'), cp=require('child_process'), args=process.argv.slice(2);
  if(args[0]==='-e') {const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
  // ck-local 준비 단계(기본) — 실제 판별기 대신 PREP 줄만 찍는다.
  if(String(args[0]).endsWith('ck-local/scan.mjs')){fs.appendFileSync(process.env.ORDER,'prep\n');console.log('PREP: ck-local run_id=fake');process.exit(Number(process.env.PREP_CODE??0));}
- if(String(args[0]).endsWith('ck-session-usage.ts')){const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
+ if(['ck-session-usage.ts','ck-image-budget.ts'].some(p=>String(args[0]).endsWith(p))){const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
  // FC 앞뒤 원본 추출 — 실제로 받지 않고 순서만 남긴다.
  if(args.some(a=>String(a).endsWith('fco-context-frames.ts'))){fs.appendFileSync(process.env.ORDER,'frames:'+args[args.indexOf('--vod')+1]+'\n');process.exit(Number(process.env.FRAMES_CODE??0));}
  const command=args[2];fs.appendFileSync(process.env.ORDER,command+'\n');
@@ -35,6 +37,7 @@ function fixture(mode:string, env:Record<string,string>={}) {
  if(command==='after'){fs.writeFileSync(require('path').join(require('path').dirname(opt('--current')),'after.json'),JSON.stringify({vod:1,before:{saved_matches:0},after:{saved_matches:2}}));process.exit(Number(process.env.AFTER_CODE??0));}
  `,{mode:0o755});
  writeFileSync(join(dir,'bin/claude'),'#!/bin/bash\n'+String.raw`
+ if [[ "$1" == --version ]]; then echo '2.1.285 (Claude Code)'; exit 0; fi
  echo claude >> "$ORDER"
  if [[ -n "$PROMPT_LOG" ]]; then printf '%s\n' "$@" >> "$PROMPT_LOG"; fi
  for a in "$@"; do [[ "$a" == /ck-local* ]] && echo skill:ck-local >> "$ORDER"; [[ "$a" == /ck-research* ]] && echo skill:ck-research >> "$ORDER"; [[ "$a" == /fco-match-context* ]] && echo skill:fco >> "$ORDER"; [[ "$a" == *"fco_scan"* ]] && echo fc-prompt >> "$ORDER"; [[ "$a" == *"run_id=fake"* ]] && echo got-prep >> "$ORDER"; done
@@ -71,6 +74,23 @@ test('--max-sessions는 저장·진척 확인 후 멈추고 다음 VOD를 선택
 test('진척이 없으면 4로 멈춘다',async()=>{
  const f=fixture('ok',{AFTER_CODE:'4'});try {assert.equal(await done(f.start()),4);assert.equal(f.order(),'target\nplan\nnext\nprep\nclaude\nskill:ck-local\ngot-prep\nmodel:sonnet\nafter\nstatus\n');}
  finally{f.cleanup();}
+});
+test('이미지 제한 경로도 최종 결과와 DB 확인을 보존하고 기본 거부 설정을 쓴다',async()=>{
+ const f=fixture('ok');try{
+  assert.equal(await done(f.start('--streamer','test','--image-limit-mib','12','--max-sessions','1')),0);
+  assert.match(f.order(),/claude[\s\S]*after\nstatus/);
+  const {readdirSync}=await import('node:fs');
+  const run=readdirSync(join(f.dir,'out/ck/backfill')).find(x=>x.startsWith('run-'))!;
+  const dir=join(f.dir,'out/ck/backfill',run);
+  const settings=JSON.parse(readFileSync(join(dir,'image-1.json.settings.json'),'utf8'));
+  assert.ok(settings.permissions.ask.includes('Read'));assert.ok(settings.hooks.PermissionRequest);
+  assert.equal(JSON.parse(readFileSync(join(dir,'session-1.json'),'utf8')).type,'result');
+  assert.ok(existsSync(join(dir,'usage.jsonl')));
+ }finally{f.cleanup();}
+ const g=fixture('ok',{AFTER_CODE:'4'});try{
+  assert.equal(await done(g.start('--streamer','test','--image-limit-mib','12')),4);
+  assert.equal(g.order().split('\n').filter(x=>x==='claude').length,1);
+ }finally{g.cleanup();}
 });
 test('반복 제한으로 next가 보류하면 Claude나 준비를 시작하지 않는다',async()=>{
  const f=fixture('ok',{NEXT_CODE:'4'});try{assert.equal(await done(f.start()),4);

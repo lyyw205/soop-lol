@@ -81,6 +81,7 @@ function summary(vods: PlannedVod[]) {
 async function plan() {
   locked();
   if (!values.streamer || !values.write) throw new Error('--streamer 와 --write 가 필요하다');
+  if (values.vod && (!/^[1-9][0-9]*$/.test(values.vod) || !Number.isSafeInteger(Number(values.vod)))) throw new Error('--vod 는 양의 정수');
   const target = await resolveBackfillTarget(values.streamer);
   let from = values.from, to = values.to;
   if (!!from !== !!to) throw new Error('--from 과 --to 는 함께 준다. 둘 다 없으면 마지막 요청 기간을 쓴다');
@@ -94,14 +95,15 @@ async function plan() {
   }
   // 앞뒤 하루를 넓혀 받는다. 조사 대상은 요청 기간만이고, 넓힌 목록은 "목록에서 사라진 VOD" 대조에만 쓴다.
   const wide = await listRange(target.channel_id, shiftDay(from!, -1), shiftDay(to!, 1), listBroadcasts);
-  const inRange = wide.filter(v => { const d = kstDateString(vodDate(v.ended_at)); return d >= from! && d <= to!; });
+  const inRange = wide.filter(v => { const d = kstDateString(vodDate(v.ended_at)); return d >= from! && d <= to! && (!values.vod || v.title_no===Number(values.vod)); });
+  if (values.vod && !inRange.length) throw new Error(`요청 채널·기간에 VOD ${values.vod}가 없다`);
   await ensureVodLeads(target, inRange);
   const vods = await evaluate(inRange);
   const listed = new Set(wide.map(v=>`vod:${v.title_no}`));
   const missing = (await channelLeadsBetween(target.channel_id, from!, to!))
     .filter(l => !listed.has(l.source_key))
     .map(l => ({ vod: Number(l.source_key.slice(4)), title: l.title, reason: vodWork(l.raw, null).reason }))
-    .filter(l => l.reason !== null && !titleExclusion(l.title));
+    .filter(l => l.reason !== null && !titleExclusion(l.title) && (!values.vod || l.vod===Number(values.vod)));
   const result: Plan = { target, from: from!, to: to!, generated_at: new Date().toISOString(),
     vods, queue: vods.filter(pendingVod).map(v=>v.title_no), missing };
   writeJson(values.write, result);

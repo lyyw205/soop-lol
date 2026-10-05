@@ -5,6 +5,7 @@
 #   scripts/ck-backfill.sh --streamer 이상호                                    # 마지막 요청 기간을 이어서
 #   scripts/ck-backfill.sh --streamer 김민교 --model haiku --from ...           # 조사 세션만 다른 모델로
 #   scripts/ck-backfill.sh --streamer 걍하리 --game fconline --from ... --to ...   # FC 과거 백필(도장 fco_scan · FC 스킬)
+#   scripts/ck-backfill.sh --streamer 임아니 --image-limit-mib 12 --max-sessions 1 # 이미지 제한 시험(기본 꺼짐)
 #   scripts/ck-backfill.sh --stop                                               # 지금 조사 세션을 저장한 뒤 멈춤
 #   Ctrl-C / TERM                                                               # 즉시 멈춤(조사 중 VOD 는 마지막 저장 지점부터)
 #
@@ -20,9 +21,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$HOME/.local/node/bin:$PATH"
 cd "$ROOT"
 STOP_FILE="$ROOT/out/ck/backfill/STOP"
-STREAMER=""; FROM=""; TO=""; MODEL="${CK_BACKFILL_MODEL:-sonnet}"; GAME="lol"
+STREAMER=""; FROM=""; TO=""; ONLY_VOD=""; MODEL="${CK_BACKFILL_MODEL:-sonnet}"; GAME="lol"
 SESSION_GAMES="${CK_BACKFILL_SESSION_GAMES:-0}"
 MAX_SESSIONS=0; RESET_STALL=0
+# ★ 세션당 비용 상한(달러, claude -p --max-budget-usd). 0 이면 끈다. 문맥이 수십만 토큰까지 자라는 세션이
+#   사용량 대부분을 먹었다(2026-10-05 집계: 상위 3세션이 47%). 프롬프트의 분량 목표는 강제가 아니라서 여기서 끊는다.
+#   상한에 걸린 세션은 실패가 아니다 — DB 저장분까지 진척으로 보고 다음 세션이 재개 요약으로 잇는다.
+MAX_BUDGET="${CK_BACKFILL_MAX_BUDGET:-3}"
+IMAGE_LIMIT="${CK_BACKFILL_IMAGE_LIMIT_MIB:-0}"
+IMAGE_WARN="${CK_BACKFILL_IMAGE_WARN_MIB:-8}"
+IMAGE_FLUSH_SECONDS="${CK_BACKFILL_IMAGE_FLUSH_SECONDS:-180}"
 # 조사 세션이 따를 스킬. 기본은 ck-local(로컬 판별기 준비 + 원본 판독) — 2026-10-01 비교 시험(VOD 8개)에서
 #   ck-research 가 찾은 경기를 하나도 놓치지 않고 같은 값을 읽으면서 비용 64%·시간 44% 를 줄였다(docs/CK-LOCAL-DETECTOR.md).
 #   예전 방식으로 돌리려면 CK_BACKFILL_SKILL=ck-research (그러면 준비 단계도 기본으로 꺼진다).
@@ -34,9 +42,9 @@ SKILL_ENV="${CK_BACKFILL_SKILL:-}"
 
 while (( $# )); do
   case "$1" in
-    --streamer|--from|--to|--model|--game|--session-games|--max-sessions)
+    --streamer|--from|--to|--vod|--model|--game|--session-games|--max-sessions|--max-budget|--image-limit-mib|--image-warn-mib)
       if (( $# < 2 )); then echo "$1 값 필요" >&2; exit 1; fi
-      case "$1" in --streamer) STREAMER="$2";; --from) FROM="$2";; --to) TO="$2";; --model) MODEL="$2";; --game) GAME="$2";; --session-games) SESSION_GAMES="$2";; --max-sessions) MAX_SESSIONS="$2";; esac
+      case "$1" in --streamer) STREAMER="$2";; --from) FROM="$2";; --to) TO="$2";; --vod) ONLY_VOD="$2";; --model) MODEL="$2";; --game) GAME="$2";; --session-games) SESSION_GAMES="$2";; --max-sessions) MAX_SESSIONS="$2";; --max-budget) MAX_BUDGET="$2";; --image-limit-mib) IMAGE_LIMIT="$2";; --image-warn-mib) IMAGE_WARN="$2";; esac
       shift 2;;
     --stop)
       mkdir -p "$(dirname "$STOP_FILE")"; touch "$STOP_FILE"
@@ -50,6 +58,16 @@ done
 [[ "$GAME" == lol || "$GAME" == fconline ]] || { echo "--game 은 lol 또는 fconline" >&2; exit 1; }
 [[ -n "$MODEL" && "$SESSION_GAMES" =~ ^[0-9]+$ ]] || { echo '모델 이름과 --session-games 0 이상 정수가 필요하다' >&2; exit 1; }
 [[ "$MAX_SESSIONS" =~ ^[0-9]+$ ]] || { echo '--max-sessions 0 이상 정수가 필요하다(0: 제한 없음)' >&2; exit 1; }
+[[ "$MAX_BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo '--max-budget 은 0 이상 숫자(달러, 0: 제한 없음)' >&2; exit 1; }
+[[ "$IMAGE_LIMIT" =~ ^[0-9]+(\.[0-9]+)?$ && "$IMAGE_WARN" =~ ^[0-9]+(\.[0-9]+)?$ && "$IMAGE_FLUSH_SECONDS" =~ ^[1-9][0-9]*$ ]] \
+  || { echo '이미지 한도·경고는 0 이상 숫자, 저장 종료 유예는 양의 정수' >&2; exit 1; }
+IMAGE_ENABLED=0
+if [[ ! "$IMAGE_LIMIT" =~ ^0*(\.0*)?$ ]]; then
+  [[ "$GAME" == lol ]] || { echo '이미지 제한 1차 검증은 LoL 백필만 지원한다' >&2; exit 1; }
+  node -e 'const [w,l]=process.argv.slice(1).map(Number);process.exit(w>0&&w<l&&l<=12?0:1)' "$IMAGE_WARN" "$IMAGE_LIMIT" \
+    || { echo '이미지 한도는 0 < 경고 < 차단 <= 12 MiB' >&2; exit 1; }
+  IMAGE_ENABLED=1
+fi
 # 게임별 기본값. 롤: ck-local + 판별기 준비. FC: FC 스킬(VOD 에서 출발하기) + 공용 준비 → FC 전용 판별기(fc.json).
 if [[ "$GAME" == fconline ]]; then SKILL="${SKILL_ENV:-fco-match-context}"; else SKILL="${SKILL_ENV:-ck-local}"; fi
 if [[ -n "${CK_BACKFILL_PREP+set}" ]]; then PREP_CMD="$CK_BACKFILL_PREP"
@@ -110,12 +128,13 @@ cli target --streamer "$STREAMER" --write "$DIR/target.json" || exit "$?"
 CHANNEL="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); if(!/^[a-zA-Z0-9_-]+$/.test(c.channel_id))process.exit(1);console.log(c.channel_id)' "$DIR/target.json")" || exit 1
 exec 8>"out/ck/backfill/channel-$CHANNEL.lock"
 flock -n 8 || { say "이미 조사 중인 채널: $CHANNEL"; exit 75; }
-say "설정: game=$GAME model=$MODEL session-games=$SESSION_GAMES max-sessions=$MAX_SESSIONS"
+say "설정: game=$GAME model=$MODEL session-games=$SESSION_GAMES max-sessions=$MAX_SESSIONS max-budget=$MAX_BUDGET image-limit-mib=$IMAGE_LIMIT"
 GUARD_ARGS=(--guard-dir "$ROOT/out/ck/backfill/guards")
 
 PLAN_ARGS=(plan --streamer "$STREAMER" --write "$QUEUE")
 [[ -n "$FROM" ]] && PLAN_ARGS+=(--from "$FROM")
 [[ -n "$TO" ]] && PLAN_ARGS+=(--to "$TO")
+[[ -n "$ONLY_VOD" ]] && PLAN_ARGS+=(--vod "$ONLY_VOD")
 cli "${PLAN_ARGS[@]}"; CODE=$?
 (( CODE == 0 )) || exit "$CODE"
 
@@ -148,6 +167,10 @@ SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 $DIR/resume.json 의
 다른 VOD의 시점을 추가할 때는 기존 값을 복사하지 않고 직접 읽는다.
 중단된 조사면 남은 지점부터 잇는다. 탐색 단계를 마칠 때마다 scan 을 running 과 지금까지의 범위로 ck:merge 에 저장해
 세션이 중간에 끊겨도 진척이 남게 한다. 필수 조사를 모두 마쳤을 때만 done 으로 저장한다.
+done은 탐색 완료이지 모든 값 확정이 아니다. 필수 탐색·결과창 보완·교차검증 처리를 끝냈다면 미해결 후보와 질문을 보존하고 done으로 저장한다.
+완료 전 후보별 확인 구간·탐색 종료 사유·교차검증 시도와 한계를 확인한다. 남은 필수 탐색이 있으면 running과 구체적인 다음 행동을 남긴다.
+미해결을 억지로 not_target으로 닫거나 삭제하지 않는다. 이전 인계의 사용자 판단 필요라는 말만으로 종료하지 말고 resume.json의 completion_policy로 재평가한다.
+방송 주인이 참가하지 않은 재송출 결과창도 직접 읽어 rebroadcast 근거로 쓸 수 있다. 본인 VOD에서만 읽어야 한다는 이유로 보류하지 않는다.
 삭제·비공개를 실제 확인했으면 npm run ck:backfill -- access --vod $VOD --status unavailable --reason <확인 근거> 로 남긴다.
 일시 오류는 --status temporary 로 남기고 이 세션을 끝낸다. scan.failed 는 시간 범위 배열이며 사유를 넣지 않는다.
 못 본 구간이 영상 길이 밖이거나 세그먼트가 영구 누락이라 다시 봐도 못 푸는 것이면 scan.resolved_failed 로 닫고 이유를 note 에 남긴다.
@@ -173,10 +196,36 @@ ck:local --finish는 --resume <요약 JSON 파일>을 받는다. 다음 작업�
       PROMPT+=$'\n'"준비 단계 실패(종료 코드 $PREP_CODE, 로그 $PREP_OUT) — 준비 산출물을 쓰지 말고 스킬의 준비 실패 절차로 조사한다."
     fi
   fi
-  CLAUDE_ARGS=(-p "$PROMPT" --permission-mode bypassPermissions --output-format json)
+  if (( IMAGE_ENABLED )); then
+    PROMPT+=$'\n'"작업 폴더는 $ROOT 이다. 스킬이 명령으로 안 보이면 $ROOT/.claude/skills/$SKILL/SKILL.md 를 Read로 직접 읽는다. 다른 프로젝트 폴더로 이동하지 않는다.
+이 세션은 이미지 ${IMAGE_WARN} MiB에서 저장 안내, ${IMAGE_LIMIT} MiB 초과 열람 차단을 적용한다.
+안내를 받으면 읽은 관찰·후보·경기를 ck:merge에 저장하고 종료한다. 필수 탐색이 남으면 running과 scan.resume의 next_action·context를 남긴다. 이미 필수 탐색을 모두 마쳤으면 위 done 조건을 따른다.
+모든 조사 산출물 JSON은 out/ck/$VOD/ 아래에 Write/Edit로 작성한다. 원본 사진을 자르거나 화질을 낮추지 않는다.
+차단 뒤에는 새 탐색을 하지 않는다. 저장은 단일 npm run ck:merge -- --result <파일>, 필요한 기록 조회는 npm run ck:record -- --lead vod:$VOD 명령으로 한다.
+ck:local --finish를 쓰면 --status running --requested <이번 요청 범위> --resume <인계 JSON>을 명시한다.
+개요만 본 상태는 원본 opened를 꾸미지 말고 기존 scan 입력으로 ck:merge에 저장한다. 경기값을 모르면 후보의 관찰·질문으로 남긴다.
+이미지를 준비한 사실은 열람 근거가 아니다. 예산 소진은 done 조건이 아니며, 다음 세션은 DB 저장분만 이어받는다."
+  fi
+  # ★ --no-session-persistence — 세션 대화 기록(~/.claude/projects/*.jsonl)을 남기지 않는다. 이미지가 base64 로
+  #   통째로 들어가 백필 세션 기록만 하루에 21.7GB 가 쌓여 C: 를 채웠다(2026-10-05). 재개는 DB 로 하고,
+  #   사용량은 실행 폴더의 session-*.json·usage.jsonl 에 따로 남으므로 이 기록은 쓰지 않는다.
+  CLAUDE_ARGS=(-p "$PROMPT" --permission-mode bypassPermissions --output-format json --no-session-persistence)
   CLAUDE_ARGS+=(--model "$MODEL")
+  [[ "$MAX_BUDGET" =~ ^0*(\.0*)?$ ]] || CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET")
   SESSION_OUT="$DIR/session-$SESSIONS.json"
-  run_child bash -c 'output=$1; shift; exec "$@" >"$output"' _ "$SESSION_OUT" claude "${CLAUDE_ARGS[@]}"; CLAUDE_CODE=$?
+  if (( IMAGE_ENABLED )); then
+    run_child node scripts/ck-image-budget.ts run --state "$DIR/image-$SESSIONS.json" --output "$SESSION_OUT" --vod "$VOD" \
+      --warn-mib "$IMAGE_WARN" --limit-mib "$IMAGE_LIMIT" --flush-seconds "$IMAGE_FLUSH_SECONDS" -- claude "${CLAUDE_ARGS[@]}"; CLAUDE_CODE=$?
+    if (( CLAUDE_CODE == 20 )); then
+      say '  이미지 차단 후 저장·종료 유예가 끝났다 — DB 저장분을 확인한다'; CLAUDE_CODE=0
+    fi
+  else
+    run_child bash -c 'output=$1; shift; exec "$@" >"$output"' _ "$SESSION_OUT" claude "${CLAUDE_ARGS[@]}"; CLAUDE_CODE=$?
+  fi
+  # 비용 상한으로 끊긴 세션은 정상 인계다. 진척은 아래 after 가 DB 로 판정한다(저장 없이 끊겼으면 진척 없음으로 멈춘다).
+  if (( CLAUDE_CODE != 0 )) && node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).subtype==="error_max_budget_usd"?0:1)' "$SESSION_OUT" 2>/dev/null; then
+    say "  세션 비용 상한(\$$MAX_BUDGET)에서 끊었다 — 저장된 진척부터 다음 세션이 잇는다"; CLAUDE_CODE=0
+  fi
   rm -f "$DIR/after.json"  # 이번 조회가 실패하면 지난 세션의 저장 수를 사용량에 붙이지 않는다.
   cli after --current "$CURRENT" "${GUARD_ARGS[@]}"; AFTER_CODE=$?
   run_child node scripts/ck-session-usage.ts "$SESSION_OUT" "$DIR/after.json" "$DIR/usage.jsonl" "$MODEL" \
