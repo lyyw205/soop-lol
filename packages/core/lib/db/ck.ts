@@ -28,6 +28,10 @@ import { mergeRanges, subtractRanges } from "../metrics/ranges.ts";
 
 import { REVIEW_PROGRESS_JOIN, type ReviewProgress } from "./review-progress.ts";
 import { checkedReviewChanges, ReviewConflictError } from "./review-patch.ts";
+import {
+  autoFillVerdict, loadReviewLockInTx, matchCell, participantCell, PARTICIPANT_ROW_FIELD, recordAutoChangesInTx,
+  type AutoChange,
+} from "./review-lock.ts";
 export { ReviewConflictError } from "./review-patch.ts";
 
 type Tx = postgres.TransactionSql;
@@ -1116,7 +1120,8 @@ export async function listReviewChanges(scope: { match_id?: string; lead_id?: st
  *
  * 한 트랜잭션에서 이 순서로 한다:
  *   ① 매치 메타 · 공개 여부  ② 참가자 추가·수정·삭제  ③ `outcome` 을 승리 팀에 맞춰 재계산
- *   ④ `reviewed_at` 기록 (이후 자동 수집이 이 행을 덮지 않는다)
+ *   ④ `reviewed_at` 기록 (이후 자동 수집이 이 행을 덮지 않는다). 무엇을 바꿨는지는 review_change 에
+ *      칸 주소(review-lock.ts)로 남긴다 — 자동 판독은 그 칸만 피해서 나머지 **빈** 칸을 채운다.
  *   ⑤ 조우 재파생  ⑥ 영향받은 스트리머의 챔피언 통계 재계산
  */
 export async function applyMatchReview(matchId: string, patch: MatchReviewPatch): Promise<MatchDetail | null> {
@@ -1193,12 +1198,12 @@ async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: MatchReviewP
   for (const [field, after] of Object.entries(intended)) {
     const series = SERIES_FIELDS.has(field);
     history.push({
-      match_id: matchId, entity: series ? "series" : "match",
-      entity_key: series ? String(finalMeta.series_id) : matchId,
-      field, before: (exists[0] as unknown as Record<string, unknown>)[field], after,
+      match_id: matchId,
+      ...(series ? { entity: "series" as const, entity_key: String(finalMeta.series_id), field } : matchCell(matchId, field)),
+      before: (exists[0] as unknown as Record<string, unknown>)[field], after,
     });
   }
-  if (meta.visibility) history.push({ match_id: matchId, entity: "match", entity_key: matchId, field: "visibility", before: exists[0].visibility, after: meta.visibility });
+  if (meta.visibility) history.push({ match_id: matchId, ...matchCell(matchId, "visibility"), before: exists[0].visibility, after: meta.visibility });
   let changed = Object.keys(meta).length > 0 || seriesFormatChanged || orderChanged;
   // 고치기 전과 후 명단을 합쳐 파생 통계를 정리한다.
   const before = await affectedStreamers(tx, matchId);
@@ -1237,8 +1242,9 @@ async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: MatchReviewP
       UPDATE match_participant SET ${tx(next, ...Object.keys(next))}
        WHERE match_id = ${matchId} AND participant_id = ${p.participant_id}
     `;
+    // 칸 주소는 review-lock.ts 가 정한다 — 자동 판독이 이 기록으로 "사람이 바꾼 칸" 을 가린다.
     for (const [field, after] of Object.entries(next)) history.push({
-      match_id: matchId, entity: "participant", entity_key: String(p.participant_id), field, before: cur[0][field], after,
+      match_id: matchId, ...participantCell(p.participant_id, field), before: cur[0][field], after,
     });
   }
 
@@ -1247,7 +1253,7 @@ async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: MatchReviewP
       DELETE FROM match_participant WHERE match_id = ${matchId} AND participant_id = ${pid}
       RETURNING ${tx.unsafe(PARTICIPANT_COLUMNS)}`;
     changed ||= removed.length > 0;
-    if (removed.length) history.push({ match_id: matchId, entity: "participant", entity_key: String(pid), field: "row", before: removed[0], after: null });
+    if (removed.length) history.push({ match_id: matchId, ...participantCell(pid, PARTICIPANT_ROW_FIELD), before: removed[0], after: null });
   }
 
   for (const p of patch.participants?.add ?? []) {
@@ -1270,7 +1276,7 @@ async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: MatchReviewP
       const [current] = await tx<Record<string, unknown>[]>`SELECT ${tx.unsafe(PARTICIPANT_COLUMNS)} FROM match_participant WHERE match_id=${matchId} AND participant_id=${p.participant_id}`;
       throw new ReviewConflictError(`${p.participant_id}번 자리(이미 추가됨)`, null, current);
     }
-    history.push({ match_id: matchId, entity: "participant", entity_key: String(p.participant_id), field: "row", before: null, after: { ...p, champion_id: champ.champion_id, champion_name: champ.champion_name } });
+    history.push({ match_id: matchId, ...participantCell(p.participant_id, PARTICIPANT_ROW_FIELD), before: null, after: { ...p, champion_id: champ.champion_id, champion_name: champ.champion_name } });
     changed = true;
   }
 
@@ -1375,7 +1381,8 @@ export interface ParticipantLink {
 }
 
 export type LinkParticipantsResult =
-  | { status: "ok"; linked: number; missing: number[] }
+  /** kept: 칸 보호 경기에서 사람이 바꿨거나 이미 사람이 정해져 있어 바꾸지 않은 자리. */
+  | { status: "ok"; linked: number; missing: number[]; kept: number[] }
   | { status: "reviewed" }
   | { status: "no_match" };
 
@@ -1389,7 +1396,9 @@ export type LinkParticipantsResult =
  *   조사 파이프라인이 돌리는 자동 단계다. 찍어 버리면 사람 연결 하나 때문에 그 경기의
  *   챔피언·KDA 보강이 통째로 잠긴다(`upsertMatchFromScan` 은 매치 단위 전부/전무다).
  *
- * ★ 반대로 **사람이 검수한 경기는 건드리지 않는다.** 사람이 정한 매핑이 자동 식별보다 낫다.
+ * ★ 반대로 **사람이 정한 매핑은 건드리지 않는다.** 사람이 정한 매핑이 자동 식별보다 낫다.
+ *   보호는 칸 단위다(review-lock.ts): 검수 경기라도 사람이 안 바꾼 **빈** 자리는 채우고, 칸 기록으로
+ *   가릴 수 없는 검수 경기·검수 완료 경기만 통째로 `reviewed` 로 물러난다.
  *
  * ⚠ 없는 자리는 만들지 않는다. 식별은 "이 자리의 사람은 누구" 이지 "자리를 추가" 가 아니다 —
  *   자리를 새로 만드는 것은 판독(`upsertMatchFromScan`)이나 검수 화면의 일이다.
@@ -1410,10 +1419,15 @@ export async function linkParticipantsInTx(
     SELECT reviewed_at FROM match WHERE match_id = ${matchId} FOR UPDATE
   `;
   if (m.length === 0) return { status: "no_match" };
-  if (m[0].reviewed_at != null) return { status: "reviewed" };
+  // ★ 검수 보호는 칸 단위다(review-lock.ts). 전체 보호 경기만 통째로 물러난다. 칸 보호 경기에서는
+  //   사람이 바꾸지 않은 **빈** 연결만 채운다 — 이미 정해진 사람은 사람이 안 고쳤어도 바꾸지 않는다.
+  const lock = (await loadReviewLockInTx(tx, matchId))!;
+  if (lock.mode === "match") return { status: "reviewed" };
 
   const before = await affectedStreamers(tx, matchId);
   const missing: number[] = [];
+  const kept: number[] = [];
+  const auto: AutoChange[] = [];
   let linked = 0;
 
   for (const l of links) {
@@ -1431,6 +1445,22 @@ export async function linkParticipantsInTx(
         observed_name: l.observed_name,
       }).filter(([, v]) => v !== undefined),
     );
+    if (lock.mode === "cells") {
+      // 사람 연결(puuid·streamer_id)은 한 칸이다 — 둘 중 하나라도 있으면 그 자리의 사람은 정해져 있다.
+      const seat = participantCell(l.participant_id, "streamer_id");
+      const identity = ["streamer_id", "puuid"] as const;
+      const wantsIdentity = identity.some((f) => f in patch && patch[f] !== cur[0][f]);
+      if (wantsIdentity && autoFillVerdict(lock, seat, identity, cur[0].puuid == null && cur[0].streamer_id == null) !== "write") {
+        for (const f of identity) delete patch[f];
+        kept.push(l.participant_id);
+      }
+      if ("observed_name" in patch && patch.observed_name !== cur[0].observed_name
+          && autoFillVerdict(lock, seat, ["observed_name"], !cur[0].observed_name) !== "write") {
+        delete patch.observed_name;
+        if (!kept.includes(l.participant_id)) kept.push(l.participant_id);
+      }
+      for (const f of Object.keys(patch)) if (patch[f] === cur[0][f as keyof typeof cur[0]]) delete patch[f];
+    }
     if (Object.keys(patch).length === 0) continue;
 
     // 합쳐진 **최종 값**으로 검사한다. 안 준 쪽은 기존 값이 남으므로, 새 값만 보면
@@ -1455,8 +1485,13 @@ export async function linkParticipantsInTx(
       UPDATE match_participant SET ${tx(patch, ...Object.keys(patch))}
        WHERE match_id = ${matchId} AND participant_id = ${l.participant_id}
     `;
+    for (const [field, after] of Object.entries(patch)) {
+      auto.push({ ...participantCell(l.participant_id, field), match_id: matchId, before: cur[0][field as keyof typeof cur[0]], after });
+    }
     linked++;
   }
+  // 자동 식별이 바꾼 칸은 actor=auto 로 남긴다 — 사람 기록과 섞이면 다음 판독이 그 칸을 "사람 것" 으로 본다.
+  await recordAutoChangesInTx(tx, auto);
 
   if (linked > 0) {
     // 사람이 바뀌면 조우의 주인도 바뀐다. 옛 사람과 새 사람 **둘 다** 다시 계산한다.
@@ -1464,7 +1499,7 @@ export async function linkParticipantsInTx(
     const after = await affectedStreamers(tx, matchId);
     await recomputeChampionStatsInTx(tx, [...new Set([...before, ...after])]);
   }
-  return { status: "ok", linked, missing };
+  return { status: "ok", linked, missing, kept };
 }
 
 // ── 검수 화면이 한 번에 받는 것 ──────────────────────────────────────

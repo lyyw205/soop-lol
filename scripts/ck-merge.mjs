@@ -631,7 +631,8 @@ try {
         const povSource = r.pov?.source ?? "own";
         const submission = await povSubmissionOf(tx, r);
 
-        // 검수된 경기는 값이 잠긴다 — 만든 시점이라도 덮어쓰지 않고, 시점·사진만 더한다(§4.6).
+        // 검수된 경기는 통째로 덮지 않는다 — 만든 시점이라도 시점으로 더한다(§4.6). 빈 칸 채우기는
+        // 칸 단위 보호(core/lib/db/review-lock.ts)를 따른다: 사람이 바꾼 칸만 빼고 채운다.
         if (exists && !(soleCreator && complete && current.reviewed_at == null)) {
           if (r.game_mode && r.game_mode !== current.game_mode
             && (r.game_mode === 'ARAM' || current.game_mode === 'ARAM')) {
@@ -655,7 +656,8 @@ try {
             + ` · 비교 ${s.compared}(일치 ${s.agree}${s.mismatch_open ? ` · ⚠ 불일치 ${s.mismatch_open}` : ""})`
             + `${res.filled.length ? ` · 빈 칸 채움 ${res.filled.length}` : ""}`
             + `${s.pending ? ` · 대응 보류 ${s.pending}` : ""}`
-            + `${res.locked ? " · 검수된 경기라 값은 잠김" : ""}`
+            + `${res.locked ? ` · 검수된 경기라 값은 잠김(${res.lock_reason})` : ""}`
+            + `${res.kept ? ` · 사람이 고친 칸이라 안 채움 ${res.kept}` : ""}`
             + `${res.reopened ? " · ⚠ 새 불일치로 검수 완료를 풀었다(미검수 목록에 다시 뜬다)" : ""}`);
           if (res.unmatched.length) console.log(`      ⚠ 경기에서 찾지 못한 사람: ${res.unmatched.join(", ")} — 비교·채우기 안 함`);
           continue;
@@ -775,10 +777,11 @@ try {
           } else if (res.status === "reviewed") {
             // 성공으로 세지 않는다. 사람이 정한 매핑이 자동 식별보다 낫다.
             skipped++;
-            console.log(`식별  ${r.match_id}  ⏭ 사람이 검수한 경기라 건드리지 않았다`);
+            console.log(`식별  ${r.match_id}  ⏭ 경기 전체가 보호된 검수 경기라 건드리지 않았다`);
           } else {
             identified += res.linked;
             console.log(`식별  ${r.match_id}  ${res.linked}명`
+              + (res.kept.length > 0 ? `  · 사람이 정한 자리라 안 바꿈 ${res.kept.join(",")}번` : "")
               + (res.missing.length > 0 ? `  ⚠ 없는 자리 ${res.missing.join(",")}번 — 판독으로 먼저 만들 것` : ""));
           }
         }

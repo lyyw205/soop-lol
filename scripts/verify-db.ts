@@ -1553,8 +1553,12 @@ try {
     missingSeat.status === "ok" && missingSeat.linked === 0 && missingSeat.missing.join(",") === "9",
     JSON.stringify(missingSeat));
   const reviewedLink = await ck.linkParticipants("verify-cup:ck1", [{ participant_id: 1, streamer_id: s2.id }]);
-  check("★ 사람이 검수한 경기는 자동 식별이 건드리지 않는다",
-    reviewedLink.status === "reviewed", JSON.stringify(reviewedLink));
+  // 보호는 칸 단위다(0074, review-lock.ts) — 이 경기는 사람이 승자를 고쳐 칸 보호이고, 1번 자리는
+  // 이미 계정(puuid)으로 사람이 정해져 있다. 정해진 사람은 사람이 안 고쳤어도 자동 식별이 바꾸지 않는다.
+  const ck1Seat = (await ck.getMatchDetail("verify-cup:ck1"))?.participants.find((p) => p.participant_id === 1);
+  check("★ 사람이 검수한 경기의 정해진 자리는 자동 식별이 건드리지 않는다",
+    reviewedLink.status === "ok" && reviewedLink.linked === 0 && reviewedLink.kept.join(",") === "1"
+      && ck1Seat?.streamer_id === null && ck1Seat?.puuid === alphaPuuid, JSON.stringify(reviewedLink));
 
   // ── 프레임 안 붙은 경기가 검수 화면에서 사라지나 (검수 피드백 #2)
   //

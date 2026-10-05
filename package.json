@@ -98,6 +98,8 @@
     "verify:ck:browser": "node scripts/verify-ck-browser.ts",
     "//verify:ck:pov": "★ 다시점 경기 통합을 실제 ck:merge 명령으로 끝까지 돌린다 — 시점 추가·빈 칸 채우기·불일치·검수 보호·거부 사례. 가짜는 VOD 사진 파일뿐.",
     "verify:ck:pov": "node scripts/verify-ck-pov.ts",
+    "//verify:ck:cell-lock": "★ 검수 보호가 칸 단위로 도는지 실제 ck:merge 로 — 사람 연결만 고친 경기의 빈 칸 채우기·사람 칸 보호·불일치·과거 잠금·완료·재제출 멱등.",
+    "verify:ck:cell-lock": "node scripts/verify-ck-cell-lock.ts",
     "ck:backfill": "node --env-file-if-exists=apps/web/.env.local scripts/ck-backfill.ts",
     "verify:ck:backfill": "node scripts/verify-ck-backfill.ts",
     "ck:local": "node scripts/ck-local/scan.mjs",
