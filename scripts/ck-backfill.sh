@@ -202,7 +202,7 @@ ck:local --finish는 --resume <요약 JSON 파일>을 받는다. 다음 작업�
 안내를 받으면 읽은 관찰·후보·경기를 ck:merge에 저장하고 종료한다. 필수 탐색이 남으면 running과 scan.resume의 next_action·context를 남긴다. 이미 필수 탐색을 모두 마쳤으면 위 done 조건을 따른다.
 모든 조사 산출물 JSON은 out/ck/$VOD/ 아래에 Write/Edit로 작성한다. 원본 사진을 자르거나 화질을 낮추지 않는다.
 차단 뒤에는 새 탐색을 하지 않는다. 저장은 단일 npm run ck:merge -- --result <파일>, 필요한 기록 조회는 npm run ck:record -- --lead vod:$VOD 명령으로 한다.
-ck:local --finish를 쓰면 --status running --requested <이번 요청 범위> --resume <인계 JSON>을 명시한다.
+ck:local --finish를 쓰면 --status running --resume <인계 JSON>을 명시한다(요청 범위는 준비 단계가 영상 전체로 정해 두었으니 적지 않는다).
 개요만 본 상태는 원본 opened를 꾸미지 말고 기존 scan 입력으로 ck:merge에 저장한다. 경기값을 모르면 후보의 관찰·질문으로 남긴다.
 이미지를 준비한 사실은 열람 근거가 아니다. 예산 소진은 done 조건이 아니며, 다음 세션은 DB 저장분만 이어받는다."
   fi

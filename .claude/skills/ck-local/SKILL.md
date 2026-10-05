@@ -69,7 +69,7 @@ DB 후보로 넣지 않고 5단계 `--verdicts` 로만 남긴다. `--finish` 가
 **6. 기록 — 초안은 도구가 조립한다.**
 ```bash
 npm run ck:local -- --finish --vod <번호> --run <run_id> --opened <연 원본 초,…> \
-  [--result-frames <결과창 원본 초,…>] [--resolved <시작-끝,…>] [--status done|running] [--games out/ck/<번호>/local/games.json] [--resume <짧은_인계_JSON>] [--requested <확인범위_시작-끝,…>] [--note "본 것·라벨이 틀린 곳"]
+  [--result-frames <결과창 원본 초,…>] [--resolved <시작-끝,…>] [--status done|running] [--games out/ck/<번호>/local/games.json] [--resume <짧은_인계_JSON>] [--note "본 것·라벨이 틀린 곳"]
 npm run ck:merge -- --result out/ck/<번호>/local/final.json
 ```
 - 경기마다 저장한다. 다음 세션에는 DB 저장이 확인된 결과를 다시 제출하지 않고 이번에 새로 읽거나 정정한 결과만 넘긴다.

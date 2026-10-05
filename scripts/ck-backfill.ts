@@ -36,7 +36,9 @@ const vodWork = (raw: ScanRaw | undefined, sec: number | null) => vodWorkFor(raw
 // LCK Watch Party 제외는 롤 조사 비용 정책이다. FC 백필에는 적용하지 않는다.
 const titleExclusion = (title: string) => GAME === 'lol' ? lolTitleExclusion(title) : null;
 
-interface PlannedVod extends BackfillVod { reason: VodWork['reason']; unavailable: boolean; excluded: string | null; unresolved?: number }
+interface PlannedVod extends BackfillVod { reason: VodWork['reason']; unavailable: boolean; excluded: string | null; unresolved?: number;
+  /** done 으로 저장됐는데 요청 범위가 영상 끝까지 안 닿아 partial 로 읽히는 VOD 의 못 본 초 — 세션이 requested 를 줄이던 때의 흔적이다. */
+  done_range_gap?: number }
 interface Plan {
   target: BackfillTarget; from: string; to: string; generated_at: string;
   vods: PlannedVod[]; queue: number[];
@@ -66,8 +68,10 @@ function writeGuard(file: string, guard: BackfillGuard) {
 
 async function evaluate(vods: BackfillVod[]): Promise<PlannedVod[]> {
   const raws = await vodRaws(vods.map(v=>v.title_no));
-  return vods.map(v => { const w = vodWork(raws.get(v.title_no), v.duration_sec);
-    return { ...v, reason: w.reason, unavailable: w.unavailable, excluded: titleExclusion(v.title), unresolved: w.unresolved }; });
+  return vods.map(v => { const raw = raws.get(v.title_no); const w = vodWork(raw, v.duration_sec);
+    const gap = raw?.[GAME === 'fconline' ? 'fco_scan' : 'scan']?.status === 'done' && w.reason === 'partial' && (w.uncovered ?? 0) > 0 ? w.uncovered! : undefined;
+    return { ...v, reason: w.reason, unavailable: w.unavailable, excluded: titleExclusion(v.title), unresolved: w.unresolved,
+      ...(gap ? { done_range_gap: gap } : {}) }; });
 }
 /** 조사해야 할 VOD — 완료·접근 불가·제목 제외가 아닌 것. */
 const pendingVod = (v: PlannedVod) => v.reason !== null && !v.excluded;
@@ -172,6 +176,7 @@ async function status() {
   const vods = await evaluate(p.vods);
   console.log(JSON.stringify({ target, request, last_plan: { from: p.from, to: p.to, generated_at: p.generated_at, ...summary(vods),
     pending: vods.filter(pendingVod).map(v=>({ vod: v.title_no, reason: v.reason, ended_at: v.ended_at, title: v.title })),
+    done_range_gap_vods: vods.filter(v => v.done_range_gap).map(v => ({ vod: v.title_no, uncovered_sec: v.done_range_gap })),
     review_pending_vods: vods.filter(v => v.unresolved).map(v => ({ vod: v.title_no, unresolved: v.unresolved, scan_complete: v.reason === null })),
     missing: p.missing } }, null, 2));
 }

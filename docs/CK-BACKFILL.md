@@ -79,7 +79,7 @@ node --env-file-if-exists=apps/web/.env.local scripts/benchmark-ck-image-budget.
 원인을 해결한 뒤 `scripts/ck-backfill.sh --streamer <채널> --reset-stall`로 첫 미완료 VOD의 제한만 명시적으로 초기화할 수 있다.
 DB에서 실제 결과가 진척된 경우에도 재개할 수 있다. 파일이 손상되면 조용히 초기화하지 않고 오류로 멈춘다.
 
-경기마다 `ck:merge` 저장을 확인하고 `running`·확인 범위·미해결 후보를 남긴다. 다음 행동은
+경기마다 `ck:merge` 저장을 확인하고 `running`·미해결 후보를 남긴다. 요청 범위(`scan.requested`)는 실행기(준비 단계)의 것이라 세션이 정하지 않는다 — 세션이 한 일은 `opened`·후보·`note`·`resume` 에 남긴다. `done` 저장이 요청 범위를 못 채우면 `ck:merge` 가 경고하고 종료 코드 3 으로 끝낸다. 과거에 그렇게 남은 VOD 는 `ck:backfill status` 의 `done_range_gap_vods` 로 본다. 다음 행동은
 `scan.resume: {next_action, next_at?, context?}`에 짧게 기록한다. 이 메모가 완료 판정을 대신하지 않는다.
 같은 VOD에서 저장된 결과는 재사용하되, 다른 VOD의 새 시점은 직접 읽는다.
 `ck-local --reuse`는 준비 코드·모델 지문과 파일 존재·실패 범위를 검사해 유효한 준비물을 재사용한다.
