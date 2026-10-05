@@ -205,7 +205,7 @@ npm run fco:context -- clue --vod 207602969 --at 2400 --observed "FC 인게임, 
   미수행 조사가 남으면 `running`이다. 실행 실패는 `failed`와 실패 범위·원인을 남긴다.
 - **`done` 으로 저장해도 완료로 인정되지 않는 경우가 있다 — `partial`.** 완료 판정은 코드(`vodWork`, `core/metrics/ck-vod-status.ts`)가 한다.
   `status: done` 이어도 ① `scan.opened` 가 비었거나 ② **요청 범위가 영상 끝 5초 전까지 안 닿으면**(`scan.requested`,
-  없으면 `scan.sampled` 가 대신한다) `partial` 로 다시 큐에 들어온다. 그래서 훑은 범위는 **영상 전체**로 적는다(예: `requested: [[0, 영상 길이]]`).
+  없으면 `scan.sampled` 가 대신한다) `partial` 로 다시 큐에 들어온다. `requested` 는 준비 단계(`ck:probe` 기본 실행·`ck:local` 준비)가 영상 전체로 정해 초안에 넣어 둔다 — 줄이거나 조각으로 바꾸지 않는다. 한 일은 `opened`·후보 결론·`note` 에 적는다. `done` 인데 요청 범위가 덜 닿으면 `ck:merge` 가 저장 뒤 경고하고 종료 코드 3 으로 끝낸다.
   영상 길이는 `raw.vod_total_sec`, 없으면 목록 API 의 길이다 — 둘 다 없으면 완료를 판정할 수 없어 계속 `partial` 이다.
   자동 큐는 와치리스트 채널의 `running`을 기간과 무관하게 다시 넣는다. 재개 대상 VOD도 최종 보고에 명시한다
 - **`candidates[].conclusion`** — `match` · `linked`(기존 경기에 붙임) ·

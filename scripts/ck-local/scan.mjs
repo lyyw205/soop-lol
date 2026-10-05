@@ -136,14 +136,11 @@ if (args.includes("--finish")) {
     validateScanResume(draft.scan.resume);
   }
   if (status === "done") draft.scan.resume = null;
-  // 부분 작업을 전체 범위 완료로 위장하지 않는다. 미지정은 기존 초안의 requested를 유지한다.
-  if (flag("--requested")) {
-    draft.scan.requested = flag("--requested").split(",").map(x => {
-      const m = /^(\d+)-(\d+)$/.exec(x.trim());
-      if (!m || +m[2] < +m[1] || +m[2] > state.total_sec) throw new Error("--requested 는 영상 안 시작-끝 범위");
-      return [+m[1], +m[2]];
-    });
-  }
+  // ★ requested(무엇을 훑기로 했나)는 실행기의 것이다 — 준비 단계가 영상 전체로 정해 scan.json 에 남겼다.
+  //   세션이 한 일은 opened·candidates·resume·note 에 적는다. 세션이 requested 를 줄이면 done 이어도 셸이 partial 로 읽어
+  //   같은 VOD 를 다시 열고 멈췄다(2026-10-05, 3건). 초안이 손으로 고쳐졌어도 여기서 준비 때의 범위로 되돌린다.
+  if (flag("--requested")) console.log("ℹ --requested 는 받지 않는다 — 요청 범위는 준비 단계가 영상 전체로 정했다. 한 일은 --opened·후보·--note 로 남긴다.");
+  draft.scan.requested = [[0, state.total_sec]];
   if (flag("--note")) draft.scan.note = `${draft.scan.note}\n${flag("--note")}`;
   // 메운 실패 범위 — 이번 failed 에서 빼고 resolved_failed 에도 넣는다. 병합(mergeScan)은 resolved_failed 를 이전 DB 실패에만
   // 적용하고 이번 failed 는 그대로 더하므로, 한쪽만 하면 안 닫힌다.

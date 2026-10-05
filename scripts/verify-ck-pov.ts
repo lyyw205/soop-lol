@@ -62,7 +62,8 @@ function scan(vod: number, channel: string, secs: number[], candidates: unknown[
     resultType: "scan",
     lead: { source_key: `vod:${vod}`, title: `검증 VOD ${vod}`, url: `https://vod.sooplive.com/player/${vod}`,
       channel_id: channel, observed_at: "2026-09-26T15:00:00Z", ...extra },
-    scan: { status: "done", requested: [[0, 7200]], sampled: [[0, 7200]], opened: secs },
+    // 요청 범위는 실행기의 것이라 영상 전체다 — probe 가 있는 VOD(b)는 길이가 20000 이다.
+    scan: { status: "done", requested: [[0, 20000]], sampled: [[0, 20000]], opened: secs },
     frames: secs.map((s) => ({ frame_path: framePath(vod, s), at_sec: s, kind: "result" })),
     candidates,
   };

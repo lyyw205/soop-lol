@@ -205,6 +205,47 @@ try {
  assert.equal(completeWithQuestions.reason,null);assert.equal(completeWithQuestions.unresolved,1);
  assert.equal((await b.backfillContext(999999990))?.candidates[0].conclusion,'unresolved');
  assert.ok((await db()`SELECT body FROM review_record WHERE candidate_id='partial-name' AND type='question'`).length);
+ // ── 요청 범위(requested)는 실행기의 것이다 — 세션이 조각으로 바꿔도 저장된 범위는 줄지 않고, 조용한 partial 도 없다 ──
+ const setTotal=async(n:number,sec:number)=>{await db()`UPDATE event_lead SET raw=raw||${db().json({vod_total_sec:sec} as never)} WHERE source_key=${`vod:${n}`}`;};
+ const rawOf=async(n:number)=>(await b.vodRaws([n])).get(n)!;
+ const lead992={source_key:'vod:999999992',title:'요청 범위 시험',observed_at:'2026-09-20T00:00:00Z'};
+ // 실행기의 준비 초안: 전체 범위를 running 으로 먼저 저장한다(ck-local 준비 → --finish --status running 과 같은 모양).
+ assert.equal((await mergePartial({resultType:'scan',lead:lead992,scan:{status:'running',requested:[[0,1200]],sampled:[[0,1200]],opened:[100],note:'준비'}})).code,0);
+ await setTotal(999999992,1200);
+ // b. 세션이 조각 requested 로 running 중간 저장을 해도 줄지 않는다.
+ assert.equal((await mergePartial({resultType:'scan',lead:lead992,scan:{status:'running',requested:[[300,400]],opened:[300],resume:{next_action:'400초 이후',next_at:400}},
+  candidates:[{id:'req-c1',at:[300,400],conclusion:'unresolved',observed:'결과창 후보',why:'원본 확인 중',open_questions:['승패']}]})).code,0);
+ assert.deepEqual((await rawOf(999999992)).scan.requested,[[0,1200]],'running 중간 저장이 requested 를 줄이지 않는다');
+ // a. 이전에 막히던 시나리오: 조각 requested 로 done 을 저장해도 전체 범위가 유지돼 완료로 읽힌다.
+ const doneInput={resultType:'scan',lead:lead992,scan:{status:'done',requested:[[300,400]],opened:[300,360],note:'마무리',resume:null},
+  candidates:[{id:'req-c1',at:[300,400],conclusion:'not_target',observed:'솔랭 시청',why:'참가자 아님'}]};
+ const doneRes=await mergePartial(doneInput);assert.equal(doneRes.code,0,doneRes.out);
+ assert.ok(!doneRes.out.includes('요청 범위가 영상 끝까지'),'범위가 찼으면 경고하지 않는다');
+ const doneRaw=await rawOf(999999992);
+ assert.deepEqual(doneRaw.scan.requested,[[0,1200]]);assert.equal(vodWork(doneRaw,null).reason,null,'done 이 partial 로 남지 않는다');
+ // c. 세션이 한 일은 기존 필드에 남는다.
+ assert.deepEqual(doneRaw.scan.opened,[100,300,360]);assert.equal(doneRaw.candidates[0].conclusion,'not_target');assert.match(doneRaw.scan.note,/마무리/);
+ // e. 같은 입력을 다시 처리해도 같다.
+ const doneAgain=await mergePartial(doneInput);assert.equal(doneAgain.code,0,doneAgain.out);
+ assert.deepEqual(await rawOf(999999992),doneRaw,'재처리는 멱등');
+ // 3. 범위가 처음부터 덜 찬 채로 done 이 들어오면(예: 조각만 훑은 초안) 저장은 하되 분명히 알리고 비 0 으로 끝낸다.
+ const lead993={source_key:'vod:999999993',title:'범위 부족 시험',observed_at:'2026-09-20T00:00:00Z'};
+ assert.equal((await mergePartial({resultType:'scan',lead:lead993,scan:{status:'running',requested:[[0,100]],opened:[1]}})).code,0);
+ await setTotal(999999993,1200);
+ const gap=await mergePartial({resultType:'scan',lead:lead993,scan:{status:'done',requested:[[0,100]],opened:[1,50]}});
+ assert.equal(gap.code,3,gap.out);assert.match(gap.out,/요청 범위가 영상 끝까지 덮이지 않았다/);
+ assert.equal(vodWork(await rawOf(999999993),null).reason,'partial','저장은 됐다(근거 보존) — 다만 partial 이라고 크게 알렸다');
+ // d. FC 조사 도장(fco_scan)은 requested 의미가 달라 그대로다 — 조각으로 done 을 저장하면 FC 큐에서 partial.
+ await ck.upsertEventLead({source:'vod_title',source_key:'vod:999999994',channel_id:'bf-channel',title:'FC 시험',observed_at:new Date('2026-09-20T00:00:00Z'),raw:{vod_total_sec:1200}});
+ await ck.markLeadScan(await leadId(999999994),{status:'done',requested:[[300,400]],opened:[300]},{key:'fco_scan'});
+ assert.deepEqual((await rawOf(999999994)).fco_scan.requested,[[300,400]]);
+ assert.equal(vodWork(await rawOf(999999994),null,'fco_scan').reason,'partial');
+ await ck.markLeadScan(await leadId(999999994),{status:'done',requested:[[0,1200]],opened:[300]},{key:'fco_scan'});
+ assert.equal(vodWork(await rawOf(999999994),null,'fco_scan').reason,null);
+ // 5. 과거에 done 인데 범위가 partial 로 남은 VOD 는 status 가 따로 보여 준다(읽기 전용).
+ await ck.markLeadScan(await leadId(1000),{status:'done',requested:[[0,10]],opened:[1],failed:[]},{mode:'replace'});
+ const stat=await cli('status','--streamer','백필CLI');assert.equal(stat.code,0,stat.out);
+ assert.ok(JSON.parse(stat.out).last_plan.done_range_gap_vods.some((x:any)=>x.vod===1000),stat.out);
  assert.equal((await cli('plan','--streamer','백필CLI','--from','2026-09-18','--to','2026-09-20','--vod','301','--write',queue)).code,0);
  assert.deepEqual(plan().vods.map((v:any)=>v.title_no),[301],'단일 VOD 시험이 같은 날 다른 VOD를 실행하지 않는다');
  assert.equal((await cli('plan','--streamer','백필CLI','--vod','999999991','--write',queue)).code,1,'없는 VOD를 전체 큐로 해석하지 않는다');

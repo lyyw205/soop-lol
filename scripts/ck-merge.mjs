@@ -55,6 +55,7 @@ import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { submitMatchPovInTx } from "@soop-lol/core/lib/db/ck-pov";
 import { resolveChampion } from "@soop-lol/core/lib/db/participant";
 import { ensureEventInTx } from "@soop-lol/core/lib/db/tournaments";
+import { vodWork } from "@soop-lol/core/lib/metrics/ck-vod-status";
 
 const ROOT = join(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -487,6 +488,8 @@ async function frameTimesOf(tx, r, povKey, povLead, frameIds) {
 let leads = 0, framesIn = 0, cands = 0, matches = 0, skipped = 0, identified = 0, povAdded = 0;
 /** 이번에 건드린 단서. 끝에 되읽어 반영 결과와 남은 일을 보여준다. */
 const touchedLeads = new Set();
+/** 이번 파일이 롤 scan 을 done 으로 저장한 단서 — 끝에서 범위가 영상 끝까지 덮였는지 본다. */
+const doneLeads = new Set();
 
 let committed = false;
 /** 이번 파일이 넣은 VOD 판독 경기. 파일 끝에서 VOD 에 이어졌는지 본다. */
@@ -516,6 +519,7 @@ try {
         });
         leads++;
         touchedLeads.add(leadId);
+        if (r.scan?.status === "done") doneLeads.add(leadId);
         console.log(`단서  ${r.lead.source_key}  ${r.lead.title}`);
 
         if (r.frames?.length) {
@@ -818,6 +822,20 @@ try {
     const unread = ws.frames.filter((f) => !f.read_at).length;
     console.log(`\n${ws.lead.title}`);
     console.log(`  프레임 ${ws.frames.length}장 (안 읽음 ${unread}) · 후보 ${ws.candidates.length} · 경기 ${ws.matches.length}`);
+
+    // ★ done 으로 저장했는데 요청 범위가 영상 끝까지 안 닿으면 셸은 이 VOD 를 partial 로 읽어 다시 연다.
+    //   요청 범위는 실행기(준비 단계)가 정한다 — 세션이 못 고친다. 조용히 두지 않고 비 0 으로 끝낸다.
+    //   저장은 이미 끝났다(후보·경기·프레임 보존) — 되돌리면 읽은 근거만 잃는다. 같은 입력을 다시 넣어도 결과는 같다.
+    if (doneLeads.has(leadId)) {
+      const w = vodWork(ws.lead.raw, null);
+      if (w.reason === "partial" && w.uncovered == null) {
+        console.log("  ℹ done 이지만 저장된 영상 길이가 없어 요청 범위가 끝까지 닿았는지 판정하지 못했다 (ck:probe 로 길이를 재면 기록된다).");
+      } else if (w.reason === "partial" && w.uncovered > 0) {
+        console.log(`  ⚠ done 으로 저장했지만 요청 범위가 영상 끝까지 덮이지 않았다 (못 본 ${w.uncovered}초) — 셸은 partial 로 읽어 다시 연다.`
+          + " 요청 범위는 준비 단계(ck:local 준비 / ck:probe 기본 실행)가 영상 전체로 정한다. 그 준비를 다시 돌려 저장하거나, 끝나지 않았으면 status 를 running 으로 남긴다.");
+        process.exitCode = 3;
+      }
+    }
 
     if (open.length > 0) {
       console.log(`  남은 일 — 미해결 후보 ${open.length}건:`);
