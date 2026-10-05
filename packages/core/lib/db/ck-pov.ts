@@ -4,7 +4,9 @@
  * ★ 경기 값은 덮어쓰지 않는다. 시점이 직접 읽은 값(observed)을 남기고, 경기 쪽이 **비어 있는 칸만**
  *   채운다. 다른 값은 그대로 두고 불일치로 보인다(계산은 metrics/pov.ts).
  * ★ 사진은 연결이 승인된 시점의 것을 빠짐없이 잇되, 사람이 고친 사진(reviewed_at)은 건드리지 않는다.
- * ★ 검수된 경기(match.reviewed_at)도 시점·사진은 받는다. 값만 잠긴다.
+ * ★ 검수된 경기(match.reviewed_at)도 시점·사진은 받는다. 값 보호는 칸 단위다(review-lock.ts) —
+ *   사람이 바꾼 칸은 그대로, 사람이 안 바꾼 빈 칸은 채운다(actor=auto 이력). 이력으로 칸을 가릴 수 없는
+ *   검수 경기와 검수 완료 경기는 전체가 잠긴다.
  */
 
 import { isDeepStrictEqual } from "node:util";
@@ -14,6 +16,9 @@ import { db } from "./client.ts";
 import { affectedStreamers } from "./ck.ts";
 import { recomputeChampionStatsInTx, rederiveEncountersInTx } from "./ingest.ts";
 import { resolveChampion } from "./participant.ts";
+import {
+  autoFillVerdict, loadReviewLockInTx, matchCell, participantCell, recordAutoChangesInTx, type AutoChange,
+} from "./review-lock.ts";
 import {
   comparePov, fillPlan, mergeObserved, summarizeComparison,
   type PovHistoryEntry, type PovObserved, type PovSubmission, type StoredMatch,
@@ -38,6 +43,18 @@ export interface MatchPovRow {
   created_at: Date;
   submitted_at: Date;
 }
+
+/**
+ * 시점 칸 → 경기의 컬럼. 첫 컬럼이 칸 주소이고, 묶음 중 하나라도 사람이 바꿨으면 그 칸은 사람 것이다
+ * (검수 화면은 챔피언을 id·이름 한 쌍으로, 포지션을 team·individual 로 고친다).
+ */
+const POV_FILL_COLUMNS: Record<string, readonly string[]> = {
+  duration: ["game_duration"],
+  series_game_no: ["series_game_no"],
+  champion_id: ["champion_id", "champion_name"],
+  position: ["team_position", "individual_position"],
+  kills: ["kills"], deaths: ["deaths"], assists: ["assists"],
+};
 
 /** 시각 모순 검사 여유. 밴픽은 시작 전, 결과창은 종료 뒤라 경기 시간 안으로 좁히지 않는다(§4.5). */
 export const POV_TIME_SLACK_SEC = 30 * 60;
@@ -98,7 +115,11 @@ export interface PovSubmitResult {
   role: PovRole;
   filled: MatchPovRow["filled"];
   attached: number;
+  /** 경기 전체가 잠겨 아무 칸도 채우지 않았다(review-lock.ts 의 match 모드). */
   locked: boolean;
+  lock_reason: string | null;
+  /** 비어 있지만 사람이 바꾼 칸이라 채우지 않은 수. */
+  kept: number;
   /** 새 미해결 불일치 때문에 검수 완료를 풀었다. */
   reopened: boolean;
   summary: ReturnType<typeof summarizeComparison>;
@@ -109,7 +130,7 @@ export interface PovSubmitResult {
  * 시점 하나를 기록한다. 기존 경기에 더할 때(role added)는:
  *   1) 방송 주인 참가(본인 화면) · 시각 모순(대응 가능할 때만)을 검사하고 — 어긋나면 던진다(파일 전체 되돌림)
  *   2) 관측을 합치고(보낸 칸만, null 은 철회, 이력 남김)
- *   3) 경기 쪽 빈 칸만 채우고(검수된 경기는 안 채움)
+ *   3) 경기 쪽 빈 칸만 채우고(사람이 바꾼 칸·전체 보호 경기는 안 채움 — review-lock.ts)
  *   4) 이 VOD 사진을 경기에 잇는다(사람이 고친 사진은 제외)
  */
 export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise<PovSubmitResult> {
@@ -143,36 +164,62 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
   const now = new Date().toISOString();
   const { observed, history } = mergeObserved(prev?.observed ?? {}, input.submission, now);
 
-  // 빈 칸만 채운다. 검수된 경기는 값을 잠근다 — 이때는 filled 에 아무것도 넣지 않는다.
+  // 빈 칸만 채운다. 검수 보호는 **칸 단위**다(review-lock.ts) — 사람이 바꾼 칸은 비어 있어도 안 채우고,
+  // 사람 기록으로 칸을 가릴 수 없는 검수 경기·검수 완료 경기는 전체를 잠근다(이때 filled 는 비어 있다).
   const filled: MatchPovRow["filled"] = [];
-  const locked = stored.reviewed_at != null;
+  const lock = (await loadReviewLockInTx(tx, input.match_id))!;
+  const locked = lock.mode === "match";
+  let kept = 0;
   const cmp = comparePov(stored, observed);
   if (role === "added" && !locked) {
     const before = await affectedStreamers(tx, input.match_id);
+    const auto: AutoChange[] = [];
     for (const f of fillPlan(cmp)) {
+      const target = POV_FILL_COLUMNS[f.field];
+      if (!target) continue;
+      const cell = f.scope === "match" ? matchCell(input.match_id, target[0]) : participantCell(f.participant_id!, target[0]);
+      // 비었는지는 fillPlan 이 이미 봤다(empty). 아래 UPDATE 의 조건이 경쟁까지 다시 막는다.
+      if (autoFillVerdict(lock, cell, target, true) !== "write") { kept++; continue; }
+      const [cur] = f.scope === "match"
+        ? await tx<Record<string, unknown>[]>`SELECT game_duration, series_game_no FROM match WHERE match_id = ${input.match_id}`
+        : await tx<Record<string, unknown>[]>`SELECT champion_id, champion_name, team_position, individual_position, kills, deaths, assists
+                     FROM match_participant WHERE match_id = ${input.match_id} AND participant_id = ${f.participant_id}`;
+      let next: Record<string, unknown> = {};
       let n = 0;
       if (f.scope === "match" && f.field === "duration") {
+        next = { game_duration: f.value };
         n = (await tx`UPDATE match SET game_duration = ${f.value as number}
                        WHERE match_id = ${input.match_id} AND game_duration IS NULL`).count;
       } else if (f.scope === "match" && f.field === "series_game_no") {
+        next = { series_game_no: f.value };
         n = (await tx`UPDATE match SET series_game_no = ${f.value as number}
                        WHERE match_id = ${input.match_id} AND series_game_no IS NULL AND series_id IS NOT NULL`).count;
       } else if (f.field === "champion_id") {
         const c = resolveChampion(f.value as number, null);
+        next = { champion_id: c.champion_id, champion_name: c.champion_name };
         n = (await tx`UPDATE match_participant SET champion_id = ${c.champion_id}, champion_name = ${c.champion_name}
                        WHERE match_id = ${input.match_id} AND participant_id = ${f.participant_id} AND champion_id = 0`).count;
       } else if (f.field === "position") {
-        n = (await tx`UPDATE match_participant SET team_position = ${String(f.value).toUpperCase()},
-                         individual_position = COALESCE(individual_position, ${String(f.value).toUpperCase()})
+        const pos = String(f.value).toUpperCase();
+        next = { team_position: pos, individual_position: cur?.individual_position ?? pos };
+        n = (await tx`UPDATE match_participant SET team_position = ${pos},
+                         individual_position = COALESCE(individual_position, ${pos})
                        WHERE match_id = ${input.match_id} AND participant_id = ${f.participant_id} AND team_position IS NULL`).count;
       } else if (f.field === "kills" || f.field === "deaths" || f.field === "assists") {
+        next = { [f.field]: f.value };
         n = (await tx`UPDATE match_participant SET ${tx(f.field)} = ${f.value as number}
                        WHERE match_id = ${input.match_id} AND participant_id = ${f.participant_id}
                          AND ${tx(f.field)} IS NULL`).count;
       }
       // 실제로 바뀐 칸만 적는다. 경쟁으로 이미 채워졌으면 채운 게 아니다.
-      if (n > 0) filled.push({ ...f, at: now });
+      if (n > 0) {
+        filled.push({ ...f, at: now });
+        for (const [field, after] of Object.entries(next)) {
+          auto.push({ ...cell, field, match_id: input.match_id, lead_id: input.lead_id, before: cur?.[field] ?? null, after });
+        }
+      }
     }
+    await recordAutoChangesInTx(tx, auto);
     if (filled.length) {
       await rederiveEncountersInTx(tx, input.match_id);
       const after = await affectedStreamers(tx, input.match_id);
@@ -226,7 +273,7 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
   if (contentChanged && !reopened) {
     await tx`UPDATE match SET review_version = review_version + 1 WHERE match_id = ${input.match_id}`;
   }
-  return { role: prev?.role ?? role, filled, attached, locked, reopened, summary, unmatched: final.unmatched };
+  return { role: prev?.role ?? role, filled, attached, locked, lock_reason: lock.mode === "match" ? lock.reason : null, kept, reopened, summary, unmatched: final.unmatched };
 }
 
 /** 경기에 붙은 시점들. 경기를 만든 시점 → 먼저 붙은 순. */
