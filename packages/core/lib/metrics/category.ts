@@ -44,10 +44,16 @@ export const MATCH_CATEGORIES = [
   { key: "scrim", label: "스크림" },
   { key: "tournament", label: "대회" },
   { key: "other", label: "기타" },
+  // 아레나·우르프. 원본은 남기되 어느 공개 화면·집계에도 넣지 않는다(0078).
+  { key: "excluded", label: "집계 제외 모드" },
 ] as const;
 
-/** 일반 전적 화면의 선택지. 칼바람은 별도 조회/화면에서 다룬다(0071). */
-export const RIFT_MATCH_CATEGORIES = MATCH_CATEGORIES.filter(c => c.key !== 'aram' && c.key !== 'aram_custom');
+/** 칼바람 화면이 다루는 분류. 일반·증강 칼바람을 가르지 않는다(0078). */
+export const ARAM_CATEGORIES = ["aram", "aram_custom"] as const;
+
+/** 일반 전적 화면의 선택지. 칼바람은 별도 조회/화면에서 다루고(0071), 집계 제외 모드는 어디에도 없다(0078). */
+export const RIFT_MATCH_CATEGORIES = MATCH_CATEGORIES.filter(c =>
+  !(ARAM_CATEGORIES as readonly string[]).includes(c.key) && c.key !== "excluded");
 
 /**
  * `all` 과 `public_queue` 는 **필터 전용 묶음**이다 — 어떤 경기도 그 값을 갖지 않는다.
@@ -103,9 +109,23 @@ export interface MatchCategoryInput {
   game_mode?: string | null;
 }
 
+/**
+ * 맵·규칙으로 먼저 갈리는 공개 큐. 경기 맥락(event)보다 앞선다.
+ * ★ 증강 칼바람(아수라장, 2400)은 일반 칼바람과 가르지 않는다 — 한 화면·한 집계다(0078).
+ * ★ 아레나·우르프는 원본만 남기고 어떤 공개 화면·집계에도 넣지 않는다(0078).
+ */
+const ARAM_QUEUES = new Set([450, 2400]);
+const EXCLUDED_QUEUES = new Set([1700, 1710, 1740, 1750, 900, 1900]);
+const EXCLUDED_MODES = new Set(["CHERRY", "URF", "ARURF"]);
+
 export function matchCategory({ source, queue_id, event_kind, game_mode }: MatchCategoryInput): MatchCategory {
   // 맵/규칙이 먼저다. 칼바람 CK도 소환사의 협곡 CK 집계에 섞지 않는다.
-  if (game_mode === 'ARAM') return source === 'public_queue' ? 'aram' : 'aram_custom';
+  const publicQueue = source === "public_queue";
+  if (game_mode === "ARAM" || (publicQueue && queue_id != null && ARAM_QUEUES.has(queue_id))) {
+    return publicQueue ? "aram" : "aram_custom";
+  }
+  if ((game_mode != null && EXCLUDED_MODES.has(game_mode))
+      || (publicQueue && queue_id != null && EXCLUDED_QUEUES.has(queue_id))) return "excluded";
   // 대회가 붙어 있으면 그게 가장 확실한 근거다 — 사람이 판단해 넣은 값이다.
   if (event_kind === "ck") return "ck";
   if (event_kind === "scrim") return "scrim";

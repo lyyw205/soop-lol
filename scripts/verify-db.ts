@@ -110,13 +110,13 @@ try {
   //   lp_absolute 와 같은 이유로 전 조합을 대조한다.
   console.log("\n▸ match_category — SQL 과 TS 가 같은 값을 낸다");
   const sources = ["public_queue", "tournament_code", "manual", "??"];
-  const queues = [420, 440, 450, 400, 430, 490, 700, 3130, 0, 1700, null];
+  const queues = [420, 440, 450, 2400, 400, 430, 490, 700, 3130, 0, 1700, 1750, 900, null];
   const kinds = [null, "ck", "scrim", "tournament", "showmatch", "other", "??"];
   let catMismatch = 0, catCombos = 0;
   for (const source of sources) {
     for (const queue_id of queues) {
       for (const event_kind of kinds) {
-       for (const game_mode of [null, "CUSTOM", "CLASSIC", "ARAM"]) {
+       for (const game_mode of [null, "CUSTOM", "CLASSIC", "ARAM", "CHERRY", "URF"]) {
         catCombos++;
         const res = await db.query<{ v: string }>(
           "SELECT lol_match_category($1, $2, $3, $4) AS v", [source, queue_id, event_kind, game_mode]);
@@ -2026,6 +2026,40 @@ try {
     const needAfter = (await ingestDb.findMatchesNeedingEncounters(5000)).includes("KR_CODE2");
     check("★★ 계정 연결·직접 연결이 섞인 경기도 재파생 한 번이면 대상에서 빠진다 (매번 다시 돌지 않는다)",
       needBefore && !needAfter && (await encOfMatch("KR_CODE2")) === 1, JSON.stringify({ needBefore, needAfter }));
+
+    console.log("\n▸ 칼바람은 하나로, 아레나·우르프는 어느 공개 화면에도 없다 (0078)");
+    for (const [id, gid, queue, mode] of [
+      ["KR_MAYHEM1", 9003, 2400, "KIWI"], ["KR_ARENA1", 9004, 1750, "CHERRY"], ["KR_URF1", 9005, 900, "URF"],
+    ] as const) {
+      await sqlClient()`
+        INSERT INTO match (match_id, game_code, platform_id, riot_game_id, queue_id, mode_key, game_mode,
+                           game_creation, winning_team, source)
+        VALUES (${id}, 'lol', 'KR', ${gid}, ${queue}, ${String(queue)}, ${mode}, now(), 100, 'public_queue')`;
+      await sqlClient()`
+        INSERT INTO match_participant (match_id, puuid, streamer_id, participant_id, team_id, champion_id, outcome)
+        VALUES (${id}, ${pA}, NULL, 1, 100, 157, 'win'),
+               (${id}, NULL, ${g2.id}::uuid, 6, 200, 238, 'loss')`;
+    }
+    await ingestDb.rederiveEncounters(["KR_MAYHEM1", "KR_ARENA1", "KR_URF1"]);
+    await ingestDb.recomputeChampionStats([g1.id]);
+    const seen = async (view: string) => (await sqlClient().unsafe<{ match_id: string }[]>(
+      `SELECT DISTINCT match_id FROM core_public.${view} WHERE match_id IN ('KR_MAYHEM1','KR_ARENA1','KR_URF1') ORDER BY 1`))
+      .map((r) => r.match_id).join(",");
+    const [pubMatch, pubEnc, aramMatch, aramEnc] =
+      [await seen("match"), await seen("streamer_encounter"), await seen("aram_match"), await seen("aram_encounter")];
+    check("★ 증강 칼바람(2400)은 game_mode 와 상관없이 칼바람 화면에만 있다",
+      aramMatch === "KR_MAYHEM1" && aramEnc === "KR_MAYHEM1", JSON.stringify({ aramMatch, aramEnc }));
+    check("★ 아레나·우르프는 협곡·칼바람 어느 공개 뷰에도 없다(원본은 남는다)",
+      pubMatch === "" && pubEnc === ""
+        && (await sqlClient()`SELECT 1 FROM match WHERE match_id IN ('KR_ARENA1','KR_URF1')`).length === 2,
+      JSON.stringify({ pubMatch, pubEnc }));
+    const statCats = (await sqlClient()<{ category: string }[]>`
+      SELECT DISTINCT category FROM core_public.lol_champion_stat_all_modes
+       WHERE streamer_id = ${g1.id}::uuid AND champion_id = 157 AND season = 'ALL' ORDER BY 1`).map((r) => r.category);
+    const pubStat = await sqlClient()`
+      SELECT 1 FROM core_public.champion_stat WHERE streamer_id = ${g1.id}::uuid AND category = 'excluded'`;
+    check("★ 아레나·우르프 챔피언 통계는 공개 챔피언 통계에 없다",
+      statCats.includes("excluded") && pubStat.length === 0, JSON.stringify(statCats));
   }
 
   await verifyScheduleDb(check, expectReject);
