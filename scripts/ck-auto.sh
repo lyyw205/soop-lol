@@ -72,12 +72,16 @@ if [[ "$QCODE" != 0 && "$QCODE" != 2 ]] || [[ ! -s "$RUN/lol.json" ]]; then
 fi
 (( QCODE == 2 )) && say "경고: VOD 목록이 일부 잘렸다 — 받은 만큼만 조사한다"
 if (( FC_ENABLED )); then
-  queue_cmd fc --write "$RUN/fc.json" >>"$LOG" 2>&1 || { say "!!! FC 대상 생성 실패 — FC 는 건너뛴다"; FC_ENABLED=0; }
+  queue_cmd fc --write "$RUN/fc.json" >>"$LOG" 2>&1 || { fail "FC 대상 생성 실패 — 이번 회차 FC 는 건너뛴다"; FC_ENABLED=0; }
 fi
 LOL_N=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).queue.length)' "$RUN/lol.json")
 FC_N=0; (( FC_ENABLED )) && FC_N=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).queue.length)' "$RUN/fc.json")
 say "대상: 롤 VOD ${LOL_N}개 · FC 스트리머 ${FC_N}명"
-if (( DRY )) || (( LOL_N + FC_N == 0 )); then say "Claude 를 부르지 않는다"; exit 0; fi
+if (( DRY )) || (( LOL_N + FC_N == 0 )); then
+  say "Claude 를 부르지 않는다"
+  [[ -s "$RUN/failures" ]] && exit 1   # 대상이 없더라도 대상 생성 실패는 실패다
+  exit 0
+fi
 
 # 작업자 몫 나누기 — 같은 채널은 한 작업자에게(채널 안은 오래된 것부터 순서대로).
 node -e '

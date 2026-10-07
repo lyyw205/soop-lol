@@ -34,7 +34,8 @@ export async function runFcoEngine(ctx: WorkerContext): Promise<EngineResult> {
   const callsBefore = ctx.nexon.callCount;
   let saved = 0, known = 0, unsupported = 0, missing = 0;
   const listErrors: string[] = [];
-  const incomplete: string[] = [];  // 목록을 빈틈없이 못 읽은 계정 — 커서가 안 움직였다
+  const incomplete: string[] = [];  // 커서가 안 움직인 계정 — 실패이거나, 경기가 없는 계정(정상)이다
+  const failedAccounts: string[] = [];  // 목록을 끝까지 못 읽었거나 조회가 실패한 계정 — 이것만 실패다
 
   for (const account of accounts) {
     const r = await syncFcoMatches(ctx.nexon, account.ouid, {
@@ -45,13 +46,16 @@ export async function runFcoEngine(ctx: WorkerContext): Promise<EngineResult> {
       if (n === "error") listErrors.push(`${account.slug}/type${type}`);
     }
     if (!r.cursorAdvanced) incomplete.push(account.slug);
+    // ★ 실패는 "조회 오류·목록 범위 미완료" 로만 가른다. 커서 미이동으로 세면 경기 0건인 새 계정(목록은 성공)도 실패가 된다.
+    //   기준은 sync.ts 가 커서를 옮기는 조건과 같다(모든 모드 end/caught_up + 오류 0).
+    const listedAll = Object.values(r.coverage).every((c) => c === "end" || c === "caught_up");
+    if (!listedAll || r.errors.length > 0) failedAccounts.push(account.slug);
     for (const message of r.errors) log.warn(SCOPE, message);
   }
 
   return {
     processed: saved,
-    // 목록·상세를 빈틈없이 못 받아 커서가 안 움직인 계정 = 실패. 다음 회차가 다시 받는다.
-    failed: incomplete.length,
+    failed: failedAccounts.length,
     detail: {
       accounts: accounts.length,
       saved, known, unsupported, missing,
@@ -59,6 +63,7 @@ export async function runFcoEngine(ctx: WorkerContext): Promise<EngineResult> {
       // 실패와 0건을 뭉개지 않는다 — 실패한 (계정, 타입)만 여기 남는다.
       ...(listErrors.length ? { listErrors } : {}),
       ...(incomplete.length ? { incomplete } : {}),
+      ...(failedAccounts.length ? { failedAccounts } : {}),
     },
   };
 }
