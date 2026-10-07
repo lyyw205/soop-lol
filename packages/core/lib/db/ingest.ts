@@ -445,11 +445,20 @@ async function insertEncounter(tx: Tx, r: EncounterRow): Promise<void> {
 export async function findMatchesNeedingEncounters(limit = 500): Promise<string[]> {
   const sql = db();
   const rows = await sql<{ match_id: string }[]>`
+    -- ★ 사람을 deriveEncounters 와 **같은 규칙**으로 센다: 활성 계정이 붙은 자리는 그 주인,
+    --   아니면 참가자 행에 적힌 사람(VOD 판독 연결). 예전엔 계정 주인만 세서, 직접 연결된 사람이 낀
+    --   730경기가 "있어야 할 쌍" 을 적게 잡고 재파생 뒤에도 영원히 불일치로 남아 매번 다시 돌았다(2026-10-07).
+    --   두 갈래로 쓰는 건 속도 때문이다 — COALESCE 하나로 쓰면 참가자 표(1GB)를 통째로 훑는다(0075).
     WITH present AS (
       SELECT mp.match_id, sa.streamer_id
+        FROM streamer_account sa
+        JOIN match_participant mp ON mp.puuid = sa.puuid
+       WHERE sa.active_to IS NULL
+      UNION
+      SELECT mp.match_id, mp.streamer_id
         FROM match_participant mp
-        JOIN streamer_account sa ON sa.puuid = mp.puuid AND sa.active_to IS NULL
-       GROUP BY mp.match_id, sa.streamer_id
+       WHERE mp.streamer_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.puuid = mp.puuid AND sa.active_to IS NULL)
     ), expected AS (
       SELECT match_id, count(*) * (count(*) - 1) / 2 AS pairs
         FROM present GROUP BY match_id HAVING count(*) >= 2

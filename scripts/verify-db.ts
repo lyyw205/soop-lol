@@ -1996,8 +1996,9 @@ try {
     check("★ 대회가 안 붙은 토너먼트 코드 경기는 CK 가 아니라 '코드 내전'이다",
       cat[0]?.category === "code_custom", cat[0]?.category ?? "없음");
 
-    const encOf = async () => (await sqlClient()<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM streamer_encounter WHERE match_id = 'KR_CODE1'`)[0].n;
+    const encOfMatch = async (id: string) => (await sqlClient()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM streamer_encounter WHERE match_id = ${id}`)[0].n;
+    const encOf = () => encOfMatch("KR_CODE1");
     const statOf = async (id: string) => (await sqlClient()<{ n: number }[]>`
       SELECT coalesce(sum(games), 0)::int AS n FROM champion_stat WHERE streamer_id = ${id}::uuid AND season = 'ALL'`)[0].n;
     const encBefore = await encOf();
@@ -2009,6 +2010,22 @@ try {
     const [encUnlinked, statUnlinked] = [await encOf(), await statOf(g2.id)];
     check("★★ 연결을 떼면 그 조우와 챔피언 통계도 바로 사라진다(유령 전적 없음)",
       encUnlinked === 0 && statUnlinked === 0, JSON.stringify({ encUnlinked, statUnlinked }));
+
+    // 계정으로 붙은 사람(g1) + 참가자 행에 직접 적힌 사람(g2, VOD 판독 연결)이 섞인 경기.
+    // 재파생 대상 찾기가 deriveEncounters 와 다르게 세면 한 번 고쳐도 영원히 "필요" 로 남는다(730경기 사고).
+    await sqlClient()`
+      INSERT INTO match (match_id, game_code, platform_id, riot_game_id, queue_id, mode_key, game_mode,
+                         game_creation, winning_team, source, tournament_code)
+      VALUES ('KR_CODE2', 'lol', 'KR', 9002, 3130, '3130', 'CLASSIC', now(), 100, 'tournament_code', 'KR-verify2')`;
+    await sqlClient()`
+      INSERT INTO match_participant (match_id, puuid, streamer_id, participant_id, team_id, champion_id, outcome)
+      VALUES ('KR_CODE2', ${pA}, NULL, 1, 100, 157, 'win'),
+             ('KR_CODE2', NULL, ${g2.id}::uuid, 6, 200, 238, 'loss')`;
+    const needBefore = (await ingestDb.findMatchesNeedingEncounters(5000)).includes("KR_CODE2");
+    await ingestDb.rederiveEncounters(["KR_CODE2"]);
+    const needAfter = (await ingestDb.findMatchesNeedingEncounters(5000)).includes("KR_CODE2");
+    check("★★ 계정 연결·직접 연결이 섞인 경기도 재파생 한 번이면 대상에서 빠진다 (매번 다시 돌지 않는다)",
+      needBefore && !needAfter && (await encOfMatch("KR_CODE2")) === 1, JSON.stringify({ needBefore, needAfter }));
   }
 
   await verifyScheduleDb(check, expectReject);
