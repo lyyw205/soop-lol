@@ -1,0 +1,11 @@
+# 매일 09:00 KST — 하루 안 쌓으면 그날 티어는 영영 없다(PLAN Engine A). Persistent=true: 꺼져 있던 동안 놓친 회차는 켜지자마자 한 번 돈다.
+[Unit]
+Description=soop-lol 랭크 스냅샷 (Engine A) 타이머
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

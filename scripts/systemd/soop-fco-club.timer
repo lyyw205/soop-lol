@@ -1,0 +1,11 @@
+# 2시간마다(00:10, 02:10 …) — 지나간 날의 구단가치는 다시 못 구한다(FCO-CLUB-VALUE-PLAN). Persistent=true: 꺼져 있던 동안 놓친 회차는 켜지자마자 한 번 돈다.
+[Unit]
+Description=soop-lol FC 구단가치·스쿼드 스냅샷 (Engine F) 타이머
+
+[Timer]
+OnCalendar=*-*-* 00/2:10:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

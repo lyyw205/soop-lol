@@ -1,0 +1,11 @@
+# 매일 10:00 KST — 넥슨은 최근 30일만 주므로 하루쯤 빠져도 다음 날 메워진다. Persistent=true: 꺼져 있던 동안 놓친 회차는 켜지자마자 한 번 돈다.
+[Unit]
+Description=soop-lol FC 온라인 경기 동기화 (Engine E, 넥슨 API) 타이머
+
+[Timer]
+OnCalendar=*-*-* 10:00:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

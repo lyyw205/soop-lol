@@ -1,0 +1,11 @@
+# 매일 12:40 KST — 12:10 구단 스냅샷 뒤. 365일까지 소급되므로 하루 빠져도 메워진다. Persistent=true: 꺼져 있던 동안 놓친 회차는 켜지자마자 한 번 돈다.
+[Unit]
+Description=soop-lol FC 카드 시세 (Engine G) 타이머
+
+[Timer]
+OnCalendar=*-*-* 12:40:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

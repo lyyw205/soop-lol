@@ -231,6 +231,32 @@ npm run worker -- loop       # 운영 기본값. A > B > D > C 우선순위로 �
 
 키가 만료되면(401/403) 워커는 **일부러 죽는다**. 0건 처리를 조용히 반복하는 것보다 낫다.
 
+### 6-1. 정기 작업 (로컬 WSL, 2026-10-08)
+
+로컬에서는 상주 워커(`loop`)를 띄우지 않고 **작업마다 systemd 사용자 타이머**로 돌린다. `loop` 는 아래 작업을
+안에서 또 돌리므로 둘을 같이 쓰면 레이트리밋을 합쳐서 넘긴다. 서버 배포 뒤에는 `loop` 하나로 옮긴다.
+
+| 타이머 | 명령 | 주기 (KST) | 잠금 | 놓치면 |
+|---|---|---|---|---|
+| `soop-rank` | `worker -- rank` | 매일 09:00 | `riot` | **그날 티어는 영영 없다** |
+| `soop-fco` | `worker -- fco` | 매일 10:00 | `nexon` | 넥슨이 30일 주므로 다음 날 메워진다 |
+| `soop-fco-club` | `worker -- fco-club` | 2시간마다 (:10) | `fc-site` | **지나간 날의 구단가치는 못 구한다** |
+| `soop-fco-prices` | `worker -- fco-prices` | 매일 12:40 | `fc-site` | 365일 소급되어 메워진다 |
+| `ck-auto` | `scripts/ck-auto.sh` | 매일 07:00 | 자기 잠금 + 채널 잠금 | 다음 회차가 이전 조사 다음부터 잇는다 |
+
+```bash
+scripts/systemd/install.sh                 # 데이터 수집 4종 설치·활성화
+scripts/systemd/install.sh --with-ck-auto  # + 매일 와치리스트 조사(Claude 비용·디스크·GPU 부하)
+scripts/systemd/install.sh --status        # 다음 실행 시각·마지막 결과
+journalctl --user -u soop-rank.service     # 로그
+```
+
+- 같은 출처를 쓰는 작업은 같은 잠금(`out/locks/*.lock`)을 잡아 겹치지 않는다. 앞 작업이 돌면 30분까지 기다린다.
+- `Persistent=true` — PC·WSL 이 꺼져 있던 동안 놓친 회차는 켜지자마자 한 번 돈다.
+- ⚠ **WSL 은 열린 창이 없으면 스스로 꺼지고, 그동안 타이머도 안 돈다.** 윈도우 작업 스케줄러에
+  로그온 시 `wsl.exe -d Ubuntu-24.04 --exec sleep infinity` 를 걸어 WSL 을 깨워 둔다.
+- ⚠ 랭크·FC 작업은 일부 계정이 실패해도 종료 코드 0 이다(알려진 한계). 결과는 `job_run` 표와 로그로 본다.
+
 ---
 
 ## 7. 첫 데이터 넣기
