@@ -52,7 +52,9 @@ function fixture(mode:string, env:Record<string,string>={}) {
  echo '{"type":"result","result":"2경기 저장. 다음 위치 1200초, 미완료","usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":900,"output_tokens":20}}'
  exit 0
  `,{mode:0o755});
- const full={...process.env,HOME:join(dir,'home'),PATH:join(dir,'bin')+':'+process.env.PATH,ORDER:join(dir,'order'),MODE:mode,...env};
+ // CK_PAR_STAGGER=0: 병렬 실행기의 워커 시작 간격(운영 기본 4초)을 끈다. 켜 두면 가짜 세션(0.3초)이 다음 워커 시작 전에
+ // 끝나서, 잠금 충돌처럼 **동시에 돌아야** 생기는 상황을 테스트가 재현하지 못한다. 필요한 테스트는 env 로 다시 준다.
+ const full={...process.env,HOME:join(dir,'home'),PATH:join(dir,'bin')+':'+process.env.PATH,ORDER:join(dir,'order'),MODE:mode,CK_PAR_STAGGER:'0',...env};
  const start=(...args:string[])=>spawn('bash',[join(dir,'scripts/ck-backfill.sh'),...(args.length?args:['--streamer','test'])],{env:full,stdio:'ignore',cwd:dir});
  const order=()=>existsSync(full.ORDER)?readFileSync(full.ORDER,'utf8'):'';
  const startPar=(...args:string[])=>spawn('bash',[join(dir,'scripts/ck-backfill-par.sh'),...args],{env:full,stdio:'ignore',cwd:dir});

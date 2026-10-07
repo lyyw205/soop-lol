@@ -70,6 +70,9 @@ for s in "${STREAMERS[@]}"; do
   scripts/ck-backfill.sh --streamer "$s" "${PASS[@]}" >"$LOGF" 2>&1 &
   PIDS[$!]=$IDX; NAMES[$!]="$s"
   echo "$(date +%T) 시작: $s (워커 로그 $LOGF)"
+  # 워커가 한꺼번에 SOOP 목록(plan)을 부르면 일부가 'fetch failed' 로 죽었다(2026-10-05, 6개 동시 시작에서 3개).
+  # 시작을 조금씩 어긋나게 한다. 원인이 이것인지는 확인하지 못했다 — 재발하면 다시 본다.
+  sleep "${CK_PAR_STAGGER:-4}"
 done
 while (( ${#PIDS[@]} )); do reap; done
 rm -f "$STOP_FILE"
