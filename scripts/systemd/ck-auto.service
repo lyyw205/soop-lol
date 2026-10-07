@@ -1,8 +1,13 @@
-# 자동 조사 한 번 — ck-auto.timer 가 부른다. 설치는 scripts/ck-auto.sh 머리말.
+# 매일 와치리스트 조사 한 번 — ck-auto.timer 가 부른다. 설치·동작은 scripts/ck-auto.sh 머리말.
 [Unit]
-Description=soop-lol 와치리스트 VOD 자동 조사 (ck-research)
+Description=soop-lol 매일 와치리스트 조사 (롤 ck-local · FC API 맥락 판정)
 
 [Service]
 Type=oneshot
 WorkingDirectory=%h/repos/soop-lol
 ExecStart=%h/repos/soop-lol/scripts/ck-auto.sh
+# 스크립트가 300분이 지나면 새 대상을 시작하지 않는다(CK_AUTO_MAX_MIN). 진행 중 세션이 끝날 여유를 두고 6시간에 끊는다.
+TimeoutStartSec=6h
+# 게임과 같이 도는 PC 라 우선순위를 낮춘다. 판별기(GPU)는 스크립트가 nice/ionice 로 한 번 더 낮춘다.
+Nice=10
+IOSchedulingClass=idle
