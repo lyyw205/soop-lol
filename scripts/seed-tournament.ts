@@ -123,7 +123,7 @@ interface SeedGame {
 interface SeedTournament {
   slug: string;
   name: string;
-  kind?: "ck" | "scrim" | "tournament" | "showmatch" | "other";
+  kind?: "ck" | "land" | "scrim" | "tournament" | "showmatch" | "other";
   organizer?: string;
   starts_at?: string;
   ends_at?: string;
@@ -302,7 +302,7 @@ function validate(list: SeedTournament[]): string[] {
       // ★ 결과 화면 확인은 선택이 아니라 **마지막 필수 관문**이다.
       //   내전 승패의 정본은 방송의 LoL 최종 결과 화면뿐이다.
       //   (주최측이 발표하는 대회 kind='tournament' 는 발표문이 원천이라 해당 없다)
-      if ((t.kind === "ck" || t.kind === "scrim") && !g.result_evidence?.trim()) {
+      if ((t.kind === "ck" || t.kind === "land" || t.kind === "scrim") && !g.result_evidence?.trim()) {
         errors.push(`${gat}: result_evidence 가 없다 — 내전·스크림은 결과 화면을 확인해야 넣는다`
           + ` (예: "1:05:00" · 프레임 파일명). 채팅 공지는 단서일 뿐이다`);
       }

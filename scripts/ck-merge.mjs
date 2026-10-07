@@ -726,6 +726,8 @@ try {
           result_evidence: r.result_evidence ?? null,
           series_id: r.series_id ?? null,
           series_game_no: r.series_game_no ?? null,
+          set_role: r.set_role ?? "main",
+          set_label: r.set_label ?? null,
           best_of: r.best_of ?? null,
           best_of_evidence: r.best_of_evidence ?? null,
           blue_team_id: r.blue_team_id ?? null,

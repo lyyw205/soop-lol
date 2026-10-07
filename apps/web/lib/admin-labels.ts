@@ -13,7 +13,7 @@
 
 /** 행사 분류(event.kind). CK 조사와 FC 판정이 같은 값을 쓴다. */
 export const EVENT_KIND_LABEL: Record<string, string> = {
-  ck: "CK", tournament: "대회", showmatch: "이벤트", scrim: "스크림", other: "기타",
+  ck: "CK", land: "랜드", tournament: "대회", showmatch: "이벤트", scrim: "스크림", other: "기타",
 };
 
 /**

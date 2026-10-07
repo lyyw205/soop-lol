@@ -55,3 +55,17 @@ event
 FC온라인 API가 여러 경기를 하나의 시리즈로 묶어 주는지는 아직 확인되지 않았다.
 그러므로 FC 친선 연속전을 시간만 보고 자동 시리즈로 만들지 않는다. 실제 응답과 제품상
 묶음 의미를 확인한 뒤 명시적으로 `match_series`를 만들거나 단판으로 둔다.
+
+## 랜드와 보너스 판 (0079, 2026-10-07)
+
+진행 방식의 정의는 [CK-COLLECTION.md §3.5](CK-COLLECTION.md)다. 스키마로는 이렇게 표현한다.
+
+| 진행 방식 | 표현 | 히스토리 | 집계 |
+|---|---|---|---|
+| CK·대회 다전제 | `match_series` (팀 고정) | 시리즈 한 줄 | 세트·매치(과반 승) |
+| 랜드 | `event.kind='land'` + 이벤트마다 `match_series` 하나(`<slug>:land`, best_of 없음) | 랜드 한 줄, 그 사람의 판 단위 n승 m패 | **판 단위**. 공개 조우 뷰는 랜드의 `series_key`를 판 자신으로 낸다 |
+| 보너스 판(범인찾기 등) | `match.set_role='bonus'` + 앞 본게임의 `series_id`, 부른 이름은 `set_label` | 그 시리즈를 펼치면 마지막에 보인다 | **없음**. `core_public.match`·`streamer_encounter`·`champion_stat`은 본게임만 |
+
+- 보너스는 반드시 어떤 시리즈에 붙는다(`match_bonus_in_series`). 붙일 본게임이 없으면 보너스로 표시하지 않는다.
+- 히스토리 표시는 `core_public.match_with_bonus`, 승패를 세는 곳은 `core_public.match`다.
+- 칼바람으로 한 랜드는 맵이 먼저라 칼바람(`aram_custom`)으로 분류되고, 묶음은 그대로다.

@@ -18,9 +18,16 @@ export interface SetLabelInput {
   best_of: number | null;
   set_order_known: boolean;
   series_game_no: number | null;
+  /** 본게임 뒤의 추가 판이면 "bonus" — 방송에서 부른 이름(set_label)으로, 없으면 "보너스" 로 부른다(0079). */
+  set_role?: "main" | "bonus" | string | null;
+  set_label?: string | null;
+  /** 랜드 묶음의 판. 세트가 아니라 "N판" 이다 — 팀이 매 판 바뀌어 시리즈가 아니다(0079). */
+  land?: boolean;
 }
 
 export function setLabel(s: SetLabelInput): string {
+  if (s.set_role === "bonus") return s.set_label?.trim() || "보너스";
+  if (s.land) return s.set_order_known && s.series_game_no ? `${s.series_game_no}판` : "판";
   if (s.standalone || s.best_of === 1) return "단판";
   if (s.set_order_known && s.series_game_no) return `${s.series_game_no}세트`;
   return "세트";

@@ -156,7 +156,7 @@ export async function streamerIdsBySlug(slugs: string[]): Promise<Map<string, st
   return new Map(rows.map((r) => [r.slug, r.id]));
 }
 
-export type EventKind = "ck" | "scrim" | "tournament" | "showmatch" | "other";
+export type EventKind = "ck" | "land" | "scrim" | "tournament" | "showmatch" | "other";
 
 /**
  * 대회를 **찾거나 새로 만든다.** 이미 있으면 절대 고치지 않는다.

@@ -44,7 +44,7 @@ export type EventLeadSource = "vod_title" | "board_post" | "chat_notice" | "live
  * ★ 단서에는 분류 칸이 없다(0035). 예전 event_lead.kind 는 "시트가 경기 화면을 감지" ·
  *   "조사자의 추정" · "검수 탭 기준" 을 한 칸에 겹쳐 담아 event.kind 와 따로 놀았다.
  */
-export type LeadEventKind = "ck" | "scrim" | "tournament" | "showmatch" | "other";
+export type LeadEventKind = "ck" | "land" | "scrim" | "tournament" | "showmatch" | "other";
 export type EventLeadState = "new" | "confirmed" | "rejected" | "ignored";
 
 /** 시간 구간 [시작초, 끝초]. VOD **전체** 시간축이다 (분할 파일 로컬 시각이 아니다). */
@@ -753,6 +753,13 @@ export interface CkMatchInput {
   result_evidence?: string | null;
   series_id?: string | null;
   series_game_no?: number | null;
+  /**
+   * 본게임이 끝난 뒤의 추가 판(범인찾기·미드 바꿔서 단판…)이면 "bonus". 앞 시리즈의
+   * `series_id` 에 붙여야 하고(제약), 어떤 집계에도 들어가지 않는다(0079). 기본 "main".
+   */
+  set_role?: "main" | "bonus";
+  /** 보너스 판을 방송에서 부른 이름. 보너스일 때만. */
+  set_label?: string | null;
   best_of?: number | null;
   best_of_evidence?: string | null;
   blue_team_id?: string | null;
@@ -890,6 +897,7 @@ export async function correctMatchMode(input: {
 
 export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<boolean> {
   if (g.game_mode !== undefined && !['CLASSIC', 'ARAM'].includes(g.game_mode)) throw new Error('game_mode 는 CLASSIC 또는 ARAM');
+  if (g.set_role === "bonus" && !g.series_id) throw new Error('보너스 판은 앞 본게임의 series_id 에 붙여야 한다(0079)');
   // ★ `FOR UPDATE` 로 그 행을 잠근다. 없으면 검수 저장과 자동 수집이 **동시에** 돌 때
   //   READ COMMITTED 에서 둘 다 `reviewed_at IS NULL` 을 보고 통과해, 사람이 고친 값이
   //   덮인다. 잠그면 자동 수집이 검수 커밋을 기다렸다가 보고 물러난다.
@@ -918,12 +926,14 @@ export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<
   await tx`
     INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, game_creation, game_duration,
                        winning_team, source, origin, event_id, source_url,
-                       series_id, series_game_no, blue_team_id, red_team_id, game_creation_precision)
+                       series_id, series_game_no, blue_team_id, red_team_id, game_creation_precision,
+                       set_role, set_label)
     VALUES (${g.match_id}, 'lol', 0, '0', ${g.game_mode ?? 'CUSTOM'}, ${g.game_mode === 'ARAM' ? 12 : g.game_mode === 'CLASSIC' ? 11 : null}, ${g.played_at}, ${g.duration ?? null},
             ${g.winning_team}, 'manual', ${g.origin ?? "vod_scan"}, ${matchEventId},
             ${g.source_url ?? null},
             ${g.series_id ?? null}, ${g.series_game_no ?? null},
-            ${g.blue_team_id ?? null}, ${g.red_team_id ?? null}, ${g.played_at_precision})
+            ${g.blue_team_id ?? null}, ${g.red_team_id ?? null}, ${g.played_at_precision},
+            ${g.set_role ?? "main"}, ${g.set_role === "bonus" ? (g.set_label?.trim() || null) : null})
     ON CONFLICT (match_id) DO UPDATE SET
       game_mode       = CASE WHEN ${g.game_mode ?? null}::text IS NULL THEN match.game_mode ELSE EXCLUDED.game_mode END,
       map_id          = COALESCE(EXCLUDED.map_id, match.map_id),
@@ -936,6 +946,8 @@ export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<
       source_url      = EXCLUDED.source_url,
       series_id       = EXCLUDED.series_id,
       series_game_no  = EXCLUDED.series_game_no,
+      set_role        = EXCLUDED.set_role,
+      set_label       = EXCLUDED.set_label,
       blue_team_id    = EXCLUDED.blue_team_id,
       red_team_id     = EXCLUDED.red_team_id
   `;

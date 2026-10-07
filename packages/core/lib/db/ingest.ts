@@ -728,6 +728,8 @@ export async function recomputeChampionStatsInTx(tx: Tx, streamerIds?: string[])
         JOIN match m             ON m.match_id = mp.match_id
                                 AND m.visibility = 'public'
                                 AND m.game_code = 'lol'
+                                -- 보너스 판(범인찾기 등)은 어떤 집계에도 들어가지 않는다(0079).
+                                AND m.set_role = 'main'
         LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
         LEFT JOIN event ev       ON ev.id = COALESCE(ms.event_id, m.event_id)
         -- ★ 계정이 붙었으면 매핑으로, 아니면 참가자 행에 적힌 사람으로.

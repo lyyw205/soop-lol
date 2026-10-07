@@ -8,7 +8,7 @@ import { adminHref, adminPage } from "@/lib/admin-navigation";
 import { EVENT_KIND_LABEL } from "@/lib/admin-labels";
 
 export type LoLListQuery = { kind?: string; review?: string; q?: string; page?: string; event?: string; focus?: string; channel?: string; queue?: string };
-const KINDS = ["ck", "tournament", "showmatch", "scrim", "other"] as const;
+const KINDS = ["ck", "land", "tournament", "showmatch", "scrim", "other"] as const;
 export async function LoLReviewList({ query, mode }: { query: LoLListQuery; mode: "queue" | "compare" }) {
   const kind = KINDS.includes(query.kind as LeadEventKind) ? query.kind as LeadEventKind : undefined;
   const queue: "priority" | "general" | undefined = query.queue === "general" ? "general" : query.queue === "all" ? undefined : "priority";

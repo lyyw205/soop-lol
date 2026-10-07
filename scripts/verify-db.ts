@@ -110,8 +110,8 @@ try {
   //   lp_absolute 와 같은 이유로 전 조합을 대조한다.
   console.log("\n▸ match_category — SQL 과 TS 가 같은 값을 낸다");
   const sources = ["public_queue", "tournament_code", "manual", "??"];
-  const queues = [420, 440, 450, 2400, 400, 430, 490, 700, 3130, 0, 1700, 1750, 900, null];
-  const kinds = [null, "ck", "scrim", "tournament", "showmatch", "other", "??"];
+  const queues = [420, 440, 450, 2400, 400, 430, 480, 490, 700, 3130, 0, 1700, 1750, 900, null];
+  const kinds = [null, "ck", "land", "scrim", "tournament", "showmatch", "other", "??"];
   let catMismatch = 0, catCombos = 0;
   for (const source of sources) {
     for (const queue_id of queues) {
@@ -138,7 +138,7 @@ try {
     `SELECT DISTINCT lol_match_category(s, q, k) AS v
        FROM unnest(ARRAY['public_queue','tournament_code','manual']) s,
             unnest(ARRAY[420,440,450,400,430,490,700,3130,0]) q,
-            unnest(ARRAY[NULL,'ck','scrim','tournament','showmatch','other']) k`);
+            unnest(ARRAY[NULL,'ck','land','scrim','tournament','showmatch','other']) k`);
   check("SQL 이 내는 값이 전부 알려진 분류다",
     stray.rows.every((r) => known.has(r.v as never) && r.v !== "all"),
     stray.rows.map((r) => r.v).join(","));
@@ -2060,6 +2060,75 @@ try {
       SELECT 1 FROM core_public.champion_stat WHERE streamer_id = ${g1.id}::uuid AND category = 'excluded'`;
     check("★ 아레나·우르프 챔피언 통계는 공개 챔피언 통계에 없다",
       statCats.includes("excluded") && pubStat.length === 0, JSON.stringify(statCats));
+
+    console.log("\n▸ 랜드는 히스토리에서 한 묶음·집계는 판 단위, 보너스 판은 묶음에만 보이고 집계에 없다 (0079)");
+    const [landEv] = await sqlClient()<{ id: string }[]>`
+      INSERT INTO event (slug, name, kind, game_code) VALUES ('verify-land', '검증 랜드', 'land', 'lol') RETURNING id`;
+    const [ckEv] = await sqlClient()<{ id: string }[]>`
+      INSERT INTO event (slug, name, kind, game_code) VALUES ('verify-bonus-ck', '검증 CK', 'ck', 'lol') RETURNING id`;
+    await sqlClient()`INSERT INTO match_series (id, game_code, event_id, set_order_known) VALUES
+      ('verify-land:land', 'lol', ${landEv.id}::uuid, true), ('verify-bonus-ck:s', 'lol', ${ckEv.id}::uuid, true)`;
+    // 랜드 3판: g1 이 g2 와 적·아군·적 (팀이 매 판 섞인다). g1 기준 승·승·패.
+    // CK 2판 본게임 g1 2:0 승 + 보너스 1판 g1 패.
+    const games: [string, string, number, string, number, number][] = [
+      ["VL1", "verify-land:land", 1, "main", 100, 200], ["VL2", "verify-land:land", 2, "main", 100, 100],
+      ["VL3", "verify-land:land", 3, "main", 200, 200],
+      ["VB1", "verify-bonus-ck:s", 1, "main", 100, 200], ["VB2", "verify-bonus-ck:s", 2, "main", 100, 200],
+      ["VB3", "verify-bonus-ck:s", 3, "bonus", 200, 200],
+    ];
+    for (const [id, series, no, role, win, g2team] of games) {
+      await sqlClient()`
+        INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, game_creation, winning_team, source,
+                           series_id, series_game_no, set_role, set_label, origin)
+        VALUES (${id}, 'lol', 0, '0', 'CLASSIC', now() + ${no} * interval '1 hour', ${win}, 'manual',
+                ${series}, ${no}, ${role}, ${role === "bonus" ? "범인찾기" : null}, 'vod_scan')`;
+      await sqlClient()`
+        INSERT INTO match_participant (match_id, puuid, streamer_id, participant_id, team_id, team_position, champion_id, outcome)
+        VALUES (${id}, ${pA}, NULL, 1, 100, 'MIDDLE', 157, ${win === 100 ? "win" : "loss"}),
+               (${id}, NULL, ${g2.id}::uuid, ${g2team === 100 ? 2 : 6}, ${g2team}, ${g2team === 100 ? "TOP" : "MIDDLE"}, 238,
+                ${win === g2team ? "win" : "loss"})`;
+    }
+    await expectReject("본게임 시리즈 없이 보너스 판은 만들 수 없다", () => sqlClient()`
+      INSERT INTO match (match_id, game_code, queue_id, game_creation, winning_team, source, origin, set_role)
+      VALUES ('VB_ORPHAN', 'lol', 0, now(), 100, 'manual', 'vod_scan', 'bonus')`, "match_bonus_in_series");
+    const ids = games.map((g) => g[0]);
+    await ingestDb.rederiveEncounters(ids);
+    await ingestDb.recomputeChampionStats([g1.id]);
+    const listIn = async (view: string) => (await sqlClient().unsafe<{ match_id: string }[]>(
+      `SELECT DISTINCT match_id FROM core_public.${view} WHERE match_id = ANY($1) ORDER BY 1`, [ids])).map((r) => r.match_id).join(",");
+    check("★ 보너스 판은 집계용 경기·조우 뷰에 없고 히스토리용 뷰에만 있다",
+      (await listIn("match")) === "VB1,VB2,VL1,VL2,VL3" && (await listIn("streamer_encounter")) === "VB1,VB2,VL1,VL2,VL3"
+        && (await listIn("match_with_bonus")) === "VB1,VB2,VB3,VL1,VL2,VL3",
+      JSON.stringify({ m: await listIn("match"), e: await listIn("streamer_encounter") }));
+    const landKeys = await sqlClient()<{ match_id: string; series_key: string; category: string }[]>`
+      SELECT match_id, series_key, category FROM core_public.streamer_encounter WHERE match_id IN ('VL1','VL3') ORDER BY 1`;
+    check("★ 랜드 조우의 series_key 는 판 자신이다 — 상대전적의 매치 단위가 판이다",
+      landKeys.every((r) => r.series_key === r.match_id && r.category === "land"), JSON.stringify(landKeys));
+    const vs = (await publicDb.listOpponents(g1.id, { category: "land" })).find((o) => o.streamer_id === g2.id);
+    check("★ 랜드 상대전적: 적으로 2판(1승 1패) = 매치 2개, 아군 1판",
+      vs?.vs_sets === 2 && vs.vs_set_wins === 1 && vs.vs_matches === 2 && vs.vs_match_wins === 1 && vs.ally_sets === 1,
+      JSON.stringify(vs));
+    const ckVs = (await publicDb.listOpponents(g1.id, { category: "ck" })).find((o) => o.streamer_id === g2.id);
+    check("★ CK 상대전적에 보너스 판이 없다 — 본게임 2:0 만", ckVs?.vs_sets === 2 && ckVs.vs_set_wins === 2
+      && ckVs.vs_matches === 1 && ckVs.vs_match_wins === 1, JSON.stringify(ckVs));
+    const hist = await personalDb.listPersonalMatches(g1.id, { category: "all" });
+    const landRow = hist.find((h) => h.series_key === "verify-land:land");
+    const ckRow = hist.find((h) => h.series_key === "verify-bonus-ck:s");
+    check("★ 히스토리: 랜드 3판은 한 줄(2승 1패), CK 는 한 줄에 보너스까지 펼쳐지되 스코어는 2:0",
+      landRow?.sets === 3 && landRow.set_wins === 2 && ckRow?.sets === 2 && ckRow.set_wins === 2
+        && ckRow.match_ids.length === 3 && ckRow.set_roles[2] === "bonus" && ckRow.set_labels[2] === "범인찾기"
+        && ckRow.set_labels[0] === "",
+      JSON.stringify({ landRow, ckRow }));
+    const recs = await personalDb.listPersonalRecords(g1.id, {});
+    const landRec = recs.find((r) => r.category === "land");
+    const ckRec = recs.find((r) => r.category === "ck");
+    check("★ 개인 요약: 랜드는 판 단위(3경기 2승 1패), CK 는 보너스 없이 1경기 1승",
+      landRec?.matches === 3 && landRec.wins === 2 && landRec.losses === 1 && ckRec?.matches === 1 && ckRec.wins === 1,
+      JSON.stringify({ landRec, ckRec }));
+    const statGames = (await sqlClient()<{ n: number }[]>`
+      SELECT coalesce(sum(games), 0)::int AS n FROM champion_stat
+       WHERE streamer_id = ${g1.id}::uuid AND season = 'ALL' AND category = 'ck'`)[0].n;
+    check("★ 챔피언 통계에 보너스 판이 없다", statGames === 2, String(statGames));
   }
 
   await verifyScheduleDb(check, expectReject);

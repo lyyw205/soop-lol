@@ -39,6 +39,8 @@ export const MATCH_CATEGORIES = [
   { key: "normal", label: "일반" },
   { key: "clash", label: "클래시" },
   { key: "ck", label: "내전 (CK)" },
+  // 맞라인을 정하고 매 판 팀을 섞는 랜드. 팀 단위 승패가 없어 판 단위로만 센다(0079).
+  { key: "land", label: "랜드" },
   // 토너먼트 코드로 만든 사설 경기인데 무슨 판인지 아직 모른다. CK 와 섞지 않는다(0077).
   { key: "code_custom", label: "코드 내전" },
   { key: "scrim", label: "스크림" },
@@ -97,6 +99,7 @@ const QUEUE: Record<number, MatchCategory> = {
   450: "aram",
   400: "normal",   // 일반 드래프트
   430: "normal",   // 일반 블라인드
+  480: "normal",   // 신속 대전(Swiftplay) — 협곡 일반 게임(0079)
   490: "normal",   // 빠른 대전
   700: "clash",
 };
@@ -128,6 +131,7 @@ export function matchCategory({ source, queue_id, event_kind, game_mode }: Match
       || (publicQueue && queue_id != null && EXCLUDED_QUEUES.has(queue_id))) return "excluded";
   // 대회가 붙어 있으면 그게 가장 확실한 근거다 — 사람이 판단해 넣은 값이다.
   if (event_kind === "ck") return "ck";
+  if (event_kind === "land") return "land";
   if (event_kind === "scrim") return "scrim";
   if (event_kind === "tournament" || event_kind === "showmatch") return "tournament";
 

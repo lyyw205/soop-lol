@@ -90,7 +90,9 @@ export function PersonalMatchHistory({ matches, rosters, streamerId, streamerNam
       const otherTeams = new Set<string>();
       // 맞라인 상대의 이름 → 그 상대와 선 세트 수. 시리즈 안에서 포지션이 바뀌면 여럿이 된다.
       const laneRivals = new Map<string, number>();
-      for (const matchId of m.match_ids) {
+      // 보너스 판은 팀을 조금 바꿔 하므로 줄 제목(팀·맞라인)은 본게임만으로 정한다(0079).
+      const mainIds = m.match_ids.filter((_, i) => m.set_roles[i] !== "bonus");
+      for (const matchId of mainIds) {
         const players = byMatch.get(matchId) ?? [];
         const me = players.find((p) => p.streamer_id === streamerId);
         if (!me) continue;
@@ -122,9 +124,16 @@ export function PersonalMatchHistory({ matches, rosters, streamerId, streamerNam
        *   ⚠ event_team 으로 확정된 팀 이름이 있으면 그게 언제나 우선이다.
        */
       const [soleRival] = laneRivals.size === 1 ? [...laneRivals.keys()] : [];
-      const opponentLabel = otherTeams.size === 1 ? [...otherTeams][0]
+      /**
+       * ★ 랜드는 팀이 매 판 바뀐다 — 팀 대 팀이 아니라 **나 대 맞라인 상대**, 스코어는 판 단위 n승 m패다(0079).
+       *   맞라인 상대를 정하고 하는 방식이라 보통 한 명이고, 여럿이면 몇 명과 붙었는지만 적는다.
+       */
+      const land = m.category === "land";
+      const opponentLabel = land ? (soleRival ? `맞라인 ${soleRival}` : `상대 ${opponentNames.length}명`)
+        : otherTeams.size === 1 ? [...otherTeams][0]
         : soleRival ? `${soleRival} 팀`
         : opponentNames.length ? `${opponentNames.slice(0, 2).join(" · ")}${opponentNames.length > 2 ? ` 외 ${opponentNames.length - 2}명` : ""}` : "상대 팀";
+      const ownLabel = land ? streamerName : myLabel;
       return <Fragment key={`${m.category}:${m.series_key}`}>
         {showYear && <RecordTimelineYear year={matchYear} />}
         <RecordTimelineRow result={result} dateTime={kstDateString(m.played_at)} title={date}
@@ -136,14 +145,14 @@ export function PersonalMatchHistory({ matches, rosters, streamerId, streamerNam
                     걸면 그 아이템은 글자 밑선 대신 '박스 아래 모서리' 를 베이스라인으로 내놓아
                     베이스라인 정렬이 통째로 깨진다. 그래서 자르는 일만 한 겹 안으로 내린다. */}
                 <span className="record-match-event" title={m.event_name ?? CATEGORY_LABEL[m.category]}><span className="record-match-clip">{m.event_name ?? CATEGORY_LABEL[m.category]}</span></span>
-                <span className="personal-match-teams"><span title={myLabel}><span className="record-match-clip">{myLabel}</span></span><strong>{m.set_wins}<i>:</i>{m.sets - m.set_wins}</strong><span title={opponentLabel}><span className="record-match-clip">{opponentLabel}</span></span></span>
+                <span className="personal-match-teams"><span title={ownLabel}><span className="record-match-clip">{ownLabel}</span></span><strong>{land ? <>{m.set_wins}승 {m.sets - m.set_wins}패</> : <>{m.set_wins}<i>:</i>{m.sets - m.set_wins}</>}</strong><span title={opponentLabel}><span className="record-match-clip">{opponentLabel}</span></span></span>
                 {/* 순서는 세 화면 공통 — 스코어 → 형식 → 승패. 승패가 늘 끝에 와야
                     줄을 훑을 때 눈이 같은 자리에서 결과를 찾는다. */}
-                <small>{formatBadge(m.best_of, m.sets, m.sets === 1 && isStandaloneSet(m.match_ids[0], m.series_key))}</small>
+                <small>{land ? `랜드 ${m.sets}판` : formatBadge(m.best_of, m.sets, m.match_ids.length === 1 && isStandaloneSet(m.match_ids[0], m.series_key))}</small>
                 <span className="personal-match-result">{resultLabel}</span>
                 <span className="personal-match-expand" aria-hidden="true" />
               </summary>
-              <MatchDetails sets={m.match_ids.map((matchId,index)=>({matchId,label:setLabel({standalone:isStandaloneSet(matchId,m.series_key),best_of:m.best_of,set_order_known:m.set_order_known,series_game_no:m.set_nos[index]}),players:byMatch.get(matchId) ?? []}))}
+              <MatchDetails sets={m.match_ids.map((matchId,index)=>({matchId,label:setLabel({standalone:isStandaloneSet(matchId,m.series_key),best_of:m.best_of,set_order_known:m.set_order_known,series_game_no:m.set_nos[index],set_role:m.set_roles[index],set_label:m.set_labels[index],land}),players:byMatch.get(matchId) ?? []}))}
                 streamerId={streamerId} />
             </details>
         </RecordTimelineRow>
