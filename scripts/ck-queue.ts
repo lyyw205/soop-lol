@@ -4,8 +4,10 @@
  *   npm run ck:queue                               # 롤 대상 표만 본다
  *   npm run ck:queue -- plan --write <q.json> --state <s.json>
  *   npm run ck:queue -- fc --write <q.json> --state <s.json>      # FC: 맥락 미조사 API 경기가 있는 스트리머
- *   npm run ck:queue -- snapshot --key vod:<번호>|fc:<slug> --state <s.json>
- *   npm run ck:queue -- settle   --key vod:<번호>|fc:<slug> --state <s.json>   # 0 진척 · 4 진척 없음
+ *   npm run ck:queue -- begin  --vod <번호> --dir <실행 폴더> --state <s.json>   # 롤 세션 직전: before·재개 요약·반복 제한
+ *   npm run ck:queue -- finish --vod <번호> --dir <실행 폴더> --state <s.json>   # 롤 세션 직후: 0 진척 · 4 진척 없음/반복 제한 · 3 끝
+ *   npm run ck:queue -- access --vod <번호> --status unavailable|temporary|retry --reason <근거>   # 조사 세션이 부른다
+ *   npm run ck:queue -- snapshot|settle --key fc:<slug> --state <s.json>          # FC 세션 전후 · settle 0 진척 · 4 진척 없음
  *
  * `scripts/ck-auto.sh`(매일 아침 타이머)가 부른다. DB 에는 쓰지 않는다 — 상태는 --state 파일 하나다.
  *
@@ -19,7 +21,10 @@
  * ★ 완료 판정은 `vodWork`(core/metrics/ck-vod-status) 하나다 — 백필과 같은 함수라 한쪽이 끝낸 VOD 를
  *   다른 쪽이 다시 보지 않는다. 카테고리로 거르지 않는다(토크로 켜고 내전하는 방송이 있다).
  * ★ 마지막 조사 지점이 아주 오래면(기본 14일 넘게) 그 앞은 자르고 경고한다 — 그건 백필 몫이다.
- * ★ 같은 대상이 세 번 연속 진척 없이 끝나면 건너뛴다(stall). 진척이 생기면 횟수를 지운다.
+ * ★ 롤 세션의 진척 판정·반복 제한·재개 요약은 **백필과 같은 함수**다(core 의 madeProgress·progressKind·backfillContext,
+ *   scripts/lib/ck-backfill-guard.ts). 백필 파일은 고치지 않고 불러 쓴다 — 반복 제한 기록만 자기 폴더(out/ck/auto/guards)에 둔다.
+ *   접근 불가 기록도 백필과 같은 core 함수(recordVodAccess)를 쓴다(ck:backfill access 는 백필 잠금 안에서만 돈다).
+ * ★ FC 는 같은 대상(스트리머)이 세 번 연속 미조사 수를 못 줄이면 건너뛴다(stall). 진척이 생기면 횟수를 지운다.
  * ★ FC 는 API 맥락 판정만 한다 — 넥슨 API 가 최근 30일 경기를 이미 안다. 대상은 그 30일 안의
  *   맥락 '미조사' 경기가 있는 와치리스트 FC 스트리머다. 화면으로 경기를 새로 읽는 일(30일 이전)은 백필 몫이다.
  * ★ 조회가 잘리면 시끄럽게 말하고 종료 코드 2 를 낸다.
@@ -28,13 +33,18 @@
 import { listWatched } from "@soop-lol/core/lib/db/watchlist";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { listFcoContextQueue } from "@soop-lol/core/lib/games/fconline/context";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { kstDate, makeOpt } from "./lib/cli.mjs";
 import { CK_RECENT_DAYS, recentFrom, titleExclusion, vodWork, type VodReason } from "@soop-lol/core/lib/metrics/ck-vod-status";
 import { kstDateString } from "@soop-lol/core/lib/time";
 import { listBroadcasts } from "./lib/soop-vod.mjs";
+import { backfillContext, recordVodAccess, savedPovCounts, vodRaws } from "@soop-lol/core/lib/db/ck-backfill";
+import { madeProgress, progressKind, type VodWork } from "@soop-lol/core/lib/metrics/ck-vod-status";
+import { advanceGuard, guardBlocked, parseGuard, MAX_NO_OUTCOME_SESSIONS, type BackfillGuard } from "./lib/ck-backfill-guard.ts";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 
 const argv = process.argv.slice(2);
 const COMMAND = argv[0] && !argv[0].startsWith("--") ? argv[0] : "plan";
@@ -45,6 +55,9 @@ const KEY = opt("--key", "");
 const MAX_LOOKBACK = Number(opt("--max-lookback-days", "14"));
 const STALL_LIMIT = Number(opt("--stall-limit", "3"));
 const FC_DAYS = 30;
+const VOD = Number(opt("--vod", "0"));
+const RUN_DIR = opt("--dir", "");
+const GUARD_DIR = "out/ck/auto/guards";
 const TODAY = kstDate(0);
 
 interface State {
@@ -131,10 +144,10 @@ async function plan(): Promise<number> {
   let done = 0, excluded = 0;
   const consider = (it: Omit<Item, "reason">, duration_sec: number | null) => {
     if (titleExclusion(it.title)) { excluded++; return; }
-    const { reason } = vodWork(byKey.get(it.key)?.raw, duration_sec);
-    if (!reason) { done++; delete state.pending[it.key]; delete state.stall[it.key]; return; }
-    if (stalled(state, it.key)) { skippedStall.push(`${it.key}(${it.streamer})`); return; }
-    queue.push({ ...it, reason });
+    const work = vodWork(byKey.get(it.key)?.raw, duration_sec);
+    if (!work.reason) { done++; delete state.pending[it.key]; rmGuard(it.title_no); return; }
+    if (guardBlocked(readGuard(it.title_no), work)) { skippedStall.push(`${it.key}(${it.streamer})`); return; }
+    queue.push({ ...it, reason: work.reason });
   };
   for (const { duration_sec, ...v } of found) consider({ key: `vod:${v.title_no}`, ...v }, duration_sec);
   for (const key of orphanKeys) {
@@ -149,7 +162,7 @@ async function plan(): Promise<number> {
 
   console.log(`롤 와치리스트 ${watch.length}명 · VOD ${found.length}개(+이어받기 ${orphanKeys.length}) · 조사 끝 ${done} · 제목으로 제외 ${excluded} · 큐 ${queue.length}`);
   for (const q of queue) console.log(`  ${q.ended_at}  ${q.key}  ${q.hours}h  ${q.streamer}  [${q.reason}]  ${q.title}`);
-  if (skippedStall.length) console.log(`\n⚠ 진척 없음 ${STALL_LIMIT}회로 건너뛴 VOD: ${skippedStall.join(", ")} — 원인 확인 뒤 상태 파일에서 stall 을 지운다`);
+  if (skippedStall.length) console.log(`\n⚠ 결과 진척 없이 ${MAX_NO_OUTCOME_SESSIONS}회 연속 조사해 건너뛴 VOD: ${skippedStall.join(", ")} — 원인 확인 뒤 ${GUARD_DIR}/lol-<번호>.json 을 지운다`);
   if (clipped.length) console.log(`\n⚠ 마지막 조사 지점이 ${MAX_LOOKBACK}일보다 오래돼 ${floor} 부터만 본다(그 앞은 백필 몫): ${clipped.join(", ")}`);
   if (truncated.length) console.log(`\n⚠ VOD 목록이 잘렸다 — 큐가 불완전하다: ${truncated.join(", ")}`);
   writeOut({ generated_at: new Date().toISOString(), truncated, clipped, skipped_stall: skippedStall, queue });
@@ -177,20 +190,76 @@ async function fc(): Promise<number> {
   return 0;
 }
 
-/** 진척 지문 — 롤은 단서 행의 갱신 시각·할 일, FC 는 미조사 경기 수. */
-async function fingerprint(key: string): Promise<{ fp: string; finished: boolean }> {
-  if (key.startsWith("vod:")) {
-    const [l] = await sql<{ updated_at: Date; raw: Record<string, any> }[]>`
-      SELECT updated_at, raw FROM event_lead WHERE source = 'vod_title' AND source_key = ${key}`;
-    if (!l) return { fp: "none", finished: false };
-    const { reason } = vodWork(l.raw, null);
-    return { fp: `${l.updated_at.toISOString()}|${reason}`, finished: reason === null };
+// ── 롤: 세션 전후 — 백필 after 와 같은 판정 ─────────────────────────
+function guardFile(vod: number) { return join(GUARD_DIR, `lol-${vod}.json`); }
+function readGuard(vod: number): BackfillGuard | null {
+  const f = guardFile(vod);
+  return existsSync(f) ? parseGuard(JSON.parse(readFileSync(f, "utf8"))) : null;
+}
+function rmGuard(vod: number) { rmSync(guardFile(vod), { force: true }); }
+async function workOf(vod: number): Promise<VodWork> {
+  const w = vodWork((await vodRaws([vod])).get(vod), null);
+  w.saved_matches = (await savedPovCounts([vod])).get(vod) ?? 0;
+  return w;
+}
+const curPath = (vod: number) => join(RUN_DIR, `current-${vod}.json`);
+
+async function begin(): Promise<number> {
+  if (!VOD || !RUN_DIR) throw new Error("begin 에는 --vod 와 --dir 가 필요하다");
+  const before = await workOf(VOD);
+  if (before.reason === null) { console.log(`vod:${VOD}: 이미 끝 — 건너뛴다`); return 3; }
+  if (guardBlocked(readGuard(VOD), before)) {
+    console.log(`vod:${VOD}: 결과 진척 없이 ${MAX_NO_OUTCOME_SESSIONS}회 연속 조사해 보류 — ${guardFile(VOD)} 확인 후 지우면 재개`);
+    return 4;
   }
+  mkdirSync(RUN_DIR, { recursive: true });
+  writeFileSync(curPath(VOD), JSON.stringify({ vod: VOD, before, attempt_id: randomUUID() }, null, 2));
+  writeFileSync(join(RUN_DIR, `resume-${VOD}.json`), JSON.stringify(await backfillContext(VOD, "lol"), null, 2));
+  return 0;
+}
+
+async function finish(): Promise<number> {
+  if (!VOD || !RUN_DIR) throw new Error("finish 에는 --vod 와 --dir 가 필요하다");
+  const c = JSON.parse(readFileSync(curPath(VOD), "utf8")) as { before: VodWork; attempt_id: string };
+  const after = await workOf(VOD);
+  const progress = madeProgress(c.before, after);
+  mkdirSync(GUARD_DIR, { recursive: true });
+  const guard = advanceGuard(readGuard(VOD), c.attempt_id, c.before, after);
+  writeFileSync(guardFile(VOD), JSON.stringify(guard, null, 2));
+  const blocked = guardBlocked(guard, after);
+  // 사용량 집계(scripts/ck-session-usage.ts)가 읽는 모양 — 백필 after.json 과 같다.
+  writeFileSync(join(RUN_DIR, `after-${VOD}.json`), JSON.stringify({ vod: VOD, progress,
+    progress_kind: progressKind(c.before, after), guard, blocked, before: c.before, after }, null, 2));
+  const state = loadState();
+  const key = `vod:${VOD}`;
+  if (after.reason === null) { delete state.pending[key]; rmGuard(VOD); }
+  else {
+    const [l] = await sql<{ channel_id: string }[]>`SELECT channel_id FROM event_lead WHERE source = 'vod_title' AND source_key = ${key}`;
+    state.pending[key] ??= { channel_id: l?.channel_id ?? "", since: TODAY };
+  }
+  saveState(state);
+  const label = after.unavailable ? "접근 불가" : after.reason === null ? "끝" : `미완료 [${after.reason}]`;
+  console.log(`${key}: ${label} · 못 본 ${after.uncovered ?? "?"}초 · 실패 ${after.failed}초 · 미해결 ${after.unresolved} · 저장 시점 ${after.saved_matches ?? 0} · 연 원본 ${after.opened}`
+    + (progress ? "" : " · 진척 없음") + (blocked ? ` · 결과 진척 없이 ${MAX_NO_OUTCOME_SESSIONS}회 — 보류` : ""));
+  if (after.reason === null) return 3;
+  return progress && !blocked ? 0 : 4;
+}
+
+async function access(): Promise<number> {
+  const status = opt("--status", "");
+  if (!VOD || !["temporary", "unavailable", "retry"].includes(status)) throw new Error("--vod 와 --status temporary|unavailable|retry 가 필요하다");
+  await recordVodAccess(VOD, status as "temporary" | "unavailable" | "retry", opt("--reason", ""));
+  console.log(`vod:${VOD}: 접근 상태 ${status} 기록`);
+  return 0;
+}
+
+/** FC 진척 지문 — 미조사 경기 수. */
+async function fingerprint(key: string): Promise<{ fp: string; finished: boolean }> {
   if (key.startsWith("fc:")) {
     const n = (await listFcoContextQueue({ from: kstDate(FC_DAYS - 1), streamer: key.slice(3), status: "uninvestigated" })).length;
     return { fp: String(n), finished: n === 0 };
   }
-  throw new Error(`--key 는 vod:<번호> 또는 fc:<slug>: ${key}`);
+  throw new Error(`--key 는 fc:<slug> (롤은 begin/finish): ${key}`);
 }
 
 async function snapshot(): Promise<number> {
@@ -210,10 +279,6 @@ async function settle(): Promise<number> {
     delete state.pending[KEY]; delete state.stall[KEY];
     console.log(`${KEY}: 끝`);
   } else {
-    if (KEY.startsWith("vod:")) {
-      const [l] = await sql<{ channel_id: string }[]>`SELECT channel_id FROM event_lead WHERE source = 'vod_title' AND source_key = ${KEY}`;
-      state.pending[KEY] ??= { channel_id: l?.channel_id ?? "", since: TODAY };
-    }
     if (progressed) { delete state.stall[KEY]; console.log(`${KEY}: 진척 있음 — 다음 회차가 잇는다`); }
     else {
       const count = (state.stall[KEY]?.count ?? 0) + 1;
@@ -229,10 +294,13 @@ let code = 0;
 try {
   if (COMMAND === "plan") code = await plan();
   else if (COMMAND === "fc") code = await fc();
+  else if (COMMAND === "begin") code = await begin();
+  else if (COMMAND === "finish") code = await finish();
+  else if (COMMAND === "access") code = await access();
   else if (COMMAND === "snapshot" || COMMAND === "settle") {
     if (!KEY || !STATE_PATH) throw new Error(`${COMMAND} 에는 --key 와 --state 가 필요하다`);
     code = COMMAND === "snapshot" ? await snapshot() : await settle();
-  } else throw new Error(`알 수 없는 명령: ${COMMAND} (plan|fc|snapshot|settle)`);
+  } else throw new Error(`알 수 없는 명령: ${COMMAND} (plan|fc|begin|finish|access|snapshot|settle)`);
 } finally {
   await closeDb();
 }

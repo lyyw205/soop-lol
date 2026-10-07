@@ -17,6 +17,9 @@
 #   백필이 도는 날마다 통째로 밀린다. 대신 ① 자기 잠금(daily.lock)으로 매일 조사끼리 겹치지 않고
 #   ② 백필과 **같은 채널 잠금**(out/ck/backfill/channel-<채널>.lock)을 VOD 마다 잡아, 백필이 그 채널을 조사 중이면
 #   그 VOD 만 건너뛴다(다음 날 잇는다). 다른 채널은 백필과 동시에 간다.
+# ★ VOD 하나의 조사는 백필과 같다 — 같은 지시문(재개 요약 resume·완료 조건·접근 불가 기록), 같은 진척 판정·반복 제한
+#   (core madeProgress·scripts/lib/ck-backfill-guard), 끝날 때까지 세션을 이어 보기(회차당 VOD 하나에 최대 SESSIONS_PER_VOD),
+#   세션별 사용량 기록(usage.jsonl). 다른 것은 대상(이전 조사 다음부터)과 FC 방식(API 맥락 판정)뿐이다.
 # ★ 백필과 같은 안전장치를 건다: sonnet · 세션 비용 상한 · 세션 기록 끄기(--no-session-persistence, 세션 기록이
 #   하루 21.7GB 쌓여 C: 를 채운 적이 있다) · 이미지 예산(롤) · 진척 없음 3회면 그 대상 건너뜀 · C: 여유 하한 ·
 #   실행 시간 상한 · 판별기는 낮은 우선순위(nice/ionice — 게임과 같이 돌 때 부하).
@@ -36,6 +39,7 @@ FC_ENABLED="${CK_AUTO_FC:-1}"
 MAX_MIN="${CK_AUTO_MAX_MIN:-300}"          # 이 시간이 지나면 새 대상을 시작하지 않는다
 MIN_FREE_GB="${CK_AUTO_MIN_FREE_GB:-6}"    # C: 여유가 이 값 이하면 새 대상을 시작하지 않는다
 IMAGE_WARN="${CK_AUTO_IMAGE_WARN_MIB:-8}"; IMAGE_LIMIT="${CK_AUTO_IMAGE_LIMIT_MIB:-12}"
+SESSIONS_PER_VOD="${CK_AUTO_SESSIONS_PER_VOD:-3}"   # VOD 하나를 한 회차에 이어 볼 최대 세션 수(백필처럼 끝날 때까지, 단 상한)
 DRY=0; [[ "${1:-}" == "--dry-run" ]] && DRY=1
 
 BASE="$ROOT/out/ck/auto"
@@ -103,43 +107,74 @@ claude_code() {  # $1 원래 코드 · $2 세션 출력 JSON
 }
 CLAUDE_BASE=(--permission-mode bypassPermissions --output-format json --no-session-persistence --model "$MODEL" --max-budget-usd "$MAX_BUDGET")
 
-RULES="- 먼저 ck:record --lead vod:<번호> 와 ck:merge --find-match --vod <번호> 를 본다. 이미 기록된 경기도 처음부터 읽되 결과창은 도구가 준 예측 위치부터 찾고(못 찾으면 넓힌다), 그 match_id 로 이 화면에서 직접 읽은 칸만 match 제출한다(pov.link_basis 필수). 같다·다르다는 저장 도구가 판정한다.
-- 카테고리와 상관없이 VOD 전 범위를 본다. 롤 화면을 보면 스킬의 '경기 추적'을 끝까지 한다. FC 온라인 화면을 실제로 열었으면 fco:context clue 만 넘긴다.
-- 탐색 단계를 마칠 때마다 scan 을 running 과 지금까지의 범위로 ck:merge 에 저장해 세션이 끊겨도 진척이 남게 한다. 필수 추적을 다 했으면 done(롤이 없었어도 done), 못 끝냈으면 running 과 scan.resume 의 next_action 을 남긴다 — 다음 날 이어서 한다.
-- 못 본 지점이 영상 길이 밖이거나 영구 누락이라 다시 봐도 못 푸는 구간이면 scan.resolved_failed 로 닫고 note 에 이유를 남긴다. 안 닫으면 매일 다시 대상에 들어온다.
-- 랜드·보너스 판(범인찾기 등)은 ck-research 의 '진행 방식' 규칙대로 낸다.
-- 이 세션은 이미지 ${IMAGE_WARN} MiB 에서 저장 안내, ${IMAGE_LIMIT} MiB 초과 열람 차단을 적용한다. 안내를 받으면 읽은 관찰·후보·경기를 ck:merge 에 저장하고 종료한다. 차단 뒤에는 새 탐색을 하지 않는다.
-- 모든 조사 산출물 JSON 은 out/ck/<VOD 번호>/ 아래에 쓴다. 저장은 npm run ck:merge -- --result <파일> 하나로 한다. 비용 상한은 done 조건이 아니며, 다음 세션은 DB 저장분만 이어받는다."
+# VOD 하나의 지시문 — 백필(scripts/ck-backfill.sh 의 롤 지시문)과 같은 문장이다. 다른 것은 실행기 이름과 접근 불가 기록 명령뿐.
+lol_prompt() {  # $1 VOD · $2 표시 · $3 재개 요약 파일
+  cat <<PROMPT
+/ck-local 매일 와치리스트 조사의 VOD 하나를 조사한다: vod:$1 ($2). 사람이 없으니 묻지 말고 끝까지 간다.
+분석은 ck-local 스킬을 그대로 따른다. 백필·매일 조사 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다.
+SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 $3 의 DB 재개 요약과 ck:merge --find-match --vod $1 를 본다.
+요약에서 부족한 후보 근거·질문만 ck:record --lead 로 조회한다. 동일 VOD에서 저장 확인된 경기를 처음부터 재판독하지 않는다.
+다른 VOD의 시점을 추가할 때는 기존 값을 복사하지 않고 직접 읽는다.
+중단된 조사면 남은 지점부터 잇는다. 탐색 단계를 마칠 때마다 scan 을 running 과 지금까지의 범위로 ck:merge 에 저장해
+세션이 중간에 끊겨도 진척이 남게 한다. 필수 조사를 모두 마쳤을 때만 done 으로 저장한다.
+done은 탐색 완료이지 모든 값 확정이 아니다. 필수 탐색·결과창 보완·교차검증 처리를 끝냈다면 미해결 후보와 질문을 보존하고 done으로 저장한다.
+완료 전 후보별 확인 구간·탐색 종료 사유·교차검증 시도와 한계를 확인한다. 남은 필수 탐색이 있으면 running과 구체적인 다음 행동을 남긴다.
+미해결을 억지로 not_target으로 닫거나 삭제하지 않는다. 이전 인계의 사용자 판단 필요라는 말만으로 종료하지 말고 재개 요약의 completion_policy로 재평가한다.
+방송 주인이 참가하지 않은 재송출 결과창도 직접 읽어 rebroadcast 근거로 쓸 수 있다. 본인 VOD에서만 읽어야 한다는 이유로 보류하지 않는다.
+FC 온라인 화면을 실제로 열었으면 fco:context clue 만 넘긴다. 랜드·보너스 판(범인찾기 등)은 ck-research 의 '진행 방식' 규칙대로 낸다.
+삭제·비공개를 실제 확인했으면 npm run ck:queue -- access --vod $1 --status unavailable --reason <확인 근거> 로 남긴다.
+일시 오류는 --status temporary 로 남기고 이 세션을 끝낸다. scan.failed 는 시간 범위 배열이며 사유를 넣지 않는다.
+못 본 구간이 영상 길이 밖이거나 세그먼트가 영구 누락이라 다시 봐도 못 푸는 것이면 scan.resolved_failed 로 닫고 이유를 note 에 남긴다.
+안 닫으면 매일 같은 VOD 가 다시 대상에 들어오고 진척 없음으로 멈춘다.
+종료 뒤 셸이 DB 도장으로 진척을 확인한다. 완료·연결·접근 불가·남은 범위를 요약한다.
+작업 폴더는 $ROOT 이다. 스킬이 명령으로 안 보이면 $ROOT/.claude/skills/ck-local/SKILL.md 를 Read로 직접 읽는다. 다른 프로젝트 폴더로 이동하지 않는다.
+이 세션은 이미지 ${IMAGE_WARN} MiB에서 저장 안내, ${IMAGE_LIMIT} MiB 초과 열람 차단을 적용한다.
+안내를 받으면 읽은 관찰·후보·경기를 ck:merge에 저장하고 종료한다. 필수 탐색이 남으면 running과 scan.resume의 next_action·context를 남긴다. 이미 필수 탐색을 모두 마쳤으면 위 done 조건을 따른다.
+모든 조사 산출물 JSON은 out/ck/$1/ 아래에 Write/Edit로 작성한다. 원본 사진을 자르거나 화질을 낮추지 않는다.
+차단 뒤에는 새 탐색을 하지 않는다. 저장은 단일 npm run ck:merge -- --result <파일>, 필요한 기록 조회는 npm run ck:record -- --lead vod:$1 명령으로 한다.
+ck:local --finish를 쓰면 --status running --resume <인계 JSON>을 명시한다(요청 범위는 준비 단계가 영상 전체로 정해 두었으니 적지 않는다).
+개요만 본 상태는 원본 opened를 꾸미지 말고 기존 scan 입력으로 ck:merge에 저장한다. 경기값을 모르면 후보의 관찰·질문으로 남긴다.
+이미지를 준비한 사실은 열람 근거가 아니다. 예산 소진은 done 조건이 아니며, 다음 세션은 DB 저장분만 이어받는다.
+PROMPT
+}
 
-# ── 롤 작업자 — 자기 몫 VOD 를 하나씩: 채널 잠금 → 준비 → 세션 → 진척 판정 ─────────────
+# ── 롤 작업자 — 자기 몫 VOD 를 하나씩: 채널 잠금 → (begin → 준비 → 세션 → finish) × 최대 SESSIONS_PER_VOD ──
 lol_worker() {  # $1 작업자 번호
-  local w=$1 vod ch reason who key code prep line prompt out
+  local w=$1 vod ch reason who n bcode fcode code prep line prompt out tag
   while IFS=$'\t' read -r vod ch reason who; do
     [[ -z "$vod" ]] && continue
     may_start "롤$w" || return 0
-    key="vod:$vod"
     exec {lockfd}>"$ROOT/out/ck/backfill/channel-$ch.lock"
-    if ! flock -n "$lockfd"; then say "[롤$w] $key ($who) — 백필이 이 채널을 조사 중이라 건너뛴다(다음 날 잇는다)"; exec {lockfd}>&-; continue; fi
-    say "[롤$w] $key ($who, $reason) 시작"
-    queue_cmd snapshot --key "$key" >>"$LOG" 2>&1
-    prep="$RUN/prep-$vod.log"
-    nice -n 10 ionice -c3 node scripts/ck-local/scan.mjs --vod "$vod" --reuse >"$prep" 2>&1
-    prompt="/ck-local 무인 매일 자동 조사다. 사람이 없으니 묻지 말고 끝까지 간다. VOD 하나만 조사한다: vod:$vod ($who, 대상 사유: $reason).
-분석은 ck-local 스킬을 그대로 따른다. 이 VOD 외의 VOD 는 시작하지 않고, SOOP 조사 도구는 병렬 실행하지 않는다.
-작업 폴더는 $ROOT 이다. 스킬이 명령으로 안 보이면 $ROOT/.claude/skills/ck-local/SKILL.md 를 Read 로 직접 읽는다.
-$RULES"
-    if line="$(grep '^PREP: ' "$prep" | tail -1)" && [[ -n "$line" ]]; then
-      prompt+=$'\n'"준비 단계 결과(이번 실행): ${line#PREP: } — 이 run_id 의 산출물만 쓴다."
-    else
-      prompt+=$'\n'"준비 단계 실패(로그 $prep) — 준비 산출물을 쓰지 말고 스킬의 준비 실패 절차로 조사한다."
-    fi
-    out="$RUN/session-$vod.json"
-    setsid node scripts/ck-image-budget.ts run --state "$RUN/image-$vod.json" --output "$out" --vod "$vod" \
-      --warn-mib "$IMAGE_WARN" --limit-mib "$IMAGE_LIMIT" --flush-seconds 180 -- claude -p "$prompt" "${CLAUDE_BASE[@]}" >>"$LOG" 2>&1
-    claude_code $? "$out"; code=$?
-    queue_cmd settle --key "$key" >>"$LOG" 2>&1
+    if ! flock -n "$lockfd"; then say "[롤$w] vod:$vod ($who) — 백필이 이 채널을 조사 중이라 건너뛴다(다음 날 잇는다)"; exec {lockfd}>&-; continue; fi
+    say "[롤$w] vod:$vod ($who, $reason) 시작"
+    for ((n = 1; n <= SESSIONS_PER_VOD; n++)); do
+      (( n > 1 )) && { may_start "롤$w" || break; }
+      queue_cmd begin --vod "$vod" --dir "$RUN" >>"$LOG" 2>&1; bcode=$?
+      (( bcode == 3 )) && { say "[롤$w] vod:$vod 끝"; break; }
+      (( bcode == 4 )) && { say "[롤$w] vod:$vod 반복 제한으로 보류"; break; }
+      (( bcode == 0 )) || { say "[롤$w] vod:$vod 시작 판정 실패(코드 $bcode) — 건너뛴다"; break; }
+      tag="$vod-$n"
+      prep="$RUN/prep-$tag.log"
+      nice -n 10 ionice -c3 node scripts/ck-local/scan.mjs --vod "$vod" --reuse >"$prep" 2>&1
+      prompt="$(lol_prompt "$vod" "$who, 대상 사유: $reason, 이번 회차 $n번째 세션" "$RUN/resume-$vod.json")"
+      if line="$(grep '^PREP: ' "$prep" | tail -1)" && [[ -n "$line" ]]; then
+        prompt+=$'\n'"준비 단계 결과(이번 실행): ${line#PREP: } — 이 run_id 의 산출물만 쓴다."
+      else
+        prompt+=$'\n'"준비 단계 실패(로그 $prep) — 준비 산출물을 쓰지 말고 스킬의 준비 실패 절차로 조사한다."
+      fi
+      out="$RUN/session-$tag.json"
+      setsid node scripts/ck-image-budget.ts run --state "$RUN/image-$tag.json" --output "$out" --vod "$vod" \
+        --warn-mib "$IMAGE_WARN" --limit-mib "$IMAGE_LIMIT" --flush-seconds 180 -- claude -p "$prompt" "${CLAUDE_BASE[@]}" >>"$LOG" 2>&1
+      claude_code $? "$out"; code=$?
+      queue_cmd finish --vod "$vod" --dir "$RUN" >>"$LOG" 2>&1; fcode=$?
+      node scripts/ck-session-usage.ts "$out" "$RUN/after-$vod.json" "$BASE/usage.jsonl" "$MODEL" >>"$LOG" 2>&1 \
+        || say "[롤$w] vod:$vod 사용량을 집계하지 못했다. 원본: $out"
+      if (( code != 0 )); then say "[롤$w] vod:$vod Claude 실패(코드 $code) — 모든 작업자를 멈춘다"; echo "$code" >"$RUN/abort"; exec {lockfd}>&-; return 0; fi
+      (( fcode == 3 )) && { say "[롤$w] vod:$vod 끝"; break; }
+      (( fcode == 4 )) && { say "[롤$w] vod:$vod 진척 없음 — 오늘은 여기까지(다음 회차가 잇는다)"; break; }
+      (( fcode == 0 )) || { say "[롤$w] vod:$vod 진척 확인 실패(코드 $fcode)"; break; }
+    done
     exec {lockfd}>&-
-    if (( code != 0 )); then say "[롤$w] $key Claude 실패(코드 $code) — 모든 작업자를 멈춘다"; echo "$code" >"$RUN/abort"; return 0; fi
   done <"$RUN/lol-$w.tsv"
 }
 
