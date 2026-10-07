@@ -774,6 +774,11 @@ export interface CkMatchInput {
    *   **첫 경기가 뒤 경기의 프레임까지 통째로 삼켰다.** 5시간 방송에 5경기면 4경기가 근거를 잃는다.
    */
   evidence_frame_ids?: string[];
+  /**
+   * 중복 차단(assertNotDuplicateGameInTx)이 같은 판으로 본 기존 경기 중 **다른 판임을 확인한 것**.
+   * 화면으로 다른 판임을 확인했을 때만 적는다 — 이력(review_change)에 남는다.
+   */
+  distinct_from?: string[];
 }
 
 export interface MatchRow extends ReviewProgress {
@@ -895,6 +900,65 @@ export async function correctMatchMode(input: {
   });
 }
 
+/**
+ * **새 경기 ID 로 「다른 시점에서 이미 기록된 그 판」을 또 만들지 않는다** (2026-10-07).
+ *
+ * ★ 왜 도구가 막나 — 한 내전을 여러 명이 방송한다. `--find-match` 로 먼저 찾아보라는 절차는
+ *   있었지만 조사자 판단에만 맡겨져, 8~9월에 같은 판이 2~3개 ID 로 39건 들어갔다(서도일·스맵임·
+ *   랄랜드 시점이 각자 만든 같은 밤의 판들). 승률·상대전적이 두세 배로 세어졌다.
+ *
+ * 같은 판의 신호는 시점이 달라도 변하지 않는 값이다 — 진영 번호는 시점마다 뒤집히므로 보지 않고,
+ * **사람별 승패**와 함께 비교한다.
+ *   · 시작 시각이 가깝다(±20분, 어느 한쪽이라도 날짜만 아는 기록이면 같은 KST 날짜)
+ *   · 경기 시간이 같다(±2초)면 KDA 또는 챔피언+승패가 6명 이상 겹칠 때
+ *   · 경기 시간을 모르면 KDA 와 챔피언+승패가 둘 다 8명 이상 겹칠 때
+ * 걸리면 저장하지 않는다. 같은 판이면 그 match_id 로 내서 시점을 붙이고, 다른 판임을 화면으로
+ * 확인했으면 `distinct_from` 에 적는다. 공개 경기만 본다 — 숨긴 경기는 중복으로 정리된 쪽이다.
+ */
+async function assertNotDuplicateGameInTx(tx: Tx, g: CkMatchInput): Promise<void> {
+  const mine = g.participants.map((p) => ({
+    win: p.team_id === g.winning_team,
+    champion_id: resolveChampion(p.champion_id, p.champion_name).champion_id,
+    kills: p.kills ?? null, deaths: p.deaths ?? null, assists: p.assists ?? null,
+  }));
+  const allowed = g.distinct_from ?? [];
+  const rows = await tx<{ match_id: string; game_duration: number | null; kda: number; champ: number }[]>`
+    WITH mine AS (
+      SELECT * FROM jsonb_to_recordset(${tx.json(mine)}::jsonb)
+        AS x(win boolean, champion_id int, kills int, deaths int, assists int)
+    ), near AS (
+      SELECT m.match_id, m.game_duration FROM match m
+       WHERE m.game_code = 'lol' AND m.source = 'manual' AND m.visibility = 'public'
+         AND m.match_id <> ${g.match_id} AND NOT (m.match_id = ANY(${allowed}::text[]))
+         AND CASE WHEN m.game_creation_precision = 'date' OR ${g.played_at_precision} = 'date'
+                  THEN (m.game_creation AT TIME ZONE 'Asia/Seoul')::date
+                       = (${g.played_at}::timestamptz AT TIME ZONE 'Asia/Seoul')::date
+                  ELSE abs(extract(epoch FROM m.game_creation - ${g.played_at}::timestamptz)) <= 1200 END
+    )
+    SELECT n.match_id, n.game_duration,
+           -- 입력 한 사람당 한 번만 센다(EXISTS). 조인으로 세면 같은 KDA 가 둘이면 두 번 센다.
+           (SELECT count(*) FROM mine x WHERE x.kills IS NOT NULL AND x.deaths IS NOT NULL AND EXISTS (
+              SELECT 1 FROM match_participant p WHERE p.match_id = n.match_id
+                 AND p.kills = x.kills AND p.deaths = x.deaths
+                 AND (p.assists = x.assists OR p.assists IS NULL OR x.assists IS NULL)
+                 AND (p.outcome = 'win') = x.win))::int AS kda,
+           (SELECT count(*) FROM mine x WHERE x.champion_id > 0 AND EXISTS (
+              SELECT 1 FROM match_participant p WHERE p.match_id = n.match_id
+                 AND p.champion_id = x.champion_id AND (p.outcome = 'win') = x.win))::int AS champ
+      FROM near n`;
+  const hit = rows.find((r) => {
+    const sameDuration = g.duration != null && r.game_duration != null && Math.abs(r.game_duration - g.duration) <= 2;
+    return sameDuration ? (r.kda >= 6 || r.champ >= 6) : (r.kda >= 8 && r.champ >= 8);
+  });
+  if (hit) {
+    throw new Error(
+      `${g.match_id}: 같은 판으로 보이는 공개 경기가 이미 있다 — ${hit.match_id} `
+      + `(경기 시간 ${hit.game_duration ?? "?"}초, KDA·승패 ${hit.kda}명·챔피언·승패 ${hit.champ}명 일치). `
+      + `같은 판이면 match_id 를 "${hit.match_id}" 로 내서 시점을 붙이고, `
+      + `다른 판임을 화면으로 확인했으면 distinct_from: ["${hit.match_id}"] 를 적는다.`);
+  }
+}
+
 export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<boolean> {
   if (g.game_mode !== undefined && !['CLASSIC', 'ARAM'].includes(g.game_mode)) throw new Error('game_mode 는 CLASSIC 또는 ARAM');
   if (g.set_role === "bonus" && !g.series_id) throw new Error('보너스 판은 앞 본게임의 series_id 에 붙여야 한다(0079)');
@@ -905,6 +969,7 @@ export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<
     SELECT reviewed_at FROM match WHERE match_id = ${g.match_id} FOR UPDATE
   `;
   if (reviewed[0]?.reviewed_at != null) return false;
+  if (reviewed.length === 0) await assertNotDuplicateGameInTx(tx, g);
 
   // ★ **지우기 전에** 옛 명단을 잡는다. 아래에서 참가자를 DELETE 후 재INSERT 하므로,
   //   이 줄이 없으면 `affectedStreamers` 가 새 명단만 본다. 재판독으로 A 자리를 B 로
@@ -951,6 +1016,10 @@ export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<
       blue_team_id    = EXCLUDED.blue_team_id,
       red_team_id     = EXCLUDED.red_team_id
   `;
+  // 중복 차단을 "다른 판" 으로 넘긴 판단은 이력에 남긴다 — 나중에 같은 판으로 밝혀지면 여기서 찾는다.
+  if (reviewed.length === 0 && g.distinct_from?.length) await recordReviewChanges(tx, [
+    { match_id: g.match_id, entity: "match", entity_key: g.match_id, field: "distinct_from", before: null, after: g.distinct_from },
+  ]);
   if (g.result_evidence?.trim()) await tx`
     INSERT INTO review_record (match_id, type, body, created_by)
     VALUES (${g.match_id}, 'final_evidence', ${g.result_evidence.trim()}, 'auto')

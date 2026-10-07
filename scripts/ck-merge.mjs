@@ -736,6 +736,7 @@ try {
           origin: r.origin ?? "vod_scan",
           evidence_frame_ids: frameIds,
           participants,
+          distinct_from: r.distinct_from ?? [],
         });
 
         if ((r.origin ?? "vod_scan") === "vod_scan") vodMatchIds.push(r.match_id);

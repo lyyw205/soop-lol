@@ -2129,6 +2129,34 @@ try {
       SELECT coalesce(sum(games), 0)::int AS n FROM champion_stat
        WHERE streamer_id = ${g1.id}::uuid AND season = 'ALL' AND category = 'ck'`)[0].n;
     check("★ 챔피언 통계에 보너스 판이 없다", statGames === 2, String(statGames));
+
+    console.log("\n▸ 다른 시점에서 같은 판을 새 ID 로 또 만들 수 없다 (2026-10-07 중복 39건)");
+    const T = new Date("2026-09-30T12:00:00Z");
+    const roster = (flip: boolean, kdaShift = 0) => Array.from({ length: 10 }, (_, i) => ({
+      participant_id: i + 1, observed_name: `중복검증${i}`,
+      team_id: ((i < 5) !== flip ? 100 : 200) as 100 | 200, champion_id: i + 1,
+      kills: i + kdaShift, deaths: i + 1, assists: i + 2,
+    }));
+    const game = (id: string, at: Date, flip: boolean, extra: Partial<Parameters<typeof ck.upsertMatchFromScan>[0]> = {}) =>
+      ck.upsertMatchFromScan({ match_id: id, played_at: at, played_at_precision: "datetime", duration: 1500,
+        winning_team: flip ? 200 : 100, participants: roster(flip), ...extra });
+    await game("VD1", T, false);
+    await expectReject("★★ 진영이 뒤집힌 다른 시점의 같은 판(새 ID)은 저장을 거부한다",
+      () => game("VD2", new Date(T.getTime() + 60_000), true), "같은 판으로 보이는 공개 경기가 이미 있다 — VD1");
+    check("  └ 거부되면 아무것도 남지 않는다",
+      (await sqlClient()`SELECT 1 FROM match WHERE match_id = 'VD2'`).length === 0);
+    await game("VD1", T, false, { duration: 1501 });
+    check("같은 ID 로 다시 내는 것(시점 추가·정정)은 막지 않는다",
+      (await sqlClient()<{ d: number }[]>`SELECT game_duration d FROM match WHERE match_id='VD1'`)[0]?.d === 1501);
+    await game("VD3", new Date(T.getTime() + 10 * 60_000), false,
+      { duration: 1800, participants: roster(false, 3) });
+    check("★ 가까운 시각에 같은 챔피언으로 한 **다른 판**(경기 시간·KDA 다름)은 막지 않는다",
+      (await sqlClient()`SELECT 1 FROM match WHERE match_id = 'VD3'`).length === 1);
+    await game("VD2", new Date(T.getTime() + 60_000), true, { distinct_from: ["VD1"] });
+    const distinctLog = await sqlClient()<{ after: unknown }[]>`
+      SELECT after FROM review_change WHERE match_id = 'VD2' AND field = 'distinct_from'`;
+    check("★ distinct_from 으로 다른 판임을 밝히면 저장되고 그 판단이 이력에 남는다",
+      JSON.stringify(distinctLog[0]?.after) === JSON.stringify(["VD1"]), JSON.stringify(distinctLog));
   }
 
   await verifyScheduleDb(check, expectReject);

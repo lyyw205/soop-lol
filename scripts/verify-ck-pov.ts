@@ -357,6 +357,8 @@ try {
   fakeVod(VODS.f, [100, 200]);
   const m2 = (winner: 100 | 200) => ({ resultType: "match", match_id: "pov:m2", game_mode: "CLASSIC", winning_team: winner,
     played_at: "2026-09-26T14:00:00Z", played_at_precision: "date", result_evidence: "결과창",
+    // pov:m1 과 같은 명단·KDA 로 만든 다른 판이라 중복 차단에 걸린다 — 다른 판이라고 밝힌다.
+    distinct_from: ["pov:m1", "pov:m2"],
     participants: full, evidence_frames: [framePath(VODS.f, 100)] });
   await merge([scan(VODS.f, "pov_f", [100, 200]), m2(100)]);
   r = await merge([scan(VODS.f, "pov_f", [100, 200]), { ...m2(200), pov: { link_basis: "세트 결과 재확인" } }]);

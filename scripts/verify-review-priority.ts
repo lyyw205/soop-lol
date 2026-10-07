@@ -17,6 +17,8 @@ try {
   for (let i = 0; i < 10; i++) people.push(await createStreamer({ slug: 'priority-' + i, display_name: '우선 ' + i }));
   for (const n of [1, 2]) await ck.upsertMatchFromScan({ match_id: 'priority-lol:' + n, series_id: 'priority-series', series_game_no: n,
     played_at: new Date('2026-10-04T01:00:00Z'), played_at_precision: 'datetime', winning_team: 100, origin: 'admin', result_evidence: '검증 결과',
+    // 같은 명단·같은 KDA 로 만든 두 세트라 중복 차단에 걸린다 — 다른 판이라고 밝힌다.
+    distinct_from: n === 2 ? ['priority-lol:1'] : [],
     participants: people.map((p, i) => ({ participant_id: i + 1, team_id: i < 5 ? 100 : 200, streamer_id: p.id,
       team_position: ['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'][i % 5] as 'TOP', champion_id: 34, kills: 1, deaths: 1, assists: 1 })) });
   assert.equal(await countOverviewSeries({ queue: 'general' }), 1);
