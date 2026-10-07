@@ -25,7 +25,8 @@
 #   실행 시간 상한 · 판별기는 낮은 우선순위(nice/ionice — 게임과 같이 돌 때 부하).
 # ★ 동시 실행 — 롤은 채널 단위로 LOL_JOBS 개(채널 안은 순서대로), FC 는 1개. 기본 3+1=4(게임 병행 기준).
 #   밀린 분량은 실행 시간 상한 안에서 하루씩 따라잡는다.
-# ★ 종료 코드: 0 정상 · 1 대상 생성 실패 · 3 디스크 하한·중단 요청으로 멈춤 · 그 밖은 Claude 실패 코드(로그인 만료·사용량 한도).
+# ★ 종료 코드: 0 정상 · 1 대상 생성 실패, 또는 작업자·판정 명령의 예상 밖 실패(로그의 '!!!') · 3 디스크 하한·중단 요청으로 멈춤 ·
+#   그 밖은 Claude 실패 코드(로그인 만료·사용량 한도). 실패를 0 으로 덮지 않는다 — systemd 가 이 코드로 실패를 알린다.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -45,7 +46,7 @@ DRY=0; [[ "${1:-}" == "--dry-run" ]] && DRY=1
 BASE="$ROOT/out/ck/auto"
 STATE="$BASE/daily-state.json"
 STOP_FILE="$BASE/STOP"
-mkdir -p "$BASE"
+mkdir -p "$BASE" "$ROOT/out/ck/backfill"   # 채널 잠금 파일 자리 — 백필을 한 번도 안 돌린 환경에도 있어야 한다
 exec 9>"$BASE/daily.lock"
 if ! flock -n 9; then
   echo "$(date -Is) 이전 매일 조사가 아직 돈다 — 이번 회차는 건너뛴다" >>"$BASE/skipped.log"
@@ -57,6 +58,8 @@ mkdir -p "$RUN"
 LOG="$RUN/run.log"
 START=$(date +%s)
 say() { echo "$(TZ=Asia/Seoul date +%T) $*" >>"$LOG"; }
+# 작업자 안의 예상 밖 실패 — 그 대상은 건너뛰고 계속하되, 회차의 종료 코드는 1 로 남긴다.
+fail() { say "!!! $*"; echo "$*" >>"$RUN/failures"; }
 say "=== 매일 조사 시작 · model=$MODEL budget=\$$MAX_BUDGET lol-jobs=$LOL_JOBS fc=$FC_ENABLED max-min=$MAX_MIN min-free=${MIN_FREE_GB}GB"
 
 # 같은 상태 파일을 여러 작업자가 고친다 — 갱신은 잠금 아래에서만.
@@ -152,7 +155,7 @@ lol_worker() {  # $1 작업자 번호
       queue_cmd begin --vod "$vod" --dir "$RUN" >>"$LOG" 2>&1; bcode=$?
       (( bcode == 3 )) && { say "[롤$w] vod:$vod 끝"; break; }
       (( bcode == 4 )) && { say "[롤$w] vod:$vod 반복 제한으로 보류"; break; }
-      (( bcode == 0 )) || { say "[롤$w] vod:$vod 시작 판정 실패(코드 $bcode) — 건너뛴다"; break; }
+      (( bcode == 0 )) || { fail "[롤$w] vod:$vod 시작 판정 실패(코드 $bcode) — 건너뛴다"; break; }
       tag="$vod-$n"
       prep="$RUN/prep-$tag.log"
       nice -n 10 ionice -c3 node scripts/ck-local/scan.mjs --vod "$vod" --reuse >"$prep" 2>&1
@@ -172,7 +175,7 @@ lol_worker() {  # $1 작업자 번호
       if (( code != 0 )); then say "[롤$w] vod:$vod Claude 실패(코드 $code) — 모든 작업자를 멈춘다"; echo "$code" >"$RUN/abort"; exec {lockfd}>&-; return 0; fi
       (( fcode == 3 )) && { say "[롤$w] vod:$vod 끝"; break; }
       (( fcode == 4 )) && { say "[롤$w] vod:$vod 진척 없음 — 오늘은 여기까지(다음 회차가 잇는다)"; break; }
-      (( fcode == 0 )) || { say "[롤$w] vod:$vod 진척 확인 실패(코드 $fcode)"; break; }
+      (( fcode == 0 )) || { fail "[롤$w] vod:$vod 진척 확인 실패(코드 $fcode)"; break; }
     done
     exec {lockfd}>&-
   done <"$RUN/lol-$w.tsv"
@@ -187,7 +190,7 @@ fc_worker() {
     may_start "FC" || return 0
     key="fc:$slug"
     say "[FC] $who 미조사 ${n}건 시작"
-    queue_cmd snapshot --key "$key" >>"$LOG" 2>&1
+    queue_cmd snapshot --key "$key" >>"$LOG" 2>&1 || { fail "[FC] $key 시작 기록 실패 — 건너뛴다"; continue; }
     out="$RUN/session-fc-$slug.json"
     setsid claude -p "/fco-match-context 무인 매일 자동 조사다. 사람이 없으니 묻지 말고 끝까지 간다.
 대상: 스트리머 $slug($who)의 $from 이후 넥슨 API 경기 중 맥락 '미조사' 경기 — npm run fco:context -- list --streamer $slug --from $from --status uninvestigated --vods 로 시작한다.
@@ -197,18 +200,22 @@ API 경기의 맥락 판정만 한다. VOD 결과 화면으로 API 에 없는 �
 작업 폴더는 $ROOT 이다. 스킬이 명령으로 안 보이면 $ROOT/.claude/skills/fco-match-context/SKILL.md 를 Read 로 직접 읽는다." \
       "${CLAUDE_BASE[@]}" >"$out" 2>>"$LOG"
     claude_code $? "$out"; code=$?
-    queue_cmd settle --key "$key" >>"$LOG" 2>&1
+    queue_cmd settle --key "$key" >>"$LOG" 2>&1; local scode=$?
+    (( scode == 0 || scode == 4 )) || fail "[FC] $key 진척 확인 실패(코드 $scode)"
     if (( code != 0 )); then say "[FC] Claude 실패(코드 $code) — 모든 작업자를 멈춘다"; echo "$code" >"$RUN/abort"; return 0; fi
   done < <(node -e 'for (const q of JSON.parse(require("fs").readFileSync(process.argv[1])).queue) console.log([q.slug, q.streamer, q.uninvestigated].join("\t"))' "$RUN/fc.json")
 }
 
 trap 'say "TERM — 작업자를 회수한다"; touch "$STOP_FILE"; kill -TERM $(jobs -p) 2>/dev/null; wait; exit 130' INT TERM
-for ((w = 0; w < LOL_JOBS; w++)); do lol_worker "$w" & sleep 4; done
-(( FC_ENABLED && FC_N > 0 )) && fc_worker &
-wait
+PIDS=()
+for ((w = 0; w < LOL_JOBS; w++)); do lol_worker "$w" & PIDS+=("$!"); sleep 4; done
+if (( FC_ENABLED && FC_N > 0 )); then fc_worker & PIDS+=("$!"); fi
+# 작업자가 스스로 죽으면(잠금 파일을 못 여는 등) 그 코드를 놓치지 않는다 — wait 하나로 뭉치면 0 이 된다.
+for pid in "${PIDS[@]}"; do wait "$pid" || fail "작업자(pid $pid)가 비정상 종료(코드 $?) — 그 몫의 대상은 다음 회차"; done
 
 CODE=0
 if [[ -f "$RUN/abort" ]]; then c=$(cat "$RUN/abort" 2>/dev/null); [[ "$c" =~ ^[0-9]+$ ]] && CODE=$c || CODE=3; fi
+(( CODE == 0 )) && [[ -s "$RUN/failures" ]] && CODE=1
 [[ -f "$STOP_FILE" ]] && (( CODE == 0 )) && CODE=3
 say "=== 끝 (종료 코드 $CODE, $(( ($(date +%s) - START) / 60 ))분) · 상태 $STATE"
 exit "$CODE"

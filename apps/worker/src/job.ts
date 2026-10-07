@@ -12,6 +12,12 @@ import { errorMessage, log } from "./log.ts";
 
 export interface EngineResult {
   processed: number;
+  /**
+   * 대상 중 실패한 수(계정·카드 …). 하나라도 있으면 실행 기록은 `failed`, 프로세스 종료 코드는 3 이다.
+   * ★ 예전엔 예외만 실패로 쳐서, 30계정 중 5계정이 429 로 실패해도 `ok`·종료 코드 0 이었다 — 타이머가 실패를 못 알렸다.
+   *   처리한 건수(processed)와 상세(detail)는 그대로 남긴다. 상주 루프는 멈추지 않고 다음 잡으로 간다.
+   */
+  failed?: number;
   detail?: Record<string, unknown>;
 }
 
@@ -27,12 +33,19 @@ export async function runJob<T extends EngineResult>(
   try {
     const result = await fn();
     const apiCalls = ctx.riot.callCount - callsBefore;
+    const failed = result.failed ?? 0;
     await finishJob(id, {
-      state: "ok",
+      state: failed > 0 ? "failed" : "ok",
       processed: result.processed,
       apiCalls,
+      error: failed > 0 ? `부분 실패 ${failed}건 — detail 참고` : null,
       detail: result.detail,
     });
+    if (failed > 0) {
+      process.exitCode = 3;
+      log.warn(job, `부분 실패 ${failed}건`, { processed: result.processed, ...result.detail });
+      return result;
+    }
     log.info(job, "완료", {
       processed: result.processed,
       api: apiCalls,

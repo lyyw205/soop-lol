@@ -61,6 +61,7 @@ export async function runFcoClubEngine(ctx: WorkerContext): Promise<EngineResult
   }
   return {
     processed: ok,
+    failed: errors.length,
     detail: {
       accounts: accounts.length, ok,
       siteCalls: ctx.fcoSite.callCount - siteBefore,
@@ -77,6 +78,7 @@ export async function runFcoPriceEngine(ctx: WorkerContext): Promise<EngineResul
   for (const message of r.errors.slice(0, 5)) log.warn("engine_g_fco_prices", message);
   return {
     processed: r.fetched,
+    failed: r.errors.length,
     detail: {
       cards: r.cards, fresh: r.fresh, fetched: r.fetched, inserted: r.inserted, revised: r.revised,
       siteCalls: ctx.fcoSite.callCount - siteBefore,

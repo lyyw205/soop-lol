@@ -183,9 +183,12 @@ try {
   // ── 공개 조회: 계산은 원본에서, 숨긴 계정·신원은 나가지 않는다 ─────────
   const { listFcoClubBoard, getFcoClub } = await import("../packages/core/lib/db/fconline-club.ts");
   // 알파의 첫 스냅샷을 어제로 옮기고, 오늘 한 번 더 받는다 → 이틀치 보유
-  await sql`UPDATE fco_club_snapshot SET captured_at = now() - interval '1 day' WHERE ouid = 'alpha-ouid'`;
+  // ★ 시각은 표본(fixtures/)의 날짜에 고정한다 — 시세 표본이 2026-10-01 까지라, DB now() 를 쓰면 날짜가 지날수록
+  //   "보유 기준일의 시세" 가 표본 밖으로 나가 깨졌다(10-08 실측). 위 시세 검사와 같은 now 를 쓴다.
+  await sql`UPDATE fco_club_snapshot SET captured_at = ${new Date("2026-10-01T03:00:00Z")} WHERE ouid = 'alpha-ouid'`;
   assert.equal((await syncClub(client, names, "alpha-ouid")).outcome, "ok");
-  await syncCardPrices(client, await heldCards());
+  await sql`UPDATE fco_club_snapshot SET captured_at = ${now} WHERE ouid = 'alpha-ouid' AND captured_at > ${now}`;
+  await syncCardPrices(client, await heldCards(), now);
 
   const board = await listFcoClubBoard();
   assert.deepEqual(board.map((r) => r.slug).sort(), ["alpha-fc", "gamma-fc"], "숨긴 계정만 가진 베타는 순위표에 없다");

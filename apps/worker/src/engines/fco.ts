@@ -50,6 +50,8 @@ export async function runFcoEngine(ctx: WorkerContext): Promise<EngineResult> {
 
   return {
     processed: saved,
+    // 목록·상세를 빈틈없이 못 받아 커서가 안 움직인 계정 = 실패. 다음 회차가 다시 받는다.
+    failed: incomplete.length,
     detail: {
       accounts: accounts.length,
       saved, known, unsupported, missing,

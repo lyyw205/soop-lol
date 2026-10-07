@@ -15,9 +15,21 @@ DEST="$HOME/.config/systemd/user"
 DATA=(soop-rank soop-fco soop-fco-club soop-fco-prices)
 
 if [[ "${1:-}" == "--status" ]]; then
-  systemctl --user list-timers --all 'soop-*' 'ck-auto*' --no-pager
+  # ★ systemctl show 는 한 번도 안 돈 유닛·설치 안 된 유닛도 Result=success 를 돌려준다 — 그대로 찍으면 미실행이 성공으로 보인다.
+  #   등록(타이머 활성화) → 실행 이력(시작 시각) → 지금 상태 → 마지막 결과 순서로 가른다.
+  printf '%-16s %-8s %-20s %-20s %s\n' 작업 상태 마지막실행 다음실행 비고
   for u in "${DATA[@]}" ck-auto; do
-    systemctl --user show "$u.service" -p Result -p ExecMainStatus -p ExecMainExitTimestamp --value 2>/dev/null | paste -sd' ' | sed "s/^/$u: /"
+    enabled=$(systemctl --user is-enabled "$u.timer" 2>/dev/null || true)
+    if [[ "$enabled" != enabled ]]; then printf '%-16s %-8s\n' "$u" 미등록; continue; fi
+    eval "$(systemctl --user show "$u.service" -p ActiveState -p Result -p ExecMainStatus -p ExecMainStartTimestamp \
+      | sed -E 's/^([A-Za-z]+)=(.*)$/\1="\2"/')"
+    next=$(systemctl --user show "$u.timer" -p NextElapseUSecRealtime --value)
+    if [[ "$ActiveState" == activating ]]; then state=실행중
+    elif [[ -z "$ExecMainStartTimestamp" ]]; then state=미실행
+    elif [[ "$Result" == success ]]; then state=성공
+    else state=실패; fi
+    note=""; [[ "$state" == 실패 ]] && note="결과 $Result · 종료 코드 $ExecMainStatus (3 = 일부 대상 실패) · journalctl --user -u $u.service"
+    printf '%-16s %-8s %-20s %-20s %s\n' "$u" "$state" "${ExecMainStartTimestamp:--}" "${next:--}" "$note"
   done
   exit 0
 fi

@@ -163,9 +163,11 @@ export async function syncCardPrices(
       else if (before.get(p.day) !== p.price) result.revised++;
     }
     // 바뀌지 않은 행도 fetched_at 을 새로 찍는다 — "오늘 받았나" 를 이 칸으로 판단한다.
+    // ★ 시각은 위의 today 와 같은 now 를 쓴다. DB now() 를 쓰면 판단(now)과 기록(DB 시계)의 기준이 갈려,
+    //   now 를 주입한 검증에서 "오늘 받은 카드" 를 못 알아봤다(verify:fco-club).
     await sql`
-      INSERT INTO fco_card_price_daily ${sql(points.map((p) => ({ spid: card.spid, grade: card.grade, day: p.day, price: p.price })))}
-      ON CONFLICT (spid, grade, day) DO UPDATE SET price = EXCLUDED.price, fetched_at = now()`;
+      INSERT INTO fco_card_price_daily ${sql(points.map((p) => ({ spid: card.spid, grade: card.grade, day: p.day, price: p.price, fetched_at: now })))}
+      ON CONFLICT (spid, grade, day) DO UPDATE SET price = EXCLUDED.price, fetched_at = EXCLUDED.fetched_at`;
   }
   return result;
 }

@@ -10,6 +10,8 @@ Type=oneshot
 WorkingDirectory=%h/repos/soop-lol
 Environment=PATH=%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
 ExecStartPre=/usr/bin/mkdir -p %h/repos/soop-lol/out/locks
-ExecStart=/usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/fc-site.lock npm run -s worker -- fco-club
+# ★ 구단가치는 감독명 갱신에 넥슨 API 도 쓴다 — FC 경기(nexon 잠금)와 겹치면 넥슨 초당 제한(429)에 걸린다(10-02 실측 5계정).
+#   그래서 nexon → fc-site 순서로 둘 다 잡는다(시세는 넥슨을 안 써서 순서가 엇갈려 막힐 일이 없다).
+ExecStart=/usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/nexon.lock /usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/fc-site.lock npm run -s worker -- fco-club
 TimeoutStartSec=75min
 Nice=10

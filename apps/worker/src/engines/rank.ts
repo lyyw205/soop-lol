@@ -49,6 +49,7 @@ export async function runRankEngine(ctx: WorkerContext, now = new Date()): Promi
 
   return {
     processed: ok,
+    failed,
     detail: { date: snapshotDate, accounts: targets.length, failed, failures: failures.slice(0, 10) },
   };
 }
