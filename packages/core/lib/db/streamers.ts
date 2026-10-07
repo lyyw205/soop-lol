@@ -6,6 +6,7 @@
  */
 
 import { db } from "./client.ts";
+import { rederiveAccountInTx } from "./ingest.ts";
 import type {
   AccountEvidence,
   CareerEventRow,
@@ -338,6 +339,9 @@ export async function linkAccount(input: LinkAccountInput): Promise<{ backfillQu
       const [link] = await tx`SELECT puuid FROM streamer_account WHERE streamer_id = ${input.streamer_id}::uuid AND puuid = ${input.puuid} FOR UPDATE`;
       if (!link) throw new Error("계정 연결이 삭제되었습니다. 목록을 새로 불러오세요.");
     }
+    // 이 puuid 의 지금 주인 — 연결이 옮겨 가면 예전 주인의 통계도 다시 만들어야 한다.
+    const prevOwners = await tx<{ streamer_id: string }[]>`
+      SELECT streamer_id FROM streamer_account WHERE puuid = ${input.puuid} AND active_to IS NULL`;
     if (input.is_main) {
       await tx`UPDATE streamer_account SET is_main = false WHERE streamer_id = ${input.streamer_id}::uuid`;
     }
@@ -358,6 +362,11 @@ export async function linkAccount(input: LinkAccountInput): Promise<{ backfillQu
       ON CONFLICT (puuid) DO NOTHING RETURNING puuid
     `;
     await tx`UPDATE account_candidate SET state = 'approved' WHERE puuid = ${input.puuid} AND state <> 'approved'`;
+    // ★ 연결이 바뀌면 이미 저장된 경기의 조우·챔피언 통계도 같은 트랜잭션에서 다시 만든다(ingest.rederiveAccountInTx).
+    //   라벨·본계 표시만 고치는 편집(edit)은 주인이 그대로라 건너뛴다.
+    if (!input.edit) {
+      await rederiveAccountInTx(tx, input.puuid, [input.streamer_id, ...prevOwners.map((r) => r.streamer_id)]);
+    }
     return { backfillQueued: queued.length > 0 };
   });
 }
@@ -393,6 +402,8 @@ export async function unlinkAccount(streamerId: string, puuid: string): Promise<
     if (rows.length) await tx`UPDATE account_candidate SET state = 'pending'
       WHERE puuid = ${puuid} AND state = 'approved'
         AND NOT EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.puuid = ${puuid} AND sa.active_to IS NULL)`;
+    // 떼어 낸 계정의 경기에서 이 사람의 조우·챔피언 통계를 같은 트랜잭션에서 걷어 낸다(linkAccount 와 짝).
+    if (rows.length) await rederiveAccountInTx(tx, puuid, [streamerId]);
     return rows.length > 0;
   });
 }

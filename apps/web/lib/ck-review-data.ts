@@ -31,6 +31,7 @@ export const reviewMatchData: (detail: MatchDetail) => ReviewMatch = ({ match, p
       puuid: p.puuid,
       streamer_id: p.streamer_id,
       account_streamer_id: p.account_streamer_id ?? null,
+      riot_id: p.riot_id ?? null,
       observed_name: p.observed_name,
       team_id: p.team_id,
       team_position: p.team_position,

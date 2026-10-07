@@ -15,11 +15,11 @@
  *   `scrim` 은 tournament/showmatch 를 준비하며 참가팀끼리 전략을 시험하는 연습게임.
  *   0031 이전에는 'scrim' 하나가 CK 의 뜻으로 쓰였고, 그때의 행은 전부 'ck' 로 이관했다.
  *
- * ★ 토너먼트 코드인데 대회가 안 붙어 있으면 내전(CK)으로 본다
- *   토너먼트 코드는 애초에 **내전을 API 로 잡으려고** 쓰는 물건이다
- *   (CLAUDE.md 제약 1 — 커스텀 게임은 그 경로로만 사후 조회된다).
- *   그래서 "코드로 만들어졌는데 우리가 아직 이름을 못 붙인 판" 은 내전이 맞다.
- *   연습 스크림도 코드로 만들 수 있지만, 그건 event 를 붙여 사람이 말해 줘야 안다.
+ * ★ 토너먼트 코드인데 대회가 안 붙어 있으면 **코드 내전(code_custom)** 이다 — CK 가 아니다 (0077)
+ *   코드는 Riot 에 등록한 운영자(내전 사이트·디스코드 봇·대회 도구)가 발급하고 선수가 입력한다.
+ *   그 판이 CK 인지, 시청자 내전·자체 내전·아마추어 대회인지는 **API 값으로는 모른다.**
+ *   예전엔 이걸 CK 로 쳐서, 공개 큐 이력으로 들어온 829경기가 90명의 CK 전적에 섞였다(2026-10-07).
+ *   사람이 검수해 event(ck/scrim/tournament)를 붙여야 그 분류로 올라간다.
  *
  * ★ 이 규칙은 SQL 에도 같은 모양으로 있다 (`lol_match_category`, 마이그레이션 0016).
  *   질의에서 걸러야 빠르고, 화면에서 이름을 붙이려면 TS 가 필요해서 양쪽에 둔다.
@@ -39,6 +39,8 @@ export const MATCH_CATEGORIES = [
   { key: "normal", label: "일반" },
   { key: "clash", label: "클래시" },
   { key: "ck", label: "내전 (CK)" },
+  // 토너먼트 코드로 만든 사설 경기인데 무슨 판인지 아직 모른다. CK 와 섞지 않는다(0077).
+  { key: "code_custom", label: "코드 내전" },
   { key: "scrim", label: "스크림" },
   { key: "tournament", label: "대회" },
   { key: "other", label: "기타" },
@@ -110,8 +112,8 @@ export function matchCategory({ source, queue_id, event_kind, game_mode }: Match
   if (event_kind === "tournament" || event_kind === "showmatch") return "tournament";
 
   if (source === "public_queue") return (queue_id != null && QUEUE[queue_id]) || "other";
-  // 코드로 만든 커스텀인데 대회가 안 붙었다 → 아직 이름을 못 붙인 내전(CK)
-  if (source === "tournament_code") return "ck";
+  // 코드로 만든 커스텀인데 대회가 안 붙었다 → 무슨 판인지 모르는 코드 내전. CK 로 단정하지 않는다(0077).
+  if (source === "tournament_code") return "code_custom";
   // 수기인데 대회조차 없다. 무슨 판이었는지 근거가 없으므로 지어내지 않는다.
   return "other";
 }

@@ -294,8 +294,12 @@ try {
     evidence: { note: "방송에서 본인이 화면에 띄움" },
   });
 
+  // ★ 계정 연결이 그 계정의 경기를 그 자리에서 재파생한다(0077 — linkAccount → rederiveAccountInTx).
+  //   예전엔 여기서 "재파생이 필요한 경기 2건" 이 남아 워커를 기다렸다. 이제 워커는 할 일이 없어야 맞다.
   const pending = await ingest.findMatchesNeedingEncounters();
-  check("재파생이 필요한 경기를 찾아낸다", pending.length === 2, pending.join(","));
+  const linkedNow = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM streamer_encounter`;
+  check("★ 계정을 연결하는 순간 과거 조우가 되살아난다 — 워커를 기다리지 않는다",
+    linkedNow[0].n === 6 && pending.length === 0, JSON.stringify({ 조우: linkedNow[0].n, 남은재파생: pending }));
 
   const matchCallsBeforeDerive = fake.calls.match;
   const derive = await deriveJob({ championStats: true });

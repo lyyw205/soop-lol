@@ -511,6 +511,25 @@ export async function rederiveEncountersInTx(tx: Tx, matchId: string): Promise<n
   return writeEncounters(tx, matches[0], participants);
 }
 
+/**
+ * 계정 연결이 바뀐 뒤(붙이기·떼기) 그 계정이 나온 경기의 파생 데이터를 **호출자의 트랜잭션 안에서** 다시 만든다.
+ *
+ * ★ 공개 참가자 뷰는 연결을 질의 시점에 읽어 바로 바뀌지만, 조우(상대전적)와 champion_stat 은
+ *   미리 계산한 표라 그대로 남는다. 예전엔 워커 derive 가 돌 때까지 "경기 목록엔 있는데 상대전적엔 없는"
+ *   상태였다(워커가 꺼져 있으면 무기한 — 2026-10-07).
+ * `streamerIds` 는 연결 전후의 주인. 이 계정 자리에 직접 적힌 사람(match_participant.streamer_id)은 여기서 더한다.
+ */
+export async function rederiveAccountInTx(tx: Tx, puuid: string, streamerIds: string[]): Promise<{ matches: number; encounters: number }> {
+  const seats = await tx<{ match_id: string; streamer_id: string | null }[]>`
+    SELECT match_id, streamer_id FROM match_participant WHERE puuid = ${puuid}
+  `;
+  let encounters = 0;
+  for (const matchId of new Set(seats.map((r) => r.match_id))) encounters += await rederiveEncountersInTx(tx, matchId);
+  const people = new Set([...streamerIds, ...seats.flatMap((r) => (r.streamer_id ? [r.streamer_id] : []))]);
+  await recomputeChampionStatsInTx(tx, [...people]);
+  return { matches: new Set(seats.map((r) => r.match_id)).size, encounters };
+}
+
 /** 이미 적재된 매치에서 조우를 다시 만든다. Riot 호출이 전혀 없다. */
 export async function rederiveEncounters(matchIds: string[]): Promise<number> {
   if (matchIds.length === 0) return 0;
@@ -721,6 +740,13 @@ export async function recomputeChampionStatsInTx(tx: Tx, streamerIds?: string[])
        WHERE mp.champion_id > 0 AND sid.streamer_id IS NOT NULL
          -- 범위 재계산일 때는 지운 사람만 다시 넣는다. 위 DELETE 와 같은 조건이어야 한다.
          AND (${scope}::uuid[] IS NULL OR sid.streamer_id = ANY(${scope}::uuid[]))
+         -- ★ 위 조건은 COALESCE 계산값이라 인덱스를 못 타서, 범위 재계산도 참가자 전체를 훑었다
+         --   (평균 11.9초 · 백필 하루 1,500회 — 2026-10-07 pg_stat_statements). 같은 사람이 될 수 있는
+         --   자리(그 사람의 활성 계정 puuid 이거나 행에 적힌 사람)로 먼저 좁힌다. 정확한 판정은 위 줄이 한다.
+         AND (${scope}::uuid[] IS NULL
+              OR mp.puuid = ANY(ARRAY(SELECT puuid FROM streamer_account
+                                       WHERE streamer_id = ANY(${scope}::uuid[]) AND active_to IS NULL))
+              OR mp.streamer_id = ANY(${scope}::uuid[]))
        -- ⚠ 위치 번호다: 1=streamer_id 2=champion_id 3=queue_id 4=season **12=category**.
        --   ★ 이 다섯이 champion_stat 의 PK 와 **정확히 같아야** INSERT 가 자기와 충돌하지
        --     않는다(0016 이 category 를 여기 넣고 PK 엔 안 넣어서 실제로 터졌다 — 0020 ⑦).

@@ -1805,7 +1805,21 @@ try {
   check("★ 그래도 **참가 기록은 남는다** — 식별자만 지우는 방침이다(0021)",
     afterHide.length === 2 && afterHide.some((r) => r.streamer_id === s1.id),
     `${afterHide.length}행`);
+  // ★ streamer_match(0075)는 참가자 뷰의 공개 판정을 속도 때문에 두 갈래로 옮겨 적은 것이다.
+  //   한쪽만 고치면 프로필과 로스터가 다른 사람을 말한다 — 숨긴 계정이 있는 지금과 되돌린 뒤 둘 다 대조한다.
+  const streamerMatchDrift = async () => (await sqlClient()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM (
+      (SELECT streamer_id, match_id, participant_id FROM core_public.match_participant WHERE streamer_id IS NOT NULL
+       EXCEPT ALL SELECT streamer_id, match_id, participant_id FROM core_public.streamer_match)
+      UNION ALL
+      (SELECT streamer_id, match_id, participant_id FROM core_public.streamer_match
+       EXCEPT ALL SELECT streamer_id, match_id, participant_id FROM core_public.match_participant WHERE streamer_id IS NOT NULL)
+    ) d`)[0].n;
+  const driftHidden = await streamerMatchDrift();
   await sqlClient()`UPDATE streamer_account SET visibility = 'public' WHERE puuid = ${alphaPuuid}`;
+  const driftPublic = await streamerMatchDrift();
+  check("★ streamer_match 는 참가자 뷰에서 사람이 붙은 자리와 **같은 행**이다 (계정 숨김 상태 포함, 0075)",
+    driftHidden === 0 && driftPublic === 0, JSON.stringify({ 숨김: driftHidden, 공개: driftPublic }));
 
   // ── 미확인 참가자가 로스터에 서나 (0022)
   //
@@ -1959,6 +1973,43 @@ try {
   check("★★ VOD 단서를 지워도 확정된 경기의 최종 결과 근거는 남는다",
     matchEvidenceAfterLeadDelete[0]?.body === "1:10:00 결과창 그래프탭",
     matchEvidenceAfterLeadDelete[0]?.body ?? "없음");
+
+  console.log("\n▸ 코드 내전 분류 · 계정 연결이 파생 데이터에 바로 반영되나 (0077)");
+  {
+    const g1 = await streamers.createStreamer({ slug: "verify-code-a", display_name: "코드내전A" });
+    const g2 = await streamers.createStreamer({ slug: "verify-code-b", display_name: "코드내전B" });
+    const [pA, pB] = ["ca".repeat(39), "cb".repeat(39)];
+    await streamers.upsertRiotAccount({ puuid: pA, game_name: "코드A", tag_line: "KR1" });
+    await streamers.upsertRiotAccount({ puuid: pB, game_name: "코드B", tag_line: "KR1" });
+    await streamers.linkAccount({ streamer_id: g1.id, puuid: pA, confidence: "verified", evidence: { note: "검증" } });
+    await sqlClient()`
+      INSERT INTO match (match_id, game_code, platform_id, riot_game_id, queue_id, mode_key, game_mode,
+                         game_creation, winning_team, source, tournament_code)
+      VALUES ('KR_CODE1', 'lol', 'KR', 9001, 3130, '3130', 'CLASSIC', now(), 100, 'tournament_code', 'KR-verify')`;
+    await sqlClient()`
+      INSERT INTO match_participant
+        (match_id, puuid, participant_id, team_id, team_position, individual_position, champion_id, outcome, kills, deaths, assists)
+      VALUES ('KR_CODE1', ${pA}, 1, 100, 'MIDDLE', 'MIDDLE', 157, 'win', 5, 2, 7),
+             ('KR_CODE1', ${pB}, 6, 200, 'MIDDLE', 'MIDDLE', 238, 'loss', 2, 5, 3)`;
+    await ingestDb.rederiveEncounters(["KR_CODE1"]);
+    const cat = await sqlClient()<{ category: string }[]>`SELECT category FROM core_public.match WHERE match_id = 'KR_CODE1'`;
+    check("★ 대회가 안 붙은 토너먼트 코드 경기는 CK 가 아니라 '코드 내전'이다",
+      cat[0]?.category === "code_custom", cat[0]?.category ?? "없음");
+
+    const encOf = async () => (await sqlClient()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM streamer_encounter WHERE match_id = 'KR_CODE1'`)[0].n;
+    const statOf = async (id: string) => (await sqlClient()<{ n: number }[]>`
+      SELECT coalesce(sum(games), 0)::int AS n FROM champion_stat WHERE streamer_id = ${id}::uuid AND season = 'ALL'`)[0].n;
+    const encBefore = await encOf();
+    await streamers.linkAccount({ streamer_id: g2.id, puuid: pB, confidence: "likely", evidence: { note: "검증" } });
+    const [encLinked, statLinked] = [await encOf(), await statOf(g2.id)];
+    check("★★ 계정을 연결하면 **워커 없이** 그 경기의 조우와 챔피언 통계가 바로 생긴다",
+      encBefore === 0 && encLinked === 1 && statLinked === 1, JSON.stringify({ encBefore, encLinked, statLinked }));
+    await streamers.unlinkAccount(g2.id, pB);
+    const [encUnlinked, statUnlinked] = [await encOf(), await statOf(g2.id)];
+    check("★★ 연결을 떼면 그 조우와 챔피언 통계도 바로 사라진다(유령 전적 없음)",
+      encUnlinked === 0 && statUnlinked === 0, JSON.stringify({ encUnlinked, statUnlinked }));
+  }
 
   await verifyScheduleDb(check, expectReject);
   await verifyPuuidMoveDb(check);

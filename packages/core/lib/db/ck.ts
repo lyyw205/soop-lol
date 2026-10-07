@@ -801,6 +801,12 @@ export interface MatchRow extends ReviewProgress {
 export interface MatchParticipantRow {
   /** 검수 화면의 연결 표시용. 저장된 직접 연결과 분리한다. */
   account_streamer_id?: string | null;
+  /**
+   * 이 puuid 의 Riot ID(`닉네임#태그`, riot_account 캐시). **관리자 화면 표시용**이다 —
+   * 사람을 못 붙인 API 경기 자리가 빈칸으로 보이지 않게 한다. observed_name(화면에서 읽은 이름)에
+   * 옮겨 적지 않는다: 그 칸은 공개 로스터에 나가고, 출처도 다르다.
+   */
+  riot_id?: string | null;
   match_id: string;
   puuid: string | null;
   streamer_id: string | null;
@@ -832,6 +838,10 @@ const MATCH_COLUMNS = `m.match_id, m.game_code, m.queue_id, m.game_mode, m.game_
   m.series_id, m.series_game_no, ms.best_of, ms.best_of_evidence,
   m.blue_team_id, m.red_team_id, m.game_creation_precision, COALESCE(ms.set_order_known, false) AS set_order_known`;
 const MATCH_SERIES_JOIN = `LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code ${REVIEW_PROGRESS_JOIN}`;
+
+/** 관리자 화면 표시용 Riot ID. 이름을 모르면(조회 전·404) null. MatchParticipantRow.riot_id 참고. */
+const RIOT_ID_COLUMN = `(SELECT ra.game_name || COALESCE('#' || ra.tag_line, '') FROM riot_account ra
+   WHERE ra.puuid = match_participant.puuid AND ra.game_name IS NOT NULL) AS riot_id`;
 
 const PARTICIPANT_COLUMNS = `match_id, puuid, streamer_id, observed_name, participant_id, team_id,
   team_position, individual_position, champion_id, champion_name, outcome, kills, deaths, assists`;
@@ -984,7 +994,8 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
     sql<MatchParticipantRow[]>`
       SELECT ${sql.unsafe(PARTICIPANT_COLUMNS)},
              (SELECT sa.streamer_id FROM streamer_account sa
-               WHERE sa.puuid = match_participant.puuid AND sa.active_to IS NULL LIMIT 1) AS account_streamer_id
+               WHERE sa.puuid = match_participant.puuid AND sa.active_to IS NULL LIMIT 1) AS account_streamer_id,
+             ${sql.unsafe(RIOT_ID_COLUMN)}
         FROM match_participant
        WHERE match_id = ${matchId} ORDER BY participant_id
     `,
@@ -1567,7 +1578,8 @@ export async function getLeadWorkspace(leadId: string, opts: { records?: boolean
       await sql<MatchParticipantRow[]>`
         SELECT ${sql.unsafe(PARTICIPANT_COLUMNS)},
                (SELECT sa.streamer_id FROM streamer_account sa
-                 WHERE sa.puuid = match_participant.puuid AND sa.active_to IS NULL LIMIT 1) AS account_streamer_id
+                 WHERE sa.puuid = match_participant.puuid AND sa.active_to IS NULL LIMIT 1) AS account_streamer_id,
+               ${sql.unsafe(RIOT_ID_COLUMN)}
           FROM match_participant
          WHERE match_id = ANY(${matchIds}) ORDER BY match_id, participant_id
       `,

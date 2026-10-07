@@ -51,10 +51,13 @@ function groupedMatches(streamerId: string, {category, year, from, to}: Personal
         SELECT DISTINCT m.match_id, coalesce(m.series_id, m.match_id) AS series_key,
                m.category, ev.name AS event_name, m.game_creation, mp.outcome, m.best_of,
                m.series_game_no, m.set_order_known
-          FROM core_public.match_participant mp
+          -- 사람으로 찾을 땐 streamer_match 에서 출발한다 — 참가자 뷰의 streamer_id 는 계산값이라
+          -- 직접 거르면 1GB 표를 통째로 훑어 탭 하나에 20초가 들었다(0075).
+          FROM core_public.streamer_match sm
+          JOIN core_public.match_participant mp ON mp.match_id = sm.match_id AND mp.participant_id = sm.participant_id
           JOIN core_public.match m ON m.match_id = mp.match_id
           LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
-         WHERE mp.streamer_id = ${streamerId}::uuid
+         WHERE sm.streamer_id = ${streamerId}::uuid
            AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM m.game_creation AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
            AND (${expandCategory(category)}::text[] IS NULL OR m.category = ANY(${expandCategory(category)}::text[]))
       ) mine
@@ -91,8 +94,8 @@ export async function listPersonalMatches(streamerId: string, scope: PersonalSco
 export async function listPersonalYears(streamerId: string): Promise<number[]> {
   const rows = await db()<{ year: number }[]>`
     SELECT DISTINCT EXTRACT(YEAR FROM m.game_creation AT TIME ZONE 'Asia/Seoul')::int AS year
-      FROM core_public.match_participant mp JOIN core_public.match m ON m.match_id = mp.match_id
-     WHERE mp.streamer_id = ${streamerId}::uuid ORDER BY year DESC
+      FROM core_public.streamer_match sm JOIN core_public.match m ON m.match_id = sm.match_id
+     WHERE sm.streamer_id = ${streamerId}::uuid ORDER BY year DESC
   `;
   return rows.map((r) => r.year);
 }

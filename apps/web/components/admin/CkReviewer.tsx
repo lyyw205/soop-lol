@@ -60,6 +60,8 @@ export interface ReviewFrame {
 
 export interface ReviewParticipant {
   account_streamer_id?: string | null;
+  /** Riot ID(`닉네임#태그`) — 표시 전용. 저장 값(observed_name)으로 옮기지 않는다. */
+  riot_id?: string | null;
   participant_id: number;
   puuid: string | null;
   streamer_id: string | null;
@@ -481,7 +483,7 @@ function PovDiffBox({ diff, match, streamers }: {
     if (row.who === "경기") return "경기";
     const p = match.participants.find((x) => x.participant_id === row.participant_id);
     const person = p?.account_streamer_id ?? p?.streamer_id;
-    return (person && streamers.find((s) => s.id === person)?.display_name) ?? p?.observed_name ?? row.who.replace(/^n:/, "");
+    return (person && streamers.find((s) => s.id === person)?.display_name) ?? p?.observed_name ?? p?.riot_id ?? row.who.replace(/^n:/, "");
   };
   const show = (field: string, v: unknown) => v == null ? "비어 있음"
     : field === "winning_team" || field === "team" ? (v === 100 ? "1팀" : v === 200 ? "2팀" : String(v))
@@ -968,6 +970,7 @@ type RosterDraftRow = {
   assists: string;
   clear_puuid: boolean;
   account_streamer_id?: string | null;
+  riot_id?: string | null;
   remove: boolean;
 };
 
@@ -987,7 +990,7 @@ function rosterRows(match: Pick<ReviewMatch, "participants">, bySlug: Map<string
         //   그대로 보여주면 편집창이 매번 영어로 뜬다 — 화면에서 읽는 값은 한글이니
         //   champion_id 로 한글 이름을 되찾아 보여준다. 못 찾으면(0/미확인) 저장된 값 그대로.
         const championDisplayName = championById(participant.champion_id)?.name ?? base.champion_name;
-        return { participant_id: participant.participant_id, base, account_streamer_id: participant.account_streamer_id,
+        return { participant_id: participant.participant_id, base, account_streamer_id: participant.account_streamer_id, riot_id: participant.riot_id,
           streamer_slug: base.streamer_slug, team_id: base.team_id,
           team_position: base.team_position, observed_name: base.observed_name, champion_name: championDisplayName,
           kills: base.kills, deaths: base.deaths, assists: base.assists, clear_puuid: false, remove: false };
@@ -1089,7 +1092,7 @@ function RosterRow({ row, activeCell, onOpen, onChange, streamers }: {
       <button type="button" aria-label={`참가자 ${row.participant_id} 이름${unlinked ? " · 스트리머 미연결" : ""}`} onClick={() => toggle("identity")} aria-expanded={selected("identity")}
         data-unlinked={unlinked || undefined}
         title={unlinked ? "스트리머 미연결: 이름을 눌러 연결하세요. 개인 전적·상대전적 집계에 포함되지 않습니다." : undefined}
-        className={empty ? "text-ink-600" : "text-ink-200"}>{row.remove ? "삭제 예정" : accountOwner?.display_name || known?.display_name || row.observed_name || row.streamer_slug || (row.base ? "미확인" : "+ 누락 선수")}</button>
+        className={empty ? "text-ink-600" : "text-ink-200"}>{row.remove ? "삭제 예정" : accountOwner?.display_name || known?.display_name || row.observed_name || row.streamer_slug || row.riot_id || (row.base ? "미확인" : "+ 누락 선수")}</button>
       <button type="button" aria-label={`참가자 ${row.participant_id} 챔피언`} onClick={() => toggle("champion_name")} aria-expanded={selected("champion_name")}>{row.champion_name || "—"}</button>
       <button type="button" aria-label={`참가자 ${row.participant_id} KDA`} onClick={() => toggle("kda")} aria-expanded={selected("kda")}>{[row.kills, row.deaths, row.assists].some(Boolean) ? `${row.kills || "–"}/${row.deaths || "–"}/${row.assists || "–"}` : "—"}</button>
     </div>
@@ -1102,6 +1105,8 @@ function RosterRow({ row, activeCell, onOpen, onChange, streamers }: {
     </div>}
     {selected("identity") && <div className="ck-roster-cell-editor grid gap-2">
       {unlinked && <p className="text-[10px] text-amber-300">스트리머 미연결 · 등록 스트리머를 선택하고 저장하세요.</p>}
+      {/* API 경기는 화면에서 읽은 이름이 없다. 누구인지 판단할 단서로 Riot ID 를 보여 준다(저장하지 않는다). */}
+      {row.riot_id && <p className="text-[10px] text-ink-400">Riot 계정 <b className="text-ink-200 select-all">{row.riot_id}</b></p>}
       <input list="ck-streamers" value={row.streamer_slug} onChange={(event) => set("streamer_slug", event.target.value)} placeholder="등록 스트리머(slug)" className={inputClass} />
       <input value={row.observed_name} onChange={(event) => set("observed_name", event.target.value)} placeholder="화면에서 읽은 인게임명" className={inputClass} />
       {row.base?.puuid && <label className="flex items-center gap-1.5 text-[10px] text-ink-500"><input type="checkbox" checked={row.clear_puuid} onChange={(event) => set("clear_puuid", event.target.checked)} className="accent-lose" />계정 연결 비우기</label>}

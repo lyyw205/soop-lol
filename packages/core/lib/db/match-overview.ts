@@ -122,6 +122,8 @@ export interface OverviewParticipant {
   streamer_name: string | null;
   streamer_slug: string | null;
   observed_name: string | null;
+  /** Riot ID(`닉네임#태그`) — 관리자 표시용. 사람을 못 붙인 API 경기 자리를 빈칸으로 두지 않는다. */
+  riot_id: string | null;
   champion_id: number;
   champion_name: string | null;
   kills: number | null;
@@ -155,6 +157,7 @@ export async function getOverviewSeriesSets(key: string): Promise<OverviewSetDet
              SELECT json_agg(json_build_object(
                       'participant_id', mp.participant_id, 'team_id', mp.team_id, 'team_position', mp.team_position,
                       'streamer_name', s.display_name, 'streamer_slug', s.slug, 'observed_name', mp.observed_name,
+                      'riot_id', ra.game_name || COALESCE('#' || ra.tag_line, ''),
                       'champion_id', mp.champion_id, 'champion_name', mp.champion_name,
                       'kills', mp.kills, 'deaths', mp.deaths, 'assists', mp.assists
                     ) ORDER BY mp.participant_id)
@@ -164,6 +167,7 @@ export async function getOverviewSeriesSets(key: string): Promise<OverviewSetDet
                   WHERE sa.puuid = mp.puuid AND sa.active_to IS NULL LIMIT 1
                ) acc ON true
                LEFT JOIN streamer s ON s.id = COALESCE(acc.streamer_id, mp.streamer_id)
+               LEFT JOIN riot_account ra ON ra.puuid = mp.puuid
               WHERE mp.match_id = m.match_id
            ), '[]'::json) AS participants
       FROM match m

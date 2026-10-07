@@ -182,9 +182,11 @@ export async function listChampionRecords(
              mp.outcome, mp.kills, mp.deaths, mp.assists, mp.cs, m.game_duration,
              -- ★ 분자와 분모가 같은 판을 센다. 셋을 다 읽은 판만 평균에 넣는다(0020 ⑧).
              (mp.kills IS NOT NULL AND mp.deaths IS NOT NULL AND mp.assists IS NOT NULL) AS kda_read
-        FROM core_public.match_participant mp
+        -- 사람으로 찾을 땐 streamer_match 에서 출발한다 — 참가자 뷰의 streamer_id 는 계산값이라 직접 거르면 표 전체를 훑는다(0075).
+        FROM core_public.streamer_match sm
+        JOIN core_public.match_participant mp ON mp.match_id = sm.match_id AND mp.participant_id = sm.participant_id
         JOIN core_public.match m ON m.match_id = mp.match_id
-       WHERE mp.streamer_id = ${streamerId}::uuid
+       WHERE sm.streamer_id = ${streamerId}::uuid
          AND (${cats}::text[] IS NULL OR m.category = ANY(${cats}::text[]))
          AND (${from ?? null}::date IS NULL
               OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date >= ${from ?? null}::date)
@@ -464,9 +466,10 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
              COALESCE(m.series_id, m.match_id) AS series_key,
              m.event_id,
              mp.outcome
-        FROM core_public.match_participant mp
+        FROM core_public.streamer_match sm
+        JOIN core_public.match_participant mp ON mp.match_id = sm.match_id AND mp.participant_id = sm.participant_id
         JOIN core_public.match m ON m.match_id = mp.match_id
-       WHERE mp.streamer_id = ${streamerId}::uuid AND m.source = 'manual'
+       WHERE sm.streamer_id = ${streamerId}::uuid AND m.source = 'manual'
     ),
     per_series AS (
       SELECT event_id, series_key,

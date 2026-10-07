@@ -343,12 +343,15 @@ function TeamHead({ side, name, players, tone }: { side: Side; name: string; pla
 function PlayerCells({ p, tone, sub, mirror = false }: { p: OverviewParticipant | undefined; tone: string; sub: boolean; mirror?: boolean }) {
   if (!p) return <td colSpan={3} className={tone} />;
   const champion = p.champion_id > 0 ? championById(p.champion_id) : null;
-  const flags = [sub && "직전 세트에 없던 선수 — 교체", !p.streamer_slug && "스트리머 미연결 — 화면에 보인 이름"].filter(Boolean).join(" · ");
+  // 미연결 자리는 화면에서 읽은 이름, 없으면 Riot ID(API 경기) — 어느 쪽인지 툴팁에 밝힌다.
+  const unlinkedName = p.observed_name ?? p.riot_id;
+  const flags = [sub && "직전 세트에 없던 선수 — 교체",
+    !p.streamer_slug && (p.observed_name ? "스트리머 미연결 — 화면에 보인 이름" : p.riot_id ? "스트리머 미연결 — Riot 계정 이름" : "스트리머 미연결")].filter(Boolean).join(" · ");
   const who = <td className={`${tone} c-name`}>
     <span className={`overview-name${sub ? " is-sub" : ""}${p.streamer_slug ? "" : " is-unlinked"}`} title={flags || undefined}>
       {p.streamer_name && p.streamer_slug
         ? <Link href={profileHref("lol", p.streamer_slug)} target="_blank" className="hover:underline">{p.streamer_name}</Link>
-        : p.observed_name ?? "이름 없음"}
+        : unlinkedName ?? "이름 없음"}
     </span>
   </td>;
   const champ = <td className={`${tone} c-champ`}>

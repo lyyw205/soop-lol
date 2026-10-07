@@ -103,8 +103,11 @@ export async function listPublicTournamentEvents(): Promise<PublicTournamentEven
         FROM (
           SELECT event_id,streamer_id FROM core_public.event_team_member
           UNION
-          SELECT m.event_id,mp.streamer_id FROM core_public.match_participant mp
-            JOIN core_public.match m ON m.match_id=mp.match_id WHERE m.event_id IS NOT NULL
+          -- ★ 대회 경기 번호를 먼저 배열로 뽑아 그 경기만 인덱스로 찾는다. 경기 뷰의 event_id 는 계산값이라
+          --   그냥 조인하면 플래너가 참가자 30만 행(1GB)을 통째로 훑었다(12초, 2026-10-07). 0075 참고.
+          SELECT m.event_id,sm.streamer_id FROM core_public.streamer_match sm
+            JOIN core_public.match m ON m.match_id=sm.match_id
+           WHERE sm.match_id = ANY(ARRAY(SELECT match_id FROM core_public.match WHERE event_id IS NOT NULL))
         ) ids JOIN core_public.streamer s ON s.streamer_id=ids.streamer_id GROUP BY ids.event_id
     )
     SELECT e.event_id,e.slug,e.name,e.kind,e.organizer,e.source_url,e.starts_at,e.ends_at,
