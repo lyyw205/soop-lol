@@ -42,3 +42,13 @@ test("a repeated opponent is aggregated once across the selected period",()=>{
   assert.equal(filtered[0].vs_matches,1);
   assert.equal(filtered[0].vs_match_wins,0);
 });
+
+test("a land session is one row but counts one match per game (0080)",()=>{
+  const land=(id:string,me_outcome:"win"|"loss")=>row(id,{series_key:"land-night:land",category:"land",me_outcome});
+  const result=buildOpponentHistory([land("g1","win"),land("g2","loss"),land("g3","loss"),row("ck1",{series_key:"ck",category:"ck"}),row("ck2",{series_key:"ck",category:"ck",me_outcome:"loss" as const}),row("ck3",{series_key:"ck",category:"ck"})],{key:"all"},false)[0];
+  assert.equal(result.matches.length,2);
+  assert.equal(result.vs_matches,4);   // 랜드 3판 + CK 1경기
+  assert.equal(result.vs_match_wins,2); // 랜드 1승 + CK 2:1 승
+  assert.equal(result.vs_sets,6);
+  assert.ok(result.matches.find((m)=>m.series==="land-night:land")?.land);
+});

@@ -2,6 +2,7 @@
 export type * from "./index.ts";
 export { kstDateString, kstYear, kstPlayedAt } from "../time.ts";
 export { setLabel, isStandaloneSet } from "../metrics/set-label.ts";
+export { tallyGroups, isLandCategory } from "../metrics/match-tally.ts";
 export { QUEUE_LABEL, POSITION_LABEL } from "../riot/types.ts";
 export { placementRank } from "../metrics/placement.ts";
 export { addFcoStats, EMPTY_FCO_STATS, fcoNumber, FCO_MODE_LABEL } from "../games/fconline/view.ts";

@@ -32,7 +32,7 @@ import { formatBadge, isRepeatedDate, matchOutcome } from "../../../ui/match-row
 //   좁은 계약이 곧 core 가 내부를 바꿀 수 있는 자유다.
 import {
   withinRecordPeriod, resolveRecordPeriod, recordPeriodLabel, type RecordPeriod, type PublicRosterEntry, QUEUE_LABEL, RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, expandCategory, kstDateString, kstYear, type MatchCategoryFilter,
-  setLabel, isStandaloneSet, profileHref as contractProfileHref,
+  setLabel, isStandaloneSet, profileHref as contractProfileHref, tallyGroups, isLandCategory,
 } from "@soop-lol/core/lib/contract/client";
 import { versusHref } from "./paths.ts";
 
@@ -92,6 +92,8 @@ interface Match {
   draw: boolean;
   date: string;
   head: VersusSet;
+  /** 랜드 묶음 — 한 줄이지만 판마다 매치 하나로 센다(계약의 tallyGroups). */
+  land: boolean;
 }
 
 /**
@@ -121,6 +123,7 @@ function foldMatches(rows: VersusSet[]): Match[] {
         //   하루씩 어긋났다. 연도 머리글(227·230행)도 이 값을 쓰므로 여기서 KST 로 맞춘다.
         date: kstDateString(new Date(sorted[0].played_at)),
         head: sorted[0],
+        land: isLandCategory(sorted[0].category),
       };
     })
     .sort((a, b) => new Date(b.head.played_at).getTime() - new Date(a.head.played_at).getTime() || b.series.localeCompare(a.series));
@@ -132,8 +135,9 @@ const setRecord = (rows: VersusSet[]) => ({
 });
 
 const matchRecord = (rows: VersusSet[]) => {
-  const m = foldMatches(rows);
-  return { wins: m.filter((g) => g.xWin).length, losses: m.filter((g) => !g.xWin && !g.draw).length };
+  // ★ 한 줄 = 매치 하나가 아니다 — 랜드 한 줄은 판 수만큼의 매치다. 세는 규칙은 계약 하나(tallyGroups).
+  const t = tallyGroups(foldMatches(rows).map((g) => ({ sets: g.sets.length, wins: g.xSets, land: g.land })));
+  return { wins: t.wins, losses: t.losses, matches: t.matches };
 };
 
 /** 이미 KST 로 맞춰 둔 `YYYY-MM-DD`(Match.date)를 점 표기로 바꾼다. */
@@ -302,7 +306,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
           <FixturePersonView person={y} linked profileHref={profileHref(y.slug,x.slug)} />
         </div>
         <div className="arena-score-area">
-          <p>{matches.length ? `${matches.length}번의 ${isAlly ? "동행" : "맞대결"}` : "아직 기록이 없습니다"}</p>
+          <p>{matches.length ? `${mRec.matches}번의 ${isAlly ? "동행" : "맞대결"}` : "아직 기록이 없습니다"}</p>
           <div className="arena-score" aria-label={isAlly ? `공동 ${mRec.wins}승 ${mRec.losses}패` : `${x.display_name} ${mRec.wins}승, ${y.display_name} ${mRec.losses}승`}>
             {matches.length ? mRec.wins : "—"}<span>–</span>{matches.length ? mRec.losses : "—"}
           </div>
@@ -338,7 +342,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
       <RecordContentPanel className="arena-records" id="match-records">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <h2 className="text-[15px] font-semibold text-ink-200">
-            경기 기록 <span className="tabular ml-1.5 text-xs font-normal text-ink-400">{matches.length}경기</span>
+            경기 기록 <span className="tabular ml-1.5 text-xs font-normal text-ink-400">{mRec.matches}경기</span>
           </h2>
           <div className="flex flex-wrap items-center gap-3">
             {/* '상대편으로 만난 경기만' 은 뺐다 — 바로 위 관계 필터(상대 팀/같은 팀/맞라인)가
@@ -494,7 +498,7 @@ function MatchRow({
             {/* ★ 조건부로 감싸지 않는다. 예전엔 `{(multi || best_of) && …}` 라 단판 줄만 칩이
                 없어서, 같은 경기가 개인 기록에는 `단판` 으로 여기에는 아무것도 없이 나왔다. */}
             <span className="tabular ml-auto flex-none rounded border border-ink-700 px-1.5 py-px text-[10px] text-ink-400">
-              {formatBadge(m.head.best_of, m.sets.length, m.sets.length === 1 && isStandaloneSet(m.head.match_id, m.series))}
+              {m.land ? `랜드 ${m.sets.length}판` : formatBadge(m.head.best_of, m.sets.length, m.sets.length === 1 && isStandaloneSet(m.head.match_id, m.series))}
             </span>
             {/* ▸/▾ 는 Pretendard 서브셋에 글리프가 없어 안 그려진다 — +/− 를 쓴다 */}
             {/* 글자가 아니라 아이콘 상자라 밑선이 아니라 가운데로 맞춘다. */}
@@ -504,7 +508,7 @@ function MatchRow({
           </button>
 
           {open && <MatchDetails
-            sets={m.sets.map((s)=>({matchId:s.match_id,label:setLabel({standalone:isStandaloneSet(s.match_id,s.series_key),best_of:s.best_of,set_order_known:s.set_order_known,series_game_no:s.series_game_no}),players:roster.get(s.match_id) ?? []}))}
+            sets={m.sets.map((s)=>({matchId:s.match_id,label:setLabel({standalone:isStandaloneSet(s.match_id,s.series_key),best_of:s.best_of,set_order_known:s.set_order_known,series_game_no:s.series_game_no,land:m.land}),players:roster.get(s.match_id) ?? []}))}
             streamerId={streamerId} highlightedStreamerIds={[x.streamer_id,y.streamer_id]} />}
         </div>
       </div>

@@ -36,7 +36,7 @@ export function OpponentHistoryList({ rows, people, slug, streamerName, category
               <span className="opponent-history-event">{m.event_name ?? "맞대결"}</span>
               <strong>{m.wins} : {m.sets-m.wins}</strong>
               {/* 형식을 몰라도 세트 수로 채운다 — 비우면 이 화면만 빈칸이 된다. */}
-              <small>{formatBadge(m.best_of, m.sets, m.standalone)}</small>
+              <small>{m.land ? `랜드 ${m.sets}판` : formatBadge(m.best_of, m.sets, m.standalone)}</small>
               <span data-result={matchOutcome(m.wins, m.sets)}>{OUTCOME_LABEL[matchOutcome(m.wins, m.sets)]}</span>
             </li>)}</ul>
           </div>

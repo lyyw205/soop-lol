@@ -1,12 +1,15 @@
 import type { OpponentGame } from "../db/public.ts";
 import { withinRecordPeriod, type RecordPeriod } from "./record-period.ts";
 import { isStandaloneSet } from "./set-label.ts";
+import { isLandCategory, tallyGroups } from "./match-tally.ts";
 
 export interface OpponentHistoryMatch {
   series: string; played_at: Date; event_name: string | null; sets: number; wins: number;
   best_of: number | null; allLane: boolean;
   /** 시리즈에 속하지 않은 단독 경기인가. 한 세트만 모은 시리즈와 원래 단판을 가른다. */
   standalone: boolean;
+  /** 랜드 묶음 — 한 줄이지만 판마다 매치 하나로 센다(match-tally). */
+  land: boolean;
 }
 export interface OpponentHistory {
   other_id: string; matches: OpponentHistoryMatch[];
@@ -15,9 +18,9 @@ export interface OpponentHistory {
 }
 
 function summarizeOpponent(other_id: string, matches: OpponentHistoryMatch[]): OpponentHistory {
+  const t = tallyGroups(matches);
   return {other_id,matches,last_met:matches[0].played_at,
-    vs_matches:matches.length,vs_match_wins:matches.filter((m)=>m.wins*2>m.sets).length,
-    vs_match_draws:matches.filter((m)=>m.wins*2===m.sets).length,
+    vs_matches:t.matches,vs_match_wins:t.wins,vs_match_draws:t.draws,
     vs_sets:matches.reduce((n,m)=>n+m.sets,0),vs_set_wins:matches.reduce((n,m)=>n+m.wins,0),ally_matches:0};
 }
 
@@ -41,7 +44,8 @@ export function buildOpponentHistory(rows: readonly OpponentGame[], period: Reco
       if (!withinRecordPeriod(played_at, period) || (laneOnly && !allLane)) continue;
       matches.push({series:key,played_at,event_name:sets[0].event_name,sets:sets.length,
         wins:sets.filter((s)=>s.me_outcome==="win").length,best_of:sets[0].best_of,allLane,
-        standalone:sets.length===1 && isStandaloneSet(sets[0].match_id, key)});
+        standalone:sets.length===1 && isStandaloneSet(sets[0].match_id, key),
+        land:isLandCategory(sets[0].category)});
     }
     if (!matches.length) continue;
     matches.sort((a,b)=>+b.played_at-+a.played_at || a.series.localeCompare(b.series));

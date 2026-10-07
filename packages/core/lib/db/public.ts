@@ -370,7 +370,9 @@ export async function listOpponents(
     WITH e AS (
       SELECT CASE WHEN streamer_a_id = ${streamerId}::uuid THEN streamer_b_id ELSE streamer_a_id END AS other_id,
              CASE WHEN streamer_a_id = ${streamerId}::uuid THEN a_outcome ELSE b_outcome END = 'win' AS me_win,
-             relation, is_lane_matchup, game_creation, series_key
+             relation, is_lane_matchup, game_creation,
+             -- ★ 매치 단위. 랜드는 묶음이 아니라 판마다 매치 하나다(match-tally.ts 와 같은 규칙, 0080).
+             CASE WHEN category = 'land' THEN match_id ELSE series_key END AS series_key
         FROM core_public.streamer_encounter
        WHERE (streamer_a_id = ${streamerId}::uuid OR streamer_b_id = ${streamerId}::uuid)
          AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM game_creation AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
@@ -529,6 +531,8 @@ export interface OpponentGame {
   played_at: Date;
   me_outcome: MatchOutcome;
   is_lane_matchup: boolean;
+  /** 경기 분류. 랜드는 묶음이 아니라 판 단위로 센다(match-tally). */
+  category?: string | null;
 }
 
 /**

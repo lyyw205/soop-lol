@@ -63,7 +63,7 @@ FC온라인 API가 여러 경기를 하나의 시리즈로 묶어 주는지는 �
 | 진행 방식 | 표현 | 히스토리 | 집계 |
 |---|---|---|---|
 | CK·대회 다전제 | `match_series` (팀 고정) | 시리즈 한 줄 | 세트·매치(과반 승) |
-| 랜드 | `event.kind='land'` + 이벤트마다 `match_series` 하나(`<slug>:land`, best_of 없음) | 랜드 한 줄, 그 사람의 판 단위 n승 m패 | **판 단위**. 공개 조우 뷰는 랜드의 `series_key`를 판 자신으로 낸다 |
+| 랜드 | `event.kind='land'` + 이벤트마다 `match_series` 하나(`<slug>:land`, best_of 없음) | 랜드 한 줄, 그 사람의 판 단위 n승 m패 | **판 단위**. `series_key` 는 묶음 그대로이고, 세는 규칙(`metrics/match-tally.ts`)이 랜드 묶음을 판 수만큼의 매치로 센다(0080) |
 | 보너스 판(범인찾기 등) | `match.set_role='bonus'` + 앞 본게임의 `series_id`, 부른 이름은 `set_label` | 그 시리즈를 펼치면 마지막에 보인다 | **없음**. `core_public.match`·`streamer_encounter`·`champion_stat`은 본게임만 |
 
 - 보너스는 반드시 어떤 시리즈에 붙는다(`match_bonus_in_series`). 붙일 본게임이 없으면 보너스로 표시하지 않는다.

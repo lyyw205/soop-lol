@@ -16,6 +16,7 @@ import { applyAll } from "./lib/migrations.ts";
 import { verifyReviewRecordUpgrade } from "./lib/verify-review-record-migration.ts";
 import { verifyPuuidMoveDb } from "./lib/verify-puuid-move-db.ts";
 import { verifyScheduleDb } from "./lib/verify-schedule-db.ts";
+import { verifyCkDuplicatesDb } from "./lib/verify-ck-duplicates.ts";
 
 import { PGlite } from "@electric-sql/pglite";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -2102,8 +2103,14 @@ try {
       JSON.stringify({ m: await listIn("match"), e: await listIn("streamer_encounter") }));
     const landKeys = await sqlClient()<{ match_id: string; series_key: string; category: string }[]>`
       SELECT match_id, series_key, category FROM core_public.streamer_encounter WHERE match_id IN ('VL1','VL3') ORDER BY 1`;
-    check("★ 랜드 조우의 series_key 는 판 자신이다 — 상대전적의 매치 단위가 판이다",
-      landKeys.every((r) => r.series_key === r.match_id && r.category === "land"), JSON.stringify(landKeys));
+    check("★ 랜드 조우의 series_key 는 랜드 묶음이다 — 화면은 한 줄로 접고, 세는 건 집계 규칙이 판 단위로 한다(0080)",
+      landKeys.every((r) => r.series_key === "verify-land:land" && r.category === "land"), JSON.stringify(landKeys));
+    const landGames = (await publicDb.listOpponentGames(g1.id, undefined, "land")).filter((x) => x.other_id === g2.id && x.relation === "opponent");
+    const { buildOpponentHistory } = await import("../packages/core/lib/metrics/opponent-history.ts");
+    const landHist = buildOpponentHistory(landGames, { key: "all" }, false)[0];
+    check("★ 프로필 상대전적: 랜드는 한 줄(묶음)이지만 매치는 판 수(2경기 1승 1패)로 센다",
+      landHist?.matches.length === 1 && landHist.vs_matches === 2 && landHist.vs_match_wins === 1 && landHist.matches[0].land,
+      JSON.stringify(landHist && { rows: landHist.matches.length, vs: landHist.vs_matches, w: landHist.vs_match_wins }));
     const vs = (await publicDb.listOpponents(g1.id, { category: "land" })).find((o) => o.streamer_id === g2.id);
     check("★ 랜드 상대전적: 적으로 2판(1승 1패) = 매치 2개, 아군 1판",
       vs?.vs_sets === 2 && vs.vs_set_wins === 1 && vs.vs_matches === 2 && vs.vs_match_wins === 1 && vs.ally_sets === 1,
@@ -2159,6 +2166,7 @@ try {
       JSON.stringify(distinctLog[0]?.after) === JSON.stringify(["VD1"]), JSON.stringify(distinctLog));
   }
 
+  await verifyCkDuplicatesDb();
   await verifyScheduleDb(check, expectReject);
   await verifyPuuidMoveDb(check);
 } finally {
