@@ -1,0 +1,12 @@
+# 2시간마다 홀수 시 :40(01:40, 03:40 …) — 구단가치(짝수 시 :10)와 겹치지 않게. 원본 점수는 1시간마다 갱신된다.
+# 주기를 바꾸려면 OnCalendar 만 고치고 systemctl --user daemon-reload. Persistent=true: 놓친 회차는 켜지자마자 한 번.
+[Unit]
+Description=soop-lol FC 공식경기 티어 (Engine H) 타이머
+
+[Timer]
+OnCalendar=*-*-* 01/2:40:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

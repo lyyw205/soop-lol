@@ -1,0 +1,17 @@
+# FC 공식경기 티어 (Engine H) — soop-fco-rating.timer 가 부른다. 설치: scripts/systemd/install.sh
+# ★ 같은 출처(API·홈페이지)를 쓰는 작업은 같은 잠금(fc-site)을 잡아 겹치지 않는다 — 레이트리밋 버킷이 프로세스마다 따로라
+#   동시에 돌면 각자 한도 안이라 믿으며 합쳐서 넘긴다(CLAUDE.md 워커). 앞 작업이 돌면 최대 30분 기다린다(제한 시간은 기다림+실행 기준).
+# ★ 로컬(WSL)에서는 상주 워커(worker -- loop)를 띄우지 않는다 — loop 가 이 작업들을 안에서 또 돌린다.
+[Unit]
+Description=soop-lol FC 공식경기 티어 (Engine H)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/soop-lol
+Environment=PATH=%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=/usr/bin/mkdir -p %h/repos/soop-lol/out/locks
+# 티어는 FC 홈페이지만 쓴다(넥슨 API 안 씀) — fc-site 잠금 하나. 구단가치(F)에서 2026-10-08 분리했다:
+# 목요일 정기 점검 때 스쿼드 조회가 실패해도 티어는 직전 구단 스냅샷의 신원으로 받는다.
+ExecStart=/usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/fc-site.lock npm run -s worker -- fco-rating
+TimeoutStartSec=60min
+Nice=10

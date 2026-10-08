@@ -241,6 +241,7 @@ npm run worker -- loop       # 운영 기본값. A > B > D > C 우선순위로 �
 | `soop-rank` | `worker -- rank` | 매일 09:00 | `riot` | **그날 티어는 영영 없다** |
 | `soop-fco` | `worker -- fco` | 매일 10:00 | `nexon` | 넥슨이 30일 주므로 다음 날 메워진다 |
 | `soop-fco-club` | `worker -- fco-club` | 2시간마다 (:10) | `fc-site` | **지나간 날의 구단가치는 못 구한다** |
+| `soop-fco-rating` | `worker -- fco-rating` | 2시간마다 (홀수 시 :40) | `fc-site` | 지나간 시점의 티어는 못 구한다 |
 | `soop-fco-prices` | `worker -- fco-prices` | 매일 12:40 | `fc-site` | 365일 소급되어 메워진다 |
 | `ck-auto` | `scripts/ck-auto.sh` | 매일 07:00 | 자기 잠금 + 채널 잠금 | 다음 회차가 이전 조사 다음부터 잇는다 |
 
@@ -257,6 +258,9 @@ journalctl --user -u soop-rank.service     # 로그
   로그온 시 `wsl.exe -d Ubuntu-24.04 --exec sleep infinity` 를 걸어 WSL 을 깨워 둔다.
 - 일부 대상(계정·카드)이라도 실패하면 실행 기록은 `failed`, 종료 코드는 **3** 이다 — `--status` 에 실패로 보인다.
   랭크는 실패하면 20분 뒤 다시 돈다(6시간에 3번까지, 같은 날짜로 덮어쓴다). 나머지는 다음 회차가 메운다.
+- **구단가치(스쿼드)와 티어는 따로 돈다**(2026-10-08 분리). 목요일 정기 점검 때 스쿼드 조회는 빈 응답(`{}`)이라 구단가치가
+  실패하지만, 티어는 직전 구단 스냅샷의 신원으로 계속 받는다. 주기는 각 `.timer` 의 `OnCalendar` 만 고치면 된다
+  (상주 루프는 `FCO_RATING_INTERVAL_MIN`, 기본 120분).
 - 구단가치는 감독명 갱신에 넥슨 API 도 써서 `nexon`·`fc-site` 잠금을 둘 다 잡는다(FC 경기와 겹치면 넥슨 429).
 - 넥슨 호출 제한(`5:1,1000:86400`)은 지금 로컬 개발 키 기준으로 코드에 고정돼 있다. 서버 키로 바꿀 때 설정으로 분리한다.
 

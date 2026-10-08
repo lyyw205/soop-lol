@@ -31,6 +31,11 @@ export interface WorkerConfig {
   fcoHourKst: number;
   /** FC 목록 조회 매치 타입. 기본 30·40·50·60 — 감독(52)·볼타는 저장 모델 확인 전(계획 계약 2). */
   fcoMatchtypes: number[];
+  /**
+   * Engine H — FC 공식경기 티어(점수·등급) 주기. 구단가치(F)와 따로 돈다(2026-10-08 분리) — 스쿼드 조회가
+   * 점검으로 실패해도 티어는 직전 구단 스냅샷의 신원으로 받는다. 로컬은 systemd 타이머가 주기를 정한다.
+   */
+  fcoRatingIntervalMs: number;
 
   /** 할 일이 없을 때 쉬는 시간. */
   idleMs: number;
@@ -78,6 +83,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     // 친선(40)만 — 스트리머끼리 붙는 건 서로 초대하는 친선이다. 공식경기(50·60)는 랜덤 매칭이라
     // 스트리머끼리 경기가 거의 없는데(1,085건 중 1건) 하루 1,000회 호출 한도의 대부분을 먹었다(2026-09-26 결정).
     fcoMatchtypes: (env.FCO_MATCHTYPES ?? "40").split(",").map(Number).filter((n) => Number.isInteger(n) && n >= 0),
+
+    fcoRatingIntervalMs: num(env.FCO_RATING_INTERVAL_MIN, 120) * 60 * 1000,
 
     idleMs: num(env.IDLE_SECONDS, 30) * 1000,
     verbose: bool(env.WORKER_VERBOSE, false),

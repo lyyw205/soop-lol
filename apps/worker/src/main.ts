@@ -25,7 +25,7 @@ import { createContext, isFatal, type WorkerContext } from "./context.ts";
 import { runBackfillSlice } from "./engines/backfill.ts";
 import { runDeriveEngine } from "./engines/derive.ts";
 import { runFcoEngine } from "./engines/fco.ts";
-import { runFcoClubEngine, runFcoPriceEngine } from "./engines/fco-club.ts";
+import { runFcoClubEngine, runFcoPriceEngine, runFcoRatingEngine } from "./engines/fco-club.ts";
 import { createLiveState, runLiveEngine } from "./engines/live.ts";
 import { runRankEngine } from "./engines/rank.ts";
 import { runJob } from "./job.ts";
@@ -105,6 +105,10 @@ async function main() {
       await runJob(ctx, "engine_g_fco_prices", () => runFcoPriceEngine(ctx));
       break;
 
+    case "fco-rating":
+      await runJob(ctx, "engine_h_fco_rating", () => runFcoRatingEngine(ctx));
+      break;
+
     case "modules":
       await runJob(ctx, "modules", () => runDueModuleJobs(ctx));
       break;
@@ -114,7 +118,7 @@ async function main() {
       break;
 
     default:
-      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | fco | fco-club | fco-prices | modules | loop`);
+      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | fco | fco-club | fco-prices | fco-rating | modules | loop`);
       process.exitCode = 2;
   }
 }
@@ -139,6 +143,8 @@ async function loop(ctx: WorkerContext) {
   let nextFco = ctx.nexon ? nextKstHour(new Date(), cfg.fcoHourKst).getTime() : Infinity;
   // F(구단 스냅샷)는 시한부라 넥슨 키가 없어도 돈다. G(시세)는 F 가 남긴 보유 카드를 본다 — F 다음에.
   let nextFcoClub = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
+  // H(티어)는 F 와 따로 자기 주기로 돈다 — 첫 회차는 F 직후(신원 확인용 구단 스냅샷이 먼저 있어야 한다).
+  let nextFcoRating = nextFcoClub + 60_000;
   let backfillPausedUntil = 0;
 
   log.info(SCOPE, "시작", {
@@ -170,6 +176,11 @@ async function loop(ctx: WorkerContext) {
         await runJob(ctx, "engine_f_fco_club", () => runFcoClubEngine(ctx));
         await runJob(ctx, "engine_g_fco_prices", () => runFcoPriceEngine(ctx));
         nextFcoClub = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
+        continue;
+      }
+      if (now >= nextFcoRating) {
+        await runJob(ctx, "engine_h_fco_rating", () => runFcoRatingEngine(ctx));
+        nextFcoRating = Date.now() + cfg.fcoRatingIntervalMs;
         continue;
       }
       if (now >= nextDerive) {

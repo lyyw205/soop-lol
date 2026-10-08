@@ -34,12 +34,7 @@ export async function runFcoClubEngine(ctx: WorkerContext): Promise<EngineResult
     const r = await syncClub(ctx.fcoSite, ctx.nexon, account.ouid);
     if (r.outcome === "ok") {
       ok++;
-      try { await syncRating(ctx.fcoSite, account.ouid); }
-      catch (e) {
-        const reason = `공식경기 점수: ${e instanceof Error ? e.message : String(e)}`;
-        errors.push(`${account.slug}: ${reason}`);
-        log.warn(scope, reason, { streamer: account.slug });
-      }
+      // 공식경기 티어는 여기서 받지 않는다 — Engine H(runFcoRatingEngine)가 자기 주기로 돈다(2026-10-08 분리).
       try { await syncTeamColors(ctx.fcoSite, account.ouid); }
       catch (e) {
         const reason = `팀컬러: ${e instanceof Error ? e.message : String(e)}`;
@@ -69,6 +64,39 @@ export async function runFcoClubEngine(ctx: WorkerContext): Promise<EngineResult
       ...(missing.length ? { missing } : {}),
       ...(errors.length ? { errors } : {}),
     },
+  };
+}
+
+/**
+ * Engine H — FC 공식경기 티어(점수·현재 등급·지난 시즌 최고 등급). 구단가치(F)와 따로 돈다.
+ * ★ 왜 분리했나 — F 안에서 스쿼드 저장이 성공한 계정만 티어를 받았다. 목요일 정기 점검 때 스쿼드 조회가
+ *   빈 응답이면 그날 티어도 통째로 비었다(2026-10-08). 티어는 다른 주소(rank_inner·TeamInfo)라 점검과 무관하게
+ *   받을 수 있고, 신원은 직전에 성공한 구단 스냅샷(감독명·회원번호)으로 확인한다(sync-rating.ts).
+ */
+export async function runFcoRatingEngine(ctx: WorkerContext): Promise<EngineResult> {
+  const scope = "engine_h_fco_rating";
+  const accounts = await db()<{ ouid: string; slug: string }[]>`
+    SELECT link.ouid, s.slug
+      FROM streamer_fco_account link
+      JOIN streamer s ON s.id = link.streamer_id AND s.visibility = 'public'
+     WHERE link.visibility = 'public'
+     ORDER BY s.slug, link.ouid`;
+  const siteBefore = ctx.fcoSite.callCount;
+  let ok = 0;
+  const errors: string[] = [];
+  for (const account of accounts) {
+    try { await syncRating(ctx.fcoSite, account.ouid); ok++; }
+    catch (e) {
+      const reason = `공식경기 점수: ${e instanceof Error ? e.message : String(e)}`;
+      errors.push(`${account.slug}: ${reason}`);
+      log.warn(scope, reason, { streamer: account.slug });
+    }
+  }
+  return {
+    processed: ok,
+    failed: errors.length,
+    detail: { accounts: accounts.length, ok, siteCalls: ctx.fcoSite.callCount - siteBefore,
+      ...(errors.length ? { errors } : {}) },
   };
 }
 

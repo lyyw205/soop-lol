@@ -12,7 +12,7 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 DEST="$HOME/.config/systemd/user"
-DATA=(soop-rank soop-fco soop-fco-club soop-fco-prices)
+DATA=(soop-rank soop-fco soop-fco-club soop-fco-rating soop-fco-prices)
 
 if [[ "${1:-}" == "--status" ]]; then
   # ★ systemctl show 는 한 번도 안 돈 유닛·설치 안 된 유닛도 Result=success 를 돌려준다 — 그대로 찍으면 미실행이 성공으로 보인다.
