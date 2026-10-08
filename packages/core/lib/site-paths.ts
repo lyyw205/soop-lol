@@ -50,6 +50,20 @@ export const streamersHref = (query?: HrefQuery): string => withQuery(`${GAME_BA
 export const fcMatchHref = (providerId: string): string =>
   `${GAME_BASE.fconline}/m/${encodeURIComponent(providerId)}`;
 
+// ── 회원(플랫폼 공간 · core 화면) — docs/COMMUNITY-PLAN.md §2 ─────────
+
+/** 로그인. next 는 로그인 뒤 돌아갈 내부 주소(받는 쪽이 safeNextPath 로 다시 거른다). */
+export const loginHref = (next?: string): string => withQuery("/login", { next });
+/** 소셜 로그인 시작(라우트 핸들러). */
+export const loginStartHref = (provider: string, next?: string): string => withQuery(`/auth/${encodeURIComponent(provider)}`, { next });
+/** 로그인 콜백 경로. 제공자에 등록하는 redirect_uri 는 사이트 주소 + 이 경로다. */
+export const loginCallbackPath = (provider: string): string => `/auth/${encodeURIComponent(provider)}/callback`;
+/** 내 정보(닉네임·로그아웃·탈퇴). setup 이면 처음 가입 마무리 화면. */
+export const meHref = (query?: HrefQuery): string => withQuery("/me", query);
+export const termsHref = (): string => "/terms";
+export const privacyHref = (): string => "/privacy";
+export const policyHref = (): string => "/policy";
+
 /**
  * 모듈 경로 목록에서 `params` 의 키와 [칸]이 딱 맞는 경로를 골라 채운다.
  * (`/tournaments` 와 `/tournaments/[slug]` 중에서) 맞는 게 없으면 null.

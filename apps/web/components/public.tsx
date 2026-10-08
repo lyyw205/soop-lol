@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HeaderAccount } from "./header-account";
 import { SiteNav, type SiteNavRoute } from "./site-nav";
 import { fcVersusIndexHref, versusIndexHref } from "@/lib/module-links";
 import { gameHomeHref, lobbyHref, profilePrefix, streamersHref, type SiteGame } from "@soop-lol/core/lib/site-paths";
@@ -66,6 +67,7 @@ export function SiteHeader({ site }: { site: Site }) {
         <GameSwitcher site={site} />
         <SiteNav routes={siteRoutes(site)} />
         <span className="arena-header-note">{SITE_NOTE[site]}</span>
+        <HeaderAccount />
       </div>
     </header>
   );

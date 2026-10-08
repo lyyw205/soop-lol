@@ -3,6 +3,7 @@ import "./globals.css";
 import "./arena.css";
 import "../components/personal-profile.css";
 import "./fc.css";
+import "./member.css";
 import { SiteFooter } from "@/components/site-footer";
 
 export const metadata: Metadata = {

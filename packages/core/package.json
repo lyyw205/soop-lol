@@ -11,6 +11,7 @@
   },
   "//deps": "postgres(.js)는 core 가 직접 쓴다 — 웹과 워커가 같은 커넥션 모듈을 공유한다.",
   "dependencies": {
+    "openid-client": "6.8.8",
     "postgres": "3.4.9"
   },
   "devDependencies": {

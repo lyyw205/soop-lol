@@ -1,0 +1,47 @@
+/* 회원 화면(로그인·내 정보·약관)과 머리말의 회원 자리. 공개 화면의 색·패널 문법(arena.css)을 따른다. */
+
+.header-account { flex: none; margin-left: 18px; padding: 6px 12px; border: 1px solid #3a4759; border-radius: 6px; color: #d2dae7; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.header-account:hover { border-color: #f69a60; color: #fff; }
+
+.member-card { max-width: 520px; margin: 24px auto 0; padding: 26px; }
+.member-card h1 { font-size: 22px; font-weight: 750; letter-spacing: -0.6px; margin-bottom: 8px; }
+.member-card h2 { font-size: 15px; margin-bottom: 12px; }
+.member-stack { display: grid; gap: 18px; }
+.member-stack .member-card { margin-top: 0; }
+.member-stack .member-card:first-child { margin-top: 24px; }
+.member-lead { color: #a6b2c4; font-size: 13px; line-height: 1.6; margin-bottom: 18px; }
+.member-lead b { color: #e7ecf4; }
+.member-lead a, .member-fine a, .member-check a { color: #ffb080; text-decoration: underline; text-underline-offset: 3px; }
+.member-muted { color: #a6b2c4; font-size: 12px; line-height: 1.6; }
+.member-fine { margin-top: 18px; color: #8f9db1; font-size: 11px; line-height: 1.7; }
+
+.member-providers { display: grid; gap: 10px; }
+.member-provider { display: flex; align-items: center; justify-content: center; min-height: 46px; border-radius: 6px; font-size: 14px; font-weight: 650; }
+.member-provider-kakao { background: #fee500; color: rgba(0, 0, 0, 0.85); }
+.member-provider-google { background: #fff; color: #1f1f1f; border: 1px solid #747775; }
+.member-provider:hover { filter: brightness(0.96); }
+
+.member-form { display: grid; gap: 12px; margin-top: 14px; }
+.member-field { display: grid; gap: 6px; font-size: 12px; color: #c6cfde; }
+.member-field small { color: #8f9db1; font-size: 11px; margin-left: 4px; }
+.member-field input { height: 40px; padding: 0 12px; border: 1px solid #3a4759; border-radius: 6px; background: #111823; color: #e7ecf4; font-size: 14px; }
+.member-field input:focus { outline: none; border-color: #f69a60; }
+.member-check { display: flex; align-items: flex-start; gap: 8px; color: #c6cfde; font-size: 12px; line-height: 1.6; }
+.member-check input { margin-top: 3px; }
+.member-primary, .member-secondary, .member-danger { justify-self: start; min-height: 38px; padding: 0 18px; border-radius: 6px; font-size: 13px; font-weight: 700; }
+.member-primary { background: #f5a06c; border: 1px solid #f5a06c; color: #181e29; }
+.member-secondary { border: 1px solid #3a4759; color: #d2dae7; }
+.member-danger { border: 1px solid #b4534f; color: #f2b8b5; }
+.member-primary:disabled, .member-secondary:disabled, .member-danger:disabled { opacity: 0.6; cursor: wait; }
+.member-alert { border: 1px solid #b4534f66; background: #b4534f1a; color: #f2c1be; border-radius: 6px; padding: 9px 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+.member-ok { border: 1px solid #4ade8044; background: #4ade8014; color: #b5f2c8; border-radius: 6px; padding: 9px 12px; font-size: 12px; }
+
+.legal-doc { max-width: 760px; margin: 24px auto 0; padding: 28px; line-height: 1.75; font-size: 13px; color: #c6cfde; }
+.legal-doc h1 { font-size: 22px; font-weight: 750; margin-bottom: 14px; color: #e7ecf4; }
+.legal-doc h2 { font-size: 14px; font-weight: 700; margin: 22px 0 8px; color: #e7ecf4; }
+.legal-doc ul { padding-left: 18px; list-style: disc; display: grid; gap: 4px; }
+
+@media (max-width: 640px) {
+  .member-card, .legal-doc { margin-top: 12px; padding: 20px 16px; }
+  .header-account { margin-left: 10px; padding: 5px 9px; }
+}
