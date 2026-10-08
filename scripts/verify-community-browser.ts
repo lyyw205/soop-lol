@@ -104,7 +104,9 @@ const base = `http://127.0.0.1:${appPort}`;
 const clientId = "verify-kakao";
 const provider = await startFakeProvider(clientId);
 const children: ChildProcess[] = [];
+const ADMIN = { username: "verify_admin", password: "disposable-only" };
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+let keepWarm: ReturnType<typeof setInterval> | undefined;
 
 try {
   const devDb = spawn(process.execPath, ["scripts/dev-db.ts"], { cwd: root, env: { ...process.env, DEV_DB_PORT: String(dbPort) }, stdio: ["ignore", "pipe", "pipe"] });
@@ -117,7 +119,7 @@ try {
       ...process.env,
       DATABASE_URL: `postgres://postgres@127.0.0.1:${dbPort}/postgres`, DATABASE_POOL_MAX: "1",
       KAKAO_CLIENT_ID: clientId, OAUTH_KAKAO_ISSUER: provider.issuer, GOOGLE_CLIENT_ID: "",
-      ADMIN_USER: "verify_admin", ADMIN_PASSWORD: "disposable-only",
+      ADMIN_USER: ADMIN.username, ADMIN_PASSWORD: ADMIN.password,
       NEXT_DIST_DIR: ".next-community-browser", NEXT_TELEMETRY_DISABLED: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -125,9 +127,23 @@ try {
   children.push(app);
   await waitForOutput(app, /Ready in|ready started|Local:/, 180_000);
 
+  // ★ 이 흐름이 쓰는 경로를 브라우저보다 먼저 빌드하고, 검증 내내 내려가지 않게 30초마다 불러 둔다.
+  //   개발 서버는 경로를 처음 받을 때(그리고 60초 넘게 안 쓴 경로를 내렸다 다시 받을 때 — onDemandEntries 기본값) 빌드하고,
+  //   빌드가 끝나면 열린 화면을 Fast Refresh 로 다시 불러온다. 그게 로그인 화면 → /auth/kakao(·콜백) 이동과 겹치면
+  //   이동이 끊겨 로그인 화면에 남는다(서버 기록에는 응답 없이 끊긴 200). 이렇게 두 번 실패했고, 열린 /login 이
+  //   새 경로 빌드 때 스스로 다시 불러오는 것을 따로 띄워 확인했다(2026-10-09). 콜백은 ?error= 로 불러 오류 기록을 남기지 않는다.
+  const warmPaths = ["/", "/community", "/login", "/me", "/auth/kakao", "/auth/kakao/callback?error=warm", "/lol/s/sample_a"];
+  const adminAuth = `Basic ${Buffer.from(`${ADMIN.username}:${ADMIN.password}`).toString("base64")}`;
+  const warm = async () => {
+    for (const path of warmPaths) await fetch(`${base}${path}`, { redirect: "manual" }).then((r) => r.arrayBuffer()).catch(() => {});
+    await fetch(`${base}/admin/community`, { headers: { authorization: adminAuth }, redirect: "manual" }).then((r) => r.arrayBuffer()).catch(() => {});
+  };
+  await warm();
+  keepWarm = setInterval(() => void warm(), 30_000);
+
   browser = await chromium.launch();
   const newUser = async () => (await browser!.newContext({ viewport: { width: 1280, height: 1000 } })).newPage();
-  const admin = await (await browser.newContext({ httpCredentials: { username: "verify_admin", password: "disposable-only" }, viewport: { width: 1280, height: 1100 } })).newPage();
+  const admin = await (await browser.newContext({ httpCredentials: ADMIN, viewport: { width: 1280, height: 1100 } })).newPage();
   const anon = await newUser();
   const go = async (page: Page, path: string) => page.goto(`${base}${path}`, { timeout: 180_000, waitUntil: "domcontentloaded" });
   /** 클라이언트 부품이 붙을 때까지 기다린다 — 그 전에 누르면 자바스크립트 없는 폼 제출(점진적 향상)로 가서 상태가 빠진다. */
@@ -205,7 +221,7 @@ try {
   const etcText = await anon.locator(".cm-list").innerText().catch(() => "");
   check("?game=etc 는 기타 글만", etcText.includes("기타 검증 글") && !etcText.includes("브라우저 검증 글"));
 
-  console.log("\n▸ 들어오는 길(프로필·상대전적)");
+  console.log("\n▸ 들어오는 길(프로필)");
   await go(anon, "/lol/s/sample_a");
   const talk = anon.getByRole("link", { name: /이 스트리머 이야기/ });
   check("롤 프로필에 '이 스트리머 이야기' 가 있다", await talk.count() === 1);
@@ -215,11 +231,6 @@ try {
     anon.url().includes("s=sample_a") && anon.url().includes("game=lol")
       && await anon.getByRole("heading", { level: 1, name: "샘플 스트리머 A 이야기" }).count() === 1
       && (await anon.locator(".cm-list").innerText()).includes("브라우저 검증 글"), anon.url());
-  await go(anon, "/lol/versus?a=sample_a&b=sample_b");
-  const versusTalk = anon.locator(".versus-talk a");
-  const versusHref = await versusTalk.getAttribute("href").catch(() => null);
-  check("롤 상대전적에 '맞대결 이야기' 가 있고 두 사람·게임을 넘긴다",
-    !!versusHref && versusHref.includes("a=sample_a") && versusHref.includes("b=sample_b") && versusHref.includes("game=lol"), String(versusHref));
 
   console.log("\n▸ 회원 2 — 추천·신고·답글");
   const u2 = await newUser();
@@ -298,6 +309,7 @@ try {
   console.error(" FAIL  진행 중 오류 —", error instanceof Error ? error.message : error);
   for (const [child, log] of logs) console.error(`--- 프로세스 ${child.pid} 로그 끝 ---\n${log.slice(-3000)}`);
 } finally {
+  clearInterval(keepWarm);
   await browser?.close();
   for (const child of children.reverse()) child.kill("SIGTERM");
   await provider.close();

@@ -23,7 +23,6 @@ import "./community.css";
 type Props = {
   params?: Record<string, string>;
   searchParams: Record<string, string | string[] | undefined>;
-  roleHref: (role: string, params?: Record<string, string>, query?: Record<string, string>) => string | null;
 };
 
 const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
@@ -46,8 +45,8 @@ async function streamerChoices(): Promise<StreamerChoice[]> {
 /** 글쓰기 — 로그인·닉네임이 없으면 거기로 보낸다. 들어온 문맥(게임·스트리머)을 기본값으로 채운다. */
 async function Compose({ searchParams }: { searchParams: Props["searchParams"] }) {
   const game = parseGameFilter(one(searchParams.game));
-  const slugs = [one(searchParams.s), one(searchParams.a), one(searchParams.b)].filter((s): s is string => !!s && /^[\w.-]{1,64}$/.test(s));
-  const here = communityHref({ write: 1, game: game && game !== "etc" ? game : undefined, s: one(searchParams.s), a: one(searchParams.a), b: one(searchParams.b) });
+  const slugs = [one(searchParams.s)].filter((s): s is string => !!s && /^[\w.-]{1,64}$/.test(s));
+  const here = communityHref({ write: 1, game: game && game !== "etc" ? game : undefined, s: one(searchParams.s) });
   const me = await currentMember();
   if (!me) redirect(loginHref(here));
   if (!me.nickname) redirect(meHref({ setup: 1, next: here }));
@@ -59,7 +58,7 @@ async function Compose({ searchParams }: { searchParams: Props["searchParams"] }
   const initial: ComposeInitial = {
     id: null, version: null, game: game === "lol" || game === "fconline" ? game : null, topic: "free", title: "", body: "", tags,
   };
-  const back = communityHref({ game: game ?? undefined, s: one(searchParams.s), a: one(searchParams.a), b: one(searchParams.b) });
+  const back = communityHref({ game: game ?? undefined, s: one(searchParams.s) });
   return <div className="cm cm-compose-page">
     <div className="cm-heading"><div><h1>글쓰기</h1><p>스트리머를 태그하면 그 사람 프로필의 &lsquo;이 스트리머 이야기&rsquo; 에 모입니다.</p></div></div>
     <ComposeForm initial={initial} streamers={await streamerChoices()} cancelHref={back} />
@@ -82,7 +81,7 @@ async function Edit({ id }: { id: number }) {
   </div>;
 }
 
-export default async function CommunityPage({ params, searchParams, roleHref }: Props) {
+export default async function CommunityPage({ params, searchParams }: Props) {
   if (params?.id !== undefined) {
     const id = parseContentId(params.id);
     if (id === null) notFound(); // 숫자가 아닌 번호 — 질의 전에 거른다(캐스트 오류로 500 을 내지 않는다)
@@ -90,5 +89,5 @@ export default async function CommunityPage({ params, searchParams, roleHref }: 
     return <PostDetail post={await loadPost(id)} />;
   }
   if (one(searchParams.write) === "1") return <Compose searchParams={searchParams} />;
-  return <CommunityList searchParams={searchParams} roleHref={roleHref} />;
+  return <CommunityList searchParams={searchParams} />;
 }

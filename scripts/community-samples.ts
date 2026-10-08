@@ -77,12 +77,12 @@ const POSTS: SamplePost[] = [
   {
     key: "versus-lol", at: "10-06 13:05", who: "mid", game: "lol", topic: "match",
     title: "바밤바 vs 성훈 맞대결 기록 보신 분?",
-    body: "상대전적 화면에서 '맞대결 이야기' 눌러서 들어왔어요.\n두 분 내전에서 정말 많이 만났네요. 다음 내전 때도 여기서 같이 이야기해요.",
+    body: "상대전적 보다가 두 분이 내전에서 정말 많이 만난 걸 봤어요.\n다음 내전 때도 여기서 같이 이야기해요.",
     tags: ["babamba", "seonghun"],
     votes: [{ at: "10-06 13:12", who: "canyon" }, { at: "10-06 13:50", who: "jungle" }, { at: "10-06 15:30", who: "support" }, { at: "10-06 20:05", who: "touch" }],
     comments: [
       { at: "10-06 13:40", who: "canyon", body: "다음 내전 일정 나오면 여기 남겨 주세요." },
-      { at: "10-06 14:02", who: "jungle", body: "맞대결 이야기 버튼 생긴 거 좋네요 ㅋㅋ" },
+      { at: "10-06 14:02", who: "jungle", body: "두 분 다음 맞대결도 기대되네요 ㅋㅋ" },
     ],
   },
   {

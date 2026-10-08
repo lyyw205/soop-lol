@@ -11,7 +11,6 @@ import {
 import { communityHref, communityPostHref } from "./paths.ts";
 import { authorLabel, shortWhen } from "./text.tsx";
 
-type RoleHref = (role: string, params?: Record<string, string>, query?: Record<string, string>) => string | null;
 type Params = Record<string, string | string[] | undefined>;
 
 const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
@@ -45,29 +44,26 @@ function Row({ post }: { post: PublicCommunityPostRow }) {
 
 /**
  * 목록 — 게임 칩(전체·LOL·FC·기타) × 말머리 칩, 그 아래 공지 띠, 그 아래 글. 필터는 전부 주소다(공유한 주소가 같은 화면).
- * ★ ?game=lol 에 기타 글을 섞지 않는다(편성표와 같은 뜻). ★ ?s= · ?a=&b= 로 들어오면 그 사람(들) 이야기만, 비었으면 "첫 글 쓰기".
+ * ★ ?game=lol 에 기타 글을 섞지 않는다(편성표와 같은 뜻). ★ ?s= 로 들어오면 그 사람 이야기만, 비었으면 "첫 글 쓰기".
  */
-export async function CommunityList({ searchParams, roleHref }: { searchParams: Params; roleHref: RoleHref }) {
+export async function CommunityList({ searchParams }: { searchParams: Params }) {
   const game = parseGameFilter(one(searchParams.game));
   const topic = parseTopicFilter(one(searchParams.topic));
   const s = slug(one(searchParams.s));
-  const a = slug(one(searchParams.a)), b = slug(one(searchParams.b));
-  const pair: [string, string] | null = a && b && a !== b ? [a, b] : null;
   const author = one(searchParams.author) ?? null;
   const cursor = one(searchParams.cursor) ?? null;
 
   // 질의는 순서대로 — 화면 하나의 동시 질의를 늘리지 않는다(PLAN §M4-1).
   const person = s ? await getPublicStreamer(s) : null;
-  const pairPeople = pair ? [await getPublicStreamer(pair[0]), await getPublicStreamer(pair[1])] : null;
-  const missing = (s && !person) || (pairPeople && pairPeople.some((p) => !p));
-  const notices = !missing && topic === null && !s && !pair && !author && !cursor ? await listPublicNotices(game) : [];
-  const { posts, next } = missing ? { posts: [], next: null } : await listPublicCommunityPosts({ game, topic, streamer: s, pair, author, cursor });
+  const missing = s !== null && !person;
+  const notices = !missing && topic === null && !s && !author && !cursor ? await listPublicNotices(game) : [];
+  const { posts, next } = missing ? { posts: [], next: null } : await listPublicCommunityPosts({ game, topic, streamer: s, author, cursor });
   const me = await currentMember();
 
   type Query = Record<string, string | undefined>;
-  const filters: Query = { game: game ?? undefined, topic: topic ?? undefined, s: s ?? undefined, a: pair?.[0], b: pair?.[1], author: author ?? undefined };
+  const filters: Query = { game: game ?? undefined, topic: topic ?? undefined, s: s ?? undefined, author: author ?? undefined };
   const href = (changes: Query) => communityHref({ ...filters, cursor: undefined, ...changes });
-  const writeTarget = communityHref({ write: 1, game: game && game !== "etc" ? game : undefined, s: s ?? undefined, a: pair?.[0], b: pair?.[1] });
+  const writeTarget = communityHref({ write: 1, game: game && game !== "etc" ? game : undefined, s: s ?? undefined });
   const writeHref = !me ? loginHref(writeTarget) : me.nickname ? writeTarget : meHref({ setup: 1, next: writeTarget });
   const site = game === "fconline" ? "fconline" : "lol";
 
@@ -79,10 +75,6 @@ export async function CommunityList({ searchParams, roleHref }: { searchParams: 
   } else if (person) {
     title = `${person.display_name} 이야기`;
     lead = <><Link href={profileHref(site, person.slug)}>프로필 보기</Link> · <Link href={href({ s: undefined })}>전체 글</Link></>;
-  } else if (pairPeople && pair) {
-    const versus = roleHref(game === "fconline" ? "fc-versus" : "versus", {}, { a: pair[0], b: pair[1] });
-    title = `${pairPeople[0]!.display_name} · ${pairPeople[1]!.display_name} 맞대결 이야기`;
-    lead = <>{versus && <><Link href={versus}>상대전적 보기</Link> · </>}<Link href={href({ a: undefined, b: undefined })}>전체 글</Link></>;
   } else if (author) {
     title = posts[0] ? `${authorLabel(posts[0].author_id, posts[0].author_nickname)}의 글` : "회원의 글";
     lead = <Link href={href({ author: undefined })}>전체 글</Link>;

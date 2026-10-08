@@ -2,7 +2,6 @@
  * FC 상대전적 모듈 화면. host 가 /fc/versus 에 띄운다(FC 머리말·본문 폭은 host 의 것).
  * core 의 FC 공개 조회를 계약으로 읽는다.
  */
-import Link from "next/link";
 import {
   fcoMetadata, getFeaturedFcoPair, listFcoPeople, listFcoTopPairs, listFcoVersus,
 } from "@soop-lol/core/lib/contract";
@@ -16,7 +15,7 @@ import { versusHref } from "./paths.ts";
 type Props = {
   searchParams: Record<string, string | string[] | undefined>;
   /** host 가 역할로 풀어 주는 다른 모듈 링크. 그 모듈이 없으면 null. */
-  roleHref: (role: string, params?: Record<string, string>, query?: Record<string, string>) => string | null;
+  roleHref: (role: string, params?: Record<string, string>) => string | null;
 };
 
 const TABS = ["games", "metrics", "players"] as const;
@@ -45,12 +44,9 @@ export default async function FcVersus({ searchParams: sp, roleHref }: Props) {
   const timelineGames = games.map((game) => ({ ...game,
     participants: game.participants.map((participant) => ({ ...participant, match_info: {} })),
   }));
-  // 커뮤니티로 가는 길 — 역할로 묻는다. 커뮤니티 모듈이 없으면 줄이 사라진다.
-  const talk = roleHref("community", {}, { game: "fconline", a: a.slug, b: b.slug });
   const eventHrefs = new Map(games.flatMap((game) => game.event_slug ? [[game.event_slug, roleHref("fc-tournaments", { slug: game.event_slug })] as const] : []));
   return <RecordLayout sidebar={<FcoVersusSidebar person={a} games={games} people={people} topPairs={topPairs} opponentId={b.id}
     eventHref={(slug) => eventHrefs.get(slug) ?? null} />}>
-    {talk && <p className="versus-talk"><Link href={talk}>{a.name} · {b.name} 맞대결 이야기 →</Link></p>}
     <FcoVersusDetail key={`${a.id}:${b.id}:${tab}`} a={a} b={b} people={people} games={timelineGames} initialTab={tab}
       metrics={<FcoStatsTable games={games} emptyMessage="맞대결 경기 지표가 없습니다." />}
       players={<FcoTournamentPlayers games={games} names={names} emptyMessage="맞대결에서 사용한 선수 기록이 없습니다." />} />

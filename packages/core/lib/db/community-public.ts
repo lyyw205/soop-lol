@@ -56,8 +56,6 @@ export interface CommunityListQuery {
   topic: CommunityTopic | null;
   /** 이 스트리머가 태그된 글(slug) */
   streamer: string | null;
-  /** 두 사람이 모두 태그된 글(slug 둘) */
-  pair: [string, string] | null;
   /** 이 회원의 글(member.id) */
   author: string | null;
   /** 이 글 다음부터(encodeCursor 값) */
@@ -80,7 +78,6 @@ export async function listPublicCommunityPosts(q: CommunityListQuery): Promise<{
   const cursor = decodeCursor(q.cursor);
   const author = isUuid(q.author) ? q.author : null;
   if (q.author && !author) return { posts: [], next: null };
-  const [pairA, pairB] = q.pair ?? [null, null];
   const rows = await db()<PublicCommunityPostRow[]>`
     SELECT p.post_id::int AS post_id, p.game_code, p.topic, p.title, p.author_id, p.author_nickname,
            p.like_count, p.comment_count, p.created_at, p.edited_at
@@ -91,11 +88,6 @@ export async function listPublicCommunityPosts(q: CommunityListQuery): Promise<{
        AND (${q.streamer}::text IS NULL OR EXISTS (
              SELECT 1 FROM core_public.community_post_streamer ps JOIN core_public.streamer s ON s.streamer_id = ps.streamer_id
               WHERE ps.post_id = p.post_id AND s.slug = ${q.streamer}))
-       AND (${pairA}::text IS NULL OR (
-             EXISTS (SELECT 1 FROM core_public.community_post_streamer ps JOIN core_public.streamer s ON s.streamer_id = ps.streamer_id
-                      WHERE ps.post_id = p.post_id AND s.slug = ${pairA})
-         AND EXISTS (SELECT 1 FROM core_public.community_post_streamer ps JOIN core_public.streamer s ON s.streamer_id = ps.streamer_id
-                      WHERE ps.post_id = p.post_id AND s.slug = ${pairB})))
        AND (${cursor?.at ?? null}::timestamptz IS NULL OR (p.created_at, p.post_id) < (${cursor?.at ?? null}::timestamptz, ${cursor?.id ?? null}::bigint))
      ORDER BY p.created_at DESC, p.post_id DESC
      LIMIT ${limit + 1}`;

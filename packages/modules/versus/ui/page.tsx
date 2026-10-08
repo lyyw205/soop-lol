@@ -11,8 +11,6 @@
  *   읽어 "맞대결이 몇 대 몇인가" 를 해석해 그린다. 같은 것을 두 군데서 만들지 않는다.
  */
 
-import Link from "next/link";
-
 import {
   getPublicStreamer, listEncountersBetween, listMatchRosters, listPublicStreamerOptions,
   type PublicEncounter, isMatchCategoryFilter, resolveRecordPeriod,
@@ -55,10 +53,7 @@ function asSeen(g: PublicEncounter, flip: boolean): VersusSet {
 }
 
 export default async function VersusModulePage(
-  { searchParams, roleHref }: {
-    searchParams: Record<string, string | string[] | undefined>;
-    roleHref?: (role: string, params?: Record<string, string>, query?: Record<string, string>) => string | null;
-  },
+  { searchParams }: { searchParams: Record<string, string | string[] | undefined> },
 ) {
   const categoryInput = one(searchParams.category);
   const category = categoryInput && isMatchCategoryFilter(categoryInput) ? categoryInput : "all";
@@ -109,12 +104,8 @@ export default async function VersusModulePage(
   const options = await listPublicStreamerOptions();
 
 
-  // 커뮤니티로 가는 길 — 모듈끼리는 서로를 모르므로 역할로 묻는다. 커뮤니티 모듈이 없으면 줄이 사라진다.
-  const talk = roleHref?.("community", {}, { game: "lol", a: x.slug, b: y.slug }) ?? null;
-
   return (
     <RecordLayout sidebar={<ProfileSidebar person={x} exclude={[x.slug, y.slug]} />}>
-      {talk && <p className="versus-talk"><Link href={talk}>{x.display_name} · {y.display_name} 맞대결 이야기 →</Link></p>}
       <VersusDetail key={`detail-${x.slug}-${y.slug}-${category}-${year ?? "all"}-${relation}-${datePeriod.from ?? ""}-${datePeriod.to ?? ""}`} x={x} y={y} sets={sets} rosters={rosters} options={options} initialCategory={category} initialYear={year} initialRelation={relation} initialDatePeriod={datePeriod} />
     </RecordLayout>
   );

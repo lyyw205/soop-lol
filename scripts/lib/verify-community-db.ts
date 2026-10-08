@@ -45,7 +45,7 @@ export async function verifyCommunityDb(check: Check, expectReject: ExpectReject
     game_code: "lol" as const, topic: "free" as const, title: "롤 이야기", body: "본문", streamer_ids: [] as string[], ...over,
   });
   const list = (q: Partial<import("../../packages/core/lib/db/community-public.ts").CommunityListQuery> = {}) =>
-    pub.listPublicCommunityPosts({ game: null, topic: null, streamer: null, pair: null, author: null, cursor: null, ...q });
+    pub.listPublicCommunityPosts({ game: null, topic: null, streamer: null, author: null, cursor: null, ...q });
   const ids = (rows: { post_id: number }[]) => rows.map((r) => r.post_id);
 
   console.log("\n▸ 커뮤니티 — 쓰기 경로");
@@ -66,9 +66,7 @@ export async function verifyCommunityDb(check: Check, expectReject: ExpectReject
   check("전체 목록은 기타 + 모든 게임", [p1.id, p2.id, p3.id].every((id) => all.includes(id)));
   check("★ ?game=lol 목록에 기타 글이 섞이지 않는다", lol.includes(p1.id) && !lol.includes(p2.id) && !lol.includes(p3.id), JSON.stringify(lol));
   check("?game=etc 는 기타 글만", etc.includes(p2.id) && !etc.includes(p1.id), JSON.stringify(etc));
-  const pair = ids((await list({ pair: ["cm-a", "cm-b"] })).posts);
   const onlyA = ids((await list({ streamer: "cm-a" })).posts);
-  check("?a=&b= 는 두 사람이 모두 태그된 글만", pair.includes(p1.id) && !pair.includes(p2.id), JSON.stringify(pair));
   check("?s= 는 그 스트리머가 태그된 글", onlyA.includes(p1.id) && onlyA.includes(p2.id) && !onlyA.includes(p3.id));
   check("작성자 필터(member.id)", ids((await list({ author: O.id })).posts).sort().join() === [p2.id, p3.id].sort().join());
   await sql`INSERT INTO community_post_streamer (post_id, streamer_id) VALUES (${p1.id}, ${sH.id})`; // 접근자를 거치지 않고 넣어 본다
