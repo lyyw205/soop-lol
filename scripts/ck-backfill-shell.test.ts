@@ -25,6 +25,8 @@ function fixture(mode:string, env:Record<string,string>={}) {
  if(String(args[0]).endsWith('ck-local/scan.mjs')){fs.appendFileSync(process.env.ORDER,'prep\n');console.log('PREP: ck-local run_id=fake');process.exit(Number(process.env.PREP_CODE??0));}
  if(['ck-session-usage.ts','ck-image-budget.ts'].some(p=>String(args[0]).endsWith(p))){const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
  // FC 앞뒤 원본 추출 — 실제로 받지 않고 순서만 남긴다.
+ // 롤 앞뒤 원본(ck-neighbors.ts)은 호출 순서 기록(ORDER)을 흐리지 않게 따로 적는다.
+ if(args.some(a=>String(a).endsWith('ck-neighbors.ts'))){fs.appendFileSync(process.env.NEIGHBORS??'/dev/null','neighbors:'+args[args.indexOf('--vod')+1]+'\n');process.exit(Number(process.env.NEIGHBORS_CODE??0));}
  if(args.some(a=>String(a).endsWith('fco-context-frames.ts'))){fs.appendFileSync(process.env.ORDER,'frames:'+args[args.indexOf('--vod')+1]+'\n');process.exit(Number(process.env.FRAMES_CODE??0));}
  const command=args[2];fs.appendFileSync(process.env.ORDER,command+'\n');
  if(args.includes('--game')&&args[args.indexOf('--game')+1]!=='lol')fs.appendFileSync(process.env.GAMES??'/dev/null',command+':'+args[args.indexOf('--game')+1]+'\n');
@@ -160,6 +162,14 @@ test('--game fconline 은 FC 스킬·FC 지시문·FC 준비로 돌고, 모든 C
  const n=fixture('ok',{NEXT_N:'1',CK_BACKFILL_FRAMES:''});try {assert.equal(await done(n.start('--streamer','test','--game','fconline')),0);
   assert.ok(!n.order().includes('frames:'), '빈 CK_BACKFILL_FRAMES 는 끈다');}finally{n.cleanup();}
  const g=fixture('ok');try {assert.equal(await done(g.start('--streamer','test','--game','dota')),1);}finally{g.cleanup();}
+});
+
+test('롤 백필은 진척 확인 뒤 VOD 마다 결과창 앞뒤 원본(ck-neighbors)을 올리고, 실패해도 계속한다', async()=>{
+ const log=join(mkdtempSync(join(tmpdir(),'ck-neighbors-')),'n.log');
+ const f=fixture('ok',{NEXT_N:'2',NEIGHBORS:log,NEIGHBORS_CODE:'1'});try {assert.equal(await done(f.start('--streamer','test')),0, '원본 추출 실패는 백필을 멈추지 않는다');
+  assert.equal(readFileSync(log,'utf8'),'neighbors:1\nneighbors:2\n');}finally{f.cleanup();}
+ const k=fixture('ok',{NEXT_N:'1',AFTER_CODE:'4',NEIGHBORS:log+'.k'});try {await done(k.start('--streamer','test'));
+  assert.equal(existsSync(log+'.k'),false, '진척이 없으면 올리지 않는다');}finally{k.cleanup();}
 });
 
 test('병렬 실행 — 스트리머마다 워커 하나, 모두 끝까지 돌고 잠금은 부모 하나만 쥔다',async()=>{

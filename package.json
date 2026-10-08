@@ -59,6 +59,7 @@
     "ck:collect": "node --env-file-if-exists=apps/web/.env.local scripts/collect-leads.ts",
     "//ck:probe": "★ VOD 전체 범위에 대표 화면을 뿌려 원본 프레임을 뽑는다. DB 에 쓰지 않고 '읽음' 도 안 붙인다 — 여는 것은 조사자의 일이다. 짧은 꼬리 파일도 보고, 시각은 VOD 전체 초로 통일한다.",
     "ck:probe": "node scripts/ck-probe.mjs",
+    "ck:neighbors": "node --env-file-if-exists=apps/web/.env.local scripts/ck-neighbors.ts",
     "//ck:listen": "★ 고른 구간의 음성을 받아 전사한다. 화면이 기본이고 음성은 보조다 — 확보 비용이 비싸서 오디오 전용 트랙을 먼저 찾는다. 시각은 ck:probe 와 같은 VOD 전체 축이고, 분할 파일 경계는 도구가 쪼갠다.",
     "ck:listen": "node scripts/ck-listen.mjs",
     "//ck:merge": "★ 조사 결과가 DB 로 들어가는 유일한 창구. 프레임 추출·전사는 로컬 산출물만 만들고, 기록과 경기 변경은 전부 여기로 온다. --find-match 로 '이 판 이미 있나' 를 먼저 묻는다.",

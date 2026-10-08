@@ -74,13 +74,13 @@ if [[ -n "${CK_BACKFILL_PREP+set}" ]]; then PREP_CMD="$CK_BACKFILL_PREP"
 elif [[ "$GAME" == fconline ]]; then PREP_CMD='node scripts/ck-local/scan.mjs --vod {vod} && (cd scripts/fco-local && ../../out/ck-detector/venv/bin/python fc_detect.py --vod {vod})'
 elif [[ "$SKILL" == "ck-local" ]]; then PREP_CMD='node scripts/ck-local/scan.mjs --vod {vod} --reuse'
 else PREP_CMD=""; fi
-# ★ FC 만: 세션이 끝나고 진척이 확인되면 그 VOD 의 결과 화면 앞뒤 **원본**을 뽑아 둔다(npm run fco:frames).
+# ★ 세션이 끝나고 진척이 확인되면 그 VOD 의 결과 화면 앞뒤 **원본**을 뽑아 둔다(FC: fco:frames · 롤: ck:neighbors).
 #   검수 화면은 결과 화면 앞뒤를 원본으로 넘겨 보는데, 조사 세션은 결과 화면만 원본으로 뽑는다. 검수할 때 기다리지 않게 여기서 받는다.
 #   실패해도 백필은 멈추지 않는다(검수 재료일 뿐 조사 결과가 아니다). CK_BACKFILL_FRAMES 를 빈 값으로 주면 끈다.
-#   롤 백필에는 붙이지 않는다.
 if [[ -n "${CK_BACKFILL_FRAMES+set}" ]]; then FRAMES_CMD="$CK_BACKFILL_FRAMES"
 elif [[ "$GAME" == fconline ]]; then FRAMES_CMD='node --env-file-if-exists=apps/web/.env.local scripts/fco-context-frames.ts --vod {vod}'
-else FRAMES_CMD=""; fi
+# 롤: 경기에 연결된 결과창마다 앞뒤 3장(3초 간격) 원본을 사람 검수용으로 올린다(ck-neighbors.ts, 토큰 0 · 2026-10-09).
+else FRAMES_CMD='node --env-file-if-exists=apps/web/.env.local scripts/ck-neighbors.ts --vod {vod}'; fi
 for program in node claude flock setsid; do command -v "$program" >/dev/null || { echo "$program 필요" >&2; exit 1; }; done
 mkdir -p out/ck/auto out/ck/backfill
 # ★ CK_BACKFILL_PARENT_LOCK=1 — scripts/ck-backfill-par.sh 가 이미 잠금을 쥐고 스트리머별로 이 셸을 병렬로 띄운 경우.
@@ -236,7 +236,7 @@ ck:local --finish를 쓰면 --status running --resume <인계 JSON>을 명시한
   if [[ -n "$FRAMES_CMD" ]]; then
     say "앞뒤 원본: ${FRAMES_CMD//\{vod\}/$VOD}"
     run_child bash -c "${FRAMES_CMD//\{vod\}/$VOD}" \
-      || say "  ⚠ 앞뒤 원본을 다 못 뽑았다 — 백필은 계속한다. 나중에: npm run fco:frames -- --vod $VOD"
+      || say "  ⚠ 앞뒤 원본을 다 못 뽑았다 — 백필은 계속한다. 나중에: ${FRAMES_CMD//\{vod\}/$VOD}"
   fi
   if (( MAX_SESSIONS > 0 && SESSIONS >= MAX_SESSIONS )); then RESULT='지정한 세션 수까지 처리(기간 완료와 별개)'; CODE=0; break; fi
 done

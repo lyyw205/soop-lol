@@ -178,6 +178,9 @@ lol_worker() {  # $1 작업자 번호
       queue_cmd finish --vod "$vod" --dir "$RUN" >>"$LOG" 2>&1; fcode=$?
       node scripts/ck-session-usage.ts "$out" "$RUN/after-$vod.json" "$BASE/usage.jsonl" "$MODEL" >>"$LOG" 2>&1 \
         || say "[롤$w] vod:$vod 사용량을 집계하지 못했다. 원본: $out"
+      # 경기에 연결된 결과창마다 앞뒤 3장(3초 간격) 원본을 사람 검수용으로 올린다 — 셸이 하므로 토큰 0. 실패해도 조사는 계속.
+      nice -n 10 node --env-file-if-exists=apps/web/.env.local scripts/ck-neighbors.ts --vod "$vod" >>"$LOG" 2>&1 \
+        || say "[롤$w] vod:$vod 앞뒤 원본을 다 못 올렸다 — 나중에: npm run ck:neighbors -- --vod $vod"
       if (( code != 0 )); then say "[롤$w] vod:$vod Claude 실패(코드 $code) — 모든 작업자를 멈춘다"; echo "$code" >"$RUN/abort"; exec {lockfd}>&-; return 0; fi
       (( fcode == 3 )) && { say "[롤$w] vod:$vod 끝"; break; }
       (( fcode == 4 )) && { say "[롤$w] vod:$vod 진척 없음 — 오늘은 여기까지(다음 회차가 잇는다)"; break; }
