@@ -31,7 +31,7 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 | **FC 온라인 — 넥슨 API + VOD 맥락** | **운영 중.** API 경기 2,790건. 화면으로만 아는 경기(30일 이전)는 저장 구조만 있다(0050, 공개 전) | [docs/FCO-SCREEN-MATCH-DESIGN.md](docs/FCO-SCREEN-MATCH-DESIGN.md) |
 | FC 온라인 — 구단가치·스쿼드·시세(공식 홈페이지) | 2026-10-02 첫 수집(16계정, 카드 379장). 주기 실행은 서버 배포 때(구단 2시간 · 시세 하루 1회). 그 전엔 손으로 `worker -- fco-club` | [docs/FCO-CLUB-VALUE-PLAN.md](docs/FCO-CLUB-VALUE-PLAN.md) |
 | **롤 공개 큐 — Riot API(워커 Engine A~D)** | 코드 완성, **지금 데이터 없음**(공개 큐 경기 0건). Riot 키 상태는 docs/SETUP.md §1 에서 확인한다 | [docs/PLAN.md](docs/PLAN.md) §10 |
-| **커뮤니티 — 회원·글·댓글·신고** | **코드 완성**(2026-10-08, 브랜치 `community`). 운영 DB 적용 완료(0081·0082, 다음 번호는 0083) · 로그인 앱(카카오·구글) 미등록 · 플랫폼 모듈 `community` + 기록은 core | [docs/COMMUNITY-PLAN.md](docs/COMMUNITY-PLAN.md) |
+| **커뮤니티 — 회원·글·댓글·신고** | **코드 완성·합침**(2026-10-08). 운영 DB 적용 완료(0081·0082 — 다음 마이그레이션 번호는 0083) · **공개 전** — 로그인 앱(카카오·구글) 미등록 · 정리 타이머는 가입을 열 때 설치 · 플랫폼 모듈 `community` + 기록은 core | [docs/COMMUNITY-PLAN.md](docs/COMMUNITY-PLAN.md) |
 | 롤 내전 — 토너먼트 코드 | 미시작. Production Key 가 필요하고 그 심사 요건이 "동작하는 사이트"라 **배포(M4) 뒤에만** 가능하다. VOD 판독과는 별개 경로다 | [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) |
 
 시한부인 것 두 개 (Riot 수집을 돌릴 때):
