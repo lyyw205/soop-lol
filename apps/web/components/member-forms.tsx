@@ -5,14 +5,15 @@
  */
 
 import Link from "next/link";
-import { useActionState } from "react";
 
-import { REJOIN_COOLDOWN_DAYS } from "@soop-lol/core/lib/metrics/community";
+import { PURGE_AFTER_DAYS, REJOIN_COOLDOWN_DAYS } from "@soop-lol/core/lib/metrics/community";
 import { NICKNAME_MAX, NICKNAME_MIN } from "@soop-lol/core/lib/metrics/nickname";
 import { policyHref, privacyHref, termsHref } from "@soop-lol/core/lib/site-paths";
 
 import { changeNicknameAction, completeSignupAction, withdrawAction } from "@/app/me/actions";
 import { IDLE, type ActionState } from "@/lib/action-state";
+
+import { useKeptFormAction } from "../../../packages/ui/use-kept-form-action";
 
 function Message({ state }: { state: ActionState }) {
   if (!state.message) return null;
@@ -27,8 +28,8 @@ function NicknameInput({ defaultValue }: { defaultValue?: string }) {
 }
 
 export function SignupForm({ next }: { next: string }) {
-  const [state, action, pending] = useActionState(completeSignupAction, IDLE);
-  return <form action={action} className="member-form">
+  const { state, dispatch: action, pending, onSubmit } = useKeptFormAction(completeSignupAction, IDLE);
+  return <form action={action} onSubmit={onSubmit} className="member-form">
     <input type="hidden" name="next" value={next} />
     <NicknameInput />
     <label className="member-check">
@@ -44,8 +45,8 @@ export function SignupForm({ next }: { next: string }) {
 }
 
 export function NicknameForm({ current }: { current: string }) {
-  const [state, action, pending] = useActionState(changeNicknameAction, IDLE);
-  return <form action={action} className="member-form">
+  const { state, dispatch: action, pending, onSubmit } = useKeptFormAction(changeNicknameAction, IDLE);
+  return <form action={action} onSubmit={onSubmit} className="member-form">
     <NicknameInput defaultValue={current} />
     <Message state={state} />
     <button type="submit" className="member-secondary" disabled={pending}>닉네임 바꾸기</button>
@@ -53,14 +54,14 @@ export function NicknameForm({ current }: { current: string }) {
 }
 
 export function WithdrawForm() {
-  const [state, action, pending] = useActionState(withdrawAction, IDLE);
-  return <form action={action} className="member-form">
+  const { state, dispatch: action, pending, onSubmit } = useKeptFormAction(withdrawAction, IDLE);
+  return <form action={action} onSubmit={onSubmit} className="member-form">
     <p className="member-muted">
       탈퇴하면 닉네임이 지워지고 쓴 글·댓글은 &lsquo;탈퇴한 회원&rsquo; 으로 남습니다. 같은 소셜 계정으로는 {REJOIN_COOLDOWN_DAYS}일 동안(제재 중이면 제재가 끝날 때까지) 다시 가입할 수 없습니다.
     </p>
     <label className="member-check">
       <input type="checkbox" name="deleteContent" />
-      <span>내 글·댓글도 지우기(공개에서 바로 빠지고 30일 뒤 파기됩니다)</span>
+      <span>내 글·댓글도 지우기(공개에서 바로 빠지고 {PURGE_AFTER_DAYS}일 뒤 파기됩니다)</span>
     </label>
     <label className="member-field">
       <span>확인을 위해 &lsquo;탈퇴&rsquo; 를 적어 주세요</span>

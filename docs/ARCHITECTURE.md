@@ -9,6 +9,8 @@ core 는 **데이터와 계산**을 소유하고, 모듈은 **그걸로 만드�
   여러 기능이 같이 쓰는 계산(LP·KDA·날짜·표시 규칙). 사람 명부(`/lol/streamers`)·프로필(`/lol/s/[slug]`)·로비(`/`)도 core 다.
 - **모듈** — 기능별 정책과 화면. 무엇을 어떻게 묶어 해석하고 보여줄지(맞대결 집계, 대회 분류·
   시리즈 점수·선수 기록 …).
+- **회원과 회원이 남긴 기록(커뮤니티 글·댓글·추천·신고·제재)도 core 다**(2026-10-08). 사람의 신원은 여러 기능이 쓰고,
+  신고 처리는 "검수" 다. 공개 화면만 모듈(`community`)이다 — 편성표와 같은 나눔([COMMUNITY-PLAN](COMMUNITY-PLAN.md)).
 - **핵심 기능도 모듈일 수 있다.** 기준은 "사이트에 중요한가" 가 아니라 "그 기능의 정책과 화면을
   떼어낼 수 있어야 하는가" 다. 상대전적(versus)·대회(tournaments)가 모두 모듈이다.
   FC 도 같다 — 상대전적(fc_versus)·대회(fc_tournaments)·구단가치(fc_club_value)가 모듈이고,
@@ -33,6 +35,9 @@ core 는 **데이터와 계산**을 소유하고, 모듈은 **그걸로 만드�
 | `riot_account.puuid` | **Riot** | ✅ 불변 | `riot_account` | **게임 데이터의 유일한 조인 키** |
 | `game_name` + `tag_line` | **Riot** | ❌ 자주 바뀜 | `riot_account` | 표시용 캐시 |
 | `riot_account.summoner_id` | **Riot** | 💀 폐기 예정 | `riot_account` | league-v4 폴백용으로만 |
+| `member.id` | **우리** | ✅ 영구 | `member` | 회원 내부 키 · 글 작성자 키 |
+| `member_identity (provider, subject)` | **로그인 제공자** | ✅ 불변 | `member_identity` | 로그인 판정 키 — `puuid` 와 같은 자리 |
+| `member.nickname` | **회원** | ❌ 바뀜 | `member` | 표시용 — 조인·주소에 쓰지 않는다(Riot ID 와 같은 규칙) |
 
 ### 규칙
 
@@ -87,7 +92,9 @@ apps/worker/            Engine A~D + 모듈 잡
 ## 3. 계약 5조
 
 1. **모듈은 `@soop-lol/core/lib/contract` 만 import 한다.** `core/lib/db` 직접 접근 금지
-2. **모듈은 자기 `mod_<name>` 스키마에만 쓴다.** core 테이블 쓰기 금지
+2. **모듈은 자기 `mod_<name>` 스키마에만 쓴다.** core 테이블에 직접 쓰지 않는다 — 필요하면 core 가 계약으로 연
+   쓰기 함수(접근자)만 부른다. 첫 사례가 커뮤니티 회원 쓰기다(`contract/community.ts` — 토큰은 계약이 쿠키에서 읽고,
+   판단·저장은 core 접근자 하나가 한다. 모듈은 회원 id 를 넘기지 않는다)
 3. **모듈끼리 import 금지**
 4. **core·worker·web 은 특정 모듈을 import 하지 않는다.** 등록부(`@soop-lol/modules/registry`·`ui`)만 본다
 5. **모듈 제거 = 디렉터리 삭제 + `DROP SCHEMA mod_<name> CASCADE`.** core 는 무변경
@@ -142,6 +149,10 @@ FC 공개 조회(`core/lib/db/fconline.ts`)는 아직 `core_public` 뷰가 없�
 숨긴 계정·숨긴 사람·미등록 상대의 신원이 반환값 어디에도 없는지는 `verify:fco` 가 본다.
 
 모듈이 필요한 게 계약에 없으면 **계약에 추가하는 게 맞다.** 우회하지 않는다.
+
+계약은 세 갈래다 — **공개 읽기**(`core_public` 만 — 누구나 읽어도 되는 것) · **화면용 회원**(지금 로그인한 회원) ·
+**회원 쓰기**(세션 토큰으로 core 접근자를 부른다). 쿠키를 읽는 계약(`contract/community.ts`)은 서버 전용이고, core 에서
+`next` 에 기대는 곳은 그것이 부르는 `core/lib/auth/request.ts` 하나다 — 워커는 import 하지 않는다.
 
 ---
 

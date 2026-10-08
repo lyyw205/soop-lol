@@ -1,0 +1,104 @@
+/* 커뮤니티 — 공개 화면의 색·패널 문법(arena.css)을 따른다. 낮은 채도의 표, 보통 굵기 글자. 모듈을 지우면 같이 사라진다. */
+.cm { --cm-line: #303b4c; --cm-panel: #171f2b; --cm-muted: #a6b2c4; --cm-text: #d2dae7; --cm-accent: #ffb080; color: var(--cm-text); font-size: 14px; }
+.cm a { color: inherit; }
+.cm a:hover { color: #fff; }
+.cm .tabular { font-variant-numeric: tabular-nums; }
+.cm-muted { color: var(--cm-muted); font-size: 12px; }
+
+.cm-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px; padding: 8px 0 20px; }
+.cm-heading h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.8px; margin-bottom: 6px; }
+.cm-heading p { color: var(--cm-muted); font-size: 13px; line-height: 1.6; }
+.cm-heading p a { color: var(--cm-accent); text-decoration: underline; text-underline-offset: 3px; }
+.cm-write { display: inline-flex; align-items: center; min-height: 38px; padding: 0 18px; border-radius: 6px; background: #f5a06c; border: 1px solid #f5a06c; color: #181e29 !important; font-size: 13px; font-weight: 700; }
+.cm-write:hover { filter: brightness(1.05); }
+.cm-write:disabled { opacity: 0.6; cursor: wait; }
+
+.cm-toolbar { display: flex; flex-wrap: wrap; gap: 10px 14px; padding: 14px 0; border-top: 1px solid var(--cm-line); }
+.cm-chips { display: inline-flex; flex-wrap: wrap; padding: 3px; gap: 2px; background: #1b2532; border: 1px solid var(--cm-line); border-radius: 6px; font-size: 12px; }
+.cm-chips a { padding: 5px 10px; border-radius: 4px; color: var(--cm-muted); }
+.cm-chips a[aria-current] { background: #2d3a4c; color: #fff; }
+
+.cm-topic, .cm-game { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 4px; font-size: 11px; white-space: nowrap; }
+.cm-topic { border: 1px solid #3a4759; color: var(--cm-muted); }
+.cm-topic-notice { border-color: #d58c5e; color: var(--cm-accent); }
+.cm-game { background: #22303f; color: #c6cfde; }
+
+.cm-notices { display: grid; gap: 1px; margin-bottom: 12px; border: 1px solid var(--cm-line); border-radius: 8px; overflow: hidden; }
+.cm-notices li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; background: #1c2431; font-size: 13px; }
+.cm-notices li a { font-weight: 600; }
+.cm-notices .cm-row-meta { margin-left: auto; }
+
+.cm-list { border: 1px solid var(--cm-line); border-radius: 8px; overflow: hidden; background: var(--cm-panel); }
+.cm-row { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-top: 1px solid #263142; }
+.cm-row:first-child { border-top: 0; }
+.cm-row-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.cm-row-main strong { font-weight: 500; overflow-wrap: anywhere; }
+.cm-row-main:hover strong { color: #ffc49e; }
+.cm-count { color: var(--cm-accent); font-size: 12px; }
+.cm-row-meta { display: flex; gap: 12px; flex: none; color: var(--cm-muted); font-size: 12px; }
+.cm-empty { display: grid; justify-items: start; gap: 12px; padding: 28px; border: 1px dashed var(--cm-line); border-radius: 8px; color: var(--cm-muted); }
+.cm-more { margin-top: 14px; text-align: center; font-size: 13px; }
+.cm-more a { color: var(--cm-accent); }
+
+.cm-back { margin-bottom: 14px; font-size: 13px; color: var(--cm-muted); }
+.cm-article { border: 1px solid var(--cm-line); border-radius: 8px; background: var(--cm-panel); padding: 22px; }
+.cm-article-tags { display: flex; gap: 6px; margin-bottom: 10px; }
+.cm-article h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; overflow-wrap: anywhere; }
+.cm-article-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; color: var(--cm-muted); font-size: 12px; }
+.cm-article-meta b, .cm-comment-meta b { color: var(--cm-text); font-weight: 600; }
+.cm-streamers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cm-streamers li { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; border: 1px solid #3a4759; border-radius: 999px; font-size: 12px; }
+.cm-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; }
+.cm-text a { color: var(--cm-accent); text-decoration: underline; text-underline-offset: 3px; }
+.cm-body { margin-top: 18px; padding-top: 18px; border-top: 1px solid #263142; }
+.cm-article-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; margin-top: 22px; }
+
+.cm-inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cm-vote { display: inline-flex; align-items: center; min-height: 34px; padding: 0 14px; border: 1px solid #3a4759; border-radius: 6px; font-size: 13px; color: var(--cm-text); }
+.cm-vote[aria-pressed="true"] { border-color: #d58c5e; color: var(--cm-accent); }
+.cm-vote:disabled { cursor: default; }
+.cm-link-button { display: inline-flex; align-items: center; min-height: 34px; padding: 0 10px; color: var(--cm-muted); font-size: 12px; }
+.cm-link-button:hover { color: #fff; }
+.cm-report summary { display: inline-flex; align-items: center; min-height: 34px; padding: 0 10px; color: var(--cm-muted); font-size: 12px; cursor: pointer; }
+.cm-report-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cm-report-form select, .cm-report-form input, .cm-report-form button { height: 32px; padding: 0 8px; border: 1px solid #3a4759; border-radius: 5px; background: #111823; color: var(--cm-text); font-size: 12px; }
+
+.cm-comments { margin-top: 22px; }
+.cm-comments h2 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+.cm-comments > ol { display: grid; gap: 1px; border: 1px solid var(--cm-line); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+.cm-comment { padding: 12px 14px; background: var(--cm-panel); }
+.cm-replies { margin-top: 10px; display: grid; gap: 8px; }
+.cm-reply { padding: 10px 12px; margin-left: 18px; border-left: 2px solid #2d3a4c; background: #1b2532; border-radius: 0 6px 6px 0; }
+.cm-comment-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; color: var(--cm-muted); font-size: 12px; }
+.cm-comment-actions { margin-top: 4px; }
+.cm-comment-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.cm-comment-form { display: grid; gap: 8px; margin-top: 8px; }
+.cm-comment-form textarea, .cm-compose textarea, .cm-compose input, .cm-compose select {
+  width: 100%; padding: 10px 12px; border: 1px solid #3a4759; border-radius: 6px; background: #111823; color: #e7ecf4; font-size: 14px; font-family: inherit; }
+.cm-comment-form textarea:focus, .cm-compose textarea:focus, .cm-compose input:focus, .cm-compose select:focus { outline: none; border-color: #f69a60; }
+.cm-comment-form-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.cm-comment-form-foot button, .cm-tag-input button { min-height: 34px; padding: 0 14px; border: 1px solid #3a4759; border-radius: 6px; font-size: 13px; color: var(--cm-text); }
+
+.cm-compose { display: grid; gap: 16px; max-width: 820px; }
+.cm-compose label > span, .cm-compose-field > span { display: block; margin-bottom: 6px; font-size: 12px; color: #c6cfde; }
+.cm-compose small { color: #8f9db1; margin-left: 4px; font-size: 11px; }
+.cm-compose-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.cm-compose-row label { flex: 1 1 200px; }
+.cm-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.cm-tags li { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border: 1px solid #d58c5e66; border-radius: 999px; color: var(--cm-accent); font-size: 12px; }
+.cm-tags button { width: 20px; height: 20px; border-radius: 999px; color: var(--cm-muted); }
+.cm-tag-input { display: flex; gap: 8px; }
+.cm-compose-foot { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+
+.cm-error { color: #f2c1be; font-size: 12px; }
+.cm-ok { color: #b5f2c8; font-size: 12px; }
+.cm a:focus-visible, .cm button:focus-visible, .cm summary:focus-visible { outline: 2px solid #ffac79; outline-offset: 2px; }
+
+@media (max-width: 640px) {
+  .cm-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .cm-row-main { flex-wrap: wrap; }
+  .cm-row-meta { gap: 10px; }
+  .cm-article { padding: 16px; }
+  .cm-reply { margin-left: 8px; }
+  .cm-notices .cm-row-meta { margin-left: 0; }
+}

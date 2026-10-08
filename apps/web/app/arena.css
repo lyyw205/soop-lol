@@ -740,3 +740,11 @@
 .upcoming-schedule strong { font-size: 13px; }
 .upcoming-schedule small { color: #a6b2c4; font-size: 11px; }
 .upcoming-when { color: #f69a60; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* 프로필 오른쪽 칸의 커뮤니티 패널(ProfileSidebar). 일정 패널과 같은 칸에 쌓인다. */
+.record-sidebar > .arena-panel + .arena-panel { margin-top: 14px; }
+.profile-talk p { color: #a6b2c4; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+/* 상대전적(롤·FC 모듈) 위의 "맞대결 이야기" 줄 — 커뮤니티로 가는 길. 커뮤니티 모듈이 없으면 그려지지 않는다. */
+.versus-talk { margin: 0 0 14px; font-size: 13px; }
+.versus-talk a { color: #ffb080; text-decoration: underline; text-underline-offset: 3px; }
+.versus-talk a:hover { color: #ffc49e; }

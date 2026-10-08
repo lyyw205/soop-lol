@@ -39,6 +39,21 @@ import * as versus_server from "./versus/server/index.ts";
 
 export const MODULES: RegisteredModule[] = [
   {
+    name: "community",
+    version: "0.1.0",
+    title: "커뮤니티",
+    description: "core 의 커뮤니티 기록을 읽어 게임(공통·LOL·FC)과 말머리로 나눈 목록·글·댓글 화면을 보여준다.",
+    schema: "mod_community",
+    routes: [{"path":"/community","title":"커뮤니티"},{"path":"/community/[id]"}],
+    provides: ["community"],
+    navOrder: 20,
+    site: "platform",
+    jobs: [
+
+    ],
+    hasUi: true,
+  },
+  {
     name: "fc_club_value",
     version: "0.1.0",
     title: "FC 구단가치",

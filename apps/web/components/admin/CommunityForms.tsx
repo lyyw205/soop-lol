@@ -4,8 +4,6 @@
  * 커뮤니티 운영 폼. 처리가 거부돼도(상태 전이 불가·사유 누락) 입력값을 잃지 않는다. 판단은 서버(core community-admin.ts)가 한다.
  */
 
-import { useActionState } from "react";
-
 import {
   COMMUNITY_GAME_LABEL, MODERATION_ACTION_LABEL, type ModerationAction,
 } from "@soop-lol/core/lib/metrics/community";
@@ -13,13 +11,15 @@ import {
 import { liftSanctionAction, moderateAction, noticeAction, sanctionAction } from "@/app/admin/community/actions";
 import { IDLE } from "@/lib/action-state";
 
+import { useKeptFormAction } from "../../../../packages/ui/use-kept-form-action";
+
 import { ActionMessage, SubmitButton } from "./Field";
 
 const input = "rounded-lg border border-ink-700 bg-ink-950 px-2.5 py-1.5 text-sm text-ink-200 outline-none focus:border-accent-600";
 
 export function ModerateForm({ kind, targetId, actions }: { kind: "post" | "comment"; targetId: number; actions: ModerationAction[] }) {
-  const [state, action] = useActionState(moderateAction, IDLE);
-  return <form action={action} className="mt-3 flex flex-wrap items-center gap-2">
+  const { state, dispatch: action, onSubmit } = useKeptFormAction(moderateAction, IDLE);
+  return <form action={action} onSubmit={onSubmit} className="mt-3 flex flex-wrap items-center gap-2">
     <input type="hidden" name="kind" value={kind} />
     <input type="hidden" name="target" value={targetId} />
     <select name="action" className={input} aria-label="처리" defaultValue={actions[0]}>
@@ -32,8 +32,8 @@ export function ModerateForm({ kind, targetId, actions }: { kind: "post" | "comm
 }
 
 export function SanctionForm({ memberId }: { memberId: string }) {
-  const [state, action] = useActionState(sanctionAction, IDLE);
-  return <form action={action} className="mt-3 flex flex-wrap items-center gap-2">
+  const { state, dispatch: action, onSubmit } = useKeptFormAction(sanctionAction, IDLE);
+  return <form action={action} onSubmit={onSubmit} className="mt-3 flex flex-wrap items-center gap-2">
     <input type="hidden" name="member" value={memberId} />
     <select name="days" className={input} aria-label="제한 기간" defaultValue="1">
       <option value="1">1일</option><option value="7">7일</option><option value="30">30일</option><option value="permanent">영구</option>
@@ -45,8 +45,8 @@ export function SanctionForm({ memberId }: { memberId: string }) {
 }
 
 export function LiftSanctionForm({ sanctionId }: { sanctionId: number }) {
-  const [state, action] = useActionState(liftSanctionAction, IDLE);
-  return <form action={action} className="inline-flex items-center gap-2">
+  const { state, dispatch: action, onSubmit } = useKeptFormAction(liftSanctionAction, IDLE);
+  return <form action={action} onSubmit={onSubmit} className="inline-flex items-center gap-2">
     <input type="hidden" name="sanction" value={sanctionId} />
     <SubmitButton tone="ghost">풀기</SubmitButton>
     <ActionMessage state={state} />
@@ -54,8 +54,8 @@ export function LiftSanctionForm({ sanctionId }: { sanctionId: number }) {
 }
 
 export function NoticeForm() {
-  const [state, action] = useActionState(noticeAction, IDLE);
-  return <form action={action} className="grid gap-2">
+  const { state, dispatch: action, onSubmit } = useKeptFormAction(noticeAction, IDLE);
+  return <form action={action} onSubmit={onSubmit} className="grid gap-2">
     <div className="flex flex-wrap gap-2">
       <select name="game" className={input} aria-label="게임" defaultValue="">
         <option value="">공통(모든 게임 필터에 보임)</option>

@@ -10,5 +10,5 @@ export {
 export type { CommunityGame, CommunityTopic, GameFilter, PostInput, ReportReason } from "../metrics/community.ts";
 export type { PublicCommunityComment, PublicCommunityPost, PublicCommunityPostRow } from "../db/community-public.ts";
 export { kstDateString } from "../time.ts";
-export { loginHref, profileHref, routeHref } from "../site-paths.ts";
+export { loginHref, meHref, profileHref, routeHref } from "../site-paths.ts";
 export type { HrefQuery } from "../site-paths.ts";
