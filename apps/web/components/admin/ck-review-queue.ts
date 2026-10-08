@@ -33,6 +33,9 @@ export interface ReviewQueueOptions {
   vodStartedAt?: string | Date | null;
 }
 
+/** 결과창 기준으로 게임 시작 앞에 붙이는 밴픽·로비 여유(초). */
+export const PREGAME_SEC = 10 * 60;
+
 /** 시각을 모르는 경기의 자리. 큐에서는 "시각 미상", 미니맵에서는 축 밖의 점. */
 export const UNPLACED = Number.MAX_SAFE_INTEGER;
 
@@ -70,7 +73,14 @@ export function projectReviewQueue<F extends QueueFrameLike, M extends QueueMatc
   const projected: ProjectedMatch<M, F>[] = matches.map((match) => {
     const own = frames.filter((frame) => frame.match_id === match.match_id).sort(byTime);
     const times = own.map((frame) => frame.at_sec).filter((time): time is number => time != null);
-    if (times.length) return { match, frames: own, at: Math.min(...times), end: Math.max(...times), rangeSource: "evidence" };
+    if (times.length) {
+      // ★ 구간을 연결 사진의 처음~끝으로만 잡으면, 결과창 한 장만 연결한 경기는 구간이 한 점이 되어 그 판의
+      //   밴픽·게임 화면이 하나도 안 묶였다(2026-10-08, 조사 세션이 몇 장 연결하느냐에 화면이 좌우됨).
+      //   경기 길이를 알면 마지막 사진(대개 결과창)에서 게임 길이 + 밴픽·로비 여유만큼 앞까지 이 경기 구간으로 본다.
+      const end = Math.max(...times);
+      const fromDuration = match.game_duration && match.game_duration > 0 ? end - match.game_duration - PREGAME_SEC : end;
+      return { match, frames: own, at: Math.max(0, Math.min(Math.min(...times), fromDuration)), end, rangeSource: "evidence" };
+    }
     const vodStartedAt = epochMillis(options.vodStartedAt);
     const gameCreation = Number.isFinite(match.game_creation_epoch_ms)
       ? match.game_creation_epoch_ms!

@@ -74,3 +74,15 @@ test("다음 경기가 시작된 뒤 남은 늦은 결과 프레임은 앞 경�
   ]);
   assert.deepEqual(projection[0].frames.map((item) => item.id), ["game-end", "late-result"], "늦은 프레임도 비교 프레임으로 남는다");
 });
+
+test("결과창 한 장만 연결된 경기도 게임 길이만큼 앞의 밴픽·게임 화면을 그 경기에서 본다", () => {
+  // 2026-10-08 다누리 9시 CK 1경기: 결과창(13388초) 한 장만 연결 → 좌우로 넘길 사진이 없었다.
+  const frames = [frame("lobby-before", 10500), frame("banpick", 11700), frame("ingame", 12600),
+    frame("result", 13388, "G1"), frame("g2-ingame", 15000), frame("g2-result", 16070, "G2")];
+  const withDuration = (match_id: string, game_duration: number) => ({ match_id, game_duration });
+  const projection = projectReviewQueue(frames, [withDuration("G1", 1800), withDuration("G2", 1676)]);
+  assert.deepEqual(projection[0].frames.map(f => f.id), ["banpick", "ingame", "result"]);
+  assert.deepEqual(projection[1].frames.map(f => f.id), ["g2-ingame", "g2-result"]);
+  assert.equal(projection[0].at, 13388 - 1800 - 600);
+  assert.deepEqual(reviewQueueEntries(projection, frames).filter(e => e.kind === "frame").map(e => e.id), ["lobby-before"]);
+});
