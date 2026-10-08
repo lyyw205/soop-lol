@@ -171,7 +171,7 @@ lol_worker() {  # $1 작업자 번호
       fi
       out="$RUN/session-$tag.json"
       setsid node scripts/ck-image-budget.ts run --state "$RUN/image-$tag.json" --output "$out" --vod "$vod" \
-        --warn-mib "$IMAGE_WARN" --limit-mib "$IMAGE_LIMIT" --flush-seconds 180 -- claude -p "$prompt" "${CLAUDE_BASE[@]}" >>"$LOG" 2>&1
+        --warn-mib "$IMAGE_WARN" --limit-mib "$IMAGE_LIMIT" --flush-seconds 180 -- claude -p "$prompt" "${CLAUDE_BASE[@]}" </dev/null >>"$LOG" 2>&1
       claude_code $? "$out"; code=$?
       queue_cmd finish --vod "$vod" --dir "$RUN" >>"$LOG" 2>&1; fcode=$?
       node scripts/ck-session-usage.ts "$out" "$RUN/after-$vod.json" "$BASE/usage.jsonl" "$MODEL" >>"$LOG" 2>&1 \
@@ -189,6 +189,8 @@ lol_worker() {  # $1 작업자 번호
 fc_worker() {
   local slug who n key out code from
   from=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).from)' "$RUN/fc.json")
+  # ★ claude -p 는 파이프로 들어온 표준입력을 프롬프트에 붙여 읽는다 — 반복문의 남은 목록을 삼켜서
+  #   첫 스트리머 뒤에 작업자가 끝났다(2026-10-08). 그래서 claude 호출은 항상 </dev/null.
   while IFS=$'\t' read -r slug who n; do
     [[ -z "$slug" ]] && continue
     may_start "FC" || return 0
@@ -202,7 +204,7 @@ API 경기의 맥락 판정만 한다. VOD 결과 화면으로 API 에 없는 �
 경기마다 casual/event 결론 또는 unresolved 사유를 fco:context apply 로 반영하고, 실제로 연 프레임은 근거로 건다. 행사명·주최자를 지어내지 않는다.
 세션 비용 상한 안에서 다 못 하면 처리한 만큼 반영하고 끝낸다 — 다음 날 남은 미조사부터 잇는다.
 작업 폴더는 $ROOT 이다. 스킬이 명령으로 안 보이면 $ROOT/.claude/skills/fco-match-context/SKILL.md 를 Read 로 직접 읽는다." \
-      "${CLAUDE_BASE[@]}" >"$out" 2>>"$LOG"
+      "${CLAUDE_BASE[@]}" </dev/null >"$out" 2>>"$LOG"
     claude_code $? "$out"; code=$?
     queue_cmd settle --key "$key" >>"$LOG" 2>&1; local scode=$?
     (( scode == 0 || scode == 4 )) || fail "[FC] $key 진척 확인 실패(코드 $scode)"
