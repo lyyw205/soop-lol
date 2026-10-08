@@ -17,6 +17,7 @@ import { verifyReviewRecordUpgrade } from "./lib/verify-review-record-migration.
 import { verifyPuuidMoveDb } from "./lib/verify-puuid-move-db.ts";
 import { verifyScheduleDb } from "./lib/verify-schedule-db.ts";
 import { verifyMemberDb } from "./lib/verify-member-db.ts";
+import { verifyCommunityDb } from "./lib/verify-community-db.ts";
 import { verifyCkDuplicatesDb } from "./lib/verify-ck-duplicates.ts";
 
 import { PGlite } from "@electric-sql/pglite";
@@ -2171,6 +2172,7 @@ try {
   await verifyScheduleDb(check, expectReject);
   await verifyPuuidMoveDb(check);
   await verifyMemberDb(check, expectReject);
+  await verifyCommunityDb(check, expectReject);
 } finally {
   await closeDb();
   await server.stop();

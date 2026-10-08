@@ -3,7 +3,7 @@
 import { AdminScrollMemory } from "./AdminScrollMemory";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardCheck, LayoutDashboard, Radio, Trophy, Users, CalendarDays } from "lucide-react";
+import { ClipboardCheck, LayoutDashboard, Radio, Trophy, Users, CalendarDays, MessageSquare } from "lucide-react";
 import { Suspense, type ReactNode } from "react";
 
 const NAV = [
@@ -12,6 +12,7 @@ const NAV = [
   { href: "/admin/fco", label: "FC 경기", icon: Trophy, match: (path: string) => path.startsWith("/admin/fco") },
   { href: "/admin/streamers", label: "스트리머·계정", icon: Users, match: (path: string) => path.startsWith("/admin/streamers") || path.startsWith("/admin/candidates") },
   { href: "/admin/schedule", label: "편성표", icon: CalendarDays, match: (path: string) => path.startsWith("/admin/schedule") },
+  { href: "/admin/community", label: "커뮤니티", icon: MessageSquare, match: (path: string) => path.startsWith("/admin/community") },
 ] as const;
 
 export function AdminShell({ children }: { children: ReactNode }) {

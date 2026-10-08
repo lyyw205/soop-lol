@@ -10,6 +10,7 @@
  *   fco       Engine E — FC 경기 수집 1회
  *   fco-club  Engine F — FC 공식 구단가치·스쿼드 6칸 스냅샷 1회
  *   fco-prices Engine G — 보유 카드 시세(최대 365일) 1회
+ *   community-housekeep  커뮤니티 정기 작업 1회(파기·신고 당시 내용·탈퇴 회원 연결·만료 세션)
  *   modules   등록된 모듈의 잡을 지금 한 번 돌린다
  *   loop      전부를 우선순위대로 상시 실행 (운영 기본값)
  *
@@ -23,6 +24,7 @@ import { nextKstHour } from "@soop-lol/core/lib/time";
 import { loadConfig } from "./config.ts";
 import { createContext, isFatal, type WorkerContext } from "./context.ts";
 import { runBackfillSlice } from "./engines/backfill.ts";
+import { COMMUNITY_HOUSEKEEP_HOUR_KST, runCommunityHousekeepEngine } from "./engines/community.ts";
 import { runDeriveEngine } from "./engines/derive.ts";
 import { runFcoEngine } from "./engines/fco.ts";
 import { runFcoClubEngine, runFcoPriceEngine, runFcoRatingEngine } from "./engines/fco-club.ts";
@@ -109,6 +111,10 @@ async function main() {
       await runJob(ctx, "engine_h_fco_rating", () => runFcoRatingEngine(ctx));
       break;
 
+    case "community-housekeep":
+      await runJob(ctx, "community_housekeep", () => runCommunityHousekeepEngine());
+      break;
+
     case "modules":
       await runJob(ctx, "modules", () => runDueModuleJobs(ctx));
       break;
@@ -118,7 +124,7 @@ async function main() {
       break;
 
     default:
-      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | fco | fco-club | fco-prices | fco-rating | modules | loop`);
+      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | fco | fco-club | fco-prices | fco-rating | community-housekeep | modules | loop`);
       process.exitCode = 2;
   }
 }
@@ -145,6 +151,8 @@ async function loop(ctx: WorkerContext) {
   let nextFcoClub = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
   // H(티어)는 F 와 따로 자기 주기로 돈다 — 첫 회차는 F 직후(신원 확인용 구단 스냅샷이 먼저 있어야 한다).
   let nextFcoRating = nextFcoClub + 60_000;
+  // 커뮤니티 정기 작업은 DB 만 쓴다 — 하루 한 번 새벽에.
+  let nextCommunity = nextKstHour(new Date(), COMMUNITY_HOUSEKEEP_HOUR_KST).getTime();
   let backfillPausedUntil = 0;
 
   log.info(SCOPE, "시작", {
@@ -188,6 +196,11 @@ async function loop(ctx: WorkerContext) {
         await runJob(ctx, "engine_d_derive", () => runDeriveEngine(ctx, { championStats: stats }));
         nextDerive = Date.now() + cfg.deriveIntervalMs;
         if (stats) nextStats = Date.now() + cfg.championStatIntervalMs;
+        continue;
+      }
+      if (now >= nextCommunity) {
+        await runJob(ctx, "community_housekeep", () => runCommunityHousekeepEngine());
+        nextCommunity = nextKstHour(new Date(), COMMUNITY_HOUSEKEEP_HOUR_KST).getTime();
         continue;
       }
       // 모듈 잡은 Riot 을 부르지 않는다. core 엔진 다음, 백필보다 앞.

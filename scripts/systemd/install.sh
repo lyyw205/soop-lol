@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # soop-lol 정기 작업 타이머 설치 — 사용자 systemd(WSL).
 #
-#   scripts/systemd/install.sh                 # 데이터 수집 4종(랭크·FC 경기·구단가치·시세)
+#   scripts/systemd/install.sh                 # 데이터 수집(랭크·FC 경기·구단가치·티어·시세) + 커뮤니티 정기 작업(파기·정리)
 #   scripts/systemd/install.sh --with-ck-auto  # + 매일 와치리스트 조사(Claude 사용 — 비용·디스크·GPU 부하가 크다)
 #   scripts/systemd/install.sh --status        # 다음 실행 시각과 마지막 결과
 #
@@ -12,7 +12,7 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 DEST="$HOME/.config/systemd/user"
-DATA=(soop-rank soop-fco soop-fco-club soop-fco-rating soop-fco-prices)
+DATA=(soop-rank soop-fco soop-fco-club soop-fco-rating soop-fco-prices soop-community)
 
 if [[ "${1:-}" == "--status" ]]; then
   # ★ systemctl show 는 한 번도 안 돈 유닛·설치 안 된 유닛도 Result=success 를 돌려준다 — 그대로 찍으면 미실행이 성공으로 보인다.

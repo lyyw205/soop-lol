@@ -1,0 +1,21 @@
+# 커뮤니티 정기 작업 — soop-community.timer 가 부른다. 설치: scripts/systemd/install.sh
+# 삭제 30일 지난 글·댓글 파기 · 처리 30일 지난 신고의 당시 내용 비우기 · 재가입 제한이 끝난 탈퇴 회원 로그인 연결 · 만료 세션.
+# ★ DB 만 쓴다(Riot·넥슨 없음) — 출처 잠금은 필요 없고, 손으로 돌린 회차와 겹치지 않게 자기 잠금만 잡는다.
+#   다시 돌려도 안전하다(이미 비운 것은 건너뛴다).
+# ★ npm 은 PATH(~/.local/node/bin)에서 찾는다 — 다른 서비스처럼 flock 을 거쳐 부른다(/usr/bin/npm 이 없을 수 있다).
+# ★ 로컬(WSL)에서는 상주 워커(worker -- loop)를 띄우지 않는다 — loop 가 이 작업을 안에서 또 돌린다.
+[Unit]
+Description=soop-lol 커뮤니티 정기 작업(파기·정리)
+StartLimitIntervalSec=6h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/soop-lol
+Environment=PATH=%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=/usr/bin/mkdir -p %h/repos/soop-lol/out/locks
+ExecStart=/usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/community.lock npm run -s worker -- community-housekeep
+TimeoutStartSec=30min
+Nice=10
+Restart=on-failure
+RestartSec=20min

@@ -1,4 +1,6 @@
-import { PERMANENT_SANCTION_HOLD_DAYS, REJOIN_COOLDOWN_DAYS } from "@soop-lol/core/lib/metrics/community";
+import {
+  MODERATION_HOLD_DAYS, PERMANENT_SANCTION_HOLD_DAYS, PURGE_AFTER_DAYS, REJOIN_COOLDOWN_DAYS, SNAPSHOT_KEEP_DAYS,
+} from "@soop-lol/core/lib/metrics/community";
 
 import { LegalPage } from "@/components/legal";
 
@@ -21,8 +23,8 @@ export default function PrivacyPage() {
     <ul>
       <li>탈퇴하면 닉네임과 로그인 유지 정보를 바로 지웁니다.</li>
       <li>로그인 제공자 식별값은 재가입 제한 기간이 끝나면 지웁니다 — 탈퇴 뒤 {REJOIN_COOLDOWN_DAYS}일, 글쓰기 제한 중이었다면 제한이 끝날 때까지, 영구 제한은 제한 뒤 {PERMANENT_SANCTION_HOLD_DAYS}일.</li>
-      <li>삭제한 글·댓글은 30일 뒤 파기합니다. 신고를 처리하는 중이면 처리가 끝나고 30일 뒤에 파기합니다.</li>
-      <li>신고된 글·댓글의 신고 당시 내용은 신고를 처리하고 30일 뒤 지웁니다.</li>
+      <li>삭제한 글·댓글은 {PURGE_AFTER_DAYS}일 뒤 파기합니다. 신고를 처리하는 중이면 처리가 끝나고 {MODERATION_HOLD_DAYS}일 뒤에 파기합니다.</li>
+      <li>신고된 글·댓글의 신고 당시 내용은 신고를 처리하고 {SNAPSHOT_KEEP_DAYS}일 뒤 지웁니다.</li>
     </ul>
     <h2>4. 처리 위탁</h2>
     <p>데이터베이스 호스팅 — Supabase(서울 리전). [확인 필요: 위탁 고지 문구]</p>
