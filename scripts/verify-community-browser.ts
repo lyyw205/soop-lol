@@ -151,7 +151,7 @@ try {
   check("/community 가 열린다(200)", listRes?.status() === 200, String(listRes?.status()));
   check("머리말에 커뮤니티 메뉴·로그인 자리가 있다",
     await anon.locator(".arena-nav a", { hasText: "커뮤니티" }).count() === 1 && await anon.locator(".header-account", { hasText: "로그인" }).count() === 1);
-  check("게임 칩(전체·공통·LOL·FC)이 있다", await anon.locator('nav[aria-label="게임"] a').count() === 4);
+  check("게임 칩(전체·LOL·FC·기타)이 있다", (await anon.locator('nav[aria-label="게임"] a').allInnerTexts()).join("·") === "전체·LOL·FC·기타");
 
   console.log("\n▸ 회원 1 — 로그인 → 가입 마무리 → 글쓰기");
   const u1 = await newUser();
@@ -185,25 +185,25 @@ try {
   check("댓글을 달면 바로 보인다", true);
   await go(u1, "/community?write=1");
   await settled(u1);
-  await u1.locator('input[name="title"]').fill("공통 검증 글");
+  await u1.locator('input[name="title"]').fill("기타 검증 글");
   await u1.locator('textarea[name="body"]').fill("게임과 무관한 글");
   await u1.getByRole("button", { name: "올리기" }).click();
   await u1.getByText(/1분에 1개/).waitFor({ timeout: 60_000 });
   check("★ 1분 안의 두 번째 글은 쓰기 한도에 걸리고, 입력값은 그대로 남는다",
-    await u1.locator('input[name="title"]').inputValue() === "공통 검증 글");
+    await u1.locator('input[name="title"]').inputValue() === "기타 검증 글");
   await u1.waitForTimeout(61_000);
   await u1.getByRole("button", { name: "올리기" }).click();
   await u1.waitForURL(/\/community\/\d+$/, { timeout: 120_000, waitUntil: "commit" });
-  const commonPath = new URL(u1.url()).pathname;
-  check("1분 뒤에는 같은 입력으로 올라간다", commonPath !== postPath, commonPath);
+  const etcPath = new URL(u1.url()).pathname;
+  check("1분 뒤에는 같은 입력으로 올라간다", etcPath !== postPath, etcPath);
 
   console.log("\n▸ 분류");
   await go(anon, "/community?game=lol");
   const lolText = await anon.locator(".cm-list").innerText().catch(() => "");
-  check("★ ?game=lol 목록에 공통 글이 섞이지 않는다", lolText.includes("브라우저 검증 글") && !lolText.includes("공통 검증 글"), lolText.slice(0, 200));
-  await go(anon, "/community?game=common");
-  const commonText = await anon.locator(".cm-list").innerText().catch(() => "");
-  check("?game=common 은 공통 글만", commonText.includes("공통 검증 글") && !commonText.includes("브라우저 검증 글"));
+  check("★ ?game=lol 목록에 기타 글이 섞이지 않는다", lolText.includes("브라우저 검증 글") && !lolText.includes("기타 검증 글"), lolText.slice(0, 200));
+  await go(anon, "/community?game=etc");
+  const etcText = await anon.locator(".cm-list").innerText().catch(() => "");
+  check("?game=etc 는 기타 글만", etcText.includes("기타 검증 글") && !etcText.includes("브라우저 검증 글"));
 
   console.log("\n▸ 들어오는 길(프로필·상대전적)");
   await go(anon, "/lol/s/sample_a");
@@ -241,7 +241,7 @@ try {
   await u2.locator(".cm-reply", { hasText: "답글입니다" }).waitFor({ timeout: 60_000 });
   check("답글이 부모 댓글 아래 달린다", true);
   await u2.waitForTimeout(11_000); // 댓글 쓰기 한도(10초에 1개) — 바로 앞의 답글과 겹치지 않게
-  await go(u2, commonPath);
+  await go(u2, etcPath);
   await settled(u2);
   await u2.getByLabel("댓글", { exact: true }).fill("탈퇴할 회원의 댓글");
   await u2.getByRole("button", { name: "댓글 달기" }).click();
@@ -270,7 +270,7 @@ try {
 
   console.log("\n▸ 휴대폰 너비");
   await anon.setViewportSize({ width: 390, height: 844 });
-  for (const path of ["/community", commonPath]) {
+  for (const path of ["/community", etcPath]) {
     await go(anon, path);
     const overflow = await anon.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(`${path} — 가로 스크롤이 없다`, overflow <= 0, `넘침 ${overflow}px`);
@@ -287,7 +287,7 @@ try {
   await u2.locator('input[name="confirm"]').fill("탈퇴");
   await u2.getByRole("button", { name: "탈퇴하기" }).click();
   await u2.waitForURL(`${base}/`, { timeout: 60_000, waitUntil: "commit" });
-  await go(anon, commonPath);
+  await go(anon, etcPath);
   check("탈퇴한 회원의 댓글은 '탈퇴한 회원' 으로 남는다", (await anon.locator(".cm-comment", { hasText: "탈퇴할 회원의 댓글" }).innerText()).includes("탈퇴한 회원"));
   await go(u2, "/login");
   await u2.getByRole("link", { name: "카카오로 로그인" }).click();

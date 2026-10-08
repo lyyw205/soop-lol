@@ -46,10 +46,15 @@ export function activeSanction<T extends SanctionPeriod>(sanctions: readonly T[]
 
 // ── 분류 — 게임 × 말머리 ──────────────────────────────────────────────
 
-/** 글의 게임. NULL(공통)은 "게임이 없음" 이다 — 'platform'·'common' 같은 값을 저장하지 않는다. 게임을 추가하면 DB CHECK 와 함께 넓힌다. */
+/** 글의 게임. NULL 은 "게임이 없음"(화면 이름 기타) — 'platform'·'etc' 같은 값을 저장하지 않는다. 게임을 추가하면 DB CHECK 와 함께 넓힌다. */
 export type CommunityGame = "lol" | "fconline";
 export const COMMUNITY_GAMES: readonly CommunityGame[] = ["lol", "fconline"];
 export const COMMUNITY_GAME_LABEL: Record<CommunityGame, string> = { lol: "LOL", fconline: "FC" };
+/**
+ * 게임을 고르지 않은 회원 글(game_code NULL)의 이름. '공통' 이었다 — 공통은 "모든 게임에 해당" 으로 읽히는데
+ * 이 글들은 "어느 게임 이야기도 아님"(닉네임 질문 등)이다. 공지만은 NULL 이 "모든 게임 필터에 보임" 이라 관리자 폼이 따로 부른다.
+ */
+export const NO_GAME_LABEL = "기타";
 
 export type CommunityTopic = "free" | "question" | "info" | "match" | "notice";
 /** 회원이 고를 수 있는 말머리. 공지는 운영자만 쓴다. */
@@ -58,10 +63,10 @@ export const COMMUNITY_TOPIC_LABEL: Record<CommunityTopic, string> = {
   free: "자유", question: "질문", info: "정보", match: "경기 이야기", notice: "공지",
 };
 
-/** 목록의 게임 필터. 'common' 은 공통 글(game_code NULL)만 — 필터 값일 뿐 저장값이 아니다. null 은 전부. */
-export type GameFilter = CommunityGame | "common" | null;
+/** 목록의 게임 필터. 'etc' 는 기타 글(game_code NULL)만 — 필터 값일 뿐 저장값이 아니다. null 은 전부. */
+export type GameFilter = CommunityGame | "etc" | null;
 export function parseGameFilter(value: string | undefined | null): GameFilter {
-  if (value === "common") return "common";
+  if (value === "etc") return "etc";
   return (COMMUNITY_GAMES as readonly string[]).includes(value ?? "") ? (value as CommunityGame) : null;
 }
 export function parseTopicFilter(value: string | undefined | null): CommunityTopic | null {

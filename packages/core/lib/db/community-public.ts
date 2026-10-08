@@ -2,8 +2,8 @@
  * 커뮤니티 — 공개 읽기. **core_public 뷰만 읽는다** — 숨김·삭제 글, 숨긴 스트리머의 태그, 탈퇴 회원 이름은 뷰가 거른다.
  * docs/COMMUNITY-PLAN.md §3 "분류"·"공개 경계"
  *
- * ★ 필터는 전부 주소에서 온다(편성표와 같다). 게임 필터 'common' 은 공통 글(게임 없음)만이다.
- *   ?game=lol 목록에 공통 글을 섞지 않는다 — 편성표의 ?game= 과 같은 뜻(좁히는 필터).
+ * ★ 필터는 전부 주소에서 온다(편성표와 같다). 게임 필터 'etc' 는 기타 글(게임 없음)만이다.
+ *   ?game=lol 목록에 기타 글을 섞지 않는다 — 편성표의 ?game= 과 같은 뜻(좁히는 필터).
  * ★ 공지는 목록과 섞지 않고 위 띠에 최근 2개만 따로 낸다(listPublicNotices).
  * ★ 페이지는 커서(created_at, id) — OFFSET 이 아니다.
  * ★ 질의는 순서대로 보낸다 — 화면 하나의 동시 질의를 늘리지 않는다(PLAN §M4-1).
@@ -86,7 +86,7 @@ export async function listPublicCommunityPosts(q: CommunityListQuery): Promise<{
            p.like_count, p.comment_count, p.created_at, p.edited_at
       FROM core_public.community_post p
      WHERE (${q.topic}::text IS NULL AND p.topic <> 'notice' OR p.topic = ${q.topic})
-       AND (${q.game}::text IS NULL OR (${q.game} = 'common' AND p.game_code IS NULL) OR p.game_code = ${q.game})
+       AND (${q.game}::text IS NULL OR (${q.game} = 'etc' AND p.game_code IS NULL) OR p.game_code = ${q.game})
        AND (${author}::uuid IS NULL OR p.author_id = ${author}::uuid)
        AND (${q.streamer}::text IS NULL OR EXISTS (
              SELECT 1 FROM core_public.community_post_streamer ps JOIN core_public.streamer s ON s.streamer_id = ps.streamer_id
@@ -104,8 +104,8 @@ export async function listPublicCommunityPosts(q: CommunityListQuery): Promise<{
 }
 
 /**
- * 목록 위 공지 띠. 공통 공지는 모든 게임 필터에서, 게임 공지는 그 게임에서(전체 보기에서는 둘 다).
- * 'common' 필터에서는 공통 공지만.
+ * 목록 위 공지 띠. 게임을 고르지 않은 공지(모든 게임)는 모든 게임 필터에서, 게임 공지는 그 게임에서(전체 보기에서는 둘 다).
+ * 'etc'(기타) 필터에서는 모든 게임 공지만.
  */
 export async function listPublicNotices(game: GameFilter, limit = NOTICE_BAND_SIZE): Promise<PublicCommunityPostRow[]> {
   return db()<PublicCommunityPostRow[]>`

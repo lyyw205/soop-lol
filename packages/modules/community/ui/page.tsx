@@ -47,7 +47,7 @@ async function streamerChoices(): Promise<StreamerChoice[]> {
 async function Compose({ searchParams }: { searchParams: Props["searchParams"] }) {
   const game = parseGameFilter(one(searchParams.game));
   const slugs = [one(searchParams.s), one(searchParams.a), one(searchParams.b)].filter((s): s is string => !!s && /^[\w.-]{1,64}$/.test(s));
-  const here = communityHref({ write: 1, game: game && game !== "common" ? game : undefined, s: one(searchParams.s), a: one(searchParams.a), b: one(searchParams.b) });
+  const here = communityHref({ write: 1, game: game && game !== "etc" ? game : undefined, s: one(searchParams.s), a: one(searchParams.a), b: one(searchParams.b) });
   const me = await currentMember();
   if (!me) redirect(loginHref(here));
   if (!me.nickname) redirect(meHref({ setup: 1, next: here }));

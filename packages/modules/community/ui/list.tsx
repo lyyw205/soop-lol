@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { getPublicStreamer } from "@soop-lol/core/lib/contract";
 import {
-  COMMUNITY_GAME_LABEL, COMMUNITY_TOPIC_LABEL, MEMBER_TOPICS,
+  COMMUNITY_GAME_LABEL, COMMUNITY_TOPIC_LABEL, MEMBER_TOPICS, NO_GAME_LABEL,
   currentMember, listPublicCommunityPosts, listPublicNotices, loginHref, meHref, parseGameFilter, parseTopicFilter, profileHref,
   type CommunityTopic, type GameFilter, type PublicCommunityPostRow,
 } from "@soop-lol/core/lib/contract/community";
@@ -18,8 +18,9 @@ const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : u
 const slug = (v: string | undefined) => (v && /^[\w.-]{1,64}$/.test(v) ? v : null);
 
 const GAME_CHIPS: { value: GameFilter; label: string }[] = [
-  { value: null, label: "전체" }, { value: "common", label: "공통" },
+  { value: null, label: "전체" },
   { value: "lol", label: COMMUNITY_GAME_LABEL.lol }, { value: "fconline", label: COMMUNITY_GAME_LABEL.fconline },
+  { value: "etc", label: NO_GAME_LABEL },
 ];
 const TOPIC_CHIPS: { value: CommunityTopic | null; label: string }[] = [
   { value: null, label: "전체" }, ...MEMBER_TOPICS.map((t) => ({ value: t, label: COMMUNITY_TOPIC_LABEL[t] })),
@@ -43,8 +44,8 @@ function Row({ post }: { post: PublicCommunityPostRow }) {
 }
 
 /**
- * 목록 — 게임 칩(전체·공통·LOL·FC) × 말머리 칩, 그 아래 공지 띠, 그 아래 글. 필터는 전부 주소다(공유한 주소가 같은 화면).
- * ★ ?game=lol 에 공통 글을 섞지 않는다(편성표와 같은 뜻). ★ ?s= · ?a=&b= 로 들어오면 그 사람(들) 이야기만, 비었으면 "첫 글 쓰기".
+ * 목록 — 게임 칩(전체·LOL·FC·기타) × 말머리 칩, 그 아래 공지 띠, 그 아래 글. 필터는 전부 주소다(공유한 주소가 같은 화면).
+ * ★ ?game=lol 에 기타 글을 섞지 않는다(편성표와 같은 뜻). ★ ?s= · ?a=&b= 로 들어오면 그 사람(들) 이야기만, 비었으면 "첫 글 쓰기".
  */
 export async function CommunityList({ searchParams, roleHref }: { searchParams: Params; roleHref: RoleHref }) {
   const game = parseGameFilter(one(searchParams.game));
@@ -66,7 +67,7 @@ export async function CommunityList({ searchParams, roleHref }: { searchParams: 
   type Query = Record<string, string | undefined>;
   const filters: Query = { game: game ?? undefined, topic: topic ?? undefined, s: s ?? undefined, a: pair?.[0], b: pair?.[1], author: author ?? undefined };
   const href = (changes: Query) => communityHref({ ...filters, cursor: undefined, ...changes });
-  const writeTarget = communityHref({ write: 1, game: game && game !== "common" ? game : undefined, s: s ?? undefined, a: pair?.[0], b: pair?.[1] });
+  const writeTarget = communityHref({ write: 1, game: game && game !== "etc" ? game : undefined, s: s ?? undefined, a: pair?.[0], b: pair?.[1] });
   const writeHref = !me ? loginHref(writeTarget) : me.nickname ? writeTarget : meHref({ setup: 1, next: writeTarget });
   const site = game === "fconline" ? "fconline" : "lol";
 

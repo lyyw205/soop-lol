@@ -58,7 +58,7 @@ export function NoticeForm() {
   return <form action={action} onSubmit={onSubmit} className="grid gap-2">
     <div className="flex flex-wrap gap-2">
       <select name="game" className={input} aria-label="게임" defaultValue="">
-        <option value="">공통(모든 게임 필터에 보임)</option>
+        <option value="">모든 게임(어느 필터에서나 보임)</option>
         {Object.entries(COMMUNITY_GAME_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
       </select>
       <input name="title" required maxLength={100} className={`${input} min-w-64 flex-1`} placeholder="공지 제목" aria-label="공지 제목" />

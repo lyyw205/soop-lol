@@ -46,9 +46,10 @@ import {
   validateCommentBody, validatePostInput, validateReport, writeLimitMessage,
 } from "./community.ts";
 
-test("게임 필터 — lol·fconline·common 만, 나머지는 전체(null). platform 같은 값은 받지 않는다", () => {
+test("게임 필터 — lol·fconline·etc 만, 나머지는 전체(null). platform·옛 이름 common 은 받지 않는다", () => {
   assert.equal(parseGameFilter("lol"), "lol");
-  assert.equal(parseGameFilter("common"), "common");
+  assert.equal(parseGameFilter("etc"), "etc");
+  assert.equal(parseGameFilter("common"), null);
   assert.equal(parseGameFilter("platform"), null);
   assert.equal(parseGameFilter(undefined), null);
   assert.equal(parseTopicFilter("question"), "question");

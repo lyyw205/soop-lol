@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import {
-  BODY_MAX, COMMUNITY_GAME_LABEL, COMMUNITY_GAMES, COMMUNITY_TOPIC_LABEL, MEMBER_TOPICS, TAG_MAX, TITLE_MAX,
+  BODY_MAX, COMMUNITY_GAME_LABEL, COMMUNITY_GAMES, COMMUNITY_TOPIC_LABEL, MEMBER_TOPICS, NO_GAME_LABEL, TAG_MAX, TITLE_MAX,
   type CommunityGame, type CommunityTopic,
 } from "@soop-lol/core/lib/contract/community-client";
 
@@ -54,8 +54,8 @@ export function ComposeForm({ initial, streamers, cancelHref }: { initial: Compo
     <div className="cm-compose-row">
       <label><span>게임</span>
         <select name="game" defaultValue={initial.game ?? ""}>
-          <option value="">공통(게임 무관)</option>
           {COMMUNITY_GAMES.map((g) => <option key={g} value={g}>{COMMUNITY_GAME_LABEL[g]}</option>)}
+          <option value="">{NO_GAME_LABEL}(게임 무관)</option>
         </select>
       </label>
       <label><span>말머리</span>

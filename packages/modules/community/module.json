@@ -2,7 +2,7 @@
   "name": "community",
   "version": "0.1.0",
   "title": "커뮤니티",
-  "description": "core 의 커뮤니티 기록을 읽어 게임(공통·LOL·FC)과 말머리로 나눈 목록·글·댓글 화면을 보여준다.",
+  "description": "core 의 커뮤니티 기록을 읽어 게임(LOL·FC·기타)과 말머리로 나눈 목록·글·댓글 화면을 보여준다.",
   "schema": "mod_community",
   "site": "platform",
   "routes": [{ "path": "/community", "title": "커뮤니티" }, { "path": "/community/[id]" }],

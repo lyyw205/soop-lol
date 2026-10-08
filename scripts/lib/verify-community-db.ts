@@ -56,16 +56,16 @@ export async function verifyCommunityDb(check: Check, expectReject: ExpectReject
   await expectReject("숨긴 스트리머는 태그할 수 없다", () => community.createPost(W.token, post({ streamer_ids: [sH.id] }), tick()), "태그할 수 없는");
   await expectReject("닉네임이 없으면 쓸 수 없다(읽기만)", () => community.createPost(N.token, post(), tick()), "닉네임");
   await expectReject("로그인 안 하면 쓸 수 없다", () => community.createPost(null, post(), tick()), "로그인이 필요합니다");
-  const p2 = await community.createPost(O.token, post({ game_code: null, title: "공통 글", streamer_ids: [sA.id] }), tick());
+  const p2 = await community.createPost(O.token, post({ game_code: null, title: "기타 글", streamer_ids: [sA.id] }), tick());
   const p3 = await community.createPost(O.token, post({ game_code: "fconline", title: "FC 글" }), tick());
 
   console.log("\n▸ 커뮤니티 — 분류와 공개 경계");
   const all = ids((await list()).posts);
   const lol = ids((await list({ game: "lol" })).posts);
-  const common = ids((await list({ game: "common" })).posts);
-  check("전체 목록은 공통 + 모든 게임", [p1.id, p2.id, p3.id].every((id) => all.includes(id)));
-  check("★ ?game=lol 목록에 공통 글이 섞이지 않는다", lol.includes(p1.id) && !lol.includes(p2.id) && !lol.includes(p3.id), JSON.stringify(lol));
-  check("?game=common 은 공통 글만", common.includes(p2.id) && !common.includes(p1.id), JSON.stringify(common));
+  const etc = ids((await list({ game: "etc" })).posts);
+  check("전체 목록은 기타 + 모든 게임", [p1.id, p2.id, p3.id].every((id) => all.includes(id)));
+  check("★ ?game=lol 목록에 기타 글이 섞이지 않는다", lol.includes(p1.id) && !lol.includes(p2.id) && !lol.includes(p3.id), JSON.stringify(lol));
+  check("?game=etc 는 기타 글만", etc.includes(p2.id) && !etc.includes(p1.id), JSON.stringify(etc));
   const pair = ids((await list({ pair: ["cm-a", "cm-b"] })).posts);
   const onlyA = ids((await list({ streamer: "cm-a" })).posts);
   check("?a=&b= 는 두 사람이 모두 태그된 글만", pair.includes(p1.id) && !pair.includes(p2.id), JSON.stringify(pair));
@@ -77,14 +77,14 @@ export async function verifyCommunityDb(check: Check, expectReject: ExpectReject
   check("★ 숨긴 스트리머의 태그는 공개 뷰·글 상세 어디에도 없다", tagRows.length === 0 && !p1Public!.streamers.some((s) => s.streamer_id === sH.id));
   await sql`DELETE FROM community_post_streamer WHERE post_id = ${p1.id} AND streamer_id = ${sH.id}`;
 
-  const nCommon = await admin.createNotice({ game_code: null, title: "공통 공지", body: "모두에게" }, tick());
+  const nAll = await admin.createNotice({ game_code: null, title: "모든 게임 공지", body: "모두에게" }, tick());
   const nLol = await admin.createNotice({ game_code: "lol", title: "롤 공지", body: "롤만" }, tick());
   const noticeIds = async (g: Parameters<typeof pub.listPublicNotices>[0]) => (await pub.listPublicNotices(g, 10)).map((n) => n.post_id);
-  check("공지 띠 — 공통 공지는 모든 게임 필터에, 게임 공지는 그 게임에",
-    (await noticeIds("lol")).join() === [nLol.id, nCommon.id].join() && (await noticeIds("fconline")).join() === String(nCommon.id)
-      && (await noticeIds("common")).join() === String(nCommon.id));
-  check("공지는 목록에 섞이지 않는다", !ids((await list()).posts).includes(nCommon.id));
-  const [noticeRow] = await sql<{ author_id: string | null }[]>`SELECT author_id FROM community_post WHERE id = ${nCommon.id}`;
+  check("공지 띠 — 모든 게임 공지는 모든 게임 필터에, 게임 공지는 그 게임에",
+    (await noticeIds("lol")).join() === [nLol.id, nAll.id].join() && (await noticeIds("fconline")).join() === String(nAll.id)
+      && (await noticeIds("etc")).join() === String(nAll.id));
+  check("공지는 목록에 섞이지 않는다", !ids((await list()).posts).includes(nAll.id));
+  const [noticeRow] = await sql<{ author_id: string | null }[]>`SELECT author_id FROM community_post WHERE id = ${nAll.id}`;
   await expectReject("DB 도 회원이 쓴 공지를 막는다('작성자 없음 = 공지' 짝)",
     () => sql`INSERT INTO community_post (author_id, topic, title, body) VALUES (${W.id}::uuid, 'notice', 't', 'b')`, "check constraint");
   check("공지 작성자는 운영자(작성자 없음)", noticeRow.author_id === null);
