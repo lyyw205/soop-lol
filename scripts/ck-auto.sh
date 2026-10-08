@@ -112,6 +112,8 @@ claude_code() {  # $1 원래 코드 · $2 세션 출력 JSON
   if (( code != 0 )) && node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).subtype==="error_max_budget_usd"?0:1)' "$2" 2>/dev/null; then return 0; fi
   return "$code"
 }
+# 무인 세션은 자동 메모리를 쓰지 않는다 — FC 세션들이 사람용 메모리 폴더에 회차 메모를 7개 남겼다(2026-10-08).
+export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 CLAUDE_BASE=(--permission-mode bypassPermissions --output-format json --no-session-persistence --model "$MODEL" --max-budget-usd "$MAX_BUDGET")
 
 # VOD 하나의 지시문 — 백필(scripts/ck-backfill.sh 의 롤 지시문)과 같은 문장이다. 다른 것은 실행기 이름과 접근 불가 기록 명령뿐.

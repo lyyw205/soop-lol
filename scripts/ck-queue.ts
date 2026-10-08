@@ -8,8 +8,9 @@
  *   npm run ck:queue -- finish --vod <번호> --dir <실행 폴더> --state <s.json>   # 롤 세션 직후: 0 진척 · 4 진척 없음/반복 제한 · 3 끝
  *   npm run ck:queue -- access --vod <번호> --status unavailable|temporary|retry --reason <근거>   # 조사 세션이 부른다
  *   npm run ck:queue -- snapshot|settle --key fc:<slug> --state <s.json>          # FC 세션 전후 · settle 0 진척 · 4 진척 없음
+ *   npm run ck:queue -- reopen --vods <번호,…> --reason <왜> --state <s.json> [--apply]   # 끝난 롤 조사를 다시 연다(기본은 미리보기)
  *
- * `scripts/ck-auto.sh`(매일 아침 타이머)가 부른다. DB 에는 쓰지 않는다 — 상태는 --state 파일 하나다.
+ * `scripts/ck-auto.sh`(매일 아침 타이머)가 부른다. 대상 선정 상태는 --state 파일 하나다. DB 에 쓰는 건 access(접근 기록)·reopen(조사 다시 열기)뿐이다.
  *
  * ★ 매일 조사와 백필은 다른 일이다
  *   매일 조사 = 와치리스트 채널의 새 VOD 를 빠짐없이 따라간다. 백필 = 사용자가 정한 과거 기간을 메운다.
@@ -245,6 +246,49 @@ async function finish(): Promise<number> {
   return progress && !blocked ? 0 : 4;
 }
 
+/**
+ * 끝난(done) 롤 조사를 다시 연다 — 조사 품질이 의심될 때(예: 2026-10-08 Haiku 5.5 시험 회차가 닫은 VOD).
+ * 도장을 running 으로 되돌리고 인계(resume)에 재조사 지시를 남긴 뒤 pending 에 올린다. 마지막 조사 지점
+ * 앞이라도 pending 이라 다음 회차가 줍는다. 이력은 scan.reopened 에 쌓는다. 경기·검수 기록은 건드리지 않는다.
+ */
+async function reopen(): Promise<number> {
+  const reason = opt("--reason", "").trim();
+  const vods = opt("--vods", "").split(",").map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0);
+  if (!reason || !vods.length || !STATE_PATH) throw new Error("--vods <번호,…> · --reason · --state 가 필요하다");
+  const apply = argv.includes("--apply");
+  const keys = vods.map((v) => `vod:${v}`);
+  const rows = await sql<{ source_key: string; channel_id: string; status: string | null }[]>`
+    SELECT source_key, channel_id, raw->'scan'->>'status' AS status FROM event_lead
+     WHERE source = 'vod_title' AND source_key = ANY(${keys})`;
+  const byKey = new Map(rows.map((r) => [r.source_key, r]));
+  const target = keys.filter((k) => byKey.get(k)?.status === "done");
+  const skipped = keys.filter((k) => !target.includes(k)).map((k) => `${k}(${byKey.get(k)?.status ?? "단서 없음"})`);
+  console.log(`다시 열 VOD ${target.length}개${skipped.length ? ` · 건너뜀 ${skipped.length}: ${skipped.join(", ")}` : ""}`);
+  if (!apply) { console.log("미리보기다 — 쓰려면 --apply"); return 0; }
+  const at = new Date().toISOString();
+  const resume = {
+    reopened_at: at, reason,
+    next_action: "이 VOD 를 다시 판독한다. 이전 '끝' 결론은 위 사유로 신뢰하지 않는다 — 사실·근거는 참고만 한다. "
+      + "ck:merge --find-match --vod 로 DB 의 기존 경기를 먼저 보고 이 VOD 시점을 연결한다(결과창 원본을 직접 읽어 대조). "
+      + "빈 챔피언·KDA 를 채우고, 미해결 후보에 결론을 낸다. 전 범위 확인 조건은 평소와 같다.",
+  };
+  const state = loadState();
+  await sql.begin(async (tx) => {
+    for (const key of target) {
+      await tx`UPDATE event_lead SET raw = jsonb_set(jsonb_set(jsonb_set(raw,
+          '{scan,status}', '"running"'),
+          '{scan,resume}', ${tx.json(resume)}::jsonb),
+          '{scan,reopened}', COALESCE(raw->'scan'->'reopened', '[]'::jsonb) || ${tx.json([{ at, reason, prev_status: "done" }])}::jsonb)
+        WHERE source = 'vod_title' AND source_key = ${key} AND raw->'scan'->>'status' = 'done'`;
+      state.pending[key] ??= { channel_id: byKey.get(key)!.channel_id, since: TODAY };
+      rmGuard(Number(key.slice(4)));
+    }
+  });
+  saveState(state);
+  console.log(`다시 열었다: ${target.length}개 → pending 에 올림(${STATE_PATH})`);
+  return 0;
+}
+
 async function access(): Promise<number> {
   const status = opt("--status", "");
   if (!VOD || !["temporary", "unavailable", "retry"].includes(status)) throw new Error("--vod 와 --status temporary|unavailable|retry 가 필요하다");
@@ -297,10 +341,11 @@ try {
   else if (COMMAND === "begin") code = await begin();
   else if (COMMAND === "finish") code = await finish();
   else if (COMMAND === "access") code = await access();
+  else if (COMMAND === "reopen") code = await reopen();
   else if (COMMAND === "snapshot" || COMMAND === "settle") {
     if (!KEY || !STATE_PATH) throw new Error(`${COMMAND} 에는 --key 와 --state 가 필요하다`);
     code = COMMAND === "snapshot" ? await snapshot() : await settle();
-  } else throw new Error(`알 수 없는 명령: ${COMMAND} (plan|fc|begin|finish|access|snapshot|settle)`);
+  } else throw new Error(`알 수 없는 명령: ${COMMAND} (plan|fc|begin|finish|access|reopen|snapshot|settle)`);
 } finally {
   await closeDb();
 }
