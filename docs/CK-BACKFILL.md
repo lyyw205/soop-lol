@@ -45,7 +45,7 @@ npm run ck:backfill -- context --vod 123456                                  # D
 
 ## 짧은 세션과 사용량
 
-이미지 제한은 `--image-limit-mib 12`로 켜는 시험 기능이며 기본은 꺼져 있다. LoL 백필과 Claude Code 2.1.285에서 검증한다.
+이미지 제한은 `--image-limit-mib 12`로 켜는 시험 기능이며 기본은 꺼져 있다. LoL 백필과 Claude Code 2.1.285에서 검증했고 2.1.293에서 재검증했다(2026-10-08). CLI 를 올리면 실행기가 거부하니 같은 항목을 다시 확인하고 `scripts/lib/ck-image-budget.ts` 의 버전을 올린다.
 기본 8 MiB에서 저장·종료를 안내하고 12 MiB 초과 열람은 거부한다. `--image-warn-mib`로 안내 지점을 조절할 수 있다.
 많은 작은 사진은 60회에서 끊는다. 원본 파일은 바꾸지 않으며, 계수는 JPEG/PNG의 base64 크기 상한을 사용한다.
 현재 검증 범위는 가로·세로 각각 2000px 이하, 파일 3 MiB 이하의 JPEG/PNG다. 다른 형식·큰 이미지는 변환하지 않고 거부한다.

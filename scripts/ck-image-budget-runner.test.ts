@@ -10,7 +10,7 @@ test('이미지 저장 유예가 끝나면 자식 그룹을 회수하고 정상 
  const fake=join(dir,'claude.cjs');
  writeFileSync(fake,`#!${process.execPath}\n`+String.raw`
  const fs=require('fs'),cp=require('child_process');
- if(process.argv.includes('--version')){console.log('2.1.285 (Claude Code)');process.exit(0);}
+ if(process.argv.includes('--version')){console.log('2.1.293 (Claude Code)');process.exit(0);}
  const s=JSON.parse(fs.readFileSync(process.env.TEST_STATE,'utf8'));s.flushAt=Date.now()-s.flushMs-1;fs.writeFileSync(process.env.TEST_STATE,JSON.stringify(s));
  const child=cp.spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:'inherit'});
  fs.writeFileSync(process.env.TEST_PID,String(child.pid));

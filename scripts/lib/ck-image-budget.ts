@@ -3,7 +3,8 @@ import {closeSync, openSync, readSync, statSync} from 'node:fs';
 import {extname} from 'node:path';
 
 export const MIB = 1024 * 1024;
-export const VERIFIED_CLAUDE_VERSION = '2.1.285';
+// 2.1.293 재검증(2026-10-08): 승인 훅 허용·거부·예외·시간 초과·이상 응답·실행 파일 없음, 실행기 이미지 한도(허용→거부→저장)·실제 전달 크기 일치.
+export const VERIFIED_CLAUDE_VERSION = '2.1.293';
 export const BUDGET_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
 export interface ImageBudget {
   version: 1; sessionId: string; root: string; vod: number;

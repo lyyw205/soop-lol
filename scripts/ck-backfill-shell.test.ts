@@ -37,7 +37,7 @@ function fixture(mode:string, env:Record<string,string>={}) {
  if(command==='after'){fs.writeFileSync(require('path').join(require('path').dirname(opt('--current')),'after.json'),JSON.stringify({vod:1,before:{saved_matches:0},after:{saved_matches:2}}));process.exit(Number(process.env.AFTER_CODE??0));}
  `,{mode:0o755});
  writeFileSync(join(dir,'bin/claude'),'#!/bin/bash\n'+String.raw`
- if [[ "$1" == --version ]]; then echo '2.1.285 (Claude Code)'; exit 0; fi
+ if [[ "$1" == --version ]]; then echo '2.1.293 (Claude Code)'; exit 0; fi
  echo claude >> "$ORDER"
  if [[ -n "$PROMPT_LOG" ]]; then printf '%s\n' "$@" >> "$PROMPT_LOG"; fi
  for a in "$@"; do [[ "$a" == /ck-local* ]] && echo skill:ck-local >> "$ORDER"; [[ "$a" == /ck-research* ]] && echo skill:ck-research >> "$ORDER"; [[ "$a" == /fco-match-context* ]] && echo skill:fco >> "$ORDER"; [[ "$a" == *"fco_scan"* ]] && echo fc-prompt >> "$ORDER"; [[ "$a" == *"run_id=fake"* ]] && echo got-prep >> "$ORDER"; done
