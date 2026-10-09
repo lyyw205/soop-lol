@@ -53,6 +53,13 @@ async function outRoot(fs: Fs): Promise<string | null> {
   }
 }
 
+/** 보관 위치(외장 디스크). 설정이 없거나 마운트가 빠져 있으면 null — 그때 보관된 사진은 404 로 보인다. */
+async function archiveRoot(fs: Fs): Promise<string | null> {
+  const configured = process.env.CK_ARCHIVE_ROOT;
+  if (!configured) return null;
+  try { return await fs.realpath(configured); } catch { return null; }
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ path: string[] }> },
@@ -86,9 +93,13 @@ export async function GET(
     //    out/ 안에 바깥을 가리키는 링크가 있으면 위 검사를 그대로 통과한다.
     //    `realpath` 로 링크를 다 따라간 **실제 목적지**를 다시 검사한다.
     //    뿌리 자체가 링크일 수 있으므로 뿌리도 같이 푼다.
+    //    예외는 **보관 위치 하나**다(`CK_ARCHIVE_ROOT`, 예: /mnt/d/soop-lol-ck). 조사가 끝난 VOD 폴더는
+    //    `ck:archive` 가 외장 디스크로 옮기고 링크만 남긴다(2026-10-09) — 그 링크만 따라가도록 허용한다.
     const realRoot = await fs.realpath(root);
     const real = await fs.realpath(target);
-    if (!(real === realRoot || real.startsWith(realRoot + sep))) {
+    const archive = await archiveRoot(fs);
+    const under = (p: string, base: string) => p === base || p.startsWith(base + sep);
+    if (!(under(real, realRoot) || (archive && under(real, archive)))) {
       return new Response("경로를 벗어났습니다(링크).", { status: 403 });
     }
 

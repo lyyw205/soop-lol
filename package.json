@@ -105,7 +105,8 @@
     "ck:backfill": "node --env-file-if-exists=apps/web/.env.local scripts/ck-backfill.ts",
     "verify:ck:backfill": "node scripts/verify-ck-backfill.ts",
     "ck:local": "node scripts/ck-local/scan.mjs",
-    "ck:archive-sheets": "node --env-file-if-exists=apps/web/.env.local scripts/ck-sheets-archive.ts"
+    "ck:archive": "node --env-file-if-exists=apps/web/.env.local scripts/ck-archive.ts",
+    "ck:archive-sheets": "npm run -s ck:archive --"
   },
   "//": "★ 버전은 캐럿 없이 고정한다(hotplace-map과 같은 규칙). 캐럿으로 적으면 lock 재생성이 next/react를 통째로 끌어올려서, 무관한 커밋이 라이브러리 업그레이드를 같이 싣는다. 업그레이드는 별건으로.",
   "devDependencies": {
