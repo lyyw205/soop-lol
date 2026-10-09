@@ -157,6 +157,12 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
   //   자기 시리즈의 상대·팀 방송으로 결과를 받는 건 괜찮다(승패는 사람 기준으로 경기 쪽 팀에 맞춘다).
   //   문제는 무관한 방송 — 성훈이 영재·디나이 CK 를 본 화면으로 경기를 만들었고, 작은 화면이라 10명 중 7명을 잘못 읽었다.
   //   같은 파일 앞쪽에서 만든 자기 경기도 이 트랜잭션 안에서 보이므로, 본인 판을 먼저 내면 같은 시리즈의 남의 화면도 통과한다.
+  // ★ 본인 화면으로 **새 경기**를 만드는데 방송 주인이 이 경기·시리즈·대회 어디에도 없으면, 남의 방송을 본인 화면으로 잘못
+  //   표시한 것이다(기존 850건 중 7건, 모두 숨김). 무관한 방송을 own 으로 내서 위 검사를 피하는 길을 막는다.
+  if (input.source === "own" && role === "created" && owner && !(await ownerInGroupInTx(tx, input.match_id, owner))) {
+    throw new Error(`${input.match_id}: 본인 화면(source: own)으로 새 경기를 만드는데 방송 주인이 이 경기·시리즈·대회의 참가자가 아니다 — `
+      + "남의 방송 화면이면 무관한 방송이라 경기로 내지 않는다. 방송 주인 계정이 화면 이름과 연결되지 않은 것이면 ck:who 로 확인할 것");
+  }
   if (input.source === "rebroadcast" && !(owner && await ownerInGroupInTx(tx, input.match_id, owner))) {
     throw new Error(`${input.match_id}: 남의 방송 화면(source: rebroadcast)인데 방송 주인이 이 경기·시리즈·대회의 참가자가 아니다 — `
       + "무관한 방송은 경기 근거로 쓰지 않는다. 경기를 내지 말고 후보를 not_target 으로 닫으며 관찰에 '누구 방송(채널)을 몇 시에 보고 있었다'만 남길 것");

@@ -341,6 +341,14 @@ try {
   await assert.rejects(() => sql().begin((tx) => pov.submitMatchPovInTx(tx, { match_id: "pov:m1", lead_id: "00000000-0000-0000-0000-000000000000",
     role: "created", source: "rebroadcast", link_basis: "x", observed: {} } as any)), /무관한 방송/);
   check("core 저장 함수도 방송 주인을 모르는 남의 방송 화면을 거부한다(CLI 를 거치지 않는 경로)", true);
+  r = await merge([
+    scan(VODS.k, "pov_k", [100]),
+    { resultType: "match", match_id: "pov:k-unrelated", game_mode: "CLASSIC", winning_team: 100, played_at: "2026-09-25T00:00:00Z",
+      played_at_precision: "date", result_evidence: "결과창", participants: full, evidence_frames: [framePath(VODS.k, 100)],
+      distinct_from: (await sql()`SELECT match_id FROM match WHERE match_id LIKE 'pov:%'`).map((x) => x.match_id) },
+  ]);
+  check("본인 화면으로 무관한 새 경기를 만들면 거부(남의 방송을 own 으로 잘못 표시)", r.code !== 0 && r.out.includes("새 경기를 만드는데 방송 주인이"), r.out.slice(-1500));
+  check("거부된 새 경기는 저장되지 않는다", (await sql()`SELECT 1 FROM match WHERE match_id = 'pov:k-unrelated'`).length === 0);
 
   console.log("\n▸ 시각 모순 — 대응할 수 있을 때만 검사한다");
   // 방송 12:00 시작. 경기는 13:00~13:30. 사진 5000초 = 13:23(정상), 14000초 = 15:53(두 시간 넘게 뒤).
