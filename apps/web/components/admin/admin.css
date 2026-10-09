@@ -134,6 +134,11 @@ body:has(.admin-theme) > footer { display: none; }
 .admin-theme .ck-review-queue-item[data-kind="candidate"] .ck-review-queue-kind { color: #fbbf24; }
 .admin-theme .ck-review-queue-item[data-kind="failed"] .ck-review-queue-kind { color: #fbbf24; }
 .admin-theme .ck-review-queue-empty { padding: 22px 8px; color: var(--admin-muted); font-size: 12px; text-align: center; }
+.admin-theme .ck-memo-controls { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.admin-theme .ck-memo-controls input { flex: 1; min-width: 40px; }
+.admin-theme .ck-memo-controls button:disabled { opacity: .4; }
+.admin-theme .ck-memo-controls button[aria-pressed] { padding: 5px 9px; border: 1px solid var(--admin-line); border-radius: 5px; }
+.admin-theme .ck-memo-controls button[aria-pressed=true] { color: var(--color-accent-400); border-color: currentColor; }
 .admin-theme .ck-review-match-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--admin-line); border-radius: 8px; background: color-mix(in srgb, var(--color-ink-950) 54%, transparent); }
 .admin-theme .ck-review-match-summary > div { min-width: 0; padding: 8px 10px; }
 .admin-theme .ck-review-match-summary > .has-left-border { border-left: 1px solid color-mix(in srgb, var(--admin-line) 70%, transparent); }

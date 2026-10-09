@@ -60,6 +60,16 @@ const epochMillis = (value: string | Date | null | undefined): number | null => 
   return Number.isFinite(millis) ? millis : null;
 };
 
+/** Reference candidates share the timeline, without acquiring a match association. */
+export function chronologicalReviewQueue<M extends QueueMatchLike, F extends QueueFrameLike, G extends { key: string; from: number }>(
+  projection: ProjectedMatch<M, F>[], frames: readonly F[], memos: readonly G[], matchesOnly = false,
+) {
+  const entries = reviewQueueEntries(projection, frames);
+  if (matchesOnly) return entries.filter(entry => entry.kind === "match");
+  return [...entries, ...memos.map(group => ({ kind: "memo" as const, id: group.key, at: group.from, group }))]
+    .sort((a, b) => a.at - b.at);
+}
+
 /**
  * 경기마다 막대 범위와 비교 프레임을 정한다.
  *

@@ -33,7 +33,7 @@ import { CHAMPIONS, championById } from "@soop-lol/core/lib/riot/champions";
 import { setLabel } from "@soop-lol/core/lib/metrics/set-label";
 
 import { framesForSelection, resolveSelection, timelineSpan, type Picked } from "./ck-selection";
-import { projectReviewQueue, reviewQueueEntries, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
+import { projectReviewQueue, chronologicalReviewQueue, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
 
 import { ActionMessage, SubmitButton } from "./Field";
 import { useReviewDraft } from "./use-review-draft";
@@ -43,6 +43,7 @@ import { metaFormValues, participantFormValues, type CkActionState } from "@/lib
 import { matchOriginLabel } from "@/lib/admin-labels";
 import { rosterFocus, type RosterFocus } from "@/lib/ck-review-progress";
 import { ReviewCompletion } from "./ReviewCompletion";
+import { MemoReferenceControls, useMemoReferences, type MemoReferenceState } from "./MemoReferences";
 
 function CkFeedback({ state, reload, pending }: { state: CkActionState; reload: () => void; pending: boolean }) {
   return <><ActionMessage state={state} />{!state.ok && state.latest && <button type="button" disabled={pending} onClick={reload} className="text-xs text-accent-400">최신 값 불러오기</button>}</>;
@@ -204,6 +205,7 @@ type Projected = ProjectedMatch<ReviewMatch, ReviewFrame>;
 
 export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialTab, syncUrl = false, povDiffs, reviewQueueIds }: Props) {
   const router = useRouter(), params = useSearchParams();
+  const memo = useMemoReferences(vodUrl);
   const projection = useMemo(
     () => projectReviewQueue(frames, matches, { vodStartedAt }),
     [frames, matches, vodStartedAt],
@@ -212,9 +214,13 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   //   규칙 자체는 `ck-selection.ts` 의 순수 함수에 있다(회귀 검사가 거기를 잰다).
   const [rosterDirtyId, setRosterDirtyId] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked>({ matchId: initialMatchId });
+  // 큐에서 **경기**를 고르면 편집 대상도 그 경기로 바뀐다(2026-10-09 — "다른 판을 눌러도 로스터가 안 바뀐다").
+  // 사진·메모장만 넘겨 볼 때는 편집 대상이 그대로다. 저장 안 한 로스터 편집이 있으면 대상을 지킨다(안내 문구가 뜬다).
+  const [editingMatchId, setEditingMatchId] = useState<string | null>(() =>
+    resolveSelection(frames, matches, { matchId: initialMatchId }).match?.match_id ?? null);
   const rosterField = rosterFocus(initialFocus)?.focus;
   const [zoom, setZoom] = useState(false);
-  const [matchesOnly, setMatchesOnly] = useState(true);
+  const [matchesOnly, setMatchesOnly] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<"game" | "roster">(rosterFocus(initialFocus) ? "roster" : initialTab ?? "game");
 
   // ★ 탭(경기/로스터)은 여기서 강제로 바꾸지 않는다 — 로스터를 고치다가 다른 경기로 넘어가면
@@ -224,8 +230,11 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
     ? projection.find(item => item.match.match_id === sel.match!.match_id)?.frames[0] ?? null : null);
   const selectedId = selected?.id ?? null;
   const selectedMatch = sel.match;
+  const previewAt = memo.active ? memo.at : selected?.at_sec ?? null;
+  const previewImage = memo.active ? memo.image : selected ? frameUrl(selected.frame_path) : null;
 
-  const syncedMatchId = selectedMatch?.match_id ?? null;
+  const editingMatch = matches.find(match => match.match_id === editingMatchId) ?? matches[0] ?? null;
+  const syncedMatchId = editingMatch?.match_id ?? null;
   useEffect(() => {
     if (!syncUrl) return;
     const url = new URL(window.location.href);
@@ -235,7 +244,9 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   }, [syncUrl, syncedMatchId, inspectorTab]);
 
   const pickMatch = (id: string) => {
+    memo.clear();
     setPicked({ matchId: id });
+    if (!rosterDirtyId || rosterDirtyId !== editingMatchId) setEditingMatchId(id);
     requestAnimationFrame(() => {
       document.getElementById(`ck-review-queue-match:${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
@@ -243,7 +254,7 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   const nextAfterCompletion = (id: string) => {
     const index = matches.findIndex(m => m.match_id === id);
     const next = [...matches.slice(index + 1), ...matches.slice(0, index)].find(m => !m.review_completed_at && (!reviewQueueIds || reviewQueueIds.includes(m.match_id)));
-    if (next) pickMatch(next.match_id);
+    if (next) { setEditingMatchId(next.match_id); pickMatch(next.match_id); }
     else router.replace(adminReturn(params.get('from'), '/admin/ck'));
   };
   /** 썸네일·좌우 키는 선택한 큐 항목 안에서만 움직인다. 큐 자체는 모든 항목을 유지한다. */
@@ -252,9 +263,10 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
       .filter(frame => !matchesOnly || frame.match_id != null),
     [frames, selected, selectedMatch, projection, matchesOnly],
   );
-  const pickFocusFrame = (id: string) => setPicked({ matchId: selectedMatch?.match_id, frameId: id });
-  const pickQueueFrame = (id: string) => setPicked({ frameId: id });
+  const pickFocusFrame = (id: string) => { memo.clear(); setPicked({ matchId: selectedMatch?.match_id, frameId: id }); };
+  const pickQueueFrame = (id: string) => { memo.clear(); setPicked({ frameId: id }); };
   const changeQueueFilter = (value: boolean) => {
+    memo.clear();
     setMatchesOnly(value);
     if (value && !selectedMatch) setPicked({ matchId: projection[0]?.match.match_id });
   };
@@ -262,7 +274,8 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
+      if (target?.matches("input, textarea, select, [contenteditable=true]") || target?.closest("dialog")) return;
+      if (memo.active) { event.preventDefault(); memo.step(event.key === "ArrowRight" ? 1 : -1); return; }
       const index = focusFrames.findIndex((frame) => frame.id === selectedId);
       if (index < 0) return;
       const next = event.key === "ArrowRight" ? Math.min(index + 1, focusFrames.length - 1) : Math.max(index - 1, 0);
@@ -272,20 +285,22 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [focusFrames, selectedId, selectedMatch]);
+  }, [focusFrames, selectedId, selectedMatch, memo.active, memo.step]);
 
   const span = timelineSpan(frames, projection
     .filter((item) => item.at !== UNPLACED)
     .map((item) => [item.at, item.end] as [number, number]));
 
   return (
-    <div className="ck-review-workbench">
+    <div className="ck-review-workbench" data-memo-active={memo.active || undefined}>
       {/* ── 프리뷰 + 인스펙터 ─────────────────────────────────── */}
       <div className="ck-review-stage">
         <section className="ck-review-preview">
           <header className="flex items-center justify-between gap-3 border-b border-ink-800 px-4 py-2">
             <div className="min-w-0 text-xs text-ink-400">
-              {selected ? (
+              {memo.active ? <>
+                <span className="font-mono text-accent-400">{hms(memo.at)}</span> · 메모장 참고
+              </> : selected ? (
                 <>
                   <span className="font-mono text-accent-400">{hms(selected.at_sec)}</span>
                   <span className="mx-2 text-ink-600">·</span>
@@ -294,8 +309,8 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
               ) : selectedMatch ? "이 경기에 연결된 비교 프레임이 없습니다." : "이 VOD 에 검수할 경기가 없습니다."}
             </div>
             <div className="flex items-center gap-2">
-            {vodUrl && <a href={vodAt(vodUrl, selected?.at_sec ?? null)} target="_blank" rel="noreferrer" className="text-xs text-accent-400">{selected?.at_sec != null ? "이 시점 VOD ↗" : "VOD 열기 ↗"}</a>}
-            {selected && (
+            {vodUrl && <a href={vodAt(vodUrl, previewAt)} target="_blank" rel="noreferrer" className="text-xs text-accent-400">{previewAt != null ? "이 시점 VOD ↗" : "VOD 열기 ↗"}</a>}
+            {previewImage && (
               <div className="flex shrink-0 gap-2 text-xs">
                 <button
                   onClick={() => setZoom((z) => !z)}
@@ -304,7 +319,7 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
                   {zoom ? "맞추기" : "원본 크기"}
                 </button>
                 <a
-                  href={frameUrl(selected.frame_path)}
+                  href={previewImage}
                   target="_blank"
                   rel="noreferrer"
                   className="rounded border border-ink-700 px-2 py-1 text-ink-400 hover:text-ink-200"
@@ -319,11 +334,14 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
           {/* 원본 크기 모드에서는 스크롤로 이름 칸을 들여다본다 —
               긴 이름이 잘렸는지, 닉네임을 잘못 읽었는지는 확대해야 보인다. */}
           <div data-zoom={zoom} className={`ck-review-frame bg-ink-950 ${zoom ? "max-h-[70vh] overflow-auto" : ""}`}>
-            {selected ? (
+            {memo.active && memo.failed ? <p className="p-4 text-xs">썸네일을 불러올 수 없습니다. 위 VOD 링크에서 확인하세요.</p> : previewImage ? (
               // eslint-disable-next-line @next/next/no-img-element -- out/ 밖의 로컬 파일이라 next/image 로 최적화하지 않는다
               <img
-                src={frameUrl(selected.frame_path)}
-                alt={`${hms(selected.at_sec)} 프레임`}
+                key={previewImage}
+                src={previewImage}
+                alt={`${hms(previewAt)} ${memo.active ? "메모장 후보" : "프레임"}`}
+                onLoad={() => { if (memo.active) memo.setLoadedImage(previewImage); }}
+                onError={() => { if (memo.active) memo.setFailed(true); }}
                 className={`ck-review-frame-image ${zoom ? "max-w-none" : "w-full"}`}
               />
             ) : (
@@ -336,11 +354,12 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
           </div>
 
           <footer className="grid gap-2 border-t border-ink-800 px-4 py-2 text-xs text-ink-400">
-            {selected && <FrameStrip frames={focusFrames} selectedId={selectedId} onPick={pickFocusFrame} />}
+            {memo.active && <MemoReferenceControls memo={memo} />}
+            {!memo.active && selected && <FrameStrip frames={focusFrames} selectedId={selectedId} onPick={pickFocusFrame} />}
             <ReviewMinimap span={span} projection={projection}
-              selectedMatchId={selectedMatch?.match_id ?? null} onPickMatch={pickMatch} />
+              selectedMatchId={memo.active ? null : selectedMatch?.match_id ?? null} onPickMatch={pickMatch} />
 
-            {selected && (
+            {!memo.active && selected && (
               <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-[11px]">{selected.frame_path}</span>
               <span className="ml-auto flex items-center gap-2">
@@ -372,6 +391,24 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
 
         <aside className="ck-review-inspector" aria-label="검수 인스펙터">
           <div className="ck-review-inspector-shell">
+            <div className="ck-review-panel p-3 text-xs">
+              <label className="grid gap-2">편집할 세트
+                <select aria-label="편집할 세트" className={inputClass} value={editingMatch?.match_id ?? ""}
+                  disabled={!matches.length} onChange={event => setEditingMatchId(event.target.value)}>
+                  {!matches.length && <option value="">저장된 경기 없음</option>}
+                  {matches.map(match => <option key={match.match_id} value={match.match_id}>
+                    {matchSetLabel(match)} · {match.match_id}
+                  </option>)}
+                </select>
+              </label>
+              {editingMatch && <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <strong className="text-accent-400">편집 중: {matchSetLabel(editingMatch)}</strong>
+                <button type="button" onClick={() => pickMatch(editingMatch.match_id)}>이 세트 프레임 보기</button>
+              </div>}
+              <p className="mt-2 text-ink-400">참고 화면을 바꿔도 편집할 세트는 유지됩니다.</p>
+              {!memo.active && selectedMatch && editingMatch && selectedMatch.match_id !== editingMatch.match_id &&
+                <p className="mt-1 text-amber-300">현재 참고 화면: {matchSetLabel(selectedMatch)} · 입력 대상: {matchSetLabel(editingMatch)}</p>}
+            </div>
             <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보" onKeyDown={adminTabKeys}>
               <button type="button" role="tab" aria-selected={inspectorTab === "game"}
                 onClick={() => setInspectorTab("game")}>경기</button>
@@ -380,33 +417,37 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
             </div>
 
             <div className="ck-review-inspector-body">
-              {selected && !selected.match_id && <CreateMatchFromFrame key={selected.id} frame={selected}
-                matches={matches} events={events} onCreated={(matchId) => {
-                  setPicked({ matchId, frameId: selected.id });
-                  setInspectorTab("roster");
-                }} />}
-              {selectedMatch && povDiffs && (
-                <PovDiffBox diff={povDiffs[selectedMatch.match_id]} match={selectedMatch} streamers={streamers} />
+
+              {editingMatch && povDiffs && (
+                <PovDiffBox diff={povDiffs[editingMatch.match_id]} match={editingMatch} streamers={streamers} />
               )}
-              {!selectedMatch ? (
+              {!editingMatch ? (
                 <div className="ck-review-panel p-4 text-xs leading-relaxed text-ink-400">
-                  {selected ? "미연결 프레임입니다. 프레임 아래에서 기존 경기에 연결하거나 새 경기를 만드세요." : "아직 경기로 반영된 항목이 없습니다."}
+                  저장된 경기가 없습니다. 결과 프레임에서 새 경기를 만들 수 있습니다.
                 </div>
               ) : <>
                 <div hidden={inspectorTab !== "game"} className="ck-review-tab-stack">
-                  <MatchInspector key={`meta:${selectedMatch.match_id}`} leadId={leadId} match={selectedMatch} events={events} otherDirty={rosterDirtyId === selectedMatch.match_id} onCompleted={() => nextAfterCompletion(selectedMatch.match_id)} />
+                  <MatchInspector key={`meta:${editingMatch.match_id}`} leadId={leadId} match={editingMatch} events={events} otherDirty={rosterDirtyId === editingMatch.match_id} onCompleted={() => nextAfterCompletion(editingMatch.match_id)} />
                 </div>
                 <div hidden={inspectorTab !== "roster"} className="ck-review-tab-stack">
-                  <RosterInspector key={`roster:${selectedMatch.match_id}`} leadId={leadId} match={selectedMatch} streamers={streamers} focus={rosterField} onDirty={setRosterDirtyId} />
+                  <RosterInspector key={`roster:${editingMatch.match_id}`} leadId={leadId} match={editingMatch} streamers={streamers} focus={rosterField} onDirty={setRosterDirtyId} />
                 </div>
               </>}
+              {!memo.active && selected && !selected.match_id && <details className="mt-3" open={!editingMatch}>
+                <summary className="cursor-pointer p-3 text-xs text-ink-400">이 프레임으로 새 경기 만들기</summary>
+                <CreateMatchFromFrame key={selected.id} frame={selected} matches={matches} events={events} onCreated={(matchId) => {
+                  setEditingMatchId(matchId);
+                  setPicked({ matchId, frameId: selected.id });
+                  setInspectorTab("roster");
+                }} />
+              </details>}
             </div>
           </div>
         </aside>
       </div>
 
-      <ReviewQueue matchesOnly={matchesOnly} onFilterChange={changeQueueFilter} projection={projection} frames={frames} selectedFrameId={selectedId}
-        onPickFrame={pickQueueFrame} selectedMatchId={selectedMatch?.match_id ?? null} onPickMatch={pickMatch} />
+      <ReviewQueue memo={memo} matchesOnly={matchesOnly} onFilterChange={changeQueueFilter} projection={projection} frames={frames} selectedFrameId={memo.active ? null : selectedId}
+        onPickFrame={pickQueueFrame} selectedMatchId={memo.active ? null : selectedMatch?.match_id ?? null} onPickMatch={pickMatch} />
     </div>
   );
 }
@@ -516,7 +557,8 @@ function PovDiffBox({ diff, match, streamers }: {
 
 // ── 경기 큐 + 위치 미니맵 ─────────────────────────────────────────────
 
-function ReviewQueue({ projection, frames, selectedFrameId, onPickFrame, selectedMatchId, onPickMatch, matchesOnly, onFilterChange }: {
+function ReviewQueue({ memo, projection, frames, selectedFrameId, onPickFrame, selectedMatchId, onPickMatch, matchesOnly, onFilterChange }: {
+  memo: MemoReferenceState;
   frames: ReviewFrame[];
   selectedFrameId: string | null;
   onPickFrame: (id: string) => void;
@@ -526,26 +568,28 @@ function ReviewQueue({ projection, frames, selectedFrameId, onPickFrame, selecte
   selectedMatchId: string | null;
   onPickMatch: (id: string) => void;
 }) {
-  const entries = reviewQueueEntries(projection, frames);
-  const visible = matchesOnly ? entries.filter(entry => entry.kind === "match") : entries;
+  const visible = chronologicalReviewQueue(projection, frames, memo.data?.groups ?? [], matchesOnly);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
+      if (target?.matches("input, textarea, select, [contenteditable=true]") || target?.closest("dialog")) return;
       if (!visible.length) return;
       event.preventDefault();
-      const current = visible.findIndex(entry => entry.kind === "frame"
-        ? entry.id === selectedFrameId : entry.id === selectedMatchId);
+      const current = visible.findIndex(entry => entry.kind === "memo"
+        ? memo.active && entry.id === memo.picked?.key
+        : entry.kind === "frame" ? entry.id === selectedFrameId : entry.id === selectedMatchId);
       const next = event.key === "ArrowDown"
         ? Math.min(current < 0 ? 0 : current + 1, visible.length - 1)
         : Math.max(current < 0 ? visible.length - 1 : current - 1, 0);
       const entry = visible[next];
-      if (entry.kind === "frame") onPickFrame(entry.id); else onPickMatch(entry.id);
+      if (entry.kind === "memo") memo.open(entry.group);
+      else if (entry.kind === "frame") onPickFrame(entry.id); else onPickMatch(entry.id);
+      requestAnimationFrame(() => document.getElementById(`ck-review-queue-${entry.kind}:${entry.id}`)?.scrollIntoView({ block: "nearest" }));
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onPickMatch, onPickFrame, visible, selectedMatchId, selectedFrameId]);
+  }, [onPickMatch, onPickFrame, visible, selectedMatchId, selectedFrameId, memo.active, memo.picked, memo.open]);
   return (
     <section className="ck-review-timeline" aria-label="검수 큐">
       <header className="ck-review-queue-head">
@@ -556,8 +600,18 @@ function ReviewQueue({ projection, frames, selectedFrameId, onPickFrame, selecte
 
       <ul className="ck-review-queue-list">
         {visible.map(entry => {
+          if (entry.kind === "memo") return (
+            <li key={`memo:${entry.id}`} id={`ck-review-queue-memo:${entry.id}`}>
+              <button type="button" className="ck-review-queue-item" data-kind="memo"
+                aria-current={memo.active && memo.picked?.key === entry.id ? "true" : undefined}
+                onClick={() => memo.open(entry.group)} title="자동 수집한 메모장 참고 후보">
+                <time>{hms(entry.group.from)}{entry.group.to !== entry.group.from ? `–${hms(entry.group.to)}` : ""}</time>
+                <span className="ck-review-queue-kind">메모장 후보 · {entry.group.frames.length}장</span>
+              </button>
+            </li>
+          );
           if (entry.kind === "frame") return (
-            <li key={`frame:${entry.id}`}>
+            <li key={`frame:${entry.id}`} id={`ck-review-queue-frame:${entry.id}`}>
               <button type="button" className="ck-review-queue-item" data-kind="frame"
                 aria-current={selectedFrameId === entry.id ? "true" : undefined}
                 onClick={() => onPickFrame(entry.id)} title={entry.frame.frame_path}>
@@ -1078,6 +1132,7 @@ function RosterRow({ row, activeCell, onOpen, onChange, streamers }: {
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
+      if (!target?.closest(".ck-review-inspector")) return;
       const position = POSITION_KEYS.find((item) => item.key === event.key.toLowerCase());
       if (!position) return;
       event.preventDefault();

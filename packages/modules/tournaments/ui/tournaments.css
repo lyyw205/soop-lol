@@ -514,14 +514,16 @@
   color: var(--tp-accent);
 }
 .tp-event-logo {
-  object-fit: contain;
-  object-position: left center;
+  /* 화면 캡처에 맞춰 목록·상단 이미지를 16:9로 통일하고, 상단의 대회 제목을 우선 표시한다. */
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  object-position: center top;
   border-radius: 4px;
 }
 .tp-event-hero-logo {
   display: block;
   width: 300px;
-  height: 145px;
   max-width: 100%;
   margin-bottom: 10px;
 }
@@ -542,7 +544,6 @@
 }
 .tp-event-list-logo {
   width: 80px;
-  height: 46px;
   flex-shrink: 0;
 }
 .tp-catalog-title > a > span {
@@ -552,7 +553,6 @@
 @media (max-width: 580px) {
   .tp-hero .tp-event-hero-logo {
     width: 220px;
-    height: 110px;
   }
   .tp-hero:has(.tp-event-logo):not(.tp-hero-compact) .tp-hero-copy {
     padding-bottom: 90px;

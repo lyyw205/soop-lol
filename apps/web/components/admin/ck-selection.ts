@@ -1,5 +1,6 @@
 /**
- * 검수 화면의 **선택 규칙** — 무엇을 고르면 무엇이 인스펙터에 뜨나.
+ * 검수 화면의 **참고 프레임 선택 규칙** — 프레임과 그 소속 경기.
+ * 우측 편집 대상은 CkReviewer의 별도 세트 선택으로 관리한다.
  *
  * ★ 왜 컴포넌트 밖으로 뺐나: 선택을 **프레임에서만** 끌어내던 시절, 근거 프레임이 안 붙은
  *   경기는 타임라인에 보이는데도 고를 수 없어서 고칠 수도 없었다. 순수 함수로 두면
@@ -46,7 +47,7 @@ export function representativeFrame<F extends SelectableFrame>(frames: readonly 
 }
 
 /**
- * 지금 인스펙터에 띄울 것 둘을 정한다. 우선순위는 **직접 고른 것 → 프레임에서 끌어낸 것 → 첫 경기**.
+ * 참고 프레임과 그 소속 경기를 정한다. 우선순위는 **직접 고른 것 → 프레임에서 끌어낸 것 → 첫 경기**.
  * ⚠ 프레임이 0장이어도 경기가 있으면 그걸 띄워야 한다 — 안 그러면 편집 폼이 없다.
  */
 export function resolveSelection<F extends SelectableFrame, M extends SelectableMatch>(

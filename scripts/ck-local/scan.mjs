@@ -31,6 +31,7 @@ import { hms, vodBroadcastTimes, vodDetail } from "../lib/soop-vod.mjs";
 import { cellIndexAt, cellOf, coveragePoints, decodeSheet, fetchSheets, measureParts } from "../lib/vod-timeline.mjs";
 import { encode, montage } from "./image.mjs";
 import { reviewLabels } from "./review.mjs";
+import { compatiblePreparation } from "./preparation-compat.mjs";
 import { validateScanResume } from "@soop-lol/core/lib/metrics/ck-resume";
 
 const args = process.argv.slice(2);
@@ -61,7 +62,9 @@ if (args.includes('--reuse') && existsSync(statePath)) {
     const files = [...(state.overview_pages ?? []), ...(state.candidate_pages ?? [])].map(p => join(dir, p));
     files.push(join(dir, 'scan-draft.json'), join(dir, 'map.txt'));
     files.push(...[...(state.candidates ?? []), ...(state.file_tails ?? [])].map(c => c.frame).filter(Boolean));
-    if (state.vod_id === Number(vodId) && state.preparation_key === prepKey() && state.total_sec > 0
+    let migration = null;
+    try { migration = JSON.parse(readFileSync('out/ck-detector/memo-preparation-compat.json', 'utf8')); } catch { /* Normal fingerprint checks apply. */ }
+    if (state.vod_id === Number(vodId) && compatiblePreparation(state.preparation_key, prepKey(), migration) && state.total_sec > 0
       && state.overview_pages?.length && !state.failed?.length && files.every(p => existsSync(p))) {
       console.log(`PREP: ck-local run_id=${state.run_id} candidates=${state.candidates.length} dir=${dir} reused=true`);
       process.exit(0);

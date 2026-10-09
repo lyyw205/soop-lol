@@ -1,10 +1,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { projectReviewQueue, reviewQueueEntries, UNPLACED } from "./ck-review-queue.ts";
+import { projectReviewQueue, reviewQueueEntries, chronologicalReviewQueue, UNPLACED } from "./ck-review-queue.ts";
 
 const frame = (id: string, at_sec: number, match_id: string | null = null) => ({ id, at_sec, match_id });
 const match = (match_id: string) => ({ match_id });
+
+test("메모장 묶음은 시작 시각에 따라 경기·미연결 프레임 사이에 놓이고 경기 필터에서는 빠진다", () => {
+  const frames = [frame("early", 10), frame("one", 100, "M1"), frame("two", 200, "M2"),
+    { id: "unknown", match_id: null, at_sec: null }];
+  const projection = projectReviewQueue(frames, [match("M1"), match("M2")]);
+  const memos = [{ key: "later-note", from: 150 }, { key: "early-note", from: 90 }, { key: "same-time", from: 100 }];
+  const entries = chronologicalReviewQueue(projection, frames, memos);
+  assert.deepEqual(entries.map(e => [e.kind, e.id]), [
+    ["frame", "early"], ["memo", "early-note"], ["match", "M1"], ["memo", "same-time"],
+    ["memo", "later-note"], ["match", "M2"], ["frame", "unknown"],
+  ]);
+  assert.deepEqual(chronologicalReviewQueue(projection, frames, memos, true).map(e => e.id), ["M1", "M2"]);
+  assert.equal(chronologicalReviewQueue([], [], memos)[0].id, "early-note");
+  assert.equal(memos[0].key, "later-note", "정렬이 원본 목록을 바꾸지 않는다");
+  assert.equal(projection[0].frames.length, 1, "시각이 가까워도 메모장을 경기 근거로 연결하지 않는다");
+});
 
 test("경기 범위에는 그 경기에 연결된 프레임만 모은다", () => {
   const projection = projectReviewQueue(

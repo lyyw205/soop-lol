@@ -66,6 +66,7 @@ try {
   await p.locator('.ck-review-queue-item[data-kind="match"]').first().waitFor();
   const choose=async(n:number,page=p)=>{
     await page.getByRole('button',{name:`시각 미상 경기 browser:M${n}`,exact:true}).click();
+    await page.getByRole('combobox',{name:'편집할 세트'}).selectOption(`browser:M${n}`);
     await page.getByRole('tab',{name:'경기',exact:true}).click();
     await page.getByRole('heading',{name:`browser:M${n}`,exact:true}).waitFor();
   };
@@ -78,7 +79,7 @@ try {
     await run();assert.ok((await response).ok());
     await page.locator('form:has(.ck-review-match-summary) [role=status]').waitFor();
   };
-  // 시각 근거가 전혀 없는 경기 둘도 큐·미니맵에서 선택되고, 로스터 초안이 다른 경기로 새지 않는다.
+  // 편집 세트는 참고 사진과 따로 고르고, 로스터 초안이 다른 경기로 새지 않는다.
   await choose(1);await openRoster();await row(1).getByRole('button',{name:'참가자 1 KDA'}).click();
   await row(1).locator('input[placeholder=K]').fill('77');
   await choose(2);await openRoster();await row(1).getByRole('button',{name:'참가자 1 KDA'}).click();

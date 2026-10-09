@@ -49,7 +49,7 @@ import {
   assertCandidateMatchesExistInTx, evidenceFrameIdsByPathInTx, findMatchesAround, getLeadWorkspace,
   linkParticipantsInTx, listEvidenceFramesInTx, markLeadScanInTx, mergeLeadCandidatesInTx,
   recordEvidenceFramesInTx, streamerIdBySlug, streamerIdBySlugInTx, upsertEventLeadInTx,
-  upsertMatchFromScanInTx,
+  upsertMatchFromScanInTx, lockCkMatchWritesInTx,
 } from "@soop-lol/core/lib/db/ck";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { submitMatchPovInTx } from "@soop-lol/core/lib/db/ck-pov";
@@ -496,6 +496,8 @@ let committed = false;
 const vodMatchIds = [];
 try {
   await db().begin(async (tx) => {
+    // 단서·대회 행보다 먼저 잠근다. 다른 VOD의 신규 경기 저장과도 중복 검사를 직렬화한다.
+    if (results.some((r) => r.resultType === "match")) await lockCkMatchWritesInTx(tx);
     for (const r of results) {
       if (r.resultType === "scan") {
         // ★ 단서에는 분류가 없다(0035) — 분류는 이어진 경기의 대회가 정한다.

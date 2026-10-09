@@ -10,11 +10,42 @@ import { disposablePostgres } from './lib/disposable-postgres.ts';
 import { applyAll } from './lib/migrations.ts';
 import { db,closeDb } from '../packages/core/lib/db/client.ts';
 import * as ck from '../packages/core/lib/db/ck.ts';
+import { verifyCkDuplicatesDb } from './lib/verify-ck-duplicates.ts';
 const pg=await disposablePostgres();
 process.env.DATABASE_URL=pg.url; process.env.DATABASE_POOL_MAX='3';
 const other=postgres(pg.url,{max:1});
 try {
   await applyAll(s=>other.unsafe(s),new URL('..',import.meta.url).pathname);
+  await verifyCkDuplicatesDb();
+  // 서로 다른 신규 ID는 같은 행을 잠그지 못한다. 자정 양쪽의 실제 두 트랜잭션으로 재현한다.
+  const duplicateInput = (id: string, at: string): ck.CkMatchInput => ({
+    match_id: id, played_at: new Date(at), played_at_precision: 'datetime', duration: 1500, winning_team: 100,
+    participants: Array.from({length: 10}, (_, i) => ({participant_id:i+1, team_id:i<5?100:200,
+      observed_name:`동시 저장 ${i}`, champion_id:i+1, kills:i, deaths:i+1, assists:i+2})),
+  });
+  let commitFirst!:()=>void, firstSaved!:()=>void;
+  const commitGate=new Promise<void>(resolve=>commitFirst=resolve), savedGate=new Promise<void>(resolve=>firstSaved=resolve);
+  const first=other.begin(async tx=>{
+    await ck.upsertMatchFromScanInTx(tx,duplicateInput('duplicate-concurrent:a','2031-01-01T14:55:00Z'));
+    firstSaved(); await commitGate;
+  });
+  await savedGate;
+  const second=ck.upsertMatchFromScan(duplicateInput('duplicate-concurrent:b','2031-01-01T15:05:00Z'));
+  const secondRejected=assert.rejects(second,/duplicate-concurrent:a/);
+  try {
+    const deadline=Date.now()+10_000;
+    let waiting=false;
+    while(Date.now()<deadline){
+      const [row]=await db()`SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory'`;
+      if(row.n>0){waiting=true;break}
+      await new Promise(resolve=>setTimeout(resolve,20));
+    }
+    assert.equal(waiting,true,'두 번째 신규 ID는 중복 검사 전에 첫 트랜잭션의 커밋을 기다려야 한다');
+  } finally {commitFirst()}
+  await first; await secondRejected;
+  assert.equal((await db()`SELECT 1 FROM match WHERE match_id LIKE 'duplicate-concurrent:%'`).length,1);
+  console.log('Concurrent duplicate saves: advisory lock wait across KST midnight, recheck after commit, rejected insert rolled back');
   await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:'concurrent',played_at:new Date(),winning_team:100,result_evidence:'initial',participants:[{participant_id:1,team_id:100,observed_name:'A',kills:5}]});
   // Hold a real row lock; release only after the competing UPDATE is observed waiting.
   let release!:()=>void, locked!:()=>void;

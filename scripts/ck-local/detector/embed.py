@@ -40,6 +40,8 @@ def load_model(name, device):
     else:
         sys.exit(f"모르는 모델: {name}")
     m = m.to(device).eval().half()
+    if name == 'siglip':
+        enc.memo_norm = m.visual.trunk.norm  # Already computed tokens; no second encoder pass.
     return enc, size, torch.tensor(mean).view(1, 3, 1, 1), torch.tensor(std).view(1, 3, 1, 1)
 
 def letterbox(cells, size):

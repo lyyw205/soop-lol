@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "percent": 25,
+  "purpose": "Experimental human reference candidates; no automatic match decisions",
+  "selection": "SHA256(memo-v1:VOD), first 8 hex digits modulo 100",
+  "disable": "CK_MEMO_ENABLED=0 or enabled=false"
+}

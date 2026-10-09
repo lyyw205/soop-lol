@@ -24,7 +24,7 @@ const ROOT = join(import.meta.dirname, "..");
 const PORT = Number(process.env.VERIFY_DB_PORT ?? 5437);
 const WORK = join(ROOT, "out", "ck", "_verify-pov");
 // 실제 VOD 번호와 겹치지 않는 가짜 번호. 사진 파일은 out/ck/<번호>/ 에 둔다(ck-merge 가 존재를 본다).
-const VODS = { a: 99990101, c: 99990102, k: 99990103, b: 99990104, e: 99990105, f: 99990106, g: 99990107, h: 99990108 };
+const VODS = { a: 99990101, c: 99990102, k: 99990103, b: 99990104, e: 99990105, f: 99990106, g: 99990107, h: 99990108, duplicate: 99990109 };
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -179,6 +179,22 @@ try {
   let v = await views("pov:m1");
   check("만든 시점이 시점 기록으로 남는다", v.length === 1 && v[0].role === "created" && v[0].frames.length === 2,
     JSON.stringify(v.map((x) => [x.role, x.frames.length])));
+
+  console.log("\n▸ 다른 VOD가 같은 판을 새 ID로 내면 scan까지 파일 전체를 되돌린다");
+  fakeVod(VODS.duplicate, [700]);
+  const [original] = await sql()<{ game_creation: Date }[]>`SELECT game_creation FROM match WHERE match_id='pov:m1'`;
+  r = await merge([
+    scan(VODS.duplicate, "pov_c", [700]),
+    { resultType: "match", match_id: "pov:duplicate", game_mode: "CLASSIC", winning_team: 100,
+      played_at: original.game_creation.toISOString(), played_at_precision: "datetime", duration: 1800,
+      result_evidence: "다른 시점의 결과창", participants: full.map(p => ({...p, team_id: p.team_id === 100 ? 200 : 100})),
+      evidence_frames: [framePath(VODS.duplicate, 700)] },
+  ]);
+  check("CLI가 기존 ID와 화면 대조 안내를 포함해 중복 저장을 거부한다", r.code !== 0
+    && r.out.includes("같은 판으로 보이는 공개 경기가 이미 있다 — pov:m1") && r.out.includes("화면을 대조"), r.out);
+  check("중복 경기뿐 아니라 앞서 처리한 새 VOD 단서도 롤백한다",
+    (await sql()`SELECT 1 FROM match WHERE match_id='pov:duplicate'`).length === 0
+    && (await sql()`SELECT 1 FROM event_lead WHERE source_key=${`vod:${VODS.duplicate}`}`).length === 0);
 
   console.log("\n▸ 두 번째 시점 — 직접 읽은 칸만, 팀 번호가 뒤집힌 화면");
   fakeVod(VODS.c, [500, 600]);

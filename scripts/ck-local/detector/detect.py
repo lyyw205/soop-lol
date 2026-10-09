@@ -28,6 +28,7 @@ def main():
     ap.add_argument("--threshold", type=float, default=0.7)
     ap.add_argument("--min-len", type=int, default=2)
     ap.add_argument("--batch", type=int, default=200)
+    ap.add_argument("--memo", choices=['auto', 'on', 'off'], default='auto')
     a = ap.parse_args()
     clf = np.load(OUT / "model" / a.model / "clf.npz")
     w, b = clf["coef"].astype(np.float32), float(clf["intercept"][0])
@@ -38,8 +39,10 @@ def main():
     enc, size, mean, std = load_model(a.model, device)
     mean, std = mean.to(device).half(), std.to(device).half()
     meta = json.loads(Path(a.meta).read_text())
+    from memo_runtime import MemoSession
+    memo = MemoSession(a.meta, enc, a.memo if a.model == 'siglip' else 'off')
     ats, scores, kinds, confs = [], [], [], []
-    for p in meta["parts"]:
+    for part_index, p in enumerate(meta["parts"]):
         if not p.get("reliable") or not p["cells"]: continue
         for k, sheet in enumerate(p["sheets"]):
             n = min(PER, p["cells"] - k * PER)
@@ -54,6 +57,10 @@ def main():
                 z = e @ multi["coef"].T + multi["intercept"]; z = np.exp(z - z.max(1, keepdims=True)); pr = z / z.sum(1, keepdims=True)
                 kinds.append(pr.argmax(1)); confs.append(pr.max(1))
             ats.extend(p["offset"] + (k * PER + np.arange(n)) * 3)
+            end = p['offset'] + p['length']
+            if part_index + 1 < len(meta['parts']): end = min(end, meta['parts'][part_index + 1]['offset'])
+            memo.observe(p['offset'] + (k * PER + np.arange(n)) * 3, cells, end)
+    memo.finish()
     at = np.array(ats, dtype=np.float64); s = np.concatenate(scores) if scores else np.zeros(0)
     # 덩어리: 문턱을 넘는 칸, 2칸(6초) 이하 끊김은 잇는다. 파일 경계를 넘는 덩어리는 시각 차로 끊긴다.
     cands = []

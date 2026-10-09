@@ -2,7 +2,7 @@
  * VOD 의 3초 간격 썸네일 칸 — 판독 때 받아 둔 썸네일 시트(`out/ck/<VOD>/sheets/f<파일>/c<번호>.jpg`)에서 칸 하나를 잘라 준다.
  *
  * 검수자가 "결과 화면 앞뒤 맥락"(직전의 선택, 직후의 반응)을 보려면 조사가 원본으로 뽑은 몇 장이 아니라 방송 전체의 흐름이 필요하다.
- * 시트는 방송 전체를 3초 칸(192×108)으로 이미 담고 있으므로 원본을 새로 받지 않고 거기서 자른다.
+ * 시트는 방송 전체를 3초 칸(192×108 또는 128×72)으로 이미 담고 있으므로 원본을 새로 받지 않고 거기서 자른다.
  * 시트 해석(칸 = floor(파일 로컬 초 / 3), 시트 = floor(칸 / 100), 시트 안 위치 = 10×10 행 우선)은
  * scripts/lib/vod-timeline.mjs 의 `cellIndexAt`·`cellOf` 와 같다 — 웹이 scripts 를 import 하지 않으려고 같은 계산을 여기 둔다.
  *
@@ -13,7 +13,6 @@ import jpeg from "jpeg-js";
 
 export const CELL_SEC = 3;
 const PER_SHEET = 100;
-const FW = 192, FH = 108;
 
 interface SheetPart { index: number; offset: number; length: number; cells: number; sheets: string[] }
 interface Layout { parts: SheetPart[]; total: number }
@@ -94,11 +93,15 @@ export async function readCell(vod: string, sec: number): Promise<Uint8Array | n
     decoded.set(file, sheet);
     if (decoded.size > DECODED_MAX) decoded.delete(decoded.keys().next().value as string);
   }
+  // Sheets also arrive at 1280×720. Resolve the actual 10×10 grid, matching
+  // the detector's cell_image, rather than cropping a fixed 192×108 rectangle.
+  if (sheet.width % 10 !== 0 || sheet.height % 10 !== 0) return null;
+  const fw = sheet.width / 10, fh = sheet.height / 10;
   const cell = i % PER_SHEET, fx = cell % 10, fy = Math.floor(cell / 10);
-  const data = new Uint8Array(FW * FH * 4);
-  for (let y = 0; y < FH; y++) {
-    const src = ((fy * FH + y) * sheet.width + fx * FW) * 4;
-    data.set(sheet.data.subarray(src, src + FW * 4), y * FW * 4);
+  const data = new Uint8Array(fw * fh * 4);
+  for (let y = 0; y < fh; y++) {
+    const src = ((fy * fh + y) * sheet.width + fx * fw) * 4;
+    data.set(sheet.data.subarray(src, src + fw * 4), y * fw * 4);
   }
-  return jpeg.encode({ width: FW, height: FH, data }, 82).data;
+  return jpeg.encode({ width: fw, height: fh, data }, 82).data;
 }
