@@ -136,6 +136,13 @@ export interface PovSubmitResult {
  */
 export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise<PovSubmitResult> {
   const role = input.role ?? "added";
+  // ★ 다른 방송 화면은 경기 근거로 쓰지 않는다(2026-10-09 사용자 결정). 남의 방송을 띄운 화면은 상대·팀 반응 보기,
+  //   대기 중 시청, 남들끼리 CK 시청 등 맥락이 제각각이고, 작은 화면이라 이름 오독이 잦았다(영재·디나이 CK 10명 중 7명 미확인).
+  //   본인이 뛴 판은 본인 VOD 에 같은 결과창이 있고, 남의 판은 참가자 VOD 가 정본이다. 그래서 만들기·시점 추가 모두 막는다.
+  if (input.source === "rebroadcast") {
+    throw new Error(`${input.match_id}: 다른 방송 화면(source: rebroadcast)은 경기 근거로 쓰지 않는다 — `
+      + "경기를 내지 말고, 후보를 not_target 으로 닫으며 관찰에 '누구 방송(채널)을 몇 시에 보고 있었다'만 남길 것");
+  }
   const stored = await loadStoredMatchInTx(tx, input.match_id, true);
   if (!stored) throw new Error(`${input.match_id}: 그런 경기가 없다 — 시점을 더하려면 경기가 먼저 있어야 한다`);
   const owner = await leadOwnerInTx(tx, input.lead_id);
@@ -146,7 +153,7 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
     }
     if (input.source === "own" && owner && !stored.participants.some((p) => p.person_id === owner)) {
       throw new Error(`${input.match_id}: 본인 화면(source: own)인데 방송 주인이 이 경기 참가자에 없다 — `
-        + "다른 경기이거나, 남의 방송을 띄운 화면이면 source: rebroadcast 로 낼 것");
+        + "다른 경기이거나 남의 방송을 띄운 화면이다 — 남의 방송 화면이면 경기로 내지 않는다(not_target + 시청 단서 관찰)");
     }
     // ★ 모순만 거부한다. ±30분 안이라는 건 같은 경기의 증명이 아니다(연속 판·단판이 30분 안에 여럿 있다).
     if (input.source === "own" && input.frame_times?.length && stored.game_creation_precision === "datetime") {

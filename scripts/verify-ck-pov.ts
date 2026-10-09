@@ -319,15 +319,18 @@ try {
   ]);
   check("기존 경기에 근거(link_basis) 없이 내면 거부", r.code !== 0 && r.out.includes("link_basis"), r.out.slice(-300));
 
-  console.log("\n▸ 재송출 — 방송 주인 조건·시각 검사 면제, 근거는 필요");
+  console.log("\n▸ 다른 방송 화면은 경기 근거가 아니다(2026-10-09) — 시점 추가도 새 경기도 거부");
   r = await merge([
     scan(VODS.k, "pov_k", [100]),
     { resultType: "match", match_id: "pov:m1", pov: { source: "rebroadcast", link_basis: "c 방송을 띄운 화면, 결과창 동일" },
       participants: [{ streamer_slug: "pov-a", kills: 0 }], evidence_frames: [framePath(VODS.k, 100)] },
   ]);
-  check("재송출 시점 추가", r.code === 0, r.code ? r.out : "");
+  check("다른 방송 화면 시점 추가는 거부", r.code !== 0 && r.out.includes("경기 근거로 쓰지 않는다"), r.out.slice(-300));
   v = await views("pov:m1");
-  check("재송출은 source 로 구분된다", v.some((x) => x.lead_source_key === `vod:${VODS.k}` && x.source === "rebroadcast"));
+  check("거부된 다른 방송 화면은 시점으로 남지 않는다", !v.some((x) => x.lead_source_key === `vod:${VODS.k}`));
+  await assert.rejects(() => sql().begin((tx) => pov.submitMatchPovInTx(tx, { match_id: "pov:m1", lead_id: "00000000-0000-0000-0000-000000000000",
+    role: "created", source: "rebroadcast", link_basis: "x", observed: {} } as any)), /경기 근거로 쓰지 않는다/);
+  check("core 저장 함수도 다른 방송 화면을 거부한다(CLI 를 거치지 않는 경로)", true);
 
   console.log("\n▸ 시각 모순 — 대응할 수 있을 때만 검사한다");
   // 방송 12:00 시작. 경기는 13:00~13:30. 사진 5000초 = 13:23(정상), 14000초 = 15:53(두 시간 넘게 뒤).

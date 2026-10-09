@@ -360,8 +360,11 @@ for (const [i, r] of results.entries()) {
     if (r.pov !== undefined) {
       if (typeof r.pov !== "object" || r.pov === null) fail(i, "pov 는 객체여야 한다");
       else {
-        if (r.pov.source !== undefined && !["own", "rebroadcast"].includes(r.pov.source)) {
-          fail(i, "pov.source 는 own(본인 화면) 또는 rebroadcast(남의 방송을 띄운 화면)다");
+        if (r.pov.source === "rebroadcast") {
+          fail(i, "다른 방송 화면(source: rebroadcast)은 경기 근거로 쓰지 않는다(2026-10-09) — 이 match 를 빼고, "
+            + "후보를 not_target 으로 닫으며 관찰에 '누구 방송(채널)을 몇 시에 보고 있었다'만 남길 것");
+        } else if (r.pov.source !== undefined && r.pov.source !== "own") {
+          fail(i, "pov.source 는 own(본인 화면)만 받는다 — 남의 방송을 띄운 화면은 경기로 내지 않는다");
         }
         if (r.pov.time_reliable !== undefined && typeof r.pov.time_reliable !== "boolean") {
           fail(i, "pov.time_reliable 은 true/false 다 — VOD 가 끊겨 시각을 믿을 수 없으면 false");
