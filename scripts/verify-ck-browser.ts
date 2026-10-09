@@ -66,7 +66,6 @@ try {
   await p.locator('.ck-review-queue-item[data-kind="match"]').first().waitFor();
   const choose=async(n:number,page=p)=>{
     await page.getByRole('button',{name:`시각 미상 경기 browser:M${n}`,exact:true}).click();
-    await page.getByRole('combobox',{name:'편집할 세트'}).selectOption(`browser:M${n}`);
     await page.getByRole('tab',{name:'경기',exact:true}).click();
     await page.getByRole('heading',{name:`browser:M${n}`,exact:true}).waitFor();
   };
@@ -79,7 +78,8 @@ try {
     await run();assert.ok((await response).ok());
     await page.locator('form:has(.ck-review-match-summary) [role=status]').waitFor();
   };
-  // 편집 세트는 참고 사진과 따로 고르고, 로스터 초안이 다른 경기로 새지 않는다.
+  // 큐에서 경기를 누르면 편집 대상도 따라가고(초안이 남아 있어도), 로스터 초안이 다른 경기로 새지 않는다.
+  // ⚠ 편집할 세트 드롭다운을 따로 고르지 않는다 — 예전엔 그걸로 대신 골라서 큐 클릭이 안 먹는 회귀를 못 잡았다.
   await choose(1);await openRoster();await row(1).getByRole('button',{name:'참가자 1 KDA'}).click();
   await row(1).locator('input[placeholder=K]').fill('77');
   await choose(2);await openRoster();await row(1).getByRole('button',{name:'참가자 1 KDA'}).click();

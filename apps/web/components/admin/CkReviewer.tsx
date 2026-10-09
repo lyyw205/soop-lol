@@ -214,8 +214,10 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   //   규칙 자체는 `ck-selection.ts` 의 순수 함수에 있다(회귀 검사가 거기를 잰다).
   const [rosterDirtyId, setRosterDirtyId] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked>({ matchId: initialMatchId });
-  // 큐에서 **경기**를 고르면 편집 대상도 그 경기로 바뀐다(2026-10-09 — "다른 판을 눌러도 로스터가 안 바뀐다").
-  // 사진·메모장만 넘겨 볼 때는 편집 대상이 그대로다. 저장 안 한 로스터 편집이 있으면 대상을 지킨다(안내 문구가 뜬다).
+  // 큐에서 **경기**를 고르면 편집 대상도 **항상** 그 경기로 바뀐다(2026-10-09 — "다른 판을 눌러도 로스터가 안 바뀐다").
+  // 사진·메모장만 넘겨 볼 때는 편집 대상이 그대로다. 저장 안 한 초안이 있어도 막지 않는다 —
+  // 초안은 경기별로 sessionStorage 에 남아(use-review-draft) 다시 돌아오면 그대로 복원된다.
+  // ⚠ 예전엔 초안이 있으면 대상을 지켰는데, 초안이 하나라도 남아 있으면 큐가 조용히 안 움직여 같은 증상이 되살아났다.
   const [editingMatchId, setEditingMatchId] = useState<string | null>(() =>
     resolveSelection(frames, matches, { matchId: initialMatchId }).match?.match_id ?? null);
   const rosterField = rosterFocus(initialFocus)?.focus;
@@ -246,7 +248,7 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   const pickMatch = (id: string) => {
     memo.clear();
     setPicked({ matchId: id });
-    if (!rosterDirtyId || rosterDirtyId !== editingMatchId) setEditingMatchId(id);
+    setEditingMatchId(id);
     requestAnimationFrame(() => {
       document.getElementById(`ck-review-queue-match:${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
