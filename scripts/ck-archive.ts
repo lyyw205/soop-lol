@@ -4,7 +4,7 @@
  *
  *   npm run ck:archive -- --dry-run          # 뭘 옮길지만 보여 준다
  *   npm run ck:archive                       # 옮긴다
- *   npm run ck:archive -- --dest /mnt/d/soop-lol-ck --min-age 30 [--limit 3]   # --limit: 앞에서 N개만(시험용)
+ *   npm run ck:archive -- --dest /mnt/d/soop-lol-ck --min-age 30 [--limit 3] [--stop-on-error]   # --limit: 앞에서 N개만 · 첫 실패에서 멈춤
  *
  * ★ 2026-10-09 시트만 옮기던 것(ck:archive-sheets)을 VOD 폴더 통째로 넓혔다. WSL 가상 디스크가 C: 를 채워
  *   매일 조사가 멈췄고(여유 6GB 이하), 그 대부분이 끝난 VOD 의 사진이었다. 예전에 시트만 옮긴 VOD 는
@@ -24,7 +24,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSy
 import { dirname, join, relative, resolve } from "node:path";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 
-const { values } = parseArgs({ options: { dest: { type: "string" }, "dry-run": { type: "boolean" }, "min-age": { type: "string" }, limit: { type: "string" } } });
+const { values } = parseArgs({ options: { dest: { type: "string" }, "dry-run": { type: "boolean" }, "min-age": { type: "string" }, limit: { type: "string" }, "stop-on-error": { type: "boolean" } } });
 const DEST = resolve(values.dest ?? "/mnt/d/soop-lol-ck");
 const MIN_AGE_MIN = Number(values["min-age"] ?? 30);
 const DRY = Boolean(values["dry-run"]);
@@ -103,7 +103,12 @@ for (const v of targets) {
     rmSync(aside, { recursive: true, force: true });
     moved++; bytes += size;
     console.log(`  ${v}  ${(size / 2 ** 20).toFixed(0)}MB 옮김`);
-  } catch (e) { failed++; console.error(`  ${v}  ✗ ${(e as Error).message} — 원본을 그대로 둔다`); }
+  } catch (e) {
+    failed++; console.error(`  ${v}  ✗ ${(e as Error).message} — 원본을 그대로 둔다`);
+    // ★ 보관 디스크가 쓰기 중에 끊기면(2026-10-09 T7: EIO·EINVAL 1,724건, 윈도우 "전체 복구 필요") 남은 VOD 마다
+    //   같은 실패를 되풀이하며 반쯤 쓴 파일만 늘린다. --stop-on-error 면 첫 실패에서 멈춘다.
+    if (values["stop-on-error"]) { console.error("첫 실패에서 멈춘다(--stop-on-error) — 보관 디스크 연결·상태를 확인한다"); break; }
+  }
 }
 console.log(`${DRY ? "옮길 것" : "옮김"} ${moved}개 · ${(bytes / 2 ** 30).toFixed(2)}GB${failed ? ` · 실패 ${failed}개` : ""}`);
 process.exit(failed ? 1 : 0);
