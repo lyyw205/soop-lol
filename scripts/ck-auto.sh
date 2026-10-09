@@ -224,6 +224,16 @@ if (( FC_ENABLED && FC_N > 0 )); then fc_worker & PIDS+=("$!"); fi
 # 작업자가 스스로 죽으면(잠금 파일을 못 여는 등) 그 코드를 놓치지 않는다 — wait 하나로 뭉치면 0 이 된다.
 for pid in "${PIDS[@]}"; do wait "$pid" || fail "작업자(pid $pid)가 비정상 종료(코드 $?) — 그 몫의 대상은 다음 회차"; done
 
+# 조사가 끝난 VOD 폴더를 보관 디스크(T7)로 옮긴다 — C: 를 채우는 건 끝난 VOD 의 사진이었다(2026-10-09 여유 6GB 이하로 멈춤).
+# 보관 디스크가 없거나 끊기면 건너뛰고(첫 실패에서 멈춤) 조사 결과에는 영향을 주지 않는다. 다음 회차가 다시 시도한다.
+if grep -q " /mnt/d " /proc/mounts && touch /mnt/d/.ck-probe 2>/dev/null && rm -f /mnt/d/.ck-probe; then
+  say "끝난 VOD 폴더를 보관 디스크로 옮긴다"
+  nice -n 15 ionice -c3 node --env-file-if-exists=apps/web/.env.local scripts/ck-archive.ts --stop-on-error >>"$LOG" 2>&1 \
+    || say "보관 일부 실패 — 원본은 그대로다. 나중에: npm run ck:archive -- --stop-on-error"
+else
+  say "보관 디스크(/mnt/d)가 없거나 쓸 수 없어 VOD 폴더 보관을 건너뛴다"
+fi
+
 CODE=0
 if [[ -f "$RUN/abort" ]]; then c=$(cat "$RUN/abort" 2>/dev/null); [[ "$c" =~ ^[0-9]+$ ]] && CODE=$c || CODE=3; fi
 (( CODE == 0 )) && [[ -s "$RUN/failures" ]] && CODE=1
