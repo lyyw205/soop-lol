@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { db } from "../../packages/core/lib/db/client.ts";
 import { upsertMatchFromScan, upsertMatchFromScanInTx, type CkMatchInput } from "../../packages/core/lib/db/ck.ts";
+import { listDuplicateSuspects } from "../../packages/core/lib/db/ck-duplicates.ts";
 import { createStreamer, linkAccount } from "../../packages/core/lib/db/streamers.ts";
 
 /** 실제 저장 질의로 오탐·임계값·시각 경계·계정 신원·예외 이력을 검증한다. 폐기용 DB에서만 호출한다. */
@@ -25,7 +26,12 @@ export async function verifyCkDuplicatesDb() {
       assert.equal((await sql`SELECT 1 FROM match WHERE match_id=${next.match_id}`).length, 0);
     } else assert.equal(await upsertMatchFromScan(next), true, label);
   }
-  await pair("different-people", (n) => { n.participants.forEach(p => { p.observed_name = `다른사람${p.participant_id}`; }); }, false);
+  // ★ 2026-10-09 정책 변경: 이름이 전부 달라도 열 명의 (승패·챔피언·KDA)가 통째로 같으면 같은 판 후보다.
+  //   실제로 같은 판이 오독·미연결 이름 때문에 2~4명만 대응돼 그대로 저장됐다. 다른 판이면 distinct_from 으로 남긴다.
+  await pair("different-names-same-values", (n) => { n.participants.forEach(p => { p.observed_name = `다른사람${p.participant_id}`; }); }, true);
+  await pair("different-names-seven", (n) => { n.participants.forEach((p, i) => { p.observed_name = `다른사람${i}`; if (i >= 7) p.champion_id = i + 101; }); }, false);
+  await pair("different-names-eight", (n) => { n.participants.forEach((p, i) => { p.observed_name = `다른사람${i}`; if (i >= 8) p.champion_id = i + 101; }); }, true);
+  await pair("different-names-partial-kda", (n) => { n.participants.forEach((p, i) => { p.observed_name = `다른사람${i}`; if (i >= 7) p.assists = null; }); }, false);
   await pair("repeated-kda", (n) => { n.participants.forEach((p, i) => {
     const source = i < 5 ? 0 : 5;
     p.kills = source; p.deaths = source + 1; p.assists = source + 2; p.champion_id = i + 101;
@@ -51,8 +57,13 @@ export async function verifyCkDuplicatesDb() {
     n.played_at = new Date(b.played_at.getTime() + 10 * 60_000);
   }, false);
   await pair("different-outcome", (n) => { n.winning_team = 200; }, false);
+  // 이름이 모호해 사람 대응은 0이어도, 값이 통째로 같으면 이름 무관 일치로 후보가 된다(위 정책 변경).
   await pair("ambiguous-identity", (n, b) => {
     for (const g of [n, b]) g.participants.forEach(p => { p.observed_name = "동명이인"; });
+  }, true);
+  await pair("ambiguous-identity-different-values", (n, b) => {
+    for (const g of [n, b]) g.participants.forEach(p => { p.observed_name = "동명이인"; });
+    n.participants.forEach((p, i) => { p.champion_id = i + 101; });
   }, false);
 
   const at = new Date("2030-03-01T12:00:00Z"), original = input("audit:a", at), distinct = input("audit:b", at);
@@ -61,6 +72,10 @@ export async function verifyCkDuplicatesDb() {
   await upsertMatchFromScan(distinct);
   const [audit] = await sql`SELECT after FROM review_change WHERE match_id=${distinct.match_id} AND field='distinct_from'`;
   assert.deepEqual(audit.after, [original.match_id]);
+  const pairKey = (a: string, b: string) => [a, b].sort().join("|");
+  const suspectKeys = async () => new Set((await listDuplicateSuspects()).map(d => pairKey(d.a, d.b)));
+  // 사람이 다른 판이라고 확인한 쌍은 의심 목록에 다시 돌아오지 않는다.
+  assert.equal((await suspectKeys()).has(pairKey(original.match_id, distinct.match_id)), false, "distinct_from 쌍은 의심 목록에서 빠진다");
   await sql`UPDATE match SET visibility='hidden' WHERE match_id IN (${original.match_id},${distinct.match_id})`;
   assert.equal(await upsertMatchFromScan(input("hidden-candidate", at)), true);
 
@@ -85,5 +100,32 @@ export async function verifyCkDuplicatesDb() {
     upsertMatchFromScanInTx(tx, input("same-tx:b", togetherAt)),
   ])), /duplicate-regression:same-tx:a/);
   assert.equal((await sql`SELECT 1 FROM match WHERE match_id LIKE 'duplicate-regression:same-tx:%'`).length, 0);
-  console.log("  ok   중복 저장 회귀: 사람별 1:1·시간/날짜 경계·계정 주인·숨김·예외 이력");
+  // ── 저장 뒤에야 드러나는 같은 판(2026-10-09, 확정 중복 14쌍 중 11쌍) ──
+  // 먼저 저장된 쪽이 이름만 있는 뼈대면 저장 검사는 비교할 값이 없어 통과한다. 값이 채워지면 의심 목록에 떠야 한다.
+  const skeleton = (g: CkMatchInput): CkMatchInput => ({ ...g, duration: null, participants: g.participants.map(p => ({
+    ...p, observed_name: `뼈대${p.participant_id}`, champion_id: 0, kills: null, deaths: null, assists: null })) });
+  const fill = async (g: CkMatchInput) => { for (const p of g.participants) await sql`
+    UPDATE match_participant SET champion_id=${p.champion_id}, kills=${p.kills}, deaths=${p.deaths}, assists=${p.assists}
+     WHERE match_id=${g.match_id} AND participant_id=${p.participant_id}`; };
+  const late = input("late-fill:a", new Date("2030-06-01T12:00:00Z"));
+  const lateBase = skeleton(input("late-fill:z", late.played_at));
+  await upsertMatchFromScan(lateBase);
+  assert.equal(await upsertMatchFromScan(late), true, "뼈대만 있을 때는 저장 검사가 막지 못한다(재현)");
+  assert.equal((await suspectKeys()).has(pairKey(late.match_id, lateBase.match_id)), false);
+  await fill(input("late-fill:z", late.played_at));
+  assert.equal((await suspectKeys()).has(pairKey(late.match_id, lateBase.match_id)), true, "값이 채워지면 의심 목록에 뜬다");
+
+  // 자정 양쪽 + 경기 ID 순서가 시각 순서와 반대(23:55 의 'z', 00:05 의 'a') — 날짜별·ID 순 짝짓기면 빠졌다.
+  const night = input("night:a", new Date("2030-06-10T15:05:00Z"));
+  const nightBase = skeleton(input("night:z", new Date("2030-06-10T14:55:00Z")));
+  await upsertMatchFromScan(nightBase);
+  assert.equal(await upsertMatchFromScan(night), true);
+  await fill(input("night:z", nightBase.played_at));
+  assert.equal((await suspectKeys()).has(pairKey(night.match_id, nightBase.match_id)), true, "자정 양쪽·ID 역순도 짝을 찾는다");
+
+  // 숨긴 경기(정리된 쪽)는 의심 목록에 올리지 않는다.
+  await sql`UPDATE match SET visibility='hidden' WHERE match_id=${lateBase.match_id}`;
+  assert.equal((await suspectKeys()).has(pairKey(late.match_id, lateBase.match_id)), false, "숨긴 경기는 의심 목록에서 빠진다");
+  console.log("  ok   중복 저장 회귀: 사람별 1:1·이름 무관 일치(7/8 경계·불완전 KDA)·시간/날짜 경계·계정 주인·숨김·예외 이력");
+  console.log("  ok   중복 의심 조회: 뼈대 뒤 보강·자정 양쪽 ID 역순·distinct_from 제외·숨김 제외");
 }

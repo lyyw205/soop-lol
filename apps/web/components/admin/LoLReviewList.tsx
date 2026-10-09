@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { countOverviewSeries, listOverviewSeries } from "@soop-lol/core/lib/db/match-overview";
 import { listEventLeads, type LeadEventKind } from "@soop-lol/core/lib/db/ck";
+import { listDuplicateSuspects } from "@soop-lol/core/lib/db/ck-duplicates";
 import { Card, EmptyState } from "@/components/ui";
 import { MatchOverview } from "./MatchOverview";
 import { AdminPagination } from "./AdminPagination";
@@ -19,9 +20,20 @@ export async function LoLReviewList({ query, mode, collection = "rift" }: { quer
   const path = section[mode];
   const href = adminHref(path, { ...query, queue: queue ?? "all", page });
   const opts = { collection, kind, unreviewed: pending, q: query.q, event: query.event, focus: query.focus, queue };
-  const [series, total] = await Promise.all([listOverviewSeries({ ...opts, limit: size, offset: (page - 1) * size }), countOverviewSeries(opts)]);
+  const [series, total, duplicates] = await Promise.all([listOverviewSeries({ ...opts, limit: size, offset: (page - 1) * size }), countOverviewSeries(opts),
+    mode === "queue" ? listDuplicateSuspects() : Promise.resolve([])]);
   const leads = query.channel ? await listEventLeads({ collection, channel_id: query.channel, event_kind: kind, with_matches: true, unreviewed: pending }) : [];
   return <Card title={`${section.label} ${mode === "queue" ? "경기 검수" : "시리즈 비교"}`} description={collection === "aram" ? "일반 칼바람과 증강 칼바람 경기를 함께 검수합니다." : undefined}>
+    {/* 저장 뒤 값이 채워져서야 드러난 같은 판 — 판정은 ck:record --todo 와 같은 코어 함수다. 다르면 distinct_from 으로 남긴다. */}
+    {duplicates.length > 0 && <details className="mb-3 rounded border border-amber-700/60 bg-amber-950/20 p-3 text-xs">
+      <summary className="cursor-pointer text-amber-300">같은 판으로 보이는 공개 경기 {duplicates.length}쌍 — 두 경기 결과창을 대조해 주세요</summary>
+      <ul className="mt-2 grid gap-1">{duplicates.map(d => <li key={`${d.a}|${d.b}`} className="flex flex-wrap items-center gap-2">
+        <Link href={adminHref(`/admin/ck/match/${encodeURIComponent(d.a)}`, { from: href })} className="text-accent-400">{d.a}</Link>
+        <span className="text-ink-500">↔</span>
+        <Link href={adminHref(`/admin/ck/match/${encodeURIComponent(d.b)}`, { from: href })} className="text-accent-400">{d.b}</Link>
+        <span className="text-ink-400">이름 무관 {d.blind}·사람별 KDA {d.kda}·챔피언 {d.champ}명 일치</span>
+      </li>)}</ul>
+    </details>}
     <nav aria-label="검수 우선순위" className="mb-3 flex flex-wrap gap-3 text-xs">{[['priority','우선 검수'],['general','일반 검수'],['all','전체']].map(([key,label]) => <Link key={key} href={adminHref(href, { queue: key, page: undefined })} aria-current={(queue ?? 'all') === key ? 'page' : undefined} className={(queue ?? 'all') === key ? 'text-accent-400' : 'text-ink-400'}>{label}</Link>)}</nav>
     <form className="mb-3 flex flex-wrap items-center gap-2">
       <input type="hidden" name="queue" value={queue ?? "all"} />

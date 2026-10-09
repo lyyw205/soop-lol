@@ -19,7 +19,7 @@ import type postgres from "postgres";
 
 import { db } from "./client.ts";
 import { lolReviewScope, type LoLReviewCollection } from "./lol-review-scope.ts";
-import { duplicateParticipantCounts, isDuplicateGame, type DuplicateParticipant } from "../metrics/ck-duplicate.ts";
+import { blindOverlap, duplicateParticipantCounts, isDuplicateGame, withinDuplicateWindow, type DuplicateParticipant } from "../metrics/ck-duplicate.ts";
 import { recomputeChampionStatsInTx, rederiveEncountersInTx } from "./ingest.ts";
 // 참가자 불변식(챔피언 이름↔ID · 계정↔사람)은 나무위키 시드 경로와 **같은 것**을 쓴다.
 import { assertIdentityAgrees, resolveChampion } from "./participant.ts";
@@ -913,10 +913,11 @@ export async function correctMatchMode(input: {
  *
  * 같은 판의 신호는 시점이 달라도 변하지 않는 값이다 — 진영 번호는 시점마다 뒤집히므로 보지 않고,
  * **사람별 승패**와 함께 비교한다.
- *   · 시작 시각이 가깝다(±20분, 어느 한쪽이라도 날짜만 아는 기록이면 같은 KST 날짜)
+ *   · 시작 시각이 가깝다(±20분, 어느 한쪽이라도 날짜만 아는 기록이면 같은 KST 날짜 — withinDuplicateWindow)
+ *   · 이름과 무관하게 (승패·챔피언·KDA) 묶음이 8명 이상 같을 때(blindOverlap — 사람 대응이 깨져도 잡는다)
  *   · 경기 시간이 같다(±2초)면 KDA 또는 챔피언+승패가 6명 이상 겹칠 때
  *   · 경기 시간을 모르면 KDA 와 챔피언+승패가 둘 다 8명 이상 겹칠 때
- *   · 양쪽 경기 시간을 알면서 ±2초를 벗어나면 중복으로 보지 않는다.
+ *   · 양쪽 경기 시간을 알면서 ±2초를 벗어나면 중복으로 보지 않는다(위 모두보다 우선).
  * 신원으로 1:1 대응한 사람만 센다. KDA는 K/D/A를 모두 읽었을 때만 일치로 센다.
  * 걸리면 저장하지 않는다. 같은 판이면 그 match_id 로 내서 시점을 붙이고, 다른 판임을 화면으로
  * 확인했으면 `distinct_from` 에 적는다. 공개 경기만 본다 — 숨긴 경기는 중복으로 정리된 쪽이다.
@@ -933,8 +934,8 @@ async function assertNotDuplicateGameInTx(tx: Tx, g: CkMatchInput): Promise<void
     champion_id: resolveChampion(p.champion_id, p.champion_name).champion_id,
     kills: p.kills ?? null, deaths: p.deaths ?? null, assists: p.assists ?? null,
   }));
-  const rows = await tx<{ match_id: string; game_duration: number | null; participants: DuplicateParticipant[] }[]>`
-    SELECT m.match_id, m.game_duration,
+  const rows = await tx<{ match_id: string; game_duration: number | null; game_creation: Date; game_creation_precision: string; participants: DuplicateParticipant[] }[]>`
+    SELECT m.match_id, m.game_duration, m.game_creation, m.game_creation_precision,
            jsonb_agg(jsonb_build_object(
              'person_id', COALESCE(sa.streamer_id, p.streamer_id),
              'puuid', p.puuid, 'observed_name', p.observed_name,
@@ -947,17 +948,18 @@ async function assertNotDuplicateGameInTx(tx: Tx, g: CkMatchInput): Promise<void
        AND m.match_id <> ${g.match_id} AND NOT (m.match_id = ANY(${g.distinct_from ?? []}::text[]))
        AND (${g.duration ?? null}::int IS NULL OR m.game_duration IS NULL
             OR abs(m.game_duration - ${g.duration ?? null}::int) <= 2)
-       AND CASE WHEN m.game_creation_precision = 'date' OR ${g.played_at_precision} = 'date'
-                THEN (m.game_creation AT TIME ZONE 'Asia/Seoul')::date
-                     = (${g.played_at}::timestamptz AT TIME ZONE 'Asia/Seoul')::date
-                ELSE abs(extract(epoch FROM m.game_creation - ${g.played_at}::timestamptz)) <= 1200 END
-     GROUP BY m.match_id, m.game_duration ORDER BY m.match_id`;
+       -- 넓게 거른 뒤 시간 범위는 withinDuplicateWindow 하나로 정한다(후보 조회와 같은 규칙).
+       AND abs(extract(epoch FROM m.game_creation - ${g.played_at}::timestamptz)) < 26 * 3600
+     GROUP BY m.match_id, m.game_duration, m.game_creation, m.game_creation_precision ORDER BY m.match_id`;
+  const mineClock = { at: new Date(g.played_at), precision: g.played_at_precision };
   for (const row of rows) {
-    const counts = duplicateParticipantCounts(mine, row.participants);
+    if (!withinDuplicateWindow(mineClock, { at: row.game_creation, precision: row.game_creation_precision })) continue;
+    const counts = { ...duplicateParticipantCounts(mine, row.participants), blind: blindOverlap(mine, row.participants) };
     if (!isDuplicateGame(g.duration ?? null, row.game_duration, counts)) continue;
     throw new Error(
       `${g.match_id}: 같은 판으로 보이는 공개 경기가 이미 있다 — ${row.match_id} `
-      + `(경기 시간 ${row.game_duration ?? "?"}초, 사람별 KDA·승패 ${counts.kda}명·챔피언·승패 ${counts.champ}명 일치). `
+      + `(경기 시간 ${row.game_duration ?? "?"}초, 사람별 KDA·승패 ${counts.kda}명·챔피언·승패 ${counts.champ}명, `
+      + `이름 무관 챔피언·KDA·승패 ${counts.blind}명 일치). `
       + `중복 후보이므로 화면을 대조할 것. 같은 판으로 확인했으면 match_id 를 "${row.match_id}" 로 내서 시점을 붙이고, `
       + `다른 판임을 화면으로 확인했으면 distinct_from: ["${row.match_id}"] 를 적는다.`);
   }

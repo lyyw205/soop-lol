@@ -4,7 +4,7 @@
  *   npm run ck:record -- --match <match_id>          # 경기 하나: 공개 값·참가자·근거 프레임·조사 기록·수정 이력
  *   npm run ck:record -- --lead <lead uuid | vod:NNN> # VOD 하나: 탐색 기록·프레임 읽음·후보와 서술·수정 이력
  *   npm run ck:record -- --event <slug>              # 대회 하나: 근거 연결·로스터 점검
- *   npm run ck:record -- --todo                      # LLM 조사 목록: 연결 없는 반영 후보·미해결 후보·못 본 구간
+ *   npm run ck:record -- --todo                      # LLM 조사 목록: 연결 없는 반영 후보·미해결 후보·못 본 구간·같은 판 의심
  *   … --json                                          # 같은 내용을 JSON 으로
  *
  * ★ 왜 CLI 인가 — 사람 검수 화면은 **공개될 값과 비교할 프레임**만 보여준다. 탐색 상태·관찰문·
@@ -15,6 +15,7 @@
  */
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { getLeadWorkspace, getMatchDetail, listReviewChanges, type ReviewChangeRow } from "@soop-lol/core/lib/db/ck";
+import { listDuplicateSuspects } from "@soop-lol/core/lib/db/ck-duplicates";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
 
 import { makeOpt } from "./lib/cli.mjs";
@@ -219,7 +220,11 @@ try {
     for (const u of unresolved) say(`  ${u.source_key}  ${u.n}건`);
     say(`못 본 구간이 남은 VOD ${failed.length}`);
     for (const f of failed) say(`  ${f.source_key}  ${f.n}곳`);
-    json = { dangling, unresolved, failed };
+    // 저장 뒤 값이 채워져서야 드러나는 같은 판 — 두 경기 화면을 대조해 같은 판이면 정리하고, 다르면 distinct_from 을 남긴다.
+    const duplicates = await listDuplicateSuspects();
+    say(`같은 판으로 보이는 공개 경기 ${duplicates.length}쌍 — 두 경기 결과창을 대조한다`);
+    for (const d of duplicates) say(`  ${d.a}  ↔  ${d.b}  (이름 무관 ${d.blind}·사람별 KDA ${d.kda}·챔피언 ${d.champ}명 일치)`);
+    json = { dangling, unresolved, failed, duplicates };
   }
 
   console.log(JSON_OUT ? JSON.stringify(json, null, 2) : out.join("\n"));
