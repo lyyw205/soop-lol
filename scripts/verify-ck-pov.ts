@@ -24,7 +24,7 @@ const ROOT = join(import.meta.dirname, "..");
 const PORT = Number(process.env.VERIFY_DB_PORT ?? 5437);
 const WORK = join(ROOT, "out", "ck", "_verify-pov");
 // 실제 VOD 번호와 겹치지 않는 가짜 번호. 사진 파일은 out/ck/<번호>/ 에 둔다(ck-merge 가 존재를 본다).
-const VODS = { a: 99990101, c: 99990102, k: 99990103, b: 99990104, e: 99990105, f: 99990106, g: 99990107, h: 99990108, duplicate: 99990109 };
+const VODS = { a: 99990101, c: 99990102, k: 99990103, b: 99990104, e: 99990105, f: 99990106, g: 99990107, h: 99990108, duplicate: 99990109, i: 99990110 };
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = "") {
@@ -319,18 +319,28 @@ try {
   ]);
   check("기존 경기에 근거(link_basis) 없이 내면 거부", r.code !== 0 && r.out.includes("link_basis"), r.out.slice(-300));
 
-  console.log("\n▸ 다른 방송 화면은 경기 근거가 아니다(2026-10-09) — 시점 추가도 새 경기도 거부");
+  console.log("\n▸ 남의 방송 화면 — 방송 주인이 그 경기·시리즈·대회 참가자일 때만 받는다(2026-10-09)");
+  // k 는 이 경기에 없다 → 무관한 방송. i 는 2팀 참가자 → 자기 판을 남의 방송으로 본 화면.
   r = await merge([
     scan(VODS.k, "pov_k", [100]),
     { resultType: "match", match_id: "pov:m1", pov: { source: "rebroadcast", link_basis: "c 방송을 띄운 화면, 결과창 동일" },
       participants: [{ streamer_slug: "pov-a", kills: 0 }], evidence_frames: [framePath(VODS.k, 100)] },
   ]);
-  check("다른 방송 화면 시점 추가는 거부", r.code !== 0 && r.out.includes("경기 근거로 쓰지 않는다"), r.out.slice(-300));
+  check("무관한 방송 화면은 거부", r.code !== 0 && r.out.includes("무관한 방송은 경기 근거로 쓰지 않는다"), r.out.slice(-300));
   v = await views("pov:m1");
-  check("거부된 다른 방송 화면은 시점으로 남지 않는다", !v.some((x) => x.lead_source_key === `vod:${VODS.k}`));
+  check("거부된 무관한 방송은 시점으로 남지 않는다", !v.some((x) => x.lead_source_key === `vod:${VODS.k}`));
+  fakeVod(VODS.i, [120]);
+  r = await merge([
+    scan(VODS.i, "pov_i", [120]),
+    { resultType: "match", match_id: "pov:m1", pov: { source: "rebroadcast", link_basis: "a 방송을 띄운 화면, 결과창 동일" },
+      participants: [{ streamer_slug: "pov-a", kills: 0 }], evidence_frames: [framePath(VODS.i, 120)] },
+  ]);
+  check("참가자 VOD 의 남의 방송 화면은 시점으로 받는다", r.code === 0, r.code ? r.out.slice(-300) : "");
+  v = await views("pov:m1");
+  check("받은 남의 방송 화면은 source 로 구분된다", v.some((x) => x.lead_source_key === `vod:${VODS.i}` && x.source === "rebroadcast"));
   await assert.rejects(() => sql().begin((tx) => pov.submitMatchPovInTx(tx, { match_id: "pov:m1", lead_id: "00000000-0000-0000-0000-000000000000",
-    role: "created", source: "rebroadcast", link_basis: "x", observed: {} } as any)), /경기 근거로 쓰지 않는다/);
-  check("core 저장 함수도 다른 방송 화면을 거부한다(CLI 를 거치지 않는 경로)", true);
+    role: "created", source: "rebroadcast", link_basis: "x", observed: {} } as any)), /무관한 방송/);
+  check("core 저장 함수도 방송 주인을 모르는 남의 방송 화면을 거부한다(CLI 를 거치지 않는 경로)", true);
 
   console.log("\n▸ 시각 모순 — 대응할 수 있을 때만 검사한다");
   // 방송 12:00 시작. 경기는 13:00~13:30. 사진 5000초 = 13:23(정상), 14000초 = 15:53(두 시간 넘게 뒤).

@@ -83,6 +83,20 @@ export async function loadStoredMatchInTx(tx: Tx | postgres.Sql, matchId: string
   return { ...rows[0], participants };
 }
 
+/** 방송 주인이 이 경기 또는 같은 시리즈·같은 대회의 어느 경기에 참가했나(계정 주인을 먼저 본다). */
+async function ownerInGroupInTx(tx: Tx, matchId: string, owner: string): Promise<boolean> {
+  const [row] = await tx`
+    SELECT 1 FROM match m
+      JOIN match x ON x.match_id = m.match_id
+                   OR (m.series_id IS NOT NULL AND x.series_id = m.series_id)
+                   OR (m.event_id IS NOT NULL AND x.event_id = m.event_id)
+      JOIN match_participant p ON p.match_id = x.match_id
+      LEFT JOIN streamer_account sa ON sa.puuid = p.puuid AND sa.active_to IS NULL
+     WHERE m.match_id = ${matchId} AND COALESCE(sa.streamer_id, p.streamer_id) = ${owner}::uuid
+     LIMIT 1`;
+  return Boolean(row);
+}
+
 /** VOD 방송 주인. 단서에 사람이 없으면 채널로 찾는다. 등록 안 된 채널이면 null. */
 export async function leadOwnerInTx(tx: Tx, leadId: string): Promise<string | null> {
   const [row] = await tx<{ owner: string | null }[]>`
@@ -136,16 +150,17 @@ export interface PovSubmitResult {
  */
 export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise<PovSubmitResult> {
   const role = input.role ?? "added";
-  // ★ 다른 방송 화면은 경기 근거로 쓰지 않는다(2026-10-09 사용자 결정). 남의 방송을 띄운 화면은 상대·팀 반응 보기,
-  //   대기 중 시청, 남들끼리 CK 시청 등 맥락이 제각각이고, 작은 화면이라 이름 오독이 잦았다(영재·디나이 CK 10명 중 7명 미확인).
-  //   본인이 뛴 판은 본인 VOD 에 같은 결과창이 있고, 남의 판은 참가자 VOD 가 정본이다. 그래서 만들기·시점 추가 모두 막는다.
-  if (input.source === "rebroadcast") {
-    throw new Error(`${input.match_id}: 다른 방송 화면(source: rebroadcast)은 경기 근거로 쓰지 않는다 — `
-      + "경기를 내지 말고, 후보를 not_target 으로 닫으며 관찰에 '누구 방송(채널)을 몇 시에 보고 있었다'만 남길 것");
-  }
   const stored = await loadStoredMatchInTx(tx, input.match_id, true);
   if (!stored) throw new Error(`${input.match_id}: 그런 경기가 없다 — 시점을 더하려면 경기가 먼저 있어야 한다`);
   const owner = await leadOwnerInTx(tx, input.lead_id);
+  // ★ 남의 방송 화면(rebroadcast)은 **방송 주인이 이 경기·같은 시리즈·같은 대회의 참가자일 때만** 받는다(2026-10-09 사용자 결정).
+  //   자기 시리즈의 상대·팀 방송으로 결과를 받는 건 괜찮다(승패는 사람 기준으로 경기 쪽 팀에 맞춘다).
+  //   문제는 무관한 방송 — 성훈이 영재·디나이 CK 를 본 화면으로 경기를 만들었고, 작은 화면이라 10명 중 7명을 잘못 읽었다.
+  //   같은 파일 앞쪽에서 만든 자기 경기도 이 트랜잭션 안에서 보이므로, 본인 판을 먼저 내면 같은 시리즈의 남의 화면도 통과한다.
+  if (input.source === "rebroadcast" && !(owner && await ownerInGroupInTx(tx, input.match_id, owner))) {
+    throw new Error(`${input.match_id}: 남의 방송 화면(source: rebroadcast)인데 방송 주인이 이 경기·시리즈·대회의 참가자가 아니다 — `
+      + "무관한 방송은 경기 근거로 쓰지 않는다. 경기를 내지 말고 후보를 not_target 으로 닫으며 관찰에 '누구 방송(채널)을 몇 시에 보고 있었다'만 남길 것");
+  }
 
   if (role === "added") {
     if (!input.link_basis?.trim()) {
@@ -153,7 +168,7 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
     }
     if (input.source === "own" && owner && !stored.participants.some((p) => p.person_id === owner)) {
       throw new Error(`${input.match_id}: 본인 화면(source: own)인데 방송 주인이 이 경기 참가자에 없다 — `
-        + "다른 경기이거나 남의 방송을 띄운 화면이다 — 남의 방송 화면이면 경기로 내지 않는다(not_target + 시청 단서 관찰)");
+        + "다른 경기이거나, 남의 방송을 띄운 화면이면 source: rebroadcast 로 낼 것(방송 주인이 같은 시리즈·대회 참가자일 때만 받는다)");
     }
     // ★ 모순만 거부한다. ±30분 안이라는 건 같은 경기의 증명이 아니다(연속 판·단판이 30분 안에 여럿 있다).
     if (input.source === "own" && input.frame_times?.length && stored.game_creation_precision === "datetime") {
