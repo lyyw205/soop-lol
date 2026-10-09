@@ -3,13 +3,14 @@
  *
  *   npm run ck:dedupe -- --keep <남길 경기> --drop <숨길 경기> --evidence "두 결과창 대조: …"            # 미리보기
  *   npm run ck:dedupe -- --keep … --drop … --evidence "…" --apply                                      # 기록
+ *   npm run ck:dedupe -- --different <경기1> <경기2> [--apply]                     # 다른 판으로 확인 — 목록에 다시 안 뜬다
  *
  * 후보는 `npm run ck:record -- --todo` 의 "같은 판으로 보이는 공개 경기" 에 나온다. 후보는 답이 아니다 —
  * 두 경기의 결과창을 열어 같은 판인지 본 뒤에 쓴다. 다른 판이면 합치지 말고 distinct_from 을 남긴다.
  * 정리 규칙은 packages/core/lib/db/ck-duplicates.ts 의 mergeDuplicateMatch 하나다.
  */
 import { closeDb } from "@soop-lol/core/lib/db/client";
-import { mergeDuplicateMatch } from "@soop-lol/core/lib/db/ck-duplicates";
+import { markDistinctMatches, mergeDuplicateMatch } from "@soop-lol/core/lib/db/ck-duplicates";
 
 import { makeOpt } from "./lib/cli.mjs";
 
@@ -17,6 +18,21 @@ const argv = process.argv.slice(2);
 const opt = makeOpt(argv);
 const keep = opt("--keep", ""), drop = opt("--drop", ""), evidence = opt("--evidence", "");
 const apply = argv.includes("--apply");
+const different = argv.indexOf("--different");
+if (different >= 0) {
+  const [a, b] = argv.slice(different + 1, different + 3);
+  try {
+    if (!a || !b || a.startsWith("--") || b.startsWith("--")) throw new Error("쓰기:  npm run ck:dedupe -- --different <경기1> <경기2> [--apply]");
+    const r = await markDistinctMatches(a, b, { apply });
+    console.log(`${a}  ≠  ${b}${r.already ? "  — 이미 다른 판으로 기록돼 있다" : apply ? "  — 다른 판으로 기록했다" : "   [미리보기 — --apply 로 기록]"}`);
+  } catch (e) {
+    console.error(`✖ ${(e as Error).message}`);
+    process.exitCode = 1;
+  } finally {
+    await closeDb();
+  }
+  process.exit();
+}
 if (!keep || !drop || !evidence.trim()) {
   console.error('쓰기:  npm run ck:dedupe -- --keep <남길 경기> --drop <숨길 경기> --evidence "두 결과창 대조: …" [--apply]');
   process.exit(1);

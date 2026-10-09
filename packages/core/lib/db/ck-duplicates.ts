@@ -90,6 +90,26 @@ export async function listDuplicateSuspects(): Promise<DuplicateSuspect[]> {
   return out;
 }
 
+/**
+ * 두 경기를 대조해 **다른 판**이라고 확인했을 때 남긴다 — 의심 목록에 다시 뜨지 않고, 합치기도 거부된다.
+ * 저장 때의 `distinct_from` 과 같은 이력(review_change, 숨긴 쪽이 아니라 b 에 a 를 적는다)이다. 이미 있으면 할 일이 없다.
+ */
+export async function markDistinctMatches(a: string, b: string, opts: { apply: boolean }): Promise<{ already: boolean }> {
+  if (a === b) throw new Error("같은 경기다.");
+  const sql = db();
+  const found = await sql<{ match_id: string }[]>`SELECT match_id FROM match WHERE match_id IN (${a}, ${b})`;
+  if (found.length !== 2) throw new Error(`경기가 없다: ${[a, b].filter((id) => !found.some((f) => f.match_id === id)).join(", ")}`);
+  const [existing] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM review_change
+     WHERE field = 'distinct_from' AND jsonb_typeof(after) = 'array'
+       AND ((match_id = ${a} AND after ? ${b}) OR (match_id = ${b} AND after ? ${a}))`;
+  if (existing.n > 0) return { already: true };
+  if (opts.apply) {
+    await sql.begin((tx) => recordReviewChanges(tx, [{ match_id: b, entity: "match", entity_key: b, field: "distinct_from", before: null, after: [a] }]));
+  }
+  return { already: false };
+}
+
 // ── 확정된 같은 판 정리 ─────────────────────────────────────────────
 
 export interface DuplicateMergeInput {

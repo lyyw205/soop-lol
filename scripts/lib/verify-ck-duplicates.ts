@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { db } from "../../packages/core/lib/db/client.ts";
-import { recordReviewChanges, upsertMatchFromScan, upsertMatchFromScanInTx, type CkMatchInput } from "../../packages/core/lib/db/ck.ts";
-import { listDuplicateSuspects, mergeDuplicateMatch } from "../../packages/core/lib/db/ck-duplicates.ts";
+import { upsertMatchFromScan, upsertMatchFromScanInTx, type CkMatchInput } from "../../packages/core/lib/db/ck.ts";
+import { listDuplicateSuspects, markDistinctMatches, mergeDuplicateMatch } from "../../packages/core/lib/db/ck-duplicates.ts";
 import { createStreamer, linkAccount } from "../../packages/core/lib/db/streamers.ts";
 
 /** 실제 저장 질의로 오탐·임계값·시각 경계·계정 신원·예외 이력을 검증한다. 폐기용 DB에서만 호출한다. */
@@ -224,8 +224,15 @@ export async function verifyCkDuplicateMergeDb() {
   await upsertMatchFromScan(other);
   await assert.rejects(mergeDuplicateMatch({ keep, drop: other.match_id, evidence: "x" }, { apply: true }), /같은 판 후보가 아니다/);
   assert.equal((await sql`SELECT visibility FROM match WHERE match_id=${other.match_id}`)[0].visibility, "public");
+  // 이미 저장된 두 경기를 다른 판으로 기록 — 미리보기는 안 쓰고, 기록하면 목록에서 빠지고 합치기가 거부되고, 다시 하면 할 일이 없다.
   const confirmed = await savedPair("distinct", new Date("2030-07-02T12:00:00Z"));
-  await sql.begin(tx => recordReviewChanges(tx, [{ match_id: confirmed.drop, entity: "match", entity_key: confirmed.drop, field: "distinct_from", before: null, after: [confirmed.keep] }]));
+  const listed = async () => (await listDuplicateSuspects()).some(d => [d.a, d.b].includes(confirmed.drop));
+  assert.equal(await listed(), true);
+  assert.deepEqual(await markDistinctMatches(confirmed.keep, confirmed.drop, { apply: false }), { already: false });
+  assert.equal(await listed(), true, "미리보기는 기록하지 않는다");
+  assert.deepEqual(await markDistinctMatches(confirmed.keep, confirmed.drop, { apply: true }), { already: false });
+  assert.equal(await listed(), false, "다른 판으로 기록하면 의심 목록에서 빠진다");
+  assert.deepEqual(await markDistinctMatches(confirmed.drop, confirmed.keep, { apply: true }), { already: true });
   await assert.rejects(mergeDuplicateMatch({ ...confirmed, evidence: "x" }, { apply: true }), /distinct_from/);
   // 6. 이미 숨긴 경기(손으로 숨기고 근거만 남은 경우)도 근거를 옮긴다. 챔피언을 못 읽은 기록은 승패·KDA 일치로 받는다.
   const late = await savedPair("hidden-no-champion", new Date("2030-07-03T12:00:00Z"));
@@ -241,5 +248,5 @@ export async function verifyCkDuplicateMergeDb() {
   assert.equal(moved.already, false);
   await sql`UPDATE match_participant SET champion_id=1 WHERE match_id=${late.drop}`;
   assert.equal(await orphanOf(late.drop), undefined, "합친 뒤엔 근거가 옮겨져 목록에서 빠진다");
-  console.log("  ok   같은 판 정리: 미리보기 무변경·중간 실패 전부 취소·근거/시점/최종 근거/VOD 후보 이전·같은 방송 시점 보존·재실행 무변경·거부 5종·숨긴 경기 근거 이전·숨기기만 한 경기 목록 표시");
+  console.log("  ok   같은 판 정리: 미리보기 무변경·중간 실패 전부 취소·근거/시점/최종 근거/VOD 후보 이전·같은 방송 시점 보존·재실행 무변경·거부 5종·숨긴 경기 근거 이전·숨기기만 한 경기 목록 표시·다른 판 기록");
 }
