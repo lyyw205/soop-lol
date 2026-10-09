@@ -332,7 +332,9 @@ if (want.length) {
   } catch { console.log("  ⚠ 원본 일부를 못 받았다 — probe.json 의 missed 를 본다"); }
 }
 const frameOf = (t) => (existsSync(join("out/ck", vodId, `g${String(t).padStart(7, "0")}.jpg`)) ? `out/ck/${vodId}/g${String(t).padStart(7, "0")}.jpg` : null);
-for (const c of candidates) c.frame = frameOf(c.peak);
+// 결과창 이름 칸 확대본 — ck:probe 가 원본을 받을 때 결과창으로 보이면 names/ 에 만든다(scripts/lib/result-names.mjs).
+const namesOf = (t) => { const p = `out/ck/${vodId}/names/g${String(t).padStart(7, "0")}.jpg`; return existsSync(p) ? p : null; };
+for (const c of candidates) { c.frame = frameOf(c.peak); c.names = namesOf(c.peak); }
 
 // ④ 몽타주 — 후보(한 장 40칸), 개요(2분 칸, 후보가 걸친 칸은 분홍 테두리)
 const PINK = [230, 40, 200], GRAY = [70, 70, 70];
@@ -382,7 +384,7 @@ writeFileSync(join(dir, "map.txt"), `${mapText.join("\n")}\n`);
 console.log(`\n구간 지도 (out/ck/${vodId}/local/map.txt — 화면 종류 라벨, 위치 안내일 뿐)`);
 for (const l of mapText) console.log(`  ${l}`);
 console.log(`\n결과창 후보 ${candidates.length}개   (전체 ${hms(elapsedSec)})`);
-for (const c of candidates) console.log(`  #${c.n} ${hms(c.from)}~${hms(c.to)} · ${c.len}칸 · 원본 ${c.frame ?? "못 받음"}`);
+for (const c of candidates) console.log(`  #${c.n} ${hms(c.from)}~${hms(c.to)} · ${c.len}칸 · 원본 ${c.frame ?? "못 받음"}${c.names ? ` · 이름 확대 ${c.names}` : ""}`);
 if (failedMerged.length) console.log(`  ⚠ 썸네일로 못 본 범위(원본으로 볼 것): ${failedMerged.map(([a, b]) => `${hms(a)}~${hms(b)}`).join(", ")}`);
 console.log(`  파일 끝 원본: ${fileTails.map((t) => frameOf(t) ?? `${t}(못 받음)`).join(" ")}`);
 console.log(`\nout/ck/${vodId}/local/  (run ${runId})`);

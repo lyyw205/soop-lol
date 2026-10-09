@@ -322,6 +322,11 @@ for (const [i, r] of results.entries()) {
     }
     for (const [j, f] of (r.frames ?? []).entries()) {
       if (!f.frame_path) { fail(i, `frames[${j}] 에 frame_path 가 없다`); continue; }
+      // 이름 칸 확대본(names/)은 원본의 일부를 키운 보조물이다 — 근거 프레임은 원본을 적는다.
+      if (/(^|\/)names\/[^/]+$/.test(f.frame_path)) {
+        fail(i, `frames[${j}] 는 이름 칸 확대본이다: ${f.frame_path} — 근거 프레임은 원본(${f.frame_path.replace(/names\//, "")})을 적는다`);
+        continue;
+      }
       // ★ 파일이 실제로 있는지는 본다. 없는 근거를 DB 에 적으면 어드민이 못 연다.
       const p = isAbsolute(f.frame_path) ? f.frame_path : join(ROOT, f.frame_path);
       if (!existsSync(p)) fail(i, `frames[${j}] 의 파일이 없다: ${f.frame_path}`);

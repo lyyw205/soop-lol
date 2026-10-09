@@ -28,13 +28,14 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { mergeRanges } from "@soop-lol/core/lib/metrics/ranges";
 
 import { dividedPoints } from "./lib/ck-probe-points.mjs";
 import { detect, hms, scanSheets, segmentAt, segmentsSpan, vodBroadcastTimes, vodDetail } from "./lib/soop-vod.mjs";
 import { coveragePoints, measureParts } from "./lib/vod-timeline.mjs";
+import { writeNameCrop } from "./lib/result-names.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -282,6 +283,20 @@ for (const at of probes) {
 rmSync(tmpDir, { recursive: true, force: true });
 console.log(`\r  프레임 ${got.length}장 (새로 받은 것 ${got.filter((g) => !g.cached).length}) · 내려받기 ${downloadMB.toFixed(0)}MB       `);
 
+// ── 결과창 이름 칸 확대본 — 결과창 점수판으로 보이는 프레임만 names/ 에 만든다(scripts/lib/result-names.mjs).
+//   한글 닉네임이 전체 프레임에선 뭉개져 자모 하나씩 틀렸다. 못 찾은 프레임은 만들지 않는다(원본만 본다).
+const namesOf = new Map();
+for (const g of got) {
+  try {
+    const r = await writeNameCrop(join(ROOT, g.path));
+    if (r.path) namesOf.set(g.at, relative(ROOT, r.path));
+  } catch { /* 확대본은 보조물이다 — 실패해도 탐색은 계속한다 */ }
+}
+if (namesOf.size > 0) {
+  console.log(`  이름 칸 확대 ${namesOf.size}장 — 결과창 닉네임을 원본의 이름 열만 2배로 자른 것(근거 프레임은 원본):`);
+  for (const [at, path] of [...namesOf].sort((a, b) => a[0] - b[0])) console.log(`     ${hms(at)}  ${path}`);
+}
+
 // 못 받은 지점은 **범위로** 남긴다 — "여기는 안 봤다" 가 기록에 남아야 한다.
 for (const m of missed) failedRanges.push([m.at, m.at]);
 if (missed.length > 0) {
@@ -298,7 +313,8 @@ const prev = targeted && existsSync(manifestPath)
   ? JSON.parse(readFileSync(manifestPath, "utf8"))
   : null;
 
-const mergedFrames = [...(prev?.frames ?? []), ...got.map((g) => ({ at_sec: g.at, path: g.path, part: g.part }))];
+const mergedFrames = [...(prev?.frames ?? []), ...got.map((g) => ({ at_sec: g.at, path: g.path, part: g.part,
+  ...(namesOf.has(g.at) ? { names: namesOf.get(g.at) } : {}) }))];
 const manifest = {
   vod_id: Number(vodId),
   title: detail.title ?? null,
