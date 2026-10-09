@@ -58,6 +58,16 @@ export async function repointPuuid(
     await tx.unsafe(`UPDATE ${ref.table} SET ${ref.column} = $1 WHERE ${ref.column} = $2`, [newPuuid, oldPuuid]);
   }
 
+  // 3-1) 닉네임 이력(0083)을 새 puuid 로 합친다. 1) 의 INSERT 가 트리거로 지금 이름을 이미 남겨서
+  //      위의 단순 UPDATE 로는 기본키가 겹친다. 옛 행은 5) 의 삭제가 CASCADE 로 지운다.
+  await tx`
+    INSERT INTO riot_account_name (puuid, game_name, tag_line, first_seen_at, replaced_at)
+    SELECT ${newPuuid}, game_name, tag_line, first_seen_at, replaced_at
+      FROM riot_account_name WHERE puuid = ${oldPuuid}
+    ON CONFLICT (puuid, game_name, tag_line) DO UPDATE
+      SET first_seen_at = LEAST(riot_account_name.first_seen_at, EXCLUDED.first_seen_at)
+  `;
+
   // 4) 트리거가 푼 완료를 되돌린다. review_* 두 칸만 바꾸므로 값 트리거는 다시 울리지 않는다.
   for (const m of completed) {
     await tx`UPDATE match SET review_completed_at = ${m.review_completed_at}, review_version = ${m.review_version}

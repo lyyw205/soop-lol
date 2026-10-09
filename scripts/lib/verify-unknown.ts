@@ -66,11 +66,20 @@ export async function verifyUnknownBoundaries() {
   await ck.upsertMatchFromScan(fixture('skip:reviewed','reviewed'));
   await ck.markMatchReviewed('skip:reviewed',true);
   const skip=await ck.reviewUnidentifiedParticipants(await targets('reviewed'),a.id);
-  assert.deepEqual(skip,{linked:0,matches:[],skipped:['skip:reviewed']});
+  assert.deepEqual(skip,{linked:0,matches:[],skipped:['skip:reviewed'],kept_completed:[]});
+  // 사용자가 직접 "이 이름은 이 사람" 이라고 한 연결(ck:name)은 사람이 만진 경기도 덮고, 검수 완료를 지킨다.
+  const [done]=await db()`SELECT review_version FROM match WHERE match_id='skip:reviewed'`;
+  await ck.setMatchReviewCompleted('skip:reviewed',true,done.review_version);
+  const [doneBefore]=await db()`SELECT review_completed_at, review_version FROM match WHERE match_id='skip:reviewed'`;
+  const confirmed=await ck.reviewUnidentifiedParticipants(await targets('reviewed'),a.id,{confirmedByUser:true});
+  assert.deepEqual(confirmed,{linked:1,matches:['skip:reviewed'],skipped:[],kept_completed:['skip:reviewed']});
+  assert.equal((await ck.getMatchDetail('skip:reviewed'))!.participants[0].streamer_id,a.id);
+  const [doneAfter]=await db()`SELECT review_completed_at, review_version FROM match WHERE match_id='skip:reviewed'`;
+  assert.deepEqual(doneAfter,doneBefore,'user-confirmed link keeps review completion and version');
   await ck.upsertMatchFromScan(fixture('duplicate:label','duplicate',[{participant_id:2,team_id:100,observed_name:'duplicate',champion_id:34}]));
   const roster=await listMatchRosters(['duplicate:label']);
   assert.deepEqual(roster.map(p=>p.participant_id).sort(),[1,2]);
-  console.log('Unknown review: scope, stale state, atomic rollback, automatic identity, reviewed skip, stable seat IDs passed');
+  console.log('Unknown review: scope, stale state, atomic rollback, automatic identity, reviewed skip, user-confirmed link, stable seat IDs passed');
 }
 
 export async function verifyUnknownConcurrency(other: import('postgres').Sql) {

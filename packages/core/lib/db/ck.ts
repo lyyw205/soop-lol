@@ -1834,11 +1834,18 @@ export async function listUnidentifiedParticipants(limit = 100, offset = 0, q = 
 /**
  * 관리자 일괄 검수. 화면에서 선택한 자리만 한 트랜잭션에 저장한다.
  * 자동 identify(linkParticipants)의 검수 표시 없는 계약과 분리한다.
+ *
+ * `confirmedByUser` — 사용자가 "이 이름은 이 사람" 이라고 직접 말한 경우(`ck:name`).
+ *   그 말 자체가 그 칸의 사람 검수라서 두 가지가 달라진다:
+ *   · 사람이 만진 경기(`reviewed_at`)도 건너뛰지 않는다 — 화면 목록은 거기서 물러나지만 지시는 전부를 덮는다.
+ *   · 검수 완료를 지킨다 — 사람이 확인한 칸을 사람이 정했을 뿐이다. 트리거(0043)가 푼 완료를
+ *     같은 트랜잭션에서 되돌린다(puuid-move.ts 와 같은 방식).
  */
 export async function reviewUnidentifiedParticipants(
   targets: UnidentifiedSelection[],
   streamerId: string,
-): Promise<{ linked: number; matches: string[]; skipped: string[] }> {
+  opts: { confirmedByUser?: boolean } = {},
+): Promise<{ linked: number; matches: string[]; skipped: string[]; kept_completed: string[] }> {
   if (!Array.isArray(targets) || targets.length === 0) throw new Error("연결할 자리를 선택해 주세요.");
   const byMatch = new Map<string, UnidentifiedSelection[]>();
   const seen = new Set<string>();
@@ -1862,7 +1869,7 @@ export async function reviewUnidentifiedParticipants(
         ${tx.unsafe(MATCH_SERIES_JOIN)}
          WHERE m.match_id = ANY(${ids}::text[]) ORDER BY m.match_id FOR UPDATE OF m
       `;
-      const matches: string[] = [], skipped: string[] = [];
+      const matches: string[] = [], skipped: string[] = [], keptCompleted: string[] = [];
       let linked = 0;
       for (const id of ids) {
         const match = rows.find(row => row.match_id === id);
@@ -1870,16 +1877,21 @@ export async function reviewUnidentifiedParticipants(
         const seats = byMatch.get(id)!;
         for (const t of seats) checkedReviewChanges(match as unknown as Record<string, unknown>, {},
           {visibility: "public", reviewed_at: t.reviewed_at}, ["visibility", "reviewed_at"]);
-        if (match.reviewed_at !== null) { skipped.push(id); continue; }
+        if (match.reviewed_at !== null && !opts.confirmedByUser) { skipped.push(id); continue; }
         await applyMatchReviewInTx(tx, id, {participants: {patch: seats.map(t => ({
           participant_id: t.participant_id,
           changes: {streamer_id: streamerId},
           expect: {streamer_id: null, puuid: null, observed_name: t.observed_name},
         }))}});
+        if (opts.confirmedByUser && match.review_completed_at !== null) {
+          await tx`UPDATE match SET review_completed_at = ${match.review_completed_at}, review_version = ${match.review_version}
+                    WHERE match_id = ${id}`;
+          keptCompleted.push(id);
+        }
         matches.push(id); linked += seats.length;
       }
-      return {linked, matches, skipped};
-    }) as { linked: number; matches: string[]; skipped: string[] };
+      return {linked, matches, skipped, kept_completed: keptCompleted};
+    }) as { linked: number; matches: string[]; skipped: string[]; kept_completed: string[] };
   } catch (error) {
     if ((error as {constraint_name?: string}).constraint_name === "match_participant_streamer_uq") {
       throw new Error("선택한 경기 안에 이 사람이 이미 있거나 같은 사람에게 두 자리를 지정했습니다. 이번 연결은 모두 취소됐습니다.");

@@ -143,7 +143,12 @@ npm run ck:probe  -- --vod 207602969 --between 19496:19510 --step 2
 npm run ck:listen -- --vod 207602969 --at 16800:120 [--engine qwen]
 
 # 이름 → 사람. 정확히 없으면 가까운 후보를 내놓는다
+# 지금 인게임명·옛 인게임명(0083)·시드·표시명·별명·이미 사람이 붙은 자리의 화면 이름을 다 본다
 npm run ck:who    -- 이상호93 "소년가장 원딜" Radiohead
+
+# 사용자가 "화면 이름 X 는 스트리머 Y" 라고 알려 주면 — 계정 연결 + 남은 미확인 자리 전부 연결
+# 미리보기로 확인한 뒤 --apply. 조사 세션이 스스로 판단한 이름에는 쓰지 않는다(그건 ck:merge 식별)
+npm run ck:name   -- 듀부선 dudadi770 --note "사용자 확인(2026-10-09): …" [--apply]
 
 # 이 방송의 어느 시간대가 이미 기록돼 있나 — VOD 를 훑기 전에 먼저 묻는다
 npm run ck:merge  -- --find-match --vod 207602969

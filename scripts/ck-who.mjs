@@ -20,6 +20,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
+import { kstDateString } from "@soop-lol/core/lib/time";
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const MAX = Number((process.argv.find((a) => a.startsWith("--max=")) ?? "--max=2").slice(6));
@@ -117,6 +118,37 @@ for (const f of seedFiles) {
 for (const r of await sql`SELECT slug, display_name, aliases FROM streamer`) {
   push(r.display_name, { kind: "표시명", raw: r.display_name, slug: r.slug, name: r.display_name });
   for (const a of r.aliases ?? []) push(a, { kind: "별명", raw: a, slug: r.slug, name: r.display_name });
+}
+
+/** 같은 사람이 이 이름으로 이미 잡혀 있으면 덧붙이지 않는다 — 계정·표시명이 더 센 근거다. */
+const pushNew = (key, v) => {
+  if ((people.get(norm(key)) ?? []).some((x) => x.slug && x.slug === v.slug)) return;
+  push(key, v);
+};
+/**
+ * ★ **옛 닉네임**(0083). 매일 갱신이 riot_account 의 이름을 덮어써서, 백필로 옛 VOD 를 보면
+ *   화면엔 그때 이름이 나오는데 DB 엔 지금 이름만 있었다. 바뀐 뒤 기록된 이름을 따로 본다.
+ */
+for (const r of await sql`
+  SELECT n.game_name, n.tag_line, n.replaced_at, s.slug, s.display_name
+    FROM riot_account_name n
+    LEFT JOIN streamer_account sa ON sa.puuid = n.puuid AND sa.active_to IS NULL
+    LEFT JOIN streamer s ON s.id = sa.streamer_id
+   WHERE n.replaced_at IS NOT NULL`) {
+  pushNew(r.game_name, { kind: "옛 인게임", raw: `${r.game_name}${r.tag_line ? `#${r.tag_line}` : ""} ~${kstDateString(r.replaced_at)}`, slug: r.slug, name: r.display_name });
+}
+/**
+ * ★ **이미 사람이 붙은 자리의 화면 이름.** 2026-10-09 '말하는감자' 가 98자리나 채니로 붙어 있었는데
+ *   조사 세션은 그걸 못 보고 미확인으로 남겼다 — 태그를 몰라 계정이 없는 이름은 여기에만 기록이 있다.
+ *   ('듀부선' 도 화면에서 64자리를 듀단에 붙였지만 다음 조사가 몰랐다.) 한 이름이 여러 사람에게
+ *   붙어 있으면 전부 보여준다 — 그 자체가 확인할 거리다.
+ */
+for (const r of await sql`
+  SELECT mp.observed_name, s.slug, s.display_name, count(*)::int AS seats
+    FROM match_participant mp JOIN streamer s ON s.id = mp.streamer_id
+   WHERE mp.observed_name IS NOT NULL
+   GROUP BY 1, 2, 3`) {
+  pushNew(r.observed_name, { kind: "연결된 자리", raw: `${r.observed_name} ${r.seats}자리`, slug: r.slug, name: r.display_name });
 }
 await closeDb();
 

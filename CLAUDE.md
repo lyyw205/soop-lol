@@ -31,12 +31,13 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 | **FC 온라인 — 넥슨 API + VOD 맥락** | **운영 중.** API 경기 2,790건. 화면으로만 아는 경기(30일 이전)는 저장 구조만 있다(0050, 공개 전) | [docs/FCO-SCREEN-MATCH-DESIGN.md](docs/FCO-SCREEN-MATCH-DESIGN.md) |
 | FC 온라인 — 구단가치·스쿼드·시세(공식 홈페이지) | 2026-10-02 첫 수집(16계정, 카드 379장). 주기 실행은 서버 배포 때(구단 2시간 · 시세 하루 1회). 그 전엔 손으로 `worker -- fco-club` | [docs/FCO-CLUB-VALUE-PLAN.md](docs/FCO-CLUB-VALUE-PLAN.md) |
 | **롤 공개 큐 — Riot API(워커 Engine A~D)** | 코드 완성, **지금 데이터 없음**(공개 큐 경기 0건). Riot 키 상태는 docs/SETUP.md §1 에서 확인한다 | [docs/PLAN.md](docs/PLAN.md) §10 |
-| **커뮤니티 — 회원·글·댓글·신고** | **코드 완성·합침**(2026-10-08). 운영 DB 적용 완료(0081·0082 — 다음 마이그레이션 번호는 0083) · **공개 전** — 로그인 앱(카카오·구글) 미등록 · 정리 타이머는 가입을 열 때 설치 · 운영 DB 에 미리보기 샘플 글 — 가입 열기 전 `scripts/community-samples.ts --remove` · 플랫폼 모듈 `community` + 기록은 core | [docs/COMMUNITY-PLAN.md](docs/COMMUNITY-PLAN.md) |
+| **커뮤니티 — 회원·글·댓글·신고** | **코드 완성·합침**(2026-10-08). 운영 DB 적용 완료(0081·0082 — 다음 마이그레이션 번호는 0084) · **공개 전** — 로그인 앱(카카오·구글) 미등록 · 정리 타이머는 가입을 열 때 설치 · 운영 DB 에 미리보기 샘플 글 — 가입 열기 전 `scripts/community-samples.ts --remove` · 플랫폼 모듈 `community` + 기록은 core | [docs/COMMUNITY-PLAN.md](docs/COMMUNITY-PLAN.md) |
 | 롤 내전 — 토너먼트 코드 | 미시작. Production Key 가 필요하고 그 심사 요건이 "동작하는 사이트"라 **배포(M4) 뒤에만** 가능하다. VOD 판독과는 별개 경로다 | [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) |
 
 시한부인 것 두 개 (Riot 수집을 돌릴 때):
 - **2년 백필** — match-v5 보존이 2년이다. 미룬 만큼 영구히 사라진다
 - **랭크 스냅샷** — 하루 안 쌓으면 그날은 영원히 구멍이다. `worker -- rank` 만 돌려도 된다
+  (같은 크론이 닉네임도 갱신하고, 바뀐 옛 이름은 `riot_account_name`(0083)에 남는다 — Riot API 는 현재 이름만 준다)
 
 FC 도 시한부다 — 넥슨 목록은 **최근 30일**만 준다(docs/FCO-TIME-SAMPLES.md).
 FC 구단가치·스쿼드 스냅샷도 시한부다 — 지나간 날은 다시 못 구한다(`worker -- fco-club`). 카드 시세는 365일까지 소급된다.

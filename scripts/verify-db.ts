@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 import { applyAll } from "./lib/migrations.ts";
 import { verifyReviewRecordUpgrade } from "./lib/verify-review-record-migration.ts";
-import { verifyPuuidMoveDb } from "./lib/verify-puuid-move-db.ts";
+import { verifyNameHistoryDb, verifyPuuidMoveDb } from "./lib/verify-puuid-move-db.ts";
 import { verifyScheduleDb } from "./lib/verify-schedule-db.ts";
 import { verifyMemberDb } from "./lib/verify-member-db.ts";
 import { verifyCommunityDb } from "./lib/verify-community-db.ts";
@@ -2171,6 +2171,7 @@ try {
   await verifyCkDuplicatesDb();
   await verifyScheduleDb(check, expectReject);
   await verifyPuuidMoveDb(check);
+  await verifyNameHistoryDb(check);
   await verifyMemberDb(check, expectReject);
   await verifyCommunityDb(check, expectReject);
 } finally {
