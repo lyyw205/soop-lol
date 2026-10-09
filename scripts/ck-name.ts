@@ -3,7 +3,7 @@
  *
  *   npm run ck:name -- <화면이름> <slug> --note "사용자 확인(2026-10-09): …"            # 미리보기
  *   npm run ck:name -- <화면이름> <slug> --note "…" --apply                            # 기록
- *   … --riot 이름#태그   같은 이름의 라이엇 계정이 여럿이면 하나를 집는다
+ *   … --riot 이름#태그   이 계정까지 이 사람 것으로 연결한다(태그까지 확인된 경우만)
  *
  * ── 왜 필요한가 ─────────────────────────────────────────────────────────
  * 2026-10-05 미확인 이름 화면에서 '듀부선' 64자리를 듀단에 붙였는데, 그 뒤 기록된 경기 71자리는
@@ -12,8 +12,9 @@
  * `듀부선#튼실하네` 가 주인 없는 계정으로만 보였다.
  *
  * 그래서 한 번에 둘을 한다:
- *   1. 그 이름의 라이엇 계정이 DB 에 있으면 이 사람 계정으로 연결한다(`linkAccount` — 근거 필수).
+ *   1. `--riot 이름#태그` 로 계정을 집어 주면 이 사람 계정으로 연결한다(`linkAccount` — 근거 필수).
  *      그러면 매일 닉네임 갱신 대상이 되고, 닉네임이 바뀌어도 `ck:who` 가 이력으로 찾는다(0083).
+ *      ⚠ 이름만 같은 계정은 연결하지 않는다 — 라이엇 닉네임은 태그만 다르면 겹친다(2026-10-09 '상 어#3 5').
  *   2. 그 이름으로 남은 미확인 자리를 전부 이 사람에게 붙인다. 계정을 모르는 이름(태그 미상)은
  *      이 연결이 곧 기록이다 — `ck:who` 가 "연결된 자리" 로 읽는다.
  *
@@ -66,9 +67,14 @@ try {
   if (RIOT && accounts.length === 0) throw new Error(`${RIOT} 계정이 DB 에 없다.`);
   if (accounts.length === 0) {
     console.log("계정  같은 이름의 라이엇 계정이 DB 에 없다 — 자리 연결만 남긴다(ck:who 가 '연결된 자리' 로 찾는다).");
+  } else if (!RIOT) {
+    // ★ 이름이 같다고 그 사람 계정이 아니다 — 라이엇 닉네임은 태그만 다르면 얼마든지 겹친다('상 어' 같은 짧은 이름).
+    //   계정 연결은 태그까지 확인된 경우에만 한다(--riot). 여기서는 있다는 사실만 알린다.
+    console.log(`계정  같은 이름의 계정이 DB 에 있다: ${accounts.map((a) => `${a.game_name}#${a.tag_line}`
+      + (a.owners.length ? `(${a.owners.map((o) => o.display_name).join(", ")})` : "(주인 없음)")).join(", ")}`
+      + " — 이 사람 것이라는 근거(태그 확인)가 있으면 --riot 이름#태그 로 다시 실행한다. 지금은 자리만 연결한다.");
   } else if (accounts.length > 1) {
-    throw new Error(`같은 이름의 계정이 ${accounts.length}개다 — --riot 으로 하나를 집는다: `
-      + accounts.map((a) => `${a.game_name}#${a.tag_line}`).join(", "));
+    throw new Error(`${RIOT} 계정이 ${accounts.length}개다 — 데이터를 확인한다.`);
   } else {
     const a = accounts[0];
     const others = a.owners.filter((o) => o.slug !== streamer.slug);
