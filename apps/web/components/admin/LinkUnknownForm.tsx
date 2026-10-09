@@ -13,7 +13,7 @@ import { REVIEWED_HINT, REVIEWED_LABEL } from "@/lib/admin-labels";
 const seatKey = (seat: UnidentifiedSeat) => JSON.stringify([seat.match_id, seat.participant_id]);
 
 /** 선택한 자리와 기준값을 고정한다. 저장할 때 새로운 동명 행을 찾지 않는다. */
-export function LinkUnknownForm({ targets, people }: { targets: UnidentifiedSeat[]; people: {slug: string; display_name: string}[] }) {
+export function LinkUnknownForm({ targets, people, returnTo = "/admin/ck/unknown" }: { returnTo?: string; targets: UnidentifiedSeat[]; people: {slug: string; display_name: string}[] }) {
   // RSC refresh during another form's save must not alter this form's selection/baseline.
   const [snapshot, setSnapshot] = useState(targets);
   const [selected, setSelected] = useState<string[]>([]);
@@ -47,7 +47,7 @@ export function LinkUnknownForm({ targets, people }: { targets: UnidentifiedSeat
             {seats.map(t => <label key={seatKey(t)} className="flex gap-2 pl-4 text-xs text-ink-400">
               <input type="checkbox" name="targets" value={JSON.stringify(t)} checked={selected.includes(seatKey(t))}
                 disabled={t.reviewed_at !== null} onChange={e => toggle([seatKey(t)], e.target.checked)} />
-              <span>{kstDateString(new Date(t.played_at))} · <Link href={`/admin/ck/match/${encodeURIComponent(t.match_id)}?focus=identity&from=${encodeURIComponent("/admin/ck/unknown")}`} className="text-accent-400">경기 근거 보기 ↗</Link> · {t.participant_id}번 · {t.champion_name ?? "챔피언 미상"}
+              <span>{kstDateString(new Date(t.played_at))} · <Link href={`/admin/ck/match/${encodeURIComponent(t.match_id)}?focus=identity&from=${encodeURIComponent(returnTo)}`} className="text-accent-400">경기 근거 보기 ↗</Link> · {t.participant_id}번 · {t.champion_name ?? "챔피언 미상"}
                 {t.reviewed_at !== null && <span title={REVIEWED_HINT}>{` · ${REVIEWED_LABEL} (경기 검수 화면에서 수정)`}</span>}</span>
             </label>)}
           </details>;

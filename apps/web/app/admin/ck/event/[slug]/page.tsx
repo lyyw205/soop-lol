@@ -1,3 +1,4 @@
+import { adminLoLCollection, inLoLCollection, LOL_ADMIN } from "@/lib/admin-lol";
 import { lolReviewQueueIds } from "@soop-lol/core/lib/db/review-priority";
 import Link from "next/link";
 import { cache } from "react";
@@ -37,19 +38,22 @@ export default async function CkEventReviewPage({ params, searchParams }: { para
   const detail = await loadEvent(slug);
   if (!detail) notFound();
   const { event, series } = detail;
-  const back = TAB_OF[event.kind] ? `/admin/ck?kind=${TAB_OF[event.kind]}` : "/admin/ck";
+  const collection = adminLoLCollection(query.from);
+  const listPath = LOL_ADMIN[collection ?? "rift"].queue;
+  const back = adminHref(listPath, { kind: TAB_OF[event.kind] });
 
   // ★ CK 는 여러 스트리머가 같은 판을 방송한다. 방송마다 시간축이 다르므로 **시점(VOD)을 먼저 고르고**,
   //   고른 VOD 기준으로 큐·프레임·미니맵·인스펙터가 통째로 바뀐다(docs/CK-MULTI-POV-PLAN.md §6).
   if (event.kind === "ck") {
-    const povs = await listEventPovLeads(event.id);
+    const povs = await listEventPovLeads(event.id, collection);
     if (povs.length > 0) {
       const eventMatchIds = new Set(series.flatMap(s => s.sets.map(set => set.match_id)));
       const pov = povs.find(p => p.lead_id === query.pov) ?? povs.find(p => p.creates) ?? povs[0];
       const ws = await getLeadWorkspace(pov.lead_id, { records: false });
       if (!ws) notFound();
-      const matches = ws.matches.filter(m => eventMatchIds.has(m.match.match_id)).map(reviewMatchData);
-      const frames = ws.frames.filter(f => f.match_id == null || eventMatchIds.has(f.match_id)).map(f => ({
+      const matches = ws.matches.filter(m => eventMatchIds.has(m.match.match_id) && inLoLCollection(m.match, collection)).map(reviewMatchData);
+      const scopedMatchIds = new Set(matches.map(m => m.match_id));
+      const frames = ws.frames.filter(f => f.match_id == null || scopedMatchIds.has(f.match_id)).map(f => ({
         id: f.id, match_id: f.match_id, frame_path: f.frame_path, at_sec: f.at_sec, kind: f.kind,
       }));
       const povDiffs = await povDiffsForLead(pov.lead_id, matches.map(m => m.match_id));
@@ -71,8 +75,8 @@ export default async function CkEventReviewPage({ params, searchParams }: { para
               <Link href={adminHref(`/admin/ck/${pov.lead_id}`, { from: query.from ?? back, match: query.match, tab: query.tab, focus: query.focus })} className="hover:text-ink-200">이 VOD 의 다른 경기까지 보기</Link>
             </p>
           </div></header>
-          <CkReviewer reviewQueueIds={await lolReviewQueueIds(matches.map(m => m.match_id), query.from)}
-            key={pov.lead_id}
+          <CkReviewer reviewQueueIds={await lolReviewQueueIds(matches.map(m => m.match_id), query.from, collection)}
+            key={`${pov.lead_id}:${collection ?? "all"}`}
             leadId={pov.lead_id}
             vodUrl={pov.url}
             initialMatchId={initialMatchId}
@@ -91,5 +95,5 @@ export default async function CkEventReviewPage({ params, searchParams }: { para
     }
   }
   // Non-CK event summaries now live inside the shared list; retain this permalink.
-  redirect(adminHref("/admin/ck", { event: slug, review: query.review, focus: query.focus }));
+  redirect(adminHref(listPath, { event: slug, review: query.review, focus: query.focus }));
 }

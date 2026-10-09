@@ -63,7 +63,7 @@ function fail(message: string): ActionState {
  *   읽는다 — 그래서 여기서 굳이 경로를 안 지정한다. 어드민만 갱신하면 된다.
  */
 function revalidateReview(): void {
-  revalidatePath("/admin/ck", "layout");
+  revalidatePath("/admin", "layout");
 }
 
 // ── 경기 메타 ────────────────────────────────────────────────────────
@@ -271,8 +271,7 @@ export async function linkUnknownAction(_prev: ActionState, form: FormData): Pro
     const targets = form.getAll("targets").map(value => JSON.parse(String(value)));
     const res = await reviewUnidentifiedParticipants(targets, streamerId);
     if (res.linked === 0) return fail(`연결한 자리가 없습니다. 검수된 경기: ${res.skipped.join(", ") || "없음"}. 목록을 새로 불러오세요.`);
-    revalidatePath("/admin/ck/unknown");
-    revalidatePath("/admin/ck", "layout");
+    revalidatePath("/admin", "layout");
     return {ok: true, message: `${res.linked}자리를 연결했습니다 (경기 ${res.matches.length}개).`
       + (res.skipped.length ? ` 검수된 경기 건너뜀: ${res.skipped.join(", ")}` : "")};
   } catch (e) {

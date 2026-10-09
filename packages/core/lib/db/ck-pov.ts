@@ -13,6 +13,7 @@ import { isDeepStrictEqual } from "node:util";
 import type postgres from "postgres";
 
 import { db } from "./client.ts";
+import { lolReviewScope, type LoLReviewCollection } from "./lol-review-scope.ts";
 import { affectedStreamers } from "./ck.ts";
 import { recomputeChampionStatsInTx, rederiveEncountersInTx } from "./ingest.ts";
 import { resolveChampion } from "./participant.ts";
@@ -338,7 +339,7 @@ export interface EventPovLead {
  * 대회 하나를 찍은 VOD 들 — 검수 화면 맨 위 시점 칩. 방송마다 시간축이 달라서, 칩을 고르면
  * 큐·프레임·미니맵이 그 VOD 기준으로 통째로 바뀐다. 한 방송이 VOD 둘로 나뉘면 칩도 둘이다.
  */
-export async function listEventPovLeads(eventId: string): Promise<EventPovLead[]> {
+export async function listEventPovLeads(eventId: string, collection?: LoLReviewCollection): Promise<EventPovLead[]> {
   const sql = db();
   const leads = await sql<Omit<EventPovLead, "mismatch_open">[]>`
     SELECT el.id AS lead_id, el.source_key, el.title, el.url, el.observed_at,
@@ -355,12 +356,13 @@ export async function listEventPovLeads(eventId: string): Promise<EventPovLead[]
       JOIN event_lead el ON el.id = lm.lead_id
       LEFT JOIN match_pov p ON p.match_id = lm.match_id AND p.lead_id = lm.lead_id
      WHERE COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid AND el.source_key LIKE 'vod:%'
+       AND ${lolReviewScope(collection)}
      GROUP BY el.id
      ORDER BY el.observed_at, el.source_key`;
   const open = new Map<string, number>();
   const matchIds = (await sql<{ match_id: string }[]>`
     SELECT m.match_id FROM match m LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-     WHERE COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid`).map((r) => r.match_id);
+     WHERE COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid AND ${lolReviewScope(collection)}`).map((r) => r.match_id);
   for (const id of matchIds) {
     for (const v of await getMatchPovViews(id)) open.set(v.lead_id, (open.get(v.lead_id) ?? 0) + v.summary.mismatch_open);
   }

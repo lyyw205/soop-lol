@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { LoLReviewCollection } from "@soop-lol/core/lib/db/lol-review-scope";
 import { BulkReviewCompletion } from "./BulkReviewCompletion";
 import type { ReviewTarget } from "@soop-lol/core/lib/db/review-batch";
 import { useEffect, useLayoutEffect, useState, useTransition } from "react";
@@ -51,7 +52,7 @@ function loadFoldedFromStorage(): Set<string> {
  * 스크롤 위치는 주소별로 따로 둔다(분류·미검수 필터가 다르면 다른 화면이다).
  * 새로고침에서만 살아남으면 되므로 sessionStorage — 접기 상태(오래 유지하고 싶은 설정)와는 성격이 다르다.
  */
-export function MatchOverview({ series, mode = "compare", returnTo = "/admin/overview", focus }: { series: OverviewSeriesRow[]; mode?: "queue" | "compare"; returnTo?: string; focus?: string }) {
+export function MatchOverview({ series, mode = "compare", returnTo = "/admin/overview", focus, collection }: { series: OverviewSeriesRow[]; collection?: LoLReviewCollection; mode?: "queue" | "compare"; returnTo?: string; focus?: string }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [chosen, setChosen] = useState<Map<string, ReviewTarget>>(new Map());
   const choose = (id: string, version: number, checked: boolean) => setChosen(old => { const next = new Map(old); if (checked) next.set(id, { id, version }); else next.delete(id); return next; });
@@ -70,7 +71,7 @@ export function MatchOverview({ series, mode = "compare", returnTo = "/admin/ove
     setOpen(new Set(keys)); setOpenReady(true);
     if (mode === "compare" && keys.length) startLoading(async () => {
       for (const key of keys) {
-        try { update(setSets, key, await loadOverviewSetsAction(key)); }
+        try { update(setSets, key, await loadOverviewSetsAction(key, collection)); }
         catch { update(setErrors, key, "세트를 불러오지 못했습니다. 다시 펼쳐 주세요."); }
       }
     });
@@ -99,13 +100,13 @@ export function MatchOverview({ series, mode = "compare", returnTo = "/admin/ove
     if (mode === "queue" || sets.has(key)) return;
     setLoadingKey(key);
     startLoading(async () => {
-      try { update(setSets, key, await loadOverviewSetsAction(key)); update(setErrors, key, undefined); }
+      try { update(setSets, key, await loadOverviewSetsAction(key, collection)); update(setErrors, key, undefined); }
       catch (e) { update(setErrors, key, e instanceof Error ? e.message : String(e)); }
     });
   };
 
   const toggleReview = async (key: string, set: OverviewSetDetail) => {
-    const res = await toggleOverviewReviewAction(key, set.match_id, !set.review_completed_at, set.review_version);
+    const res = await toggleOverviewReviewAction(key, set.match_id, !set.review_completed_at, set.review_version, collection);
     update(setSets, key, res.sets);
     update(setErrors, key, res.ok ? undefined : res.message);
   };

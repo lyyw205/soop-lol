@@ -18,6 +18,7 @@ import { validateScanResume, type ScanResume } from "../metrics/ck-resume.ts";
 import type postgres from "postgres";
 
 import { db } from "./client.ts";
+import { lolReviewScope, type LoLReviewCollection } from "./lol-review-scope.ts";
 import { duplicateParticipantCounts, isDuplicateGame, type DuplicateParticipant } from "../metrics/ck-duplicate.ts";
 import { recomputeChampionStatsInTx, rederiveEncountersInTx } from "./ingest.ts";
 // 참가자 불변식(챔피언 이름↔ID · 계정↔사람)은 나무위키 시드 경로와 **같은 것**을 쓴다.
@@ -454,6 +455,7 @@ export async function getEventLead(id: string): Promise<EventLeadRow | null> {
  *   "이어서 할 일" 은 `npm run ck:record -- --todo` 가 본다 — 같은 집계를 두 곳에 두지 않는다.
  */
 export async function listEventLeads(opts: {
+  collection?: LoLReviewCollection;
   from?: Date;
   to?: Date;
   state?: EventLeadState;
@@ -490,6 +492,7 @@ export async function listEventLeads(opts: {
           LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
           LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id)
          WHERE lm.lead_id = el.id
+           AND ${lolReviewScope(opts.collection)}
       ) linked
      WHERE (${opts.from ?? null}::timestamptz IS NULL OR el.observed_at >= ${opts.from ?? null})
        AND (${opts.to ?? null}::timestamptz IS NULL OR el.observed_at < ${opts.to ?? null})
@@ -1777,17 +1780,18 @@ export interface UnidentifiedParticipant {
  * 미확인 이름 수. 목록은 페이지로 끊어 보여 주므로 전체가 몇인지 따로 센다.
  * ★ 예전엔 100명에서 조용히 잘렸다 — 3판에 나온 '붕어에몽' 이 102번째라 화면에 없었다.
  */
-export async function countUnidentifiedNames(q = ""): Promise<number> {
+export async function countUnidentifiedNames(q = "", collection?: LoLReviewCollection): Promise<number> {
   const [r] = await db()<{ n: number }[]>`
     SELECT count(DISTINCT mp.observed_name)::int AS n
       FROM match_participant mp
       JOIN match m ON m.match_id = mp.match_id AND m.visibility = 'public'
      WHERE mp.streamer_id IS NULL AND mp.puuid IS NULL AND mp.observed_name IS NOT NULL
+       AND m.game_code = 'lol' AND ${lolReviewScope(collection)}
        AND mp.observed_name ILIKE ${`%${q}%`}`;
   return r.n;
 }
 
-export async function listUnidentifiedParticipants(limit = 100, offset = 0, q = ""): Promise<UnidentifiedParticipant[]> {
+export async function listUnidentifiedParticipants(limit = 100, offset = 0, q = "", collection?: LoLReviewCollection): Promise<UnidentifiedParticipant[]> {
   const sql = db();
   return sql<UnidentifiedParticipant[]>`
     WITH seat AS (
@@ -1796,6 +1800,7 @@ export async function listUnidentifiedParticipants(limit = 100, offset = 0, q = 
         FROM match_participant mp
         JOIN match m ON m.match_id = mp.match_id AND m.visibility = 'public'
        WHERE mp.streamer_id IS NULL AND mp.puuid IS NULL AND mp.observed_name IS NOT NULL
+       AND m.game_code = 'lol' AND ${lolReviewScope(collection)}
        AND mp.observed_name ILIKE ${`%${q}%`}
     )
     SELECT seat.observed_name,

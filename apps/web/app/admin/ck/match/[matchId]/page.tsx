@@ -1,3 +1,4 @@
+import { adminLoLCollection, inLoLCollection, LOL_ADMIN } from "@/lib/admin-lol";
 import { lolReviewQueueIds } from "@soop-lol/core/lib/db/review-priority";
 import { AdminBackLink } from "@/components/admin/AdminBackLink";
 import { adminHref } from "@/lib/admin-navigation";
@@ -27,6 +28,9 @@ export default async function MatchReviewPage({ params, searchParams }: {
   const { focus } = query;
   const ws = await getMatchReviewWorkspace(matchId);
   if (!ws) notFound();
+  const collection = adminLoLCollection(query.from) ?? (inLoLCollection(ws.detail.match, "aram") ? "aram" : "rift");
+  const listPath = LOL_ADMIN[collection].queue;
+  query.from ??= listPath;
   const event = ws.events.find(e => e.id === ws.detail.match.event_id);
   const povs = await getMatchPovViews(matchId);
   if (povs.length > 0 && event?.slug && event.kind === "ck") {
@@ -39,11 +43,11 @@ export default async function MatchReviewPage({ params, searchParams }: {
   }
   return <div className="ck-review-page">
     <header className="ck-review-page-head"><div>
-      <AdminBackLink fallback={event?.slug ? adminHref("/admin/ck", { event: event.slug }) : "/admin/ck"}>검수 목록</AdminBackLink>
+      <AdminBackLink fallback={event?.slug ? adminHref(listPath, { event: event.slug }) : listPath}>검수 목록</AdminBackLink>
       <h1 className="mt-1 text-lg text-ink-200">{event?.name ?? "경기 검수"}</h1>
       {ws.detail.match.source_url && <a href={ws.detail.match.source_url} target="_blank" rel="noreferrer" className="text-xs text-accent-400">출처 열기 ↗</a>}
     </div></header>
-    <CkReviewer reviewQueueIds={await lolReviewQueueIds([matchId], query.from)} key={focus} leadId="" frames={[]} matches={[reviewMatchData(ws.detail)]}
+    <CkReviewer reviewQueueIds={await lolReviewQueueIds([matchId], query.from, collection)} key={focus} leadId="" frames={[]} matches={[reviewMatchData(ws.detail)]}
       streamers={ws.streamers} events={ws.events} initialFocus={focus} initialMatchId={matchId} initialTab={query.tab === "roster" ? "roster" : undefined} />
   </div>;
 }

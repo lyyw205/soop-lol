@@ -1,3 +1,4 @@
+import { adminLoLCollection, inLoLCollection } from "@/lib/admin-lol";
 import { lolReviewQueueIds } from "@soop-lol/core/lib/db/review-priority";
 import { cache } from "react";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
@@ -32,7 +33,10 @@ export default async function CkReviewPage({ params, searchParams }: { params: P
 
   // ★ 클라이언트 컴포넌트에는 Date 를 넘기지 않는다 — 직렬화 경계에서 문자열이 되므로
   //   타입이 거짓이 된다. 여기서 명시적으로 문자열로 바꿔 넘긴다.
-  const clientMatches = matches.map(reviewMatchData);
+  const collection = adminLoLCollection(query.from);
+  const scopedMatches = matches.filter(m => inLoLCollection(m.match, collection));
+  const matchIds = new Set(scopedMatches.map(m => m.match.match_id));
+  const clientMatches = scopedMatches.map(reviewMatchData);
   const field = rosterFocus(query.focus);
   const initial = clientMatches.find(m => m.match_id === query.match)
     ?? clientMatches.find(m => field ? m[field.count] < 10
@@ -57,8 +61,8 @@ export default async function CkReviewPage({ params, searchParams }: { params: P
         </div>
       </header>
 
-      <CkReviewer reviewQueueIds={await lolReviewQueueIds(clientMatches.map(m => m.match_id), query.from)}
-        key={leadId}
+      <CkReviewer reviewQueueIds={await lolReviewQueueIds(clientMatches.map(m => m.match_id), query.from, collection)}
+        key={`${leadId}:${collection ?? "all"}`}
         leadId={lead.id}
         vodUrl={lead.url}
         initialMatchId={initial?.match_id}
@@ -66,7 +70,7 @@ export default async function CkReviewPage({ params, searchParams }: { params: P
         initialTab={query.tab === "roster" ? "roster" : undefined}
         syncUrl
         // 미연결 프레임도 앞뒤 탐색과 수동 연결에 사용한다.
-        frames={frames.map((f) => ({
+        frames={frames.filter(f => f.match_id == null || matchIds.has(f.match_id)).map((f) => ({
           id: f.id,
           match_id: f.match_id,
           frame_path: f.frame_path,

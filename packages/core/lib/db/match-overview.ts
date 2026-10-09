@@ -14,6 +14,7 @@ import { db } from "./client.ts";
 import { REVIEW_PROGRESS_JOIN } from "./review-progress.ts";
 import { LOL_PRIORITY_REASONS } from "./review-priority.ts";
 import type { LeadEventKind } from "./ck.ts";
+import { lolReviewScope, type LoLReviewCollection } from "./lol-review-scope.ts";
 
 export interface OverviewSetSummary {
   match_id: string;
@@ -46,11 +47,13 @@ const SERIES_EVENT_JOIN = `
   LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id)`;
 
 export interface OverviewOptions {
+  collection?: LoLReviewCollection;
   kind?: LeadEventKind; unreviewed?: boolean; limit?: number; offset?: number; q?: string; event?: string; focus?: string; queue?: "priority" | "general";
 }
 function overviewWhere(opts: OverviewOptions) {
   const sql = db();
   return sql`m.game_code = 'lol' AND m.source <> 'public_queue'
+    AND ${lolReviewScope(opts.collection)}
     AND (${opts.kind ?? null}::text IS NULL OR COALESCE(e.kind, 'other') = ${opts.kind ?? null})
     AND (${opts.event ?? null}::text IS NULL OR e.slug = ${opts.event ?? null}
       OR (${opts.event ?? null} = 'unlinked' AND COALESCE(ms.event_id, m.event_id) IS NULL))`;
@@ -147,7 +150,7 @@ export interface OverviewSetDetail {
 }
 
 /** 시리즈 하나의 세트 전부와 참가자. */
-export async function getOverviewSeriesSets(key: string): Promise<OverviewSetDetail[]> {
+export async function getOverviewSeriesSets(key: string, collection?: LoLReviewCollection): Promise<OverviewSetDetail[]> {
   const sql = db();
   return sql<OverviewSetDetail[]>`
     SELECT m.match_id, m.series_game_no, m.game_creation, m.game_creation_precision, m.game_duration,
@@ -174,6 +177,7 @@ export async function getOverviewSeriesSets(key: string): Promise<OverviewSetDet
       LEFT JOIN event_team bt ON bt.id = m.blue_team_id
       LEFT JOIN event_team rt ON rt.id = m.red_team_id
      WHERE m.game_code = 'lol' AND m.source <> 'public_queue'
+       AND ${lolReviewScope(collection)}
        AND COALESCE(m.series_id, m.match_id) = ${key}
      ORDER BY m.series_game_no NULLS LAST, m.game_creation
   `;

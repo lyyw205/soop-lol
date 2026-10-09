@@ -94,7 +94,7 @@
     "//ck:record": "★ 경기·VOD·대회 하나의 공개 값·근거 프레임(VOD 시각)·조사 기록·남은 질문·수정 이력을 묶어 본다. 읽기만 한다.",
     "ck:record": "node --env-file-if-exists=apps/web/.env.local scripts/ck-record.ts",
     "ck:queue": "node --env-file-if-exists=apps/web/.env.local scripts/ck-queue.ts",
-    "verify:admin": "node scripts/verify-admin-review.ts && node scripts/verify-admin-hardening.ts && node scripts/verify-review-priority.ts",
+    "verify:admin": "node scripts/verify-admin-review.ts && node scripts/verify-admin-hardening.ts && node scripts/verify-review-priority.ts && node scripts/verify-admin-lol-collections.ts",
     "verify:ck": "node scripts/verify-ck-review.ts",
     "verify:ck:concurrency": "node scripts/verify-ck-concurrency.ts",
     "verify:ck:browser": "node scripts/verify-ck-browser.ts",

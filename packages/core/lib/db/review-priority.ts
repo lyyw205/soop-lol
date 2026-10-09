@@ -1,5 +1,6 @@
 import { db } from "./client.ts";
 import { REVIEW_PROGRESS_JOIN } from "./review-progress.ts";
+import { lolReviewScope, type LoLReviewCollection } from "./lol-review-scope.ts";
 
 /** Read-time queues only: these checks never mark a match as human reviewed. */
 export const LOL_PRIORITY_REASONS = `array_remove(ARRAY[
@@ -9,13 +10,15 @@ export const LOL_PRIORITY_REASONS = `array_remove(ARRAY[
   CASE WHEN m.review_completed_at IS NULL AND EXISTS (SELECT 1 FROM review_change rc WHERE rc.match_id = m.match_id AND rc.field = 'review_completed' AND rc.after = 'true'::jsonb) THEN '검수 후 변경·해제' END
 ]::text[], NULL)`;
 
-export async function lolReviewQueueIds(ids: string[], from?: string): Promise<string[]> {
+export async function lolReviewQueueIds(ids: string[], from?: string, collection?: LoLReviewCollection): Promise<string[]> {
   const queue = new URL(from ?? '/admin/ck?queue=all', 'https://admin.invalid').searchParams.get('queue');
-  if (queue !== 'priority' && queue !== 'general') return ids;
+  const filteredQueue = queue === 'priority' || queue === 'general';
+  if (!filteredQueue && !collection) return ids;
   const sql = db();
   const rows = await sql`SELECT m.match_id FROM match m ${sql.unsafe(REVIEW_PROGRESS_JOIN)} WHERE m.game_code = 'lol'
-    AND m.match_id = ANY(${ids}) AND m.review_completed_at IS NULL
-    AND CASE WHEN ${queue} = 'priority' THEN cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) > 0 ELSE cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) = 0 END`;
+    AND m.match_id = ANY(${ids}) AND ${lolReviewScope(collection)}
+    AND (${!filteredQueue} OR (m.review_completed_at IS NULL
+      AND CASE WHEN ${queue} = 'priority' THEN cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) > 0 ELSE cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) = 0 END))`;
   return rows.map(r => r.match_id);
 }
 
