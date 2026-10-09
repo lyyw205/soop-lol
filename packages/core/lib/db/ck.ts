@@ -1192,7 +1192,7 @@ const changeValue = (value: unknown): unknown =>
  * 관리자 수정 이력을 **같은 트랜잭션에서** 남긴다. 값이 그대로인 칸은 건너뛴다.
  * 이유 문장은 받지 않는다 — 전후 값이면 충분하고, 사람에게 설명문을 쓰게 하지 않는다.
  */
-async function recordReviewChanges(tx: Tx, changes: readonly ReviewChangeInput[]): Promise<void> {
+export async function recordReviewChanges(tx: Tx, changes: readonly ReviewChangeInput[]): Promise<void> {
   for (const c of changes) {
     const before = changeValue(c.before), after = changeValue(c.after);
     if (JSON.stringify(before) === JSON.stringify(after)) continue;
@@ -1254,7 +1254,7 @@ export async function applyMatchReview(matchId: string, patch: MatchReviewPatch)
 }
 
 /** 단일 경기와 일괄 검수가 같은 저장·파생 계약을 쓰되 트랜잭션을 중첩하지 않는다. */
-async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: MatchReviewPatch): Promise<MatchDetail | null> {
+export async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: MatchReviewPatch): Promise<MatchDetail | null> {
   // ★ `FOR UPDATE` — 잠그고 나서 읽는다. 잠금 전에 읽으면 그 사이 다른 트랜잭션이
   //   커밋해, 아래에서 쓰는 "고치기 전" 스냅샷이 이미 낡은 것일 수 있다.
   const exists = await tx<MatchRow[]>`

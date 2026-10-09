@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blindOverlap, duplicateParticipantCounts, isDuplicateGame, withinDuplicateWindow, type DuplicateParticipant } from "./ck-duplicate.ts";
+import { blindOverlap, duplicateParticipantCounts, kdaOverlap, isDuplicateGame, withinDuplicateWindow, type DuplicateParticipant } from "./ck-duplicate.ts";
 
 const person = (i: number, extra: Partial<DuplicateParticipant> = {}): DuplicateParticipant => ({
   person_id: null, puuid: null, observed_name: `사람${i}`, win: i < 5,
@@ -112,4 +112,13 @@ test("시간 범위: 시각을 알면 ±20분(자정을 넘어도), 날짜만 �
   // 날짜만 아는 기록은 KST 날짜로 — 자정을 넘으면 다른 날
   assert.equal(withinDuplicateWindow(t("2030-01-01T14:55:00Z", "date"), t("2030-01-01T15:05:00Z")), false);
   assert.equal(withinDuplicateWindow(t("2030-01-01T00:30:00Z", "date"), t("2030-01-01T14:30:00Z")), true);
+});
+
+test("승패+KDA 일치(합칠 때 안전장치): 챔피언을 못 읽은 쪽도 세고, 승패·KDA가 비면 세지 않는다", () => {
+  const stored = roster();
+  const noChampion = renamed(stored).map((p) => ({ ...p, champion_id: 0 }));
+  assert.equal(blindOverlap(noChampion, stored), 0);
+  assert.equal(kdaOverlap(noChampion, stored), 10);
+  assert.equal(kdaOverlap(noChampion.map((p, i) => i < 3 ? { ...p, deaths: null } : p), stored), 7);
+  assert.equal(kdaOverlap(stored.map((p) => ({ ...p, win: !p.win })), stored), 0);
 });

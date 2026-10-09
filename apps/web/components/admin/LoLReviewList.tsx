@@ -26,8 +26,9 @@ export async function LoLReviewList({ query, mode, collection = "rift" }: { quer
   return <Card title={`${section.label} ${mode === "queue" ? "경기 검수" : "시리즈 비교"}`} description={collection === "aram" ? "일반 칼바람과 증강 칼바람 경기를 함께 검수합니다." : undefined}>
     {/* 저장 뒤 값이 채워져서야 드러난 같은 판 — 판정은 ck:record --todo 와 같은 코어 함수다. 다르면 distinct_from 으로 남긴다. */}
     {duplicates.length > 0 && <details className="mb-3 rounded border border-amber-700/60 bg-amber-950/20 p-3 text-xs">
-      <summary className="cursor-pointer text-amber-300">같은 판으로 보이는 공개 경기 {duplicates.length}쌍 — 두 경기 결과창을 대조해 주세요</summary>
+      <summary className="cursor-pointer text-amber-300">같은 판으로 보이는 경기 {duplicates.length}쌍 — 두 경기 결과창을 대조해 주세요</summary>
       <ul className="mt-2 grid gap-1">{duplicates.map(d => <li key={`${d.a}|${d.b}`} className="flex flex-wrap items-center gap-2">
+        {d.hidden && <span className="rounded bg-ink-800 px-1.5 text-ink-300">숨김 {d.hidden === d.a ? "←" : "→"} 근거 남음</span>}
         <Link href={adminHref(`/admin/ck/match/${encodeURIComponent(d.a)}`, { from: href })} className="text-accent-400">{d.a}</Link>
         <span className="text-ink-500">↔</span>
         <Link href={adminHref(`/admin/ck/match/${encodeURIComponent(d.b)}`, { from: href })} className="text-accent-400">{d.b}</Link>

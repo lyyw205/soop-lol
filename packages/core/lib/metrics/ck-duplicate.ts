@@ -59,9 +59,22 @@ export function duplicateParticipantCounts(mine: DuplicateParticipant[], stored:
  */
 export const BLIND_MIN = 8;
 export function blindOverlap(mine: readonly DuplicateParticipant[], stored: readonly DuplicateParticipant[]): number {
-  const key = (p: DuplicateParticipant) => p.win === null || !(p.champion_id > 0)
+  return bagOverlap(mine, stored, (p) => p.win === null || !(p.champion_id > 0)
     || p.kills === null || p.deaths === null || p.assists === null
-    ? null : `${p.win ? "W" : "L"}|${p.champion_id}|${p.kills}/${p.deaths}/${p.assists}`;
+    ? null : `${p.win ? "W" : "L"}|${p.champion_id}|${p.kills}/${p.deaths}/${p.assists}`);
+}
+
+/**
+ * 챔피언을 빼고 (승패·K/D/A)만 센 이름 무관 일치. **사진으로 같은 판이라고 확인한 쌍을 합칠 때**의 안전장치용이다
+ * (잘못된 경기 ID 를 막는 정도). 챔피언을 하나도 못 읽은 기록도 합칠 수 있어야 해서 따로 둔다(2026-10-09 저라뎃 g1).
+ * 저장 차단·후보 조회에는 쓰지 않는다 — 실측 근거는 챔피언을 포함한 `blindOverlap` 에만 있다.
+ */
+export function kdaOverlap(mine: readonly DuplicateParticipant[], stored: readonly DuplicateParticipant[]): number {
+  return bagOverlap(mine, stored, (p) => p.win === null || p.kills === null || p.deaths === null || p.assists === null
+    ? null : `${p.win ? "W" : "L"}|${p.kills}/${p.deaths}/${p.assists}`);
+}
+
+function bagOverlap(mine: readonly DuplicateParticipant[], stored: readonly DuplicateParticipant[], key: (p: DuplicateParticipant) => string | null): number {
   const left = new Map<string, number>();
   for (const p of stored) { const k = key(p); if (k) left.set(k, (left.get(k) ?? 0) + 1); }
   let n = 0;

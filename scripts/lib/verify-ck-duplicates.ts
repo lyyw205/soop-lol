@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { db } from "../../packages/core/lib/db/client.ts";
-import { upsertMatchFromScan, upsertMatchFromScanInTx, type CkMatchInput } from "../../packages/core/lib/db/ck.ts";
-import { listDuplicateSuspects } from "../../packages/core/lib/db/ck-duplicates.ts";
+import { recordReviewChanges, upsertMatchFromScan, upsertMatchFromScanInTx, type CkMatchInput } from "../../packages/core/lib/db/ck.ts";
+import { listDuplicateSuspects, mergeDuplicateMatch } from "../../packages/core/lib/db/ck-duplicates.ts";
 import { createStreamer, linkAccount } from "../../packages/core/lib/db/streamers.ts";
 
 /** 실제 저장 질의로 오탐·임계값·시각 경계·계정 신원·예외 이력을 검증한다. 폐기용 DB에서만 호출한다. */
@@ -105,7 +105,7 @@ export async function verifyCkDuplicatesDb() {
   const skeleton = (g: CkMatchInput): CkMatchInput => ({ ...g, duration: null, participants: g.participants.map(p => ({
     ...p, observed_name: `뼈대${p.participant_id}`, champion_id: 0, kills: null, deaths: null, assists: null })) });
   const fill = async (g: CkMatchInput) => { for (const p of g.participants) await sql`
-    UPDATE match_participant SET champion_id=${p.champion_id}, kills=${p.kills}, deaths=${p.deaths}, assists=${p.assists}
+    UPDATE match_participant SET champion_id=${p.champion_id ?? 0}, kills=${p.kills ?? null}, deaths=${p.deaths ?? null}, assists=${p.assists ?? null}
      WHERE match_id=${g.match_id} AND participant_id=${p.participant_id}`; };
   const late = input("late-fill:a", new Date("2030-06-01T12:00:00Z"));
   const lateBase = skeleton(input("late-fill:z", late.played_at));
@@ -128,4 +128,118 @@ export async function verifyCkDuplicatesDb() {
   assert.equal((await suspectKeys()).has(pairKey(late.match_id, lateBase.match_id)), false, "숨긴 경기는 의심 목록에서 빠진다");
   console.log("  ok   중복 저장 회귀: 사람별 1:1·이름 무관 일치(7/8 경계·불완전 KDA)·시간/날짜 경계·계정 주인·숨김·예외 이력");
   console.log("  ok   중복 의심 조회: 뼈대 뒤 보강·자정 양쪽 ID 역순·distinct_from 제외·숨김 제외");
+}
+
+/**
+ * 확정된 같은 판 정리(mergeDuplicateMatch) — 미리보기는 아무것도 안 바꾸고, 중간 실패는 통째로 취소되고,
+ * 적용은 근거·시점·최종 근거·VOD 후보 연결을 옮긴 뒤 숨기고, 다시 돌리면 할 일이 없다.
+ */
+export async function verifyCkDuplicateMergeDb() {
+  const sql = db();
+  const game = (id: string, at: Date, name = "합침"): CkMatchInput => ({
+    match_id: `duplicate-merge:${id}`, played_at: at, played_at_precision: "datetime",
+    duration: null, winning_team: 100, participants: Array.from({ length: 10 }, (_, i) => ({
+      participant_id: i + 1, observed_name: `${name}${i}`, team_id: i < 5 ? 100 : 200,
+      champion_id: i + 1, kills: i, deaths: i + 1, assists: i + 2,
+    })),
+  });
+  // 저장 검사를 지나게 숨길 쪽을 뼈대로 만든 뒤 값을 채운다 — 실제 중복 11쌍이 생긴 방식 그대로.
+  async function savedPair(label: string, at: Date) {
+    const keep = game(`${label}:keep`, at), drop = game(`${label}:drop`, at, "오독");
+    await upsertMatchFromScan(keep);
+    await upsertMatchFromScan({ ...drop, participants: drop.participants.map(p => ({ ...p, champion_id: 0, kills: null, deaths: null, assists: null })) });
+    for (const p of drop.participants) await sql`
+      UPDATE match_participant SET champion_id=${p.champion_id ?? 0}, kills=${p.kills ?? null}, deaths=${p.deaths ?? null}, assists=${p.assists ?? null}
+       WHERE match_id=${drop.match_id} AND participant_id=${p.participant_id}`;
+    return { keep: keep.match_id, drop: drop.match_id };
+  }
+  const { keep, drop } = await savedPair("main", new Date("2030-07-01T12:00:00Z"));
+  const L1 = "00000000-0000-4000-8000-0000000d0001", L2 = "00000000-0000-4000-8000-0000000d0002";
+  await sql`INSERT INTO event_lead (id, source, source_key, title, observed_at, raw, state) VALUES
+    (${L1}, 'vod_title', 'merge-L1', '합침 L1', now(), '{}'::jsonb, 'confirmed'),
+    (${L2}, 'vod_title', 'merge-L2', '합침 L2', now(),
+     ${sql.json({ candidates: [{ id: "c1", conclusion: "match", match_id: drop }, { id: "c2", conclusion: "unresolved" }] })}, 'confirmed')`;
+  await sql`INSERT INTO match_pov (match_id, lead_id, role, source) VALUES
+    (${keep}, ${L1}, 'created', 'own'), (${drop}, ${L1}, 'created', 'own'), (${drop}, ${L2}, 'created', 'own')`;
+  await sql`INSERT INTO match_evidence_frame (lead_id, match_id, frame_path, at_sec, kind) VALUES
+    (${L1}, ${keep}, 'keep.jpg', 10, 'result'), (${L1}, ${drop}, 'drop-1.jpg', 11, 'result'), (${L2}, ${drop}, 'drop-2.jpg', 12, 'result')`;
+  await sql`INSERT INTO review_record (match_id, type, body, created_by) VALUES (${drop}, 'final_evidence', '숨길 쪽 결과창', 'admin')`;
+  const input = { keep, drop, evidence: "두 결과창 대조: 열 명 챔피언·KDA·승패 동일" };
+  const state = async () => ({
+    frames: (await sql`SELECT frame_path, match_id FROM match_evidence_frame WHERE lead_id IN (${L1}, ${L2}) ORDER BY frame_path`).map(r => `${r.frame_path}>${r.match_id}`),
+    povs: (await sql`SELECT match_id, lead_id, role FROM match_pov WHERE lead_id IN (${L1}, ${L2}) ORDER BY match_id, lead_id`).map(r => `${r.match_id}|${r.lead_id}|${r.role}`),
+    finals: (await sql`SELECT match_id FROM review_record WHERE type='final_evidence' AND match_id IN (${keep}, ${drop})`).map(r => r.match_id),
+    candidate: (await sql`SELECT raw->'candidates' AS c FROM event_lead WHERE id=${L2}`)[0].c,
+    visibility: (await sql`SELECT visibility FROM match WHERE match_id=${drop}`)[0].visibility,
+    history: (await sql`SELECT count(*)::int AS n FROM review_change WHERE match_id IN (${keep}, ${drop})`)[0].n,
+  });
+  const before = await state();
+
+  // 1. 미리보기는 계획만 돌려주고 아무것도 바꾸지 않는다.
+  const preview = await mergeDuplicateMatch(input, { apply: false });
+  assert.equal(preview.frames_moved, 2);
+  assert.deepEqual(preview.povs_moved, [L2]);
+  assert.deepEqual(preview.povs_kept_on_drop, [L1], "같은 방송의 시점 기록이 양쪽에 있으면 옮기지 않는다");
+  assert.equal(preview.final_evidence_moved, true);
+  assert.equal(preview.candidates_relinked, 1);
+  assert.equal(preview.hidden, true);
+  assert.deepEqual(preview.value_differences, []);
+  assert.deepEqual(await state(), before, "미리보기는 DB 를 바꾸지 않는다");
+
+  // 2. 숨기는 단계에서 실패하면 앞서 옮긴 것까지 통째로 취소된다.
+  await sql.unsafe(`CREATE FUNCTION merge_fail_hide() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.match_id = '${drop}' AND NEW.visibility = 'hidden' THEN RAISE EXCEPTION 'merge-test-boom'; END IF; RETURN NEW; END $$`);
+  await sql.unsafe(`CREATE TRIGGER merge_fail_hide BEFORE UPDATE ON match FOR EACH ROW EXECUTE FUNCTION merge_fail_hide()`);
+  await assert.rejects(mergeDuplicateMatch(input, { apply: true }), /merge-test-boom/);
+  await sql.unsafe(`DROP TRIGGER merge_fail_hide ON match; DROP FUNCTION merge_fail_hide()`);
+  assert.deepEqual(await state(), before, "중간에 실패하면 아무것도 안 바뀐다");
+
+  // 3. 적용.
+  const applied = await mergeDuplicateMatch(input, { apply: true });
+  assert.equal(applied.already, false);
+  const after = await state();
+  assert.deepEqual(after.frames, [`drop-1.jpg>${keep}`, `drop-2.jpg>${keep}`, `keep.jpg>${keep}`]);
+  assert.deepEqual(after.povs, [`${drop}|${L1}|created`, `${keep}|${L1}|created`, `${keep}|${L2}|added`].sort());
+  assert.deepEqual(after.finals, [keep]);
+  assert.equal(after.candidate[0].match_id, keep, "VOD 후보가 남길 경기를 가리킨다");
+  assert.equal(after.candidate[1].match_id, undefined, "다른 후보는 그대로");
+  assert.equal(after.visibility, "hidden");
+  const merged = await sql`SELECT match_id, field, after FROM review_change WHERE field IN ('merged_into', 'merged_from') AND match_id IN (${keep}, ${drop}) ORDER BY field`;
+  assert.deepEqual(merged.map(r => `${r.match_id}:${r.field}`), [`${keep}:merged_from`, `${drop}:merged_into`]);
+  assert.equal(merged[1].after.evidence, input.evidence);
+  assert.equal((await listDuplicateSuspects()).some(d => [d.a, d.b].includes(drop)), false, "정리된 쌍은 의심 목록에서 빠진다");
+
+  // 4. 다시 돌리면 할 일이 없고 이력도 늘지 않는다.
+  const historyAfter = after.history;
+  const again = await mergeDuplicateMatch(input, { apply: true });
+  assert.equal(again.already, true);
+  assert.equal((await state()).history, historyAfter);
+
+  // 5. 거부 — 근거 없음·같은 경기·숨긴 경기를 남기려 함·값이 다른 판·사람이 다른 판이라 확인한 쌍.
+  await assert.rejects(mergeDuplicateMatch({ ...input, evidence: " " }, { apply: true }), /근거/);
+  await assert.rejects(mergeDuplicateMatch({ keep, drop: keep, evidence: "x" }, { apply: true }), /같다/);
+  await assert.rejects(mergeDuplicateMatch({ keep: drop, drop: keep, evidence: "x" }, { apply: true }), /공개 경기여야/);
+  const other = game("other:drop", new Date("2030-07-01T12:05:00Z"), "남");
+  other.participants.forEach((p, i) => { p.champion_id = i + 101; p.kills = i + 20; });
+  await upsertMatchFromScan(other);
+  await assert.rejects(mergeDuplicateMatch({ keep, drop: other.match_id, evidence: "x" }, { apply: true }), /같은 판 후보가 아니다/);
+  assert.equal((await sql`SELECT visibility FROM match WHERE match_id=${other.match_id}`)[0].visibility, "public");
+  const confirmed = await savedPair("distinct", new Date("2030-07-02T12:00:00Z"));
+  await sql.begin(tx => recordReviewChanges(tx, [{ match_id: confirmed.drop, entity: "match", entity_key: confirmed.drop, field: "distinct_from", before: null, after: [confirmed.keep] }]));
+  await assert.rejects(mergeDuplicateMatch({ ...confirmed, evidence: "x" }, { apply: true }), /distinct_from/);
+  // 6. 이미 숨긴 경기(손으로 숨기고 근거만 남은 경우)도 근거를 옮긴다. 챔피언을 못 읽은 기록은 승패·KDA 일치로 받는다.
+  const late = await savedPair("hidden-no-champion", new Date("2030-07-03T12:00:00Z"));
+  await sql`UPDATE match SET visibility='hidden' WHERE match_id=${late.drop}`;
+  const orphanOf = async (id: string) => (await listDuplicateSuspects()).find(d => d.hidden === id);
+  assert.equal(await orphanOf(late.drop), undefined, "근거가 없는 숨긴 경기는 목록에 없다");
+  await sql`INSERT INTO match_pov (match_id, lead_id, role, source) VALUES (${late.drop}, ${L2}, 'created', 'own')`;
+  assert.ok(await orphanOf(late.drop), "숨기기만 하고 근거가 남은 경기는 공개 쪽과 짝지어 뜬다");
+  await sql`UPDATE match_participant SET champion_id=0 WHERE match_id=${late.drop}`;
+  const moved = await mergeDuplicateMatch({ ...late, evidence: "x" }, { apply: true });
+  assert.equal(moved.hidden, false, "이미 숨긴 경기는 다시 숨기지 않는다");
+  assert.deepEqual(moved.povs_moved, [L2]);
+  assert.equal(moved.already, false);
+  await sql`UPDATE match_participant SET champion_id=1 WHERE match_id=${late.drop}`;
+  assert.equal(await orphanOf(late.drop), undefined, "합친 뒤엔 근거가 옮겨져 목록에서 빠진다");
+  console.log("  ok   같은 판 정리: 미리보기 무변경·중간 실패 전부 취소·근거/시점/최종 근거/VOD 후보 이전·같은 방송 시점 보존·재실행 무변경·거부 5종·숨긴 경기 근거 이전·숨기기만 한 경기 목록 표시");
 }

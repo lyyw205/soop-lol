@@ -222,8 +222,12 @@ try {
     for (const f of failed) say(`  ${f.source_key}  ${f.n}곳`);
     // 저장 뒤 값이 채워져서야 드러나는 같은 판 — 두 경기 화면을 대조해 같은 판이면 정리하고, 다르면 distinct_from 을 남긴다.
     const duplicates = await listDuplicateSuspects();
-    say(`같은 판으로 보이는 공개 경기 ${duplicates.length}쌍 — 두 경기 결과창을 대조한다`);
-    for (const d of duplicates) say(`  ${d.a}  ↔  ${d.b}  (이름 무관 ${d.blind}·사람별 KDA ${d.kda}·챔피언 ${d.champ}명 일치)`);
+    const both = duplicates.filter((d) => !d.hidden), orphan = duplicates.filter((d) => d.hidden);
+    const counts = (d: (typeof duplicates)[number]) => `이름 무관 ${d.blind}·사람별 KDA ${d.kda}·챔피언 ${d.champ}명 일치`;
+    say(`같은 판으로 보이는 공개 경기 ${both.length}쌍 — 두 경기 결과창을 대조해 같으면 ck:dedupe, 다르면 distinct_from`);
+    for (const d of both) say(`  ${d.a}  ↔  ${d.b}  (${counts(d)})`);
+    say(`숨기기만 하고 근거가 남은 경기 ${orphan.length} — 같은 판인 공개 경기로 ck:dedupe 해 근거를 옮긴다`);
+    for (const d of orphan) say(`  ${d.hidden}  →  ${d.hidden === d.a ? d.b : d.a}  (${counts(d)})`);
     json = { dangling, unresolved, failed, duplicates };
   }
 
