@@ -86,3 +86,20 @@ test("★ timelineSpan — 프레임이 없어도 경기 범위로 축이 선다
   assert.equal(timelineSpan([{ at_sec: 120 }]), 120);
   assert.equal(timelineSpan([], []), 1, "아무것도 없으면 0 으로 나누지 않게 1");
 });
+
+// 선택 상태는 하나다 — 경기를 고른 채 미연결 사진을 넘겨 봐도 경기(=편집 대상)가 유지되고,
+// 넘기는 범위는 그 사진 한 장이다. (예전엔 편집 대상을 따로 들고 있어 둘이 어긋나며 예외가 늘었다.)
+test("경기를 고른 채 미연결 사진을 봐도 선택된 경기는 그대로고 사진만 바뀐다", () => {
+  const frames = [
+    { id: "f1", match_id: "M1", at_sec: 10, kind: "result" as const },
+    { id: "u1", match_id: null, at_sec: 500, kind: "other" as const },
+  ];
+  const matches = [{ match_id: "M1" }, { match_id: "M2" }];
+  const sel = resolveSelection(frames, matches, { matchId: "M2", frameId: "u1" });
+  assert.equal(sel.match?.match_id, "M2");
+  assert.equal(sel.frame?.id, "u1");
+  assert.deepEqual(framesForSelection(frames, sel).map(f => f.id), ["u1"]);
+  // 같은 경기 사진이면 그 경기의 사진 전체를 넘긴다.
+  const same = resolveSelection(frames, matches, { matchId: "M1", frameId: "f1" });
+  assert.deepEqual(framesForSelection(frames, same).map(f => f.id), ["f1"]);
+});

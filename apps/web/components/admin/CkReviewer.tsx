@@ -214,12 +214,13 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   //   규칙 자체는 `ck-selection.ts` 의 순수 함수에 있다(회귀 검사가 거기를 잰다).
   const [rosterDirtyId, setRosterDirtyId] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked>({ matchId: initialMatchId });
-  // 큐에서 **경기**를 고르면 편집 대상도 **항상** 그 경기로 바뀐다(2026-10-09 — "다른 판을 눌러도 로스터가 안 바뀐다").
-  // 사진·메모장만 넘겨 볼 때는 편집 대상이 그대로다. 저장 안 한 초안이 있어도 막지 않는다 —
-  // 초안은 경기별로 sessionStorage 에 남아(use-review-draft) 다시 돌아오면 그대로 복원된다.
-  // ⚠ 예전엔 초안이 있으면 대상을 지켰는데, 초안이 하나라도 남아 있으면 큐가 조용히 안 움직여 같은 증상이 되살아났다.
-  const [editingMatchId, setEditingMatchId] = useState<string | null>(() =>
-    resolveSelection(frames, matches, { matchId: initialMatchId }).match?.match_id ?? null);
+  // ★ **선택 상태는 이것 하나다.** 선택한 경기가 곧 로스터·경기 정보의 편집 대상이다.
+  //   예전엔 참고 화면(picked)과 편집 대상(editingMatchId)을 따로 들고 있어서 둘이 어긋나는 경우가
+  //   생길 때마다 예외(초안이 있으면 대상 유지·"참고 화면 ≠ 입력 대상" 안내…)가 붙었고,
+  //   그 예외가 "다른 판을 눌러도 로스터가 안 바뀐다" 를 계속 되살렸다. 어긋날 수 없게 하나로 합친다.
+  //   · 경기와 보는 사진은 같은 상태 안의 두 칸이다. 미연결 사진·메모장을 넘기면 사진만 바뀌고,
+  //     "편집할 세트" 드롭다운은 경기만 바꾸고 사진은 그대로 둔다. 큐에서 경기를 누르면 둘 다 그 경기로 간다.
+  //   · 저장 안 한 로스터 초안은 경기별로 sessionStorage 에 남는다(use-review-draft) — 다른 판에 갔다 와도 복원된다.
   const rosterField = rosterFocus(initialFocus)?.focus;
   const [zoom, setZoom] = useState(false);
   const [matchesOnly, setMatchesOnly] = useState(false);
@@ -235,7 +236,7 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   const previewAt = memo.active ? memo.at : selected?.at_sec ?? null;
   const previewImage = memo.active ? memo.image : selected ? frameUrl(selected.frame_path) : null;
 
-  const editingMatch = matches.find(match => match.match_id === editingMatchId) ?? matches[0] ?? null;
+  const editingMatch = selectedMatch;
   const syncedMatchId = editingMatch?.match_id ?? null;
   useEffect(() => {
     if (!syncUrl) return;
@@ -248,7 +249,6 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   const pickMatch = (id: string) => {
     memo.clear();
     setPicked({ matchId: id });
-    setEditingMatchId(id);
     requestAnimationFrame(() => {
       document.getElementById(`ck-review-queue-match:${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
@@ -256,7 +256,7 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   const nextAfterCompletion = (id: string) => {
     const index = matches.findIndex(m => m.match_id === id);
     const next = [...matches.slice(index + 1), ...matches.slice(0, index)].find(m => !m.review_completed_at && (!reviewQueueIds || reviewQueueIds.includes(m.match_id)));
-    if (next) { setEditingMatchId(next.match_id); pickMatch(next.match_id); }
+    if (next) pickMatch(next.match_id);
     else router.replace(adminReturn(params.get('from'), '/admin/ck'));
   };
   /** 썸네일·좌우 키는 선택한 큐 항목 안에서만 움직인다. 큐 자체는 모든 항목을 유지한다. */
@@ -266,7 +266,7 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
     [frames, selected, selectedMatch, projection, matchesOnly],
   );
   const pickFocusFrame = (id: string) => { memo.clear(); setPicked({ matchId: selectedMatch?.match_id, frameId: id }); };
-  const pickQueueFrame = (id: string) => { memo.clear(); setPicked({ frameId: id }); };
+  const pickQueueFrame = (id: string) => { memo.clear(); setPicked({ matchId: selectedMatch?.match_id, frameId: id }); };
   const changeQueueFilter = (value: boolean) => {
     memo.clear();
     setMatchesOnly(value);
@@ -396,20 +396,14 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
             <div className="ck-review-panel p-3 text-xs">
               <label className="grid gap-2">편집할 세트
                 <select aria-label="편집할 세트" className={inputClass} value={editingMatch?.match_id ?? ""}
-                  disabled={!matches.length} onChange={event => setEditingMatchId(event.target.value)}>
+                  disabled={!matches.length} onChange={event => setPicked({ matchId: event.target.value, frameId: selectedId })}>
                   {!matches.length && <option value="">저장된 경기 없음</option>}
                   {matches.map(match => <option key={match.match_id} value={match.match_id}>
                     {matchSetLabel(match)} · {match.match_id}
                   </option>)}
                 </select>
               </label>
-              {editingMatch && <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                <strong className="text-accent-400">편집 중: {matchSetLabel(editingMatch)}</strong>
-                <button type="button" onClick={() => pickMatch(editingMatch.match_id)}>이 세트 프레임 보기</button>
-              </div>}
-              <p className="mt-2 text-ink-400">참고 화면을 바꿔도 편집할 세트는 유지됩니다.</p>
-              {!memo.active && selectedMatch && editingMatch && selectedMatch.match_id !== editingMatch.match_id &&
-                <p className="mt-1 text-amber-300">현재 참고 화면: {matchSetLabel(selectedMatch)} · 입력 대상: {matchSetLabel(editingMatch)}</p>}
+              {editingMatch && <p className="mt-2"><strong className="text-accent-400">편집 중: {matchSetLabel(editingMatch)}</strong></p>}
             </div>
             <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보" onKeyDown={adminTabKeys}>
               <button type="button" role="tab" aria-selected={inspectorTab === "game"}
@@ -438,7 +432,6 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
               {!memo.active && selected && !selected.match_id && <details className="mt-3" open={!editingMatch}>
                 <summary className="cursor-pointer p-3 text-xs text-ink-400">이 프레임으로 새 경기 만들기</summary>
                 <CreateMatchFromFrame key={selected.id} frame={selected} matches={matches} events={events} onCreated={(matchId) => {
-                  setEditingMatchId(matchId);
                   setPicked({ matchId, frameId: selected.id });
                   setInspectorTab("roster");
                 }} />

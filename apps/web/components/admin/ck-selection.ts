@@ -33,9 +33,17 @@ export function framesForSelection<F extends SelectableFrame>(
   frames: readonly F[], selection: Resolved<F, SelectableMatch>,
   groups?: readonly { match: SelectableMatch; frames: F[] }[],
 ): F[] {
-  if (selection.match && groups) return groups.find(group => group.match.match_id === selection.match!.match_id)?.frames ?? [];
-  if (selection.match) return frames.filter(frame => frame.match_id === selection.match!.match_id)
-    .sort((a, b) => (a.at_sec ?? Number.MAX_SAFE_INTEGER) - (b.at_sec ?? Number.MAX_SAFE_INTEGER));
+  // 경기가 선택돼 있어도 보고 있는 사진이 **그 경기 묶음 밖**(구간 밖 미연결 프레임)이면 그 한 장만 넘긴다 —
+  // 선택(경기)과 보는 사진을 분리했기 때문에 둘이 같은 묶음이 아닐 수 있다.
+  if (selection.match) {
+    const matchId = selection.match.match_id;
+    const scope = groups
+      ? groups.find(group => group.match.match_id === matchId)?.frames ?? []
+      : frames.filter(frame => frame.match_id === matchId)
+        .sort((a, b) => (a.at_sec ?? Number.MAX_SAFE_INTEGER) - (b.at_sec ?? Number.MAX_SAFE_INTEGER));
+    if (!selection.frame || scope.some(frame => frame.id === selection.frame!.id)) return scope;
+    return [selection.frame];
+  }
   return selection.frame ? [selection.frame] : [];
 }
 
