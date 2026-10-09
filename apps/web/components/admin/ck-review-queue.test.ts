@@ -102,3 +102,22 @@ test("결과창 한 장만 연결된 경기도 게임 길이만큼 앞의 밴픽
   assert.equal(projection[0].at, 13388 - 1800 - 600);
   assert.deepEqual(reviewQueueEntries(projection, frames).filter(e => e.kind === "frame").map(e => e.id), ["lobby-before"]);
 });
+
+test("현재 항목은 메모장 → 미연결 프레임 → 경기 순으로 가장 구체적인 것이다(↓ 가 한 칸에 멈추던 회귀)", async () => {
+  const { activeQueueIndex } = await import("./ck-review-queue.ts");
+  const q = [{ kind: "match" as const, id: "M1" }, { kind: "frame" as const, id: "u1" }, { kind: "match" as const, id: "M2" }, { kind: "memo" as const, id: "m1" }];
+  // 경기 M1 을 유지한 채 미연결 사진 u1 로 내려온 상태 — 현재는 M1 이 아니라 u1 이다.
+  assert.equal(activeQueueIndex(q, { memoKey: null, frameId: "u1", matchId: "M1" }), 1);
+  assert.equal(activeQueueIndex(q, { memoKey: null, frameId: "f-of-m1", matchId: "M1" }), 0, "경기에 연결된 사진은 큐 항목이 아니므로 경기가 현재다");
+  assert.equal(activeQueueIndex(q, { memoKey: "m1", frameId: "u1", matchId: "M1" }), 3);
+  assert.equal(activeQueueIndex(q, { memoKey: null, frameId: null, matchId: null }), -1);
+  // 키 이동: 매 단계 현재가 바뀌면 끝까지 간다.
+  let now = { memoKey: null as string | null, frameId: null as string | null, matchId: "M1" as string | null };
+  const seen = [0];
+  for (let i = 0; i < 3; i++) {
+    const next = Math.min(activeQueueIndex(q, now) + 1, q.length - 1), e = q[next];
+    now = { memoKey: e.kind === "memo" ? e.id : null, frameId: e.kind === "frame" ? e.id : null, matchId: e.kind === "match" ? e.id : now.matchId };
+    seen.push(activeQueueIndex(q, now));
+  }
+  assert.deepEqual(seen, [0, 1, 2, 3]);
+});

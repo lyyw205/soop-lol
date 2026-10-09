@@ -33,7 +33,7 @@ import { CHAMPIONS, championById } from "@soop-lol/core/lib/riot/champions";
 import { setLabel } from "@soop-lol/core/lib/metrics/set-label";
 
 import { framesForSelection, resolveSelection, timelineSpan, type Picked } from "./ck-selection";
-import { projectReviewQueue, chronologicalReviewQueue, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
+import { projectReviewQueue, chronologicalReviewQueue, activeQueueIndex, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
 
 import { ActionMessage, SubmitButton } from "./Field";
 import { useReviewDraft } from "./use-review-draft";
@@ -564,6 +564,7 @@ function ReviewQueue({ memo, projection, frames, selectedFrameId, onPickFrame, s
   onPickMatch: (id: string) => void;
 }) {
   const visible = chronologicalReviewQueue(projection, frames, memo.data?.groups ?? [], matchesOnly);
+  const activeIndex = activeQueueIndex(visible, { memoKey: memo.active ? memo.picked?.key ?? null : null, frameId: selectedFrameId, matchId: selectedMatchId });
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -571,9 +572,7 @@ function ReviewQueue({ memo, projection, frames, selectedFrameId, onPickFrame, s
       if (target?.matches("input, textarea, select, [contenteditable=true]") || target?.closest("dialog")) return;
       if (!visible.length) return;
       event.preventDefault();
-      const current = visible.findIndex(entry => entry.kind === "memo"
-        ? memo.active && entry.id === memo.picked?.key
-        : entry.kind === "frame" ? entry.id === selectedFrameId : entry.id === selectedMatchId);
+      const current = activeIndex;
       const next = event.key === "ArrowDown"
         ? Math.min(current < 0 ? 0 : current + 1, visible.length - 1)
         : Math.max(current < 0 ? visible.length - 1 : current - 1, 0);
@@ -584,7 +583,7 @@ function ReviewQueue({ memo, projection, frames, selectedFrameId, onPickFrame, s
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onPickMatch, onPickFrame, visible, selectedMatchId, selectedFrameId, memo.active, memo.picked, memo.open]);
+  }, [onPickMatch, onPickFrame, visible, activeIndex, memo.open]);
   return (
     <section className="ck-review-timeline" aria-label="검수 큐">
       <header className="ck-review-queue-head">
@@ -598,7 +597,7 @@ function ReviewQueue({ memo, projection, frames, selectedFrameId, onPickFrame, s
           if (entry.kind === "memo") return (
             <li key={`memo:${entry.id}`} id={`ck-review-queue-memo:${entry.id}`}>
               <button type="button" className="ck-review-queue-item" data-kind="memo"
-                aria-current={memo.active && memo.picked?.key === entry.id ? "true" : undefined}
+                aria-current={visible[activeIndex] === entry ? "true" : undefined}
                 onClick={() => memo.open(entry.group)} title="자동 수집한 메모장 참고 후보">
                 <time>{hms(entry.group.from)}{entry.group.to !== entry.group.from ? `–${hms(entry.group.to)}` : ""}</time>
                 <span className="ck-review-queue-kind">메모장 후보 · {entry.group.frames.length}장</span>
@@ -608,7 +607,7 @@ function ReviewQueue({ memo, projection, frames, selectedFrameId, onPickFrame, s
           if (entry.kind === "frame") return (
             <li key={`frame:${entry.id}`} id={`ck-review-queue-frame:${entry.id}`}>
               <button type="button" className="ck-review-queue-item" data-kind="frame"
-                aria-current={selectedFrameId === entry.id ? "true" : undefined}
+                aria-current={visible[activeIndex] === entry ? "true" : undefined}
                 onClick={() => onPickFrame(entry.id)} title={entry.frame.frame_path}>
                 <time>{entry.at === UNPLACED ? "시각 미상" : hms(entry.at)}</time>
                 <span className="ck-review-queue-kind">미연결 프레임 · {KIND_LABEL[entry.frame.kind]}</span>
@@ -619,7 +618,7 @@ function ReviewQueue({ memo, projection, frames, selectedFrameId, onPickFrame, s
           return (
           <li key={match.match_id} id={`ck-review-queue-match:${match.match_id}`}>
             <button type="button" className="ck-review-queue-item" data-kind="match"
-              aria-current={selectedMatchId === match.match_id ? "true" : undefined}
+              aria-current={visible[activeIndex]?.kind === "match" && visible[activeIndex].id === match.match_id ? "true" : undefined}
               onClick={() => onPickMatch(match.match_id)} title={`${matchSetLabel(match)} · ${match.match_id}`}>
               <time>{at === UNPLACED
                 ? "시각 미상"

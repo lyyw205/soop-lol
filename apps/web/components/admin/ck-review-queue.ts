@@ -71,6 +71,27 @@ export function chronologicalReviewQueue<M extends QueueMatchLike, F extends Que
 }
 
 /**
+ * 큐에서 **지금 가리키는 항목 하나**. 키보드 이동과 강조 표시가 같은 규칙을 쓰도록 한 곳에 둔다.
+ *
+ * ★ 선택은 경기와 사진 두 칸이다(경기를 유지한 채 미연결 사진을 넘길 수 있다). 그래서 둘 다 큐 항목에
+ *   대응하면 **가장 구체적인 것**이 현재다: 메모장 후보 → 미연결 프레임 → 경기.
+ *   예전엔 키 처리가 "먼저 맞는 항목" 을 현재로 삼아, 사진 항목으로 내려가도 앞쪽의 경기 항목을 현재로
+ *   잡고 ↓ 가 같은 사진으로 되돌아갔다(한 칸만 움직임). 강조 표시도 둘이 동시에 켜졌다.
+ * @returns 현재 항목의 인덱스, 없으면 -1
+ */
+export function activeQueueIndex(
+  entries: readonly { kind: "memo" | "frame" | "match"; id: string }[],
+  now: { memoKey: string | null; frameId: string | null; matchId: string | null },
+): number {
+  const find = (kind: string, id: string | null) => (id == null ? -1 : entries.findIndex(e => e.kind === kind && e.id === id));
+  const memo = find("memo", now.memoKey);
+  if (memo >= 0) return memo;
+  const frame = find("frame", now.frameId);
+  if (frame >= 0) return frame;
+  return find("match", now.matchId);
+}
+
+/**
  * 경기마다 막대 범위와 비교 프레임을 정한다.
  *
  * 범위는 한 가지 출처만 쓴다: 연결 프레임 → 확인된 VOD 시작 + 경기 시각 → 미상.
