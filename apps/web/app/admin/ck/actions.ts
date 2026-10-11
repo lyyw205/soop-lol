@@ -22,6 +22,7 @@ import type { ActionState } from "@/lib/action-state";
 import { requireAdmin } from "@/lib/admin-auth";
 import { metaFormValues, META_FORM_FIELDS, PARTICIPANT_FORM_FIELDS, type CkActionState, type CkFormValues } from "@/lib/ck-review-form";
 import { sameReviewValue } from "@soop-lol/core/lib/db/review-patch";
+import { assignMatchSeries } from "@soop-lol/core/lib/db/match-series-review";
 
 function baseValues(form: FormData, fields: readonly string[]): CkFormValues {
   const value: unknown = JSON.parse(text(form, "base"));
@@ -218,6 +219,22 @@ export async function setReviewCompletedAction(_prev: ActionState, form: FormDat
     await setMatchReviewCompleted(text(form, "match_id"), completed === "1", Number(rawVersion));
     revalidateReview();
     return { ok: true, message: completed === "1" ? "검수를 완료했습니다." : "완료를 취소했습니다." };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+}
+
+// ── 시리즈 묶기 (경기 화면의 시리즈 칸) ─────────────────────────────
+
+/** 시리즈 미지정 경기를 기존 시리즈에 넣거나, 다른 미지정 경기와 새 시리즈로 묶는다. 규칙은 assignMatchSeries 한 곳. */
+export async function assignSeriesAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  try {
+    const matchId = text(form, "match_id"), join = text(form, "join_series"), pair = text(form, "pair_with");
+    if (!matchId || (!join && !pair)) return fail("묶을 대상이 없습니다.");
+    const result = await assignMatchSeries(join ? { match_id: matchId, join_series: join } : { match_id: matchId, pair_with: pair });
+    revalidateReview();
+    return { ok: true, message: `시리즈 ${result.series_id} 의 ${result.series_game_no}번째 세트로 묶었습니다.` };
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }

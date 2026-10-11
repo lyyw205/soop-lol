@@ -10,6 +10,7 @@
  *   6. 예전 대회 검수 주소는 그 대회 목록으로 간다.
  *   7. VOD 화면의 "편집할 세트" 를 바꾸면 보는 사진도 그 세트로 간다(편집 대상과 사진이 어긋나지 않는다).
  *   8. 묶지 않은 경기는 "시리즈 미지정" 이고 시리즈로 세지 않는다. 근거를 적어 "단판으로 확인" 하면 단판이 된다.
+ *  10. 시리즈 칸: 시리즈 미지정이면 같은 대회의 앞뒤 경기가 후보로 나오고, 묶으면 세트·스코어가 보인다.
  *   9. 편집은 경기 화면에서 — 경기 사이를 오가도 경기별 로스터 초안이 남고, 저장·승자 변경이 DB 와 이력에 남는다
  *      (Next 를 내린 뒤 같은 임시 DB 에 다시 붙어 확인한다). VOD 화면은 찾기 전용이라 편집기가 없다.
  */
@@ -193,6 +194,29 @@ try {
   assert.equal(await eventMeta(), '시리즈 1 · 시리즈 미지정 2경기 · 세트 3');
   assert.equal(await page.locator('.overview-series-round', { hasText: '단판' }).count(), 1);
 
+  // 10. 시리즈 칸 — M1 은 시리즈 미지정, 같은 대회의 M2·M3 가 후보. M2 와 새 시리즈로 묶으면 세트·스코어가 보인다.
+  await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M1')}?from=${encodeURIComponent(from)}`);
+  const seriesPanel = page.getByRole('region', { name: '시리즈', exact: true });
+  await seriesPanel.getByText('시리즈 미지정 — 단판인지 다전제의 한 판인지 아직 모릅니다.').waitFor();
+  assert.equal(await seriesPanel.locator('.ck-series-sets > li').count(), 3, '같은 대회의 앞뒤 경기 + 시각 순서 자리의 지금 경기');
+  assert.match(await seriesPanel.locator('.ck-series-sets > li').nth(0).innerText(), /지금 경기/, 'M1 이 가장 먼저 시작했다');
+  const m2Row = seriesPanel.locator('.ck-series-sets > li', { has: page.locator('a[title="mr:M2"]') });
+  assert.match(await m2Row.innerText(), /같은 선수 2\/2/);
+  await m2Row.getByRole('button', { name: '이 경기와 새 시리즈로 묶기' }).click();
+  await seriesPanel.getByText('스코어는 첫 세트 1팀 기준', { exact: false }).waitFor();
+  const setRows = seriesPanel.locator('.ck-series-sets > li');
+  assert.equal(await setRows.count(), 2);
+  // M1 은 9번에서 2팀 승으로 바꿨다(0:1), M2 는 1팀 승 — 같은 선수가 1팀이라 1:1.
+  assert.match(await setRows.nth(0).innerText(), /2팀 승[\s\S]*0:1/);
+  assert.match(await setRows.nth(1).innerText(), /1팀 승[\s\S]*1:1/);
+  assert.equal(await setRows.nth(0).getAttribute('aria-current'), 'true', '지금 경기 강조');
+  const compare = await seriesPanel.getByRole('link', { name: '시리즈 비교로 보기 ↗' }).getAttribute('href');
+  assert.equal(new URL(compare!, base).searchParams.get('q'), 'series:mr:M1');
+  await setRows.nth(1).getByRole('link').click();
+  await page.waitForURL((url) => decodeURIComponent(url.pathname).endsWith('mr:M2'));
+  assert.equal(new URL(page.url()).searchParams.get('from'), from, '세트로 넘어가도 작업 목록을 들고 간다');
+  await page.getByRole('region', { name: '시리즈', exact: true }).locator('.ck-series-sets > li[aria-current=true] a[title="mr:M2"]').waitFor();
+
   // 5. 완료 후 이동 = 같은 목록에서 다음 미완료.
   await page.goto(`${base}/admin/ck/match/${encodeURIComponent(expected[0])}?from=${encodeURIComponent(from)}`);
   await page.getByRole('button', { name: '검수 완료로 표시' }).click();
@@ -226,7 +250,9 @@ try {
   assert.equal((await after`SELECT match_id FROM match_evidence_frame WHERE frame_path = 'out/ck/mr-a/m2-game.jpg'`)[0].match_id, 'mr:M2', '참고 사진 연결 저장');
   const [single] = await after`SELECT m.series_id, m.series_game_no, s.best_of, s.event_id IS NOT NULL AS has_event FROM match m JOIN match_series s ON s.id = m.series_id WHERE m.match_id = 'mr:M3'`;
   assert.deepEqual({ ...single }, { series_id: 'mr:M3', series_game_no: 1, best_of: 1, has_event: true }, '단판 확인 저장 — 시리즈가 대회를 넘겨받는다');
-  console.log('match review browser scenarios passed: same work list/order, VOD filter keeps target, linked vs reference, frames without POV, prev/next/keyboard/completion, event permalink, VOD screen find-only, unassigned vs confirmed single, edits persisted (roster draft per match, save, winner/outcome, history)');
+  assert.deepEqual((await after`SELECT match_id, series_id, series_game_no FROM match WHERE match_id IN ('mr:M1', 'mr:M2') ORDER BY match_id`).map((r) => ({ ...r })),
+    [{ match_id: 'mr:M1', series_id: 'series:mr:M1', series_game_no: 1 }, { match_id: 'mr:M2', series_id: 'series:mr:M1', series_game_no: 2 }], '시리즈 칸에서 묶은 결과');
+  console.log('match review browser scenarios passed: same work list/order, VOD filter keeps target, linked vs reference, frames without POV, prev/next/keyboard/completion, event permalink, VOD screen find-only, unassigned vs confirmed single, series panel (candidates, pair, score, set navigation), edits persisted (roster draft per match, save, winner/outcome, history)');
 } catch (error) {
   if (app) console.error((await readFile(join(scratch, 'next.log'), 'utf8')).slice(-6000));
   throw error;

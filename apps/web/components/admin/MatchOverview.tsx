@@ -9,6 +9,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 import type { OverviewParticipant, OverviewSeriesRow, OverviewSetDetail } from "@soop-lol/core/lib/db/match-overview";
 import { isStandaloneSet, setLabel } from "@soop-lol/core/lib/metrics/set-label";
+import { checkSeries, rosterKey } from "@soop-lol/core/lib/metrics/series-check";
 import { championById, championIconPath } from "@soop-lol/core/lib/riot/champions";
 import { POSITIONS, POSITION_LABEL, type Position } from "@soop-lol/core/lib/riot/types";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
@@ -217,46 +218,19 @@ function SeriesItem({ s, isOpen, onToggle, sets, error, loading, onToggleReview,
   </li>;
 }
 
-/** 선수를 세트 사이에서 같은 사람으로 보는 기준. 스트리머 연결이 우선, 없으면 화면 이름. */
-const personKey = (p: OverviewParticipant) => p.streamer_slug ? `s:${p.streamer_slug}` : p.observed_name ? `o:${p.observed_name.trim()}` : null;
-
 /**
  * 직전 세트와 비교해 **새로 들어온 선수**(교체)를 찾는다. 세트 id → 참가자 번호 집합.
- *
- * ★ 진영(블루/레드)은 세트마다 바뀌므로 진영으로 팀을 잇지 않는다.
- *   팀 이름이 있으면 이름으로, 없으면(CK) 직전 세트 로스터와 더 많이 겹치는 쪽을 같은 팀으로 본다.
- *   이름 없는 팀끼리 겹침이 같으면(로스터를 통째로 바꿈) 판단하지 않는다 — 없는 교체를 지어내지 않는다.
+ * 판정은 경기 검수 화면의 시리즈 칸과 같은 checkSeries 하나다(팀 잇기·교체 규칙은 거기 주석).
  */
 function substitutions(sets: OverviewSetDetail[]): Map<string, Set<number>> {
-  const out = new Map<string, Set<number>>();
-  let prev: { name: string | null; roster: Set<string> }[] | null = null;
-  for (const set of sets) {
-    const teams = ([100, 200] as const).map(side => {
-      const players = set.participants.filter(p => p.team_id === side);
-      return { name: side === 100 ? set.blue_team : set.red_team, players,
-        roster: new Set(players.map(personKey).filter((k): k is string => k != null)) };
-    });
-    const marked = new Set<number>();
-    if (prev) {
-      const overlap = (a: Set<string>, b: Set<string>) => [...a].filter(k => b.has(k)).length;
-      for (const team of teams) {
-        const before = team.name && prev.some(t => t.name === team.name)
-          ? prev.find(t => t.name === team.name)!
-          : (() => {
-            const [x, y] = prev!.map(t => overlap(team.roster, t.roster));
-            return x === y ? null : prev![x > y ? 0 : 1];
-          })();
-        if (!before) continue;
-        for (const p of team.players) {
-          const k = personKey(p);
-          if (k && !before.roster.has(k)) marked.add(p.participant_id);
-        }
-      }
-    }
-    out.set(set.match_id, marked);
-    prev = teams;
-  }
-  return out;
+  const check = checkSeries(sets.map((set) => ({
+    match_id: set.match_id, series_game_no: set.series_game_no,
+    game_creation_epoch_ms: new Date(set.game_creation).getTime(), game_creation_precision: set.game_creation_precision,
+    winning_team: set.winning_team, blue_team: set.blue_team, red_team: set.red_team,
+    participants: set.participants.map((p) => ({ participant_id: p.participant_id, team_id: p.team_id, key: rosterKey(p),
+      name: p.streamer_name ?? p.observed_name ?? p.riot_id ?? "?" })),
+  })), null);
+  return new Map(check.sets.map((s) => [s.match_id, new Set(s.changes.flatMap((c) => c.joined.map((j) => j.participant_id)))]));
 }
 
 function SetCard({ series, set, subs, onToggleReview, returnTo, selected, choose }: {

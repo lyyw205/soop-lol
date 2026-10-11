@@ -23,6 +23,8 @@ import { rosterFocus } from "@/lib/ck-review-progress";
 
 import { frameUrl, hms, KIND_LABEL, vodAt, type PovDiffRowView, type ReviewEvent, type ReviewMatch, type ReviewStreamer } from "./ck-review-shared";
 import { MatchInspector, PovDiffBox, RosterInspector } from "./MatchEditors";
+import { SeriesPanel } from "./SeriesPanel";
+import type { MatchSeriesContext } from "@soop-lol/core/lib/db/match-series-review";
 import {
   matchEvidence, nextUncompleted, representativeEvidence, visibleEvidence, workPosition,
   type EvidenceFrame, type EvidenceVodInput, type WorkItem,
@@ -36,9 +38,13 @@ export interface MatchReviewVod extends EvidenceVodInput {
   pov: { role: "created" | "added"; source: "own" | "rebroadcast"; link_basis: string | null; compared: number; rows: PovDiffRowView[] } | null;
 }
 
-export function MatchReviewer({ match, vods, streamers, events, work, from, initialFocus, initialTab }: {
+export function MatchReviewer({ match, vods, series, compareHref, streamers, events, work, from, initialFocus, initialTab }: {
   match: ReviewMatch;
   vods: MatchReviewVod[];
+  /** 시리즈 칸 — 이 경기의 시리즈 세트 전부, 또는 시리즈 미지정이면 묶을 후보. */
+  series: MatchSeriesContext;
+  /** 시리즈 비교 화면에서 이 시리즈만 연다. */
+  compareHref: string | null;
   streamers: ReviewStreamer[];
   events: ReviewEvent[];
   /** 들어온 목록의 경기 전부(목록 순서). 목록이 아닌 곳에서 열었으면 null. */
@@ -170,6 +176,7 @@ export function MatchReviewer({ match, vods, streamers, events, work, from, init
       </div>
 
       <section className="ck-review-timeline" aria-label="작업 목록과 방송별 근거">
+        <SeriesPanel context={series} matchId={match.match_id} from={from} compareHref={compareHref} />
         <header className="ck-review-queue-head">
           <h3>작업 목록</h3>
           {position && position.index >= 0 ? <div className="flex items-center justify-between gap-2 text-xs">

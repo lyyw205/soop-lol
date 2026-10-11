@@ -19,6 +19,7 @@ import { verifyScheduleDb } from "./lib/verify-schedule-db.ts";
 import { verifyMemberDb } from "./lib/verify-member-db.ts";
 import { verifyCommunityDb } from "./lib/verify-community-db.ts";
 import { verifyCkDuplicateMergeDb, verifyCkDuplicatesDb } from "./lib/verify-ck-duplicates.ts";
+import { verifyMatchSeriesDb } from "./lib/verify-match-series.ts";
 
 import { PGlite } from "@electric-sql/pglite";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -2170,6 +2171,7 @@ try {
 
   await verifyCkDuplicatesDb();
   await verifyCkDuplicateMergeDb();
+  await verifyMatchSeriesDb();
   await verifyScheduleDb(check, expectReject);
   await verifyPuuidMoveDb(check);
   await verifyNameHistoryDb(check);

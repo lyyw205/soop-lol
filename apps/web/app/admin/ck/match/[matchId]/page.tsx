@@ -1,10 +1,11 @@
 import { adminLoLCollection, inLoLCollection, LOL_ADMIN } from "@/lib/admin-lol";
 import { AdminBackLink } from "@/components/admin/AdminBackLink";
-import { adminReturn } from "@/lib/admin-navigation";
+import { adminHref, adminReturn } from "@/lib/admin-navigation";
 import { notFound } from "next/navigation";
 import { getMatchReviewWorkspace } from "@soop-lol/core/lib/db/ck";
 import { getMatchReviewEvidence } from "@soop-lol/core/lib/db/match-review";
 import { listOverviewWorkList } from "@soop-lol/core/lib/db/match-overview";
+import { getMatchSeriesContext } from "@soop-lol/core/lib/db/match-series-review";
 import { MatchReviewer } from "@/components/admin/MatchReviewer";
 import { matchReviewTitle } from "@/components/admin/ck-match-review";
 import { reviewMatchData } from "@/lib/ck-review-data";
@@ -31,7 +32,10 @@ export default async function MatchReviewPage({ params, searchParams }: {
   const collection = adminLoLCollection(query.from) ?? (inLoLCollection(ws.detail.match, "aram") ? "aram" : "rift");
   const from = adminReturn(query.from, LOL_ADMIN[collection].queue);
   const scope = reviewListScopeFromHref(from);
-  const [vods, work] = await Promise.all([getMatchReviewEvidence(matchId), scope ? listOverviewWorkList(scope.opts) : null]);
+  const [vods, work, series] = await Promise.all([getMatchReviewEvidence(matchId), scope ? listOverviewWorkList(scope.opts) : null, getMatchSeriesContext(matchId)]);
+  if (!series) notFound();
+  // 시리즈 비교 화면은 검색어로 시리즈 키를 찾는다(목록 검색이 시리즈 키를 본다).
+  const compareHref = series.series ? adminHref(LOL_ADMIN[collection].compare, { q: series.series.id, queue: "all", review: "all" }) : null;
   const match = reviewMatchData(ws.detail);
   const event = ws.events.find((e) => e.id === match.event_id) ?? null;
   return <div className="ck-review-page">
@@ -43,7 +47,7 @@ export default async function MatchReviewPage({ params, searchParams }: {
         {match.source_url && <a href={match.source_url} target="_blank" rel="noreferrer" className="text-accent-400">출처 열기 ↗</a>}
       </p>
     </div></header>
-    <MatchReviewer key={matchId} match={match} vods={vods} streamers={ws.streamers} events={ws.events} work={work} from={from}
+    <MatchReviewer key={matchId} match={match} vods={vods} series={series} compareHref={compareHref} streamers={ws.streamers} events={ws.events} work={work} from={from}
       initialFocus={query.focus} initialTab={query.tab === "roster" ? "roster" : undefined} />
   </div>;
 }
