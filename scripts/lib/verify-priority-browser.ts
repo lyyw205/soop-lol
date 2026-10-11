@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import type { BrowserContext } from 'playwright';
 import { db } from '../../packages/core/lib/db/client.ts';
 import { setMatchReviewCompleted } from '../../packages/core/lib/db/ck.ts';
-export async function verifyPriorityBrowser(context: BrowserContext, base: string, lead: string) {
+export async function verifyPriorityBrowser(context: BrowserContext, base: string) {
   const p = await context.newPage(); p.on('dialog', d => d.accept()); p.setDefaultTimeout(20_000);
   const errors: string[] = []; p.on('pageerror', e => errors.push(e.message));
   const sql = db();
-  await p.goto(base + '/admin/ck/' + lead + '?match=browser%3AM1');
+  // 검수 완료는 경기 화면에서 — 완료 후 이동은 들어온 목록에서 다음 미완료(2026-10-11).
+  await p.goto(base + '/admin/ck/match/browser%3AM1?from=' + encodeURIComponent('/admin/ck?queue=all&review=all&q=browser'));
   await p.getByRole('tab', { name: '경기', exact: true }).click();
   await p.getByRole('button', { name: '검수 완료로 표시', exact: true }).click();
   await p.getByRole('heading', { name: 'browser:M2', exact: true }).waitFor();

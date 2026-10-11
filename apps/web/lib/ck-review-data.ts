@@ -1,6 +1,6 @@
 import type { MatchDetail } from "@soop-lol/core/lib/db/ck";
 import { toKstInputValue } from "@soop-lol/core/lib/time";
-import type { ReviewMatch } from "@/components/admin/CkReviewer";
+import type { ReviewMatch } from "@/components/admin/ck-review-shared";
 
 export const reviewMatchData: (detail: MatchDetail) => ReviewMatch = ({ match, participants }) => ({
     match_id: match.match_id,

@@ -1,229 +1,69 @@
 "use client";
 
 /**
- * CK 판독 검수대 — 사람이 **공개될 값**을 **비교 프레임**과 대조해 고치는 자리.
+ * VOD 찾기 화면 — VOD 하나를 시간 순으로 훑으며 **사진을 경기에 잇고, 없는 경기를 만든다.**
  *
- *   ┌────────────────────────────┬──────────────┐
- *   │  프리뷰 (비교 프레임)        │  인스펙터     │
- *   │                            │  경기·로스터  │
- *   ├────────────────────────────┴──────────────┤
- *   │  큐 — 이 VOD 의 경기                         │
- *   └───────────────────────────────────────────┘
+ *   ┌──────────────┬────────────────────────────┬──────────────┐
+ *   │ 큐(이 VOD)    │  프리뷰 (사진)               │  선택 요약    │
+ *   │ 경기·미연결·메모│  사진 줄 · 미니맵 · 사진의 경기 │  → 경기 화면  │
+ *   └──────────────┴────────────────────────────┴──────────────┘
  *
- * ★ 사람에게 조사 기록(관찰문·후보 판단·탐색 상태)을 읽히거나 쓰게 하지 않는다. 그건 LLM 조사의
- *   몫이고 CLI(`npm run ck:record`)로 본다. 여기는 공개 값 확인·수정·공개 제외만 한다.
+ * ★ 경기 값은 여기서 고치지 않는다(2026-10-12). 편집은 경기 화면(/admin/ck/match/[id]) 한 곳 — 그 화면이 모든 방송의
+ *   근거를 보여 주고 목록과 같은 작업 목록을 쓴다. 여기서 고치면 이 VOD 의 근거만 보고 고치게 되고, 완료 후 이동도
+ *   VOD 순서라 목록과 어긋났다.
+ * ★ 사람에게 조사 기록(관찰문·후보 판단·탐색 상태)을 읽히거나 쓰게 하지 않는다. 그건 CLI(`npm run ck:record`)로 본다.
  * ★ 선택은 클라이언트 상태다. 프레임을 옮겨 다니는 것은 저장이 아니므로 왕복할 이유가 없다.
- * ★ 저장은 서버 액션이다. 원본 수정·조우 재파생·통계 재계산이 한 트랜잭션으로 돈다.
  */
 
-import { adminTabKeys } from "@/lib/admin-tab-keys";
 import { useRouter, useSearchParams } from "next/navigation";
-import { adminHref, adminReturn } from "@/lib/admin-navigation";
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { adminHref } from "@/lib/admin-navigation";
+import { useActionState, useEffect, useMemo, useState } from "react";
 
-import {
-  relinkFrameAction,
-  createMatchFromFrameAction,
-  saveMatchMetaAction,
-  saveRosterAction,
-  setMatchVisibilityAction,
-} from "@/app/admin/ck/actions";
+import { relinkFrameAction, createMatchFromFrameAction } from "@/app/admin/ck/actions";
 import { IDLE, type ActionState } from "@/lib/action-state";
-import { CHAMPIONS, championById } from "@soop-lol/core/lib/riot/champions";
-import { setLabel } from "@soop-lol/core/lib/metrics/set-label";
 
 import { framesForSelection, resolveSelection, timelineSpan, type Picked } from "./ck-selection";
 import { projectReviewQueue, chronologicalReviewQueue, activeQueueIndex, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
+import {
+  compactKst, frameUrl, hms, inputClass, KIND_LABEL, matchSetLabel, vodAt,
+  type ReviewEvent, type ReviewFrame, type ReviewMatch,
+} from "./ck-review-shared";
 
 import { ActionMessage, SubmitButton } from "./Field";
-import { useReviewDraft } from "./use-review-draft";
-import { AdminHistory } from "./AdminHistory";
-import { useCkForm } from "./use-ck-form";
-import { metaFormValues, participantFormValues, type CkActionState } from "@/lib/ck-review-form";
-import { matchOriginLabel } from "@/lib/admin-labels";
-import { rosterFocus, type RosterFocus } from "@/lib/ck-review-progress";
-import { ReviewCompletion } from "./ReviewCompletion";
 import { MemoReferenceControls, useMemoReferences, type MemoReferenceState } from "./MemoReferences";
 
-function CkFeedback({ state, reload, pending }: { state: CkActionState; reload: () => void; pending: boolean }) {
-  return <><ActionMessage state={state} />{!state.ok && state.latest && <button type="button" disabled={pending} onClick={reload} className="text-xs text-accent-400">최신 값 불러오기</button>}</>;
-}
-
-// ── 화면이 받는 모양 (서버가 core 의 행을 그대로 넘긴다) ─────────────
-
-export interface ReviewFrame {
-  id: string;
-  match_id: string | null;
-  frame_path: string;
-  at_sec: number | null;
-  kind: "result" | "roster" | "other";
-}
-
-export interface ReviewParticipant {
-  account_streamer_id?: string | null;
-  /** Riot ID(`닉네임#태그`) — 표시 전용. 저장 값(observed_name)으로 옮기지 않는다. */
-  riot_id?: string | null;
-  participant_id: number;
-  puuid: string | null;
-  streamer_id: string | null;
-  observed_name: string | null;
-  team_id: number;
-  team_position: string | null;
-  champion_id: number;
-  champion_name: string | null;
-  kills: number | null;
-  deaths: number | null;
-  assists: number | null;
-}
-
-export interface ReviewMatch {
-  match_id: string;
-  game_creation: string;
-  /** datetime-local 문자열의 브라우저 시간대 해석에 기대지 않는 타임라인 계산값. */
-  game_creation_epoch_ms: number;
-  game_duration: number | null;
-  winning_team: number | null;
-  visibility: "public" | "hidden";
-  review_completed_at: string | null;
-  review_version: number;
-  position_count: number;
-  linked_count: number;
-  champion_count: number;
-  kda_count: number;
-  origin: string | null;
-  source: string | null;
-  event_id: string | null;
-  series_id: string | null;
-  series_game_no: number | null;
-  best_of: number | null;
-  best_of_evidence: string | null;
-  /** 'date' 면 시각은 모른다 — 날짜만 보여준다(0035). */
-  game_creation_precision: "datetime" | "date";
-  /** 세트 순서를 출처에서 확인했나. false 면 "N세트" 로 단정하지 않는다. */
-  set_order_known: boolean;
-  source_url: string | null;
-  participants: ReviewParticipant[];
-}
-
-export interface ReviewStreamer {
-  id: string;
-  slug: string;
-  display_name: string;
-}
-
-/** 경기를 붙일 대회. 분류(내전/대회)가 여기서 나온다. */
-export interface ReviewEvent {
-  id: string;
-  slug: string | null;
-  name: string;
-  kind: string;
-}
+export type { ReviewEvent, ReviewFrame, ReviewMatch, ReviewParticipant, ReviewStreamer, PovDiffRowView } from "./ck-review-shared";
 
 interface Props {
-  reviewQueueIds?: string[];
   leadId: string;
   vodUrl?: string | null;
   initialMatchId?: string;
-  initialFocus?: string;
-  /** 처음 열 인스펙터 탭. `initialFocus` 가 로스터 칸이면 그쪽이 이긴다. */
-  initialTab?: "game" | "roster";
-  /**
-   * 고른 경기·탭을 주소(`match`·`tab`)에 적는다. 대회 화면의 시점 칩이 이걸 읽어 다른 스트리머로 바꿔도
-   * 같은 경기·같은 탭을 연다 — 다시점은 경기 id 가 한 벌이라 그대로 통한다.
-   */
+  /** 고른 경기를 주소(`match`)에 적는다 — 새로고침·뒤로 가기에도 같은 경기를 연다. */
   syncUrl?: boolean;
   frames: ReviewFrame[];
   matches: ReviewMatch[];
-  streamers: ReviewStreamer[];
   events: ReviewEvent[];
   /** 확인된 값이 있을 때만 절대 경기 시각을 VOD 상대 초로 바꾼다. */
   vodStartedAt?: string | null;
 }
 
-export interface PovDiffRowView {
-  participant_id: number | null;
-  who: string;
-  field: string;
-  stored: unknown;
-  observed: unknown;
-  status: "mismatch_open" | "mismatch_reviewed" | "pending" | "empty";
-}
-
-// ── 작은 조각 ────────────────────────────────────────────────────────
-
-export function vodAt(url: string, seconds: number | null): string {
-  if (seconds == null) return url;
-  try {
-    const target = new URL(url);
-    target.searchParams.set("change_second", String(Math.floor(seconds)));
-    return target.toString();
-  } catch { return url; }
-}
-
-export const hms = (sec: number | null) => {
-  if (sec == null) return "--:--:--";
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-};
-
-/** 날짜만 아는 경기는 시각을 내지 않는다(0035) — 시드 생성기가 19시·20시를 지어 넣는다. */
-const compactKst = (value: string, precision: string = "datetime") =>
-  !value ? "—" : precision === "date" ? value.slice(0, 10) : value.replace("T", " ");
-
-/** 세트 이름은 core 의 setLabel 하나로 낸다 — 화면마다 규칙이 다르면 같은 판이 다르게 불린다. */
-export const matchSetLabel = (m: { series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null }) =>
-  setLabel({ standalone: !m.series_id, unassigned: !m.series_id, best_of: m.best_of, set_order_known: m.set_order_known, series_game_no: m.series_game_no });
-const durationLabel = (sec: number | null) => sec == null
-  ? "—"
-  : `${Math.floor(sec / 60)}분${sec % 60 ? ` ${sec % 60}초` : ""}`;
-
-/** 프레임 파일을 서빙하는 라우트. `out/` 밖은 라우트가 거부한다. */
-export const frameUrl = (path: string) => `/admin/ck/frame/${path.split("/").map(encodeURIComponent).join("/")}`;
-
-export const KIND_LABEL: Record<ReviewFrame["kind"], string> = {
-  result: "결과창",
-  roster: "로스터",
-  other: "그 밖",
-};
-
-const inputClass =
-  "w-full rounded border border-ink-700 bg-ink-950 px-2 py-1 text-xs text-ink-200 " +
-  "placeholder:text-ink-400/50 outline-none focus:border-accent-600";
-
-const POSITIONS = ["", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
-
 // ── 본체 ────────────────────────────────────────────────────────────
 
 type Projected = ProjectedMatch<ReviewMatch, ReviewFrame>;
 
-export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialTab, syncUrl = false, reviewQueueIds }: Props) {
+export function CkReviewer({ leadId, frames, matches, events, vodStartedAt, vodUrl, initialMatchId, syncUrl = false }: Props) {
   const router = useRouter(), params = useSearchParams();
   const memo = useMemoReferences(vodUrl);
   const projection = useMemo(
     () => projectReviewQueue(frames, matches, { vodStartedAt }),
     [frames, matches, vodStartedAt],
   );
-  // ★ 선택은 프레임·경기를 따로 들고 있다 — 근거 프레임이 안 붙은 경기도 고칠 수 있어야 한다.
+  // ★ 선택은 프레임·경기 두 칸이다 — 근거 프레임이 안 붙은 경기도 고를 수 있어야 한다.
   //   규칙 자체는 `ck-selection.ts` 의 순수 함수에 있다(회귀 검사가 거기를 잰다).
-  const [rosterDirtyId, setRosterDirtyId] = useState<string | null>(null);
+  //   큐에서 경기를 고르면 둘 다 그 경기로 가고, 미연결 사진·메모장을 넘기면 사진만 바뀐다.
   const [picked, setPicked] = useState<Picked>({ matchId: initialMatchId });
-  // ★ **선택 상태는 이것 하나다.** 선택한 경기가 곧 로스터·경기 정보의 편집 대상이다.
-  //   예전엔 참고 화면(picked)과 편집 대상(editingMatchId)을 따로 들고 있어서 둘이 어긋나는 경우가
-  //   생길 때마다 예외(초안이 있으면 대상 유지·"참고 화면 ≠ 입력 대상" 안내…)가 붙었고,
-  //   그 예외가 "다른 판을 눌러도 로스터가 안 바뀐다" 를 계속 되살렸다. 어긋날 수 없게 하나로 합친다.
-  //   · 경기와 보는 사진은 같은 상태 안의 두 칸이다. 미연결 사진·메모장을 넘기면 사진만 바뀐다.
-  //     큐·"편집할 세트" 에서 경기를 고르면 둘 다 그 경기로 간다 — 드롭다운이 경기만 바꾸고 사진을 남기면
-  //     보는 사진과 편집 대상이 어긋났다(2026-10-11 재현).
-  //   · 저장 안 한 로스터 초안은 경기별로 sessionStorage 에 남는다(use-review-draft) — 다른 판에 갔다 와도 복원된다.
-  const rosterField = rosterFocus(initialFocus)?.focus;
   const [zoom, setZoom] = useState(false);
   const [matchesOnly, setMatchesOnly] = useState(false);
-  const [inspectorTab, setInspectorTab] = useState<"game" | "roster">(rosterFocus(initialFocus) ? "roster" : initialTab ?? "game");
-
-  // ★ 탭(경기/로스터)은 여기서 강제로 바꾸지 않는다 — 로스터를 고치다가 다른 경기로 넘어가면
-  //   조건부 렌더라 마운트가 날아가며 아직 저장 안 한 로스터 편집도 같이 사라졌다.
   const sel = resolveSelection(matchesOnly ? frames.filter(frame => frame.match_id != null) : frames, matches, picked);
   const selected = sel.frame ?? (!matchesOnly && sel.match
     ? projection.find(item => item.match.match_id === sel.match!.match_id)?.frames[0] ?? null : null);
@@ -232,15 +72,16 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   const previewAt = memo.active ? memo.at : selected?.at_sec ?? null;
   const previewImage = memo.active ? memo.image : selected ? frameUrl(selected.frame_path) : null;
 
-  const editingMatch = selectedMatch;
-  const syncedMatchId = editingMatch?.match_id ?? null;
+  const syncedMatchId = selectedMatch?.match_id ?? null;
   useEffect(() => {
     if (!syncUrl) return;
     const url = new URL(window.location.href);
     if (syncedMatchId) url.searchParams.set("match", syncedMatchId); else url.searchParams.delete("match");
-    if (inspectorTab === "roster") url.searchParams.set("tab", "roster"); else url.searchParams.delete("tab");
     if (url.href !== window.location.href) window.history.replaceState(null, "", url);
-  }, [syncUrl, syncedMatchId, inspectorTab]);
+  }, [syncUrl, syncedMatchId]);
+  /** 경기 값은 경기 화면에서 고친다. 돌아갈 목록(`from`)을 그대로 넘겨 작업 목록이 이어지게 한다. */
+  const matchHref = (id: string, tab?: "roster") =>
+    adminHref(`/admin/ck/match/${encodeURIComponent(id)}`, { from: params.get("from"), tab });
 
   const pickMatch = (id: string) => {
     memo.clear();
@@ -248,12 +89,6 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
     requestAnimationFrame(() => {
       document.getElementById(`ck-review-queue-match:${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
-  };
-  const nextAfterCompletion = (id: string) => {
-    const index = matches.findIndex(m => m.match_id === id);
-    const next = [...matches.slice(index + 1), ...matches.slice(0, index)].find(m => !m.review_completed_at && (!reviewQueueIds || reviewQueueIds.includes(m.match_id)));
-    if (next) pickMatch(next.match_id);
-    else router.replace(adminReturn(params.get('from'), '/admin/ck'));
   };
   /** 썸네일·좌우 키는 선택한 큐 항목 안에서만 움직인다. 큐 자체는 모든 항목을 유지한다. */
   const focusFrames = useMemo(
@@ -387,49 +222,23 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
           </footer>
         </section>
 
-        <aside className="ck-review-inspector" aria-label="검수 인스펙터">
+        <aside className="ck-review-inspector" aria-label="선택한 항목">
           <div className="ck-review-inspector-shell">
-            <div className="ck-review-panel p-3 text-xs">
-              <label className="grid gap-2">편집할 세트
-                <select aria-label="편집할 세트" className={inputClass} value={editingMatch?.match_id ?? ""}
-                  disabled={!matches.length} onChange={event => pickMatch(event.target.value)}>
-                  {!matches.length && <option value="">저장된 경기 없음</option>}
-                  {matches.map(match => <option key={match.match_id} value={match.match_id}>
-                    {matchSetLabel(match)} · {match.match_id}
-                  </option>)}
-                </select>
-              </label>
-              {editingMatch && <p className="mt-2 flex flex-wrap items-center justify-between gap-2"><strong className="text-accent-400">편집 중: {matchSetLabel(editingMatch)}</strong>
-                <a href={adminHref(`/admin/ck/match/${encodeURIComponent(editingMatch.match_id)}`, { from: params.get("from") })} className="text-ink-400 hover:text-ink-200">모든 방송 근거로 검수 →</a></p>}
-            </div>
-            <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보" onKeyDown={adminTabKeys}>
-              <button type="button" role="tab" aria-selected={inspectorTab === "game"}
-                onClick={() => setInspectorTab("game")}>경기</button>
-              <button type="button" role="tab" aria-selected={inspectorTab === "roster"}
-                onClick={() => setInspectorTab("roster")}>로스터</button>
-            </div>
-
-            <div className="ck-review-inspector-body">
-
-              {!editingMatch ? (
-                <div className="ck-review-panel p-4 text-xs leading-relaxed text-ink-400">
-                  저장된 경기가 없습니다. 결과 프레임에서 새 경기를 만들 수 있습니다.
-                </div>
-              ) : <>
-                <div hidden={inspectorTab !== "game"} className="ck-review-tab-stack">
-                  <MatchInspector key={`meta:${editingMatch.match_id}`} leadId={leadId} match={editingMatch} events={events} otherDirty={rosterDirtyId === editingMatch.match_id} onCompleted={() => nextAfterCompletion(editingMatch.match_id)} />
-                </div>
-                <div hidden={inspectorTab !== "roster"} className="ck-review-tab-stack">
-                  <RosterInspector key={`roster:${editingMatch.match_id}`} leadId={leadId} match={editingMatch} streamers={streamers} focus={rosterField} onDirty={setRosterDirtyId} />
-                </div>
-              </>}
-              {!memo.active && selected && !selected.match_id && <details className="mt-3" open={!editingMatch}>
-                <summary className="cursor-pointer p-3 text-xs text-ink-400">이 프레임으로 새 경기 만들기</summary>
-                <CreateMatchFromFrame key={selected.id} frame={selected} matches={matches} events={events} onCreated={(matchId) => {
-                  setPicked({ matchId, frameId: selected.id });
-                  setInspectorTab("roster");
-                }} />
-              </details>}
+            <div className="ck-review-inspector-body grid content-start gap-3">
+              {selectedMatch ? <div className="ck-review-panel p-4 text-xs leading-relaxed">
+                <p className="text-ink-400">선택한 경기</p>
+                <h3 className="mt-1 break-all font-mono text-ink-200">{selectedMatch.match_id}</h3>
+                <p className="mt-1 text-ink-200">{matchSetLabel(selectedMatch)} · {compactKst(selectedMatch.game_creation, selectedMatch.game_creation_precision)}</p>
+                <p className="mt-1 text-ink-400">
+                  {selectedMatch.visibility === "hidden" ? "공개 제외" : selectedMatch.review_completed_at ? "검수 완료" : "미검수"}
+                  {` · 참가자 연결 ${selectedMatch.linked_count}/10 · 포지션 ${selectedMatch.position_count}/10 · 챔피언 ${selectedMatch.champion_count}/10 · KDA ${selectedMatch.kda_count}/10`}
+                </p>
+                <a href={matchHref(selectedMatch.match_id)} className="mt-3 inline-block rounded border border-accent-600 px-3 py-1.5 text-accent-400 hover:bg-accent-600/10">경기 화면에서 검수 →</a>
+              </div> : <div className="ck-review-panel p-4 text-xs leading-relaxed text-ink-400">
+                {matches.length ? "큐에서 경기를 고르면 요약과 검수 링크가 나옵니다." : "이 VOD 에서 저장된 경기가 없습니다. 결과 프레임에서 새 경기를 만들 수 있습니다."}
+              </div>}
+              {!memo.active && selected && !selected.match_id && <CreateMatchFromFrame key={selected.id} frame={selected} matches={matches} events={events}
+                onCreated={(matchId) => router.push(matchHref(matchId, "roster"))} />}
             </div>
           </div>
         </aside>
@@ -440,19 +249,6 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
     </div>
   );
 }
-
-// ── 이 시점이 읽은 값과 다른 칸 (다시점 대회 화면) ───────────────────────
-
-const POV_FIELD: Record<string, string> = {
-  winning_team: "승리 팀", duration: "경기 길이", series_game_no: "세트",
-  team: "팀", position: "포지션", champion_id: "챔피언", kills: "킬", deaths: "데스", assists: "어시스트",
-};
-const POV_STATUS: Record<PovDiffRowView["status"], { label: string; cls: string }> = {
-  mismatch_open: { label: "미해결", cls: "text-amber-300" },
-  mismatch_reviewed: { label: "검수 완료", cls: "text-ink-400" },
-  pending: { label: "대응 보류", cls: "text-ink-400" },
-  empty: { label: "경기 칸 빈", cls: "text-ink-400" },
-};
 
 function CreateMatchFromFrame({ frame, matches, events, onCreated }: {
   frame: ReviewFrame; matches: ReviewMatch[]; events: ReviewEvent[]; onCreated: (id: string) => void;
@@ -499,49 +295,6 @@ function CreateMatchFromFrame({ frame, matches, events, onCreated }: {
       <SubmitButton>기존 세트에 연결</SubmitButton>
     </form>}
   </details>;
-}
-
-export function PovDiffBox({ diff, match, streamers }: {
-  diff: { compared: number; rows: PovDiffRowView[] } | undefined;
-  match: ReviewMatch;
-  streamers: ReviewStreamer[];
-}) {
-  if (!diff) {
-    return <div className="ck-review-panel mb-3 p-3 text-[11px] text-ink-400">이 시점은 이 경기 값을 제출하지 않았습니다(사진·연결만).</div>;
-  }
-  const nameOf = (row: PovDiffRowView) => {
-    if (row.who === "경기") return "경기";
-    const p = match.participants.find((x) => x.participant_id === row.participant_id);
-    const person = p?.account_streamer_id ?? p?.streamer_id;
-    return (person && streamers.find((s) => s.id === person)?.display_name) ?? p?.observed_name ?? p?.riot_id ?? row.who.replace(/^n:/, "");
-  };
-  const show = (field: string, v: unknown) => v == null ? "비어 있음"
-    : field === "winning_team" || field === "team" ? (v === 100 ? "1팀" : v === 200 ? "2팀" : String(v))
-    : field === "champion_id" ? (championById(Number(v))?.name ?? `#${v}`)
-    : field === "duration" ? durationLabel(Number(v)) : String(v);
-  const open = diff.rows.filter((r) => r.status === "mismatch_open").length;
-  return (
-    <div className="ck-review-panel mb-3 p-3 text-[11px]">
-      <p className={open ? "text-amber-300" : "text-ink-400"}>
-        이 시점이 읽은 {diff.compared}칸 중 {diff.rows.length ? `다른 칸 ${diff.rows.length}` : "모두 경기 값과 일치"}
-        {open ? ` · 미해결 ${open}` : ""}
-      </p>
-      {diff.rows.length > 0 && (
-        <table className="mt-2 w-full">
-          <thead className="text-left text-ink-400"><tr><th className="pr-2 font-normal">자리</th><th className="pr-2 font-normal">칸</th>
-            <th className="pr-2 font-normal">경기 값</th><th className="pr-2 font-normal">이 시점</th><th className="font-normal">상태</th></tr></thead>
-          <tbody>{diff.rows.map((r) => (
-            <tr key={`${r.who}:${r.field}`} className="border-t border-ink-800">
-              <td className="pr-2 text-ink-200">{nameOf(r)}</td><td className="pr-2 text-ink-400">{POV_FIELD[r.field] ?? r.field}</td>
-              <td className="pr-2 tabular-nums text-ink-200">{show(r.field, r.stored)}</td>
-              <td className="pr-2 tabular-nums text-ink-200">{show(r.field, r.observed)}</td>
-              <td className={POV_STATUS[r.status].cls}>{POV_STATUS[r.status].label}</td>
-            </tr>))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
 }
 
 // ── 경기 큐 + 위치 미니맵 ─────────────────────────────────────────────
@@ -657,537 +410,5 @@ function FrameStrip({ frames, selectedId, onPick }: { frames: ReviewFrame[]; sel
       <img loading="lazy" src={frameUrl(frame.frame_path)} alt={`${hms(frame.at_sec)} 프레임`} />
       <span>{hms(frame.at_sec)}</span>
     </button>)}
-  </div>;
-}
-
-// ── 인스펙터: 경기 메타 ─────────────────────────────────────────────
-
-export function MatchInspector({
-  leadId,
-  match,
-  events, otherDirty, onCompleted,
-}: {
-  leadId: string;
-  match: ReviewMatch;
-  events: ReviewEvent[]; otherDirty: boolean; onCompleted: () => void;
-}) {
-  const { base, draft, setDraft, field, state, action, pending, reload, dirty, stale } = useCkForm(`lol-meta:${match.match_id}`, metaFormValues(match), saveMatchMetaAction);
-  const hidden = match.visibility === "hidden";
-  const formRef = useRef<HTMLFormElement>(null);
-  const [activeField, setActiveField] = useState<MatchMetaField | null>(null);
-  const selectedEvent = events.find((event) => event.id === draft.event_id) ?? null;
-
-  const openField = (name: MatchMetaField) => {
-    if (pending) return;
-    setActiveField(name);
-  };
-  const cancelField = (name: MatchMetaField) => {
-    setDraft((current) => ({ ...current, [name]: base[name] }));
-    setActiveField(null);
-  };
-  const commitField = (name: MatchMetaField, value?: string) => {
-    const form = formRef.current;
-    if (!form || pending) return;
-    if (value !== undefined) {
-      const control = form.elements.namedItem(name);
-      if (control instanceof HTMLInputElement) control.value = value;
-      setDraft((current) => ({ ...current, [name]: value }));
-    }
-    setActiveField(null);
-    form.requestSubmit();
-  };
-  const fieldKeys = (name: MatchMetaField) => (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      commitField(name);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      cancelField(name);
-    }
-  };
-  // 시리즈 미지정 → 단판으로 확인. 경기 ID 와 같은 키의 시리즈에 best_of=1 과 근거를 적는다(set-label.ts).
-  //   근거 없는 best_of 는 저장 단계가 거부한다(validateBestOf) — 모르면 미지정으로 둔다.
-  const confirmSingle = (evidence: string) => {
-    const form = formRef.current;
-    if (!form || pending || !evidence.trim()) return;
-    const values = { series_id: match.match_id, series_game_no: "1", best_of: "1", best_of_evidence: evidence.trim() };
-    for (const [name, value] of Object.entries(values)) {
-      const control = form.elements.namedItem(name);
-      if (control instanceof HTMLInputElement) control.value = value;
-    }
-    setDraft((current) => ({ ...current, ...values }));
-    setActiveField(null);
-    form.requestSubmit();
-  };
-  const seriesFormatKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      setActiveField(null);
-      formRef.current?.requestSubmit();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      setDraft((current) => ({ ...current, best_of: base.best_of, best_of_evidence: base.best_of_evidence }));
-      setActiveField(null);
-    }
-  };
-
-  return (
-    <div className="ck-review-panel p-4">
-      <header className="mb-3 grid gap-2">
-        <div className="min-w-0">
-          <h3 className="break-all font-mono text-xs leading-relaxed text-ink-200">{match.match_id}</h3>
-        </div>
-        <div className="grid gap-2">
-          <p className="mt-0.5 text-[11px] text-ink-400">
-            {matchOriginLabel(match)}
-
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-          <AdminHistory key={match.match_id} scope="match" id={match.match_id} />
-          <ReviewCompletion matchId={match.match_id} version={match.review_version} completed={!!match.review_completed_at} disabled={pending || dirty || otherDirty || activeField != null} onCompleted={onCompleted} />
-          <form action={setMatchVisibilityAction}>
-            <input type="hidden" name="lead_id" value={leadId} />
-            <input type="hidden" name="match_id" value={match.match_id} />
-            <input type="hidden" name="visibility" value={hidden ? "public" : "hidden"} />
-            <button
-              className={`shrink-0 rounded border px-2 py-1 text-[11px] ${
-                hidden
-                  ? "border-win/40 text-win hover:bg-win/10"
-                  : "border-lose/40 text-lose hover:bg-lose/10"
-              }`}
-              title={hidden ? "공개로 되돌린다" : "무효판·중복판·시청 구간이면 공개에서 뺀다"}
-            >
-              {hidden ? "되살리기" : "공개에서 빼기"}
-            </button>
-          </form>
-          </div>
-        </div>
-      </header>
-
-      {hidden && (
-        <p className="mb-3 rounded border border-lose/30 bg-lose/5 px-2 py-1.5 text-[11px] text-ink-400">
-          <b className="text-lose">공개에서 빠진 경기입니다.</b> 지워지지 않았고 조우·챔피언 통계에서도
-          빠져 있습니다. 되살리면 그대로 돌아옵니다.
-        </p>
-      )}
-
-      <form ref={formRef} action={action} className="grid gap-2">
-        {dirty && <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300"><span>{stale ? "다른 변경이 있습니다. 저장 시 변경 전 값을 대조합니다." : "미저장 초안"}</span><SubmitButton>변경사항 저장</SubmitButton><button type="button" onClick={reload} className="text-ink-400">초안 버리고 최신 값</button></div>}
-        <input type="hidden" name="base" value={JSON.stringify(base)} />
-        <input type="hidden" name="lead_id" value={leadId} />
-        <input type="hidden" name="match_id" value={match.match_id} />
-        {activeField !== "winning_team" && <input type="hidden" name="winning_team" value={draft.winning_team} />}
-        {activeField !== "event_id" && <input type="hidden" name="event_id" value={draft.event_id} />}
-        {activeField !== "series_id" && <input type="hidden" name="series_id" value={draft.series_id} />}
-        {activeField !== "series_game_no" && <input type="hidden" name="series_game_no" value={draft.series_game_no} />}
-        {activeField !== "best_of" && <input type="hidden" name="best_of" value={draft.best_of} />}
-        {activeField !== "best_of" && <input type="hidden" name="best_of_evidence" value={draft.best_of_evidence} />}
-        {activeField !== "game_creation" && <input type="hidden" name="game_creation" value={draft.game_creation} />}
-        {activeField !== "game_duration" && <input type="hidden" name="game_duration" value={draft.game_duration} />}
-        <input type="hidden" name="game_creation_precision" value={draft.game_creation_precision} />
-        <input type="hidden" name="set_order_known" value={draft.set_order_known} />
-
-        <fieldset disabled={pending} className="contents">
-          <dl className="ck-review-match-summary">
-            <div>
-              <dt>승자</dt>
-              <dd className="ck-review-winner-toggle">
-                {[["100", "1팀"], ["200", "2팀"]].map(([value, label]) => <button key={value} type="button"
-                  aria-pressed={draft.winning_team === value} onClick={() => commitField("winning_team", value)}>{label}</button>)}
-              </dd>
-            </div>
-            <div className="has-left-border">
-              <dt>세트</dt>
-              <dd>{activeField === "series_game_no"
-                ? <input autoFocus name="series_game_no" inputMode="numeric" aria-label="세트 번호" {...field("series_game_no")}
-                    onKeyDown={fieldKeys("series_game_no")} className={inputClass} />
-                : !draft.series_id ? <span className="grid gap-1">
-                    <span className="text-amber-300" title="아직 시리즈로 묶지 않았다 — 단판인지 다전제의 한 판인지 모른다">시리즈 미지정</span>
-                    {activeField === "confirm_single"
-                      ? <input autoFocus aria-label="단판 근거" placeholder="단판 근거: 규정 URL 또는 VOD 시각" className={inputClass}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") { event.preventDefault(); confirmSingle(event.currentTarget.value); }
-                            else if (event.key === "Escape") { event.preventDefault(); setActiveField(null); }
-                          }} />
-                      : <button type="button" className="text-left text-[11px] text-accent-400" onClick={() => openField("confirm_single")}>단판으로 확인</button>}
-                  </span>
-                : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("series_game_no")}>
-                    {(() => {
-                      const label = matchSetLabel({
-                        series_id: draft.series_id || null, best_of: draft.best_of ? Number(draft.best_of) : null,
-                        set_order_known: draft.set_order_known === "true", series_game_no: draft.series_game_no ? Number(draft.series_game_no) : null,
-                      });
-                      // 순서를 모르면 저장된 번호는 정렬용일 뿐이다 — 그렇다고 말한다.
-                      return label === "세트" && draft.series_game_no ? `세트 · 저장 번호 ${draft.series_game_no} (순서 미확정)` : label;
-                    })()}
-                  </button>}</dd>
-            </div>
-            <div className="is-wide">
-              <dt>대회</dt>
-              <dd>{activeField === "event_id"
-                ? <EventLinkPicker value={draft.event_id} events={events}
-                    onCommit={(value) => commitField("event_id", value)} onCancel={() => cancelField("event_id")} />
-                : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("event_id")}>
-                    {selectedEvent?.name ?? "연결 없음"}
-                  </button>}</dd>
-            </div>
-            <div>
-              <dt>경기 시각 · KST</dt>
-              <dd>{activeField === "game_creation"
-                ? <input autoFocus name="game_creation" type="datetime-local" step={1} aria-label="경기 시각 KST"
-                    {...field("game_creation")} onKeyDown={fieldKeys("game_creation")} className={inputClass} />
-                : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("game_creation")}>
-                    {compactKst(draft.game_creation, draft.game_creation_precision)}
-                  </button>}</dd>
-            </div>
-            <div>
-              <dt>시각 정확도</dt>
-              {/* 기본값이 없는 값이다. 시각을 VOD 로 보정했으면 여기서 "시각까지" 로 바꿔야 공개 화면이 시각을 낸다. */}
-              <dd className="ck-review-winner-toggle">
-                {[["datetime", "시각까지"], ["date", "날짜만"]].map(([value, label]) => <button key={value} type="button"
-                  aria-pressed={draft.game_creation_precision === value}
-                  onClick={() => commitField("game_creation_precision", value)}>{label}</button>)}
-              </dd>
-            </div>
-            <div>
-              <dt>세트 순서</dt>
-              <dd className="ck-review-winner-toggle">
-                {[["true", "확인"], ["false", "모름"]].map(([value, label]) => <button key={value} type="button"
-                  aria-pressed={draft.set_order_known === value} disabled={!draft.series_id}
-                  title={draft.series_id ? "세트 순서를 출처에서 확인했나 — 모르면 N세트 대신 「세트」로 표시한다" : "시리즈가 있는 경기만"}
-                  onClick={() => commitField("set_order_known", value)}>{label}</button>)}
-              </dd>
-            </div>
-            <div className="has-left-border">
-              <dt>길이</dt>
-              <dd>{activeField === "game_duration"
-                ? <input autoFocus name="game_duration" inputMode="numeric" aria-label="경기 길이 초" {...field("game_duration")}
-                    onKeyDown={fieldKeys("game_duration")} className={inputClass} />
-                : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("game_duration")}>
-                    {durationLabel(draft.game_duration ? Number(draft.game_duration) : null)}
-                  </button>}</dd>
-            </div>
-            <div className="is-wide">
-              <dt>시리즈 키</dt>
-              <dd>{activeField === "series_id"
-                ? <input autoFocus name="series_id" aria-label="시리즈 키" {...field("series_id")}
-                    onKeyDown={fieldKeys("series_id")} className={`${inputClass} font-mono`} />
-                : <button type="button" className="ck-review-match-cell-button font-mono" onClick={() => openField("series_id")}>
-                    {draft.series_id || "연결 없음"}
-                  </button>}</dd>
-            </div>
-            <div className="is-wide">
-              <dt>다전제 · 근거</dt>
-              <dd>{activeField === "best_of"
-                ? <span className="grid gap-1">
-                    <input autoFocus name="best_of" inputMode="numeric" aria-label="최대 세트 수" placeholder="예: 3 (비우려면 -)"
-                      {...field("best_of")} onKeyDown={seriesFormatKeys} className={inputClass} />
-                    <input name="best_of_evidence" aria-label="다전제 근거" placeholder="규정 URL 또는 VOD 시각"
-                      {...field("best_of_evidence")} onKeyDown={seriesFormatKeys} className={inputClass} />
-                  </span>
-                : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("best_of")}
-                    disabled={!draft.series_id}>{draft.best_of ? `Bo${draft.best_of} · ${draft.best_of_evidence || "근거 없음"}` : "미확정"}</button>}</dd>
-            </div>
-          </dl>
-        </fieldset>
-        <div className="min-h-4"><CkFeedback state={state} reload={reload} pending={pending} /></div>
-      </form>
-    </div>
-  );
-}
-
-type MatchMetaField = "winning_team" | "event_id" | "series_id" | "series_game_no" | "best_of" | "game_creation" | "game_duration"
-  | "game_creation_precision" | "set_order_known" | "confirm_single";
-
-function EventLinkPicker({ value, events, onCommit, onCancel }: {
-  value: string;
-  events: ReviewEvent[];
-  onCommit: (value: string) => void;
-  onCancel: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const selected = events.find((event) => event.id === value) ?? null;
-  const matches = query.trim().length >= 1
-    ? events.filter((event) => event.name.toLowerCase().includes(query.trim().toLowerCase()) || (event.slug ?? "").toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8)
-    : [];
-  useEffect(() => { setActiveIndex(0); }, [query]);
-  const keys = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown" && matches.length) {
-      event.preventDefault();
-      setActiveIndex((index) => Math.min(index + 1, matches.length - 1));
-    } else if (event.key === "ArrowUp" && matches.length) {
-      event.preventDefault();
-      setActiveIndex((index) => Math.max(index - 1, 0));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      if (matches[activeIndex]) onCommit(matches[activeIndex].id);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      onCancel();
-    }
-  };
-
-  return <div className="ck-event-link-editor">
-    <input type="hidden" name="event_id" value={value} />
-    <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={keys}
-      placeholder="대회명 검색" aria-label="대회명 검색" className={inputClass} />
-    {matches.length > 0 && <div className="ck-event-suggestions" role="listbox" aria-label="일치하는 대회">
-        {matches.map((event, index) => <button key={event.id} type="button" role="option" aria-selected={activeIndex === index}
-          data-selected={activeIndex === index || undefined} onMouseEnter={() => setActiveIndex(index)} onMouseDown={(mouseEvent) => mouseEvent.preventDefault()}
-          onClick={() => onCommit(event.id)}>
-          <span className="text-[11px] text-ink-200">{event.name}</span><small className="text-[10px] text-ink-500">{event.kind}</small>
-        </button>)}
-    </div>}
-    {query.trim().length >= 1 && matches.length === 0 && <p className="text-[10px] text-ink-500">일치하는 대회가 없습니다.</p>}
-    <div className="flex items-center gap-3 text-[10px]">
-      {selected && <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onCommit("")} className="text-lose hover:text-lose/80">연결 해제</button>}
-      <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={onCancel} className="ml-auto text-ink-500 hover:text-ink-200">취소</button>
-    </div>
-  </div>;
-}
-
-// ── 인스펙터: 로스터 ────────────────────────────────────────────────
-
-export function RosterInspector({
-  leadId,
-  match,
-  streamers,
-  focus, onDirty,
-}: {
-  leadId: string;
-  match: ReviewMatch;
-  streamers: ReviewStreamer[];
-  focus?: RosterFocus; onDirty: (id: string | null) => void;
-}) {
-  const bySlug = useMemo(() => new Map(streamers.map((s) => [s.id, s.slug])), [streamers]);
-  const signature = JSON.stringify(match.participants);
-  const makeRows = () => rosterRows(match, bySlug);
-  const { draft: rows, setDraft: setRows, reset, dirty, stale } = useReviewDraft(`lol-roster:${match.match_id}`, makeRows());
-  useEffect(() => { onDirty(dirty ? match.match_id : null); }, [dirty, match.match_id, onDirty]);
-  const [activeCell, setActiveCell] = useState<string | null>(null);
-  const [state, action, pending] = useActionState(async (prev: CkActionState, form: FormData) => {
-    const result = await saveRosterAction(prev, form);
-    if (result.ok && result.savedRoster) { reset(rosterRows({ participants: result.savedRoster }, bySlug)); setActiveCell(null); }
-    return result;
-  }, IDLE);
-
-  useEffect(() => {
-    const field = rosterFocus(focus);
-    if (!field) return;
-    const missing = makeRows().find(row => !row.remove && (
-      focus === "position" ? !POSITIONS.slice(1).includes(row.team_position)
-        : focus === "identity" ? !row.streamer_slug && !row.account_streamer_id
-        : focus === "champion" ? !(match.participants.find(p => p.participant_id === row.participant_id)?.champion_id)
-        : [row.kills, row.deaths, row.assists].some(value => value.trim() === "")
-    ));
-    setActiveCell(missing ? `${missing.participant_id}:${field.cell}` : null);
-    // 입력 중에 다른 칸으로 이동하지 않는다. 항목 선택이나 저장된 값의 갱신 때만 고른다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, signature]);
-
-  const update = (participantId: number, changes: Partial<RosterDraftRow>) => {
-    setRows((current) => current.map((row) => row.participant_id === participantId ? { ...row, ...changes } : row));
-  };
-
-  return (
-    <div className="ck-review-panel p-4">
-      <header className="mb-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <h3 className="text-xs text-ink-200">로스터</h3>
-          <span className="text-[10px] text-ink-500">{match.participants.length}/10 판독</span>
-        </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-400">행을 눌러 수정하세요. 비어 있는 행은 누락 선수 추가용이며, 이름을 적은 행만 저장됩니다.</p>
-      </header>
-
-      <form action={action} className="grid gap-3">
-        <input type="hidden" name="lead_id" value={leadId} />
-        <input type="hidden" name="match_id" value={match.match_id} />
-        <input type="hidden" name="roster" value={JSON.stringify(rows)} />
-        {/* ★ 저장 중엔 입력을 잠근다(메타 폼과 같은 방식). contents 라 레이아웃은 그대로다. */}
-        <fieldset disabled={pending} className="contents">
-          {[100, 200].map((team) => (
-            <RosterTeam key={team} team={team} rows={rows.filter((row) => row.team_id === String(team))}
-              winner={match.winning_team === team} activeCell={activeCell} onOpen={setActiveCell} onChange={update} streamers={streamers} />
-          ))}
-        </fieldset>
-        <div className="sticky bottom-0 -mx-1 flex items-center gap-3 border-t border-ink-800 bg-ink-900/95 px-1 pt-3">
-          <SubmitButton>변경사항 저장</SubmitButton>
-          {dirty && <><span className="text-xs text-amber-300">{stale ? "최신 값과 다른 초안" : "미저장 초안"}</span><button type="button" onClick={() => reset()} className="text-xs text-ink-400">초안 버리기</button></>}
-          <ActionMessage state={state} />
-        </div>
-      </form>
-
-      <datalist id="ck-streamers">{streamers.map((s) => <option key={s.id} value={s.slug}>{s.display_name}</option>)}</datalist>
-    </div>
-  );
-}
-
-type RosterDraftRow = {
-  participant_id: number;
-  base: ReturnType<typeof participantFormValues> | null;
-  streamer_slug: string;
-  team_id: string;
-  team_position: string;
-  observed_name: string;
-  champion_name: string;
-  kills: string;
-  deaths: string;
-  assists: string;
-  clear_puuid: boolean;
-  account_streamer_id?: string | null;
-  riot_id?: string | null;
-  remove: boolean;
-};
-
-function rosterRows(match: Pick<ReviewMatch, "participants">, bySlug: Map<string, string>): RosterDraftRow[] {
-  const taken = new Set(match.participants.map((participant) => participant.participant_id));
-  const spareIds = Array.from({ length: 10 }, (_, index) => index + 1).filter((id) => !taken.has(id));
-  let spare = 0;
-  return [100, 200].flatMap((team) => {
-    // 탑·정글·미드·원딜·서폿 고정 순서로 보여준다. participant_id 는 입력 순서일 뿐 포지션과 무관하다.
-    // 미확정 포지션은 뒤로 밀고, 같은 순서끼리는 participant_id 로 안정적으로 묶는다.
-    const positionRank = (position: string) => { const i = POSITIONS.indexOf(position); return i > 0 ? i : POSITIONS.length; };
-    const existing = match.participants.filter((participant) => participant.team_id === team)
-      .sort((a, b) => positionRank(a.team_position ?? "") - positionRank(b.team_position ?? "") || a.participant_id - b.participant_id)
-      .map((participant) => {
-        const base = participantFormValues(participant, participant.streamer_id ? bySlug.get(participant.streamer_id) ?? "" : "");
-        // ★ DB엔 영문 정본(champion_name = resolveChampion 이 저장한 en 값)이 들어 있다.
-        //   그대로 보여주면 편집창이 매번 영어로 뜬다 — 화면에서 읽는 값은 한글이니
-        //   champion_id 로 한글 이름을 되찾아 보여준다. 못 찾으면(0/미확인) 저장된 값 그대로.
-        const championDisplayName = championById(participant.champion_id)?.name ?? base.champion_name;
-        return { participant_id: participant.participant_id, base, account_streamer_id: participant.account_streamer_id, riot_id: participant.riot_id,
-          streamer_slug: base.streamer_slug, team_id: base.team_id,
-          team_position: base.team_position, observed_name: base.observed_name, champion_name: championDisplayName,
-          kills: base.kills, deaths: base.deaths, assists: base.assists, clear_puuid: false, remove: false };
-      });
-    const empty = Array.from({ length: Math.max(0, 5 - existing.length) }, () => ({
-      participant_id: spareIds[spare++] ?? 100 + spare, base: null, streamer_slug: "", team_id: String(team),
-      team_position: "", observed_name: "", champion_name: "", kills: "", deaths: "", assists: "", clear_puuid: false, remove: false,
-    }));
-    return [...existing, ...empty];
-  });
-}
-
-function RosterTeam({ team, rows, winner, activeCell, onOpen, onChange, streamers }: {
-  team: number; rows: RosterDraftRow[]; winner: boolean; activeCell: string | null;
-  onOpen: (id: string | null) => void; onChange: (id: number, changes: Partial<RosterDraftRow>) => void; streamers: ReviewStreamer[];
-}) {
-  return <section className="ck-roster-team">
-    <header><b>{team === 100 ? "1팀" : "2팀"}</b>{winner && <span>승리</span>}</header>
-    <div className="ck-roster-table" role="table" aria-label={`${team === 100 ? "1팀" : "2팀"} 로스터`}>
-      <div className="ck-roster-head" role="row"><span>포지션</span><span>이름</span><span>챔피언</span><span>KDA</span></div>
-      {rows.map((row) => <RosterRow key={row.participant_id} row={row} activeCell={activeCell}
-        onOpen={onOpen} onChange={onChange} streamers={streamers} />)}
-    </div>
-  </section>;
-}
-
-type RosterCell = "team_position" | "identity" | "champion_name" | "kda";
-const POSITION_KEYS: { key: string; label: string; value: string }[] = [
-  { key: "q", label: "탑", value: "TOP" },
-  { key: "w", label: "정글", value: "JUNGLE" },
-  { key: "e", label: "미드", value: "MIDDLE" },
-  { key: "r", label: "원딜", value: "BOTTOM" },
-  { key: "t", label: "서폿", value: "UTILITY" },
-];
-
-function RosterRow({ row, activeCell, onOpen, onChange, streamers }: {
-  row: RosterDraftRow; activeCell: string | null; onOpen: (id: string | null) => void;
-  onChange: (id: number, changes: Partial<RosterDraftRow>) => void; streamers: ReviewStreamer[];
-}) {
-  const known = streamers.find((streamer) => streamer.slug === row.streamer_slug.trim());
-  const accountLinked = !row.clear_puuid && !!row.account_streamer_id;
-  const accountOwner = accountLinked ? streamers.find(streamer => streamer.id === row.account_streamer_id) : undefined;
-  const empty = !row.base && !row.observed_name && !row.streamer_slug;
-  const unlinked = !empty && !row.remove && !known && !accountLinked;
-  const [championIndex, setChampionIndex] = useState(0);
-  const set = (key: keyof RosterDraftRow, value: string | boolean) => onChange(row.participant_id, { [key]: value } as Partial<RosterDraftRow>);
-  const selected = (cell: RosterCell) => activeCell === `${row.participant_id}:${cell}`;
-  const toggle = (cell: RosterCell) => onOpen(selected(cell) ? null : `${row.participant_id}:${cell}`);
-  const championQuery = row.champion_name.replace(/\s+/g, "").toLowerCase();
-  const championMatches = championQuery
-    ? CHAMPIONS.filter((champion) => champion.name.replace(/\s+/g, "").toLowerCase().includes(championQuery) || champion.en.toLowerCase().includes(championQuery)).slice(0, 6)
-    : [];
-  const chooseChampion = (name: string) => {
-    set("champion_name", name);
-    onOpen(null);
-  };
-  useEffect(() => { setChampionIndex(0); }, [activeCell]);
-  const championKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown" && championMatches.length) {
-      event.preventDefault();
-      setChampionIndex((index) => Math.min(index + 1, championMatches.length - 1));
-    } else if (event.key === "ArrowUp" && championMatches.length) {
-      event.preventDefault();
-      setChampionIndex((index) => Math.max(index - 1, 0));
-    } else if (event.key === "Enter" && championMatches[championIndex]) {
-      event.preventDefault();
-      chooseChampion(championMatches[championIndex].name);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      onOpen(null);
-    }
-  };
-  const choosePosition = (value: string) => {
-    set("team_position", value);
-    onOpen(null);
-  };
-  const closeKdaOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    onOpen(null);
-  };
-  useEffect(() => {
-    if (!selected("team_position")) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
-      if (!target?.closest(".ck-review-inspector")) return;
-      const position = POSITION_KEYS.find((item) => item.key === event.key.toLowerCase());
-      if (!position) return;
-      event.preventDefault();
-      choosePosition(position.value);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  });
-  return <div data-participant-id={row.participant_id} className={`ck-roster-row ${activeCell?.startsWith(`${row.participant_id}:`) ? "is-open" : ""} ${row.remove ? "is-removed" : ""}`}>
-    <div className="ck-roster-summary">
-      <button type="button" aria-label={`참가자 ${row.participant_id} 포지션`} onClick={() => toggle("team_position")} aria-expanded={selected("team_position")}>{row.team_position || "—"}</button>
-      <button type="button" aria-label={`참가자 ${row.participant_id} 이름${unlinked ? " · 스트리머 미연결" : ""}`} onClick={() => toggle("identity")} aria-expanded={selected("identity")}
-        data-unlinked={unlinked || undefined}
-        title={unlinked ? "스트리머 미연결: 이름을 눌러 연결하세요. 개인 전적·상대전적 집계에 포함되지 않습니다." : undefined}
-        className={empty ? "text-ink-600" : "text-ink-200"}>{row.remove ? "삭제 예정" : accountOwner?.display_name || known?.display_name || row.observed_name || row.streamer_slug || row.riot_id || (row.base ? "미확인" : "+ 누락 선수")}</button>
-      <button type="button" aria-label={`참가자 ${row.participant_id} 챔피언`} onClick={() => toggle("champion_name")} aria-expanded={selected("champion_name")}>{row.champion_name || "—"}</button>
-      <button type="button" aria-label={`참가자 ${row.participant_id} KDA`} onClick={() => toggle("kda")} aria-expanded={selected("kda")}>{[row.kills, row.deaths, row.assists].some(Boolean) ? `${row.kills || "–"}/${row.deaths || "–"}/${row.assists || "–"}` : "—"}</button>
-    </div>
-    {selected("team_position") && <div className="ck-roster-cell-editor">
-      <div className="ck-roster-position-choices">
-        {POSITION_KEYS.map((position) => <button key={position.value} type="button" onClick={() => choosePosition(position.value)}>
-          <kbd>{position.key.toUpperCase()}</kbd>{position.label}
-        </button>)}
-      </div>
-    </div>}
-    {selected("identity") && <div className="ck-roster-cell-editor grid gap-2">
-      {unlinked && <p className="text-[10px] text-amber-300">스트리머 미연결 · 등록 스트리머를 선택하고 저장하세요.</p>}
-      {/* API 경기는 화면에서 읽은 이름이 없다. 누구인지 판단할 단서로 Riot ID 를 보여 준다(저장하지 않는다). */}
-      {row.riot_id && <p className="text-[10px] text-ink-400">Riot 계정 <b className="text-ink-200 select-all">{row.riot_id}</b></p>}
-      <input list="ck-streamers" value={row.streamer_slug} onChange={(event) => set("streamer_slug", event.target.value)} placeholder="등록 스트리머(slug)" className={inputClass} />
-      <input value={row.observed_name} onChange={(event) => set("observed_name", event.target.value)} placeholder="화면에서 읽은 인게임명" className={inputClass} />
-      {row.base?.puuid && <label className="flex items-center gap-1.5 text-[10px] text-ink-500"><input type="checkbox" checked={row.clear_puuid} onChange={(event) => set("clear_puuid", event.target.checked)} className="accent-lose" />계정 연결 비우기</label>}
-      {row.base && <button type="button" onClick={() => set("remove", !row.remove)} className="text-left text-[10px] text-ink-500 hover:text-lose">{row.remove ? "삭제 취소" : "이 자리 삭제"}</button>}
-    </div>}
-    {selected("champion_name") && <div className="ck-roster-cell-editor">
-      <input autoFocus value={row.champion_name} onChange={(event) => { set("champion_name", event.target.value); setChampionIndex(0); }} onKeyDown={championKeys} placeholder="챔피언 이름 입력" className={inputClass} />
-      {championMatches.length > 0 && <div className="ck-champion-suggestions" role="listbox" aria-label="일치하는 챔피언">
-        {championMatches.map((champion, index) => <button key={champion.id} type="button" role="option" aria-selected={championIndex === index} data-selected={championIndex === index || undefined} onMouseEnter={() => setChampionIndex(index)} onClick={() => chooseChampion(champion.name)}>
-          <img src={`/images/champions/${champion.en}.png`} alt="" />
-          <span>{champion.name}</span><small>{champion.en}</small>
-        </button>)}
-      </div>}
-    </div>}
-    {selected("kda") && <div className="ck-roster-cell-editor grid grid-cols-3 gap-2"><input autoFocus value={row.kills} onChange={(event) => set("kills", event.target.value)} onKeyDown={closeKdaOnEnter} placeholder="K" inputMode="numeric" className={inputClass} /><input value={row.deaths} onChange={(event) => set("deaths", event.target.value)} onKeyDown={closeKdaOnEnter} placeholder="D" inputMode="numeric" className={inputClass} /><input value={row.assists} onChange={(event) => set("assists", event.target.value)} onKeyDown={closeKdaOnEnter} placeholder="A" inputMode="numeric" className={inputClass} /></div>}
   </div>;
 }

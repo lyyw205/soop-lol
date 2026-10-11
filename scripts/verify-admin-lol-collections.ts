@@ -11,9 +11,8 @@ import { disposablePglite } from './lib/disposable-pglite.ts';
 import { freePort } from './lib/disposable-postgres.ts';
 import { applyAll } from './lib/migrations.ts';
 import { db, closeDb } from '../packages/core/lib/db/client.ts';
-import { countOverviewSeries, listOverviewSeries, getOverviewSeriesSets } from '../packages/core/lib/db/match-overview.ts';
+import { countOverviewSeries, listOverviewSeries, getOverviewSeriesSets, listOverviewWorkList } from '../packages/core/lib/db/match-overview.ts';
 import { countUnidentifiedNames, listUnidentifiedParticipants, listEventLeads, upsertEventLead } from '../packages/core/lib/db/ck.ts';
-import { lolReviewQueueIds } from '../packages/core/lib/db/review-priority.ts';
 
 const root = join(import.meta.dirname, '..'), pg = await disposablePglite();
 process.env.DATABASE_URL = pg.url;
@@ -56,13 +55,13 @@ try {
     const leads = await listEventLeads({ collection, channel_id: 'collection-test', with_matches: true });
     assert.equal(leads[0].id, lead);
     assert.equal(leads[0].match_count, collection === 'aram' ? 2 : 3);
-    const queueIds = await lolReviewQueueIds(cases.map(c => c[0]), '/admin/aram?queue=all', collection);
-    assert.deepEqual(queueIds.sort(), collection === 'aram' ? ['aram', 'mayhem'] : ids);
+    // 검수 화면의 작업 목록(이전·다음·완료 후 이동)도 목록과 같은 범위다 — 다른 모음의 경기가 섞이지 않는다.
+    assert.deepEqual((await listOverviewWorkList(opts)).map(w => w.match_id).sort(), ids);
   }
   await sql`UPDATE match SET review_completed_at = now() WHERE match_id = 'aram'`;
   assert.equal(await countOverviewSeries({ collection: 'aram', unreviewed: true }), 0);
   assert.equal(await countOverviewSeries({ collection: 'rift', unreviewed: true }), 1, 'ARAM completion does not complete the Rift portion');
-  assert.deepEqual(await lolReviewQueueIds(['aram', 'rift'], '/admin/aram?queue=priority', 'aram'), []);
+  assert.deepEqual(await listOverviewWorkList({ collection: 'aram', unreviewed: true, queue: 'priority' }), []);
   await sql`UPDATE match SET review_completed_at = NULL WHERE match_id = 'aram'`;
   console.log('LoL collection DB checks passed: mixed series, counts, search, pagination, participants, channels, queues, completion.');
   if (process.argv.includes('--browser')) {

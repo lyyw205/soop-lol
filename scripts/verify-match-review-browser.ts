@@ -10,6 +10,8 @@
  *   6. 예전 대회 검수 주소는 그 대회 목록으로 간다.
  *   7. VOD 화면의 "편집할 세트" 를 바꾸면 보는 사진도 그 세트로 간다(편집 대상과 사진이 어긋나지 않는다).
  *   8. 묶지 않은 경기는 "시리즈 미지정" 이고 시리즈로 세지 않는다. 근거를 적어 "단판으로 확인" 하면 단판이 된다.
+ *   9. 편집은 경기 화면에서 — 경기 사이를 오가도 경기별 로스터 초안이 남고, 저장·승자 변경이 DB 와 이력에 남는다
+ *      (Next 를 내린 뒤 같은 임시 DB 에 다시 붙어 확인한다). VOD 화면은 찾기 전용이라 편집기가 없다.
  */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -42,8 +44,8 @@ try {
   for (const [i, id] of ids.entries()) {
     await sql`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, source, origin, game_creation, game_creation_precision, game_duration, winning_team, event_id)
       VALUES (${id}, 'lol', 0, '0', 'CLASSIC', 11, 'manual', 'vod_scan', ${new Date(Date.UTC(2030, 0, 1, 12 + i))}, 'datetime', 1800, 100, ${event.id})`;
-    for (let p = 1; p <= 2; p++) await sql`INSERT INTO match_participant (match_id, participant_id, team_id, observed_name, champion_id, outcome)
-      VALUES (${id}, ${p}, ${p === 1 ? 100 : 200}, ${`선수${p}`}, ${p}, ${p === 1 ? 'win' : 'loss'})`;
+    for (let p = 1; p <= 2; p++) await sql`INSERT INTO match_participant (match_id, participant_id, team_id, observed_name, champion_id, outcome, kills, deaths, assists)
+      VALUES (${id}, ${p}, ${p === 1 ? 100 : 200}, ${`선수${p}`}, ${p}, ${p === 1 ? 'win' : 'loss'}, ${i + p}, 1, 2)`;
   }
   await sql`INSERT INTO event_lead (id, source, source_key, title, observed_at, raw, state, url) VALUES
     (${LEAD_A}, 'vod_title', 'vod:mr-a', '방송 A', now(), '{}'::jsonb, 'confirmed', 'https://example.test/a'),
@@ -147,6 +149,27 @@ try {
   await page.getByRole('button', { name: '이 경기 근거에서 빼기', exact: true }).waitFor();
   assert.equal(await page.locator('.ck-review-frame-strip > button[data-reference]').count(), 0);
 
+  // 9. 편집은 경기 화면에서. 경기 사이를 오가도(다음·이전) 경기별 로스터 초안이 남는다.
+  const roster = () => page.locator('form:has(input[name=roster])');
+  const kda = async () => { await page.getByRole('tab', { name: '로스터', exact: true }).click();
+    await page.locator('[data-participant-id="1"]').getByRole('button', { name: '참가자 1 KDA' }).click();
+    return page.locator('[data-participant-id="1"] input[placeholder=K]'); };
+  await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M1')}?from=${encodeURIComponent(from)}`);
+  await (await kda()).fill('77');
+  await page.getByRole('button', { name: '다음 ↓', exact: true }).click();
+  await page.waitForURL((url) => decodeURIComponent(url.pathname).endsWith('mr:M2'));
+  assert.equal(await (await kda()).inputValue(), '2', '다른 경기의 값이 보인다(초안이 새지 않는다)');
+  await page.getByRole('button', { name: '↑ 이전', exact: true }).click();
+  await page.waitForURL((url) => decodeURIComponent(url.pathname).endsWith('mr:M1'));
+  assert.equal(await (await kda()).inputValue(), '77', '돌아오면 그 경기의 초안이 남아 있다');
+  await roster().getByRole('button', { name: '변경사항 저장', exact: true }).click();
+  await roster().locator('[role=status]', { hasText: '저장했습니다' }).waitFor();
+  await page.getByRole('tab', { name: '경기', exact: true }).click();
+  const meta = page.locator('form:has(.ck-review-match-summary)');
+  await meta.getByRole('button', { name: '2팀', exact: true }).click();
+  await meta.locator('[role=status]').waitFor();
+  await page.getByRole('button', { name: '2팀', exact: true, pressed: true }).waitFor();
+
   // M3: 근거가 없는 경기도 열리고 고칠 수 있다.
   await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M3')}?from=${encodeURIComponent(from)}`);
   await page.getByText('이 경기에 근거가 붙은 방송이 없습니다.').waitFor();
@@ -175,17 +198,35 @@ try {
   await page.getByRole('button', { name: '검수 완료로 표시' }).click();
   await page.waitForURL((url) => decodeURIComponent(url.pathname).endsWith(expected[1]));
 
-  // 7. VOD 화면: "편집할 세트" 를 바꾸면 보는 사진도 그 세트로 간다.
-  await page.goto(`${base}/admin/ck/${LEAD_A}`);
-  const editSet = page.getByRole('combobox', { name: '편집할 세트' });
-  await editSet.waitFor();
-  await editSet.selectOption('mr:M2');
-  assert.equal(await page.locator('select[name=match_id]').inputValue(), 'mr:M2', '보는 사진의 경기 = 편집 대상');
-  await editSet.selectOption('mr:M1');
-  assert.equal(await page.locator('select[name=match_id]').inputValue(), 'mr:M1');
+  // 7. VOD 화면은 찾기 전용 — 큐에서 경기를 고르면 사진과 요약이 그 경기로 가고, 편집은 경기 화면 링크로.
+  await page.goto(`${base}/admin/ck/${LEAD_A}?from=${encodeURIComponent(from)}`);
+  await page.locator('.ck-review-queue-item[data-kind=match]').first().waitFor();
+  assert.equal(await page.getByRole('tab', { name: '로스터' }).count(), 0, 'VOD 화면에는 편집기가 없다');
+  assert.equal(await page.getByRole('combobox', { name: '편집할 세트' }).count(), 0);
+  for (const id of ['mr:M2', 'mr:M1']) {
+    await page.locator(`[id="ck-review-queue-match:${id}"] button`).click();
+    const summary = page.getByRole('complementary', { name: '선택한 항목' });
+    await summary.getByRole('heading', { name: id, exact: true }).waitFor();
+    assert.equal(await page.locator('select[name=match_id]').inputValue(), id, '보는 사진의 경기 = 고른 경기');
+    const href = await summary.getByRole('link', { name: '경기 화면에서 검수 →' }).getAttribute('href');
+    assert.equal(new URL(href!, base).searchParams.get('from'), from, '경기 화면으로 갈 때 작업 목록을 들고 간다');
+  }
 
   assert.deepEqual(errors, []);
-  console.log('match review browser scenarios passed: same work list/order, VOD filter keeps target, linked vs reference, frames without POV, prev/next/keyboard/completion, event permalink, VOD set selector moves photo, unassigned vs confirmed single');
+  await browser.close(); browser = undefined;
+  app.kill('SIGTERM'); await once(app, 'exit'); app = undefined;
+
+  // 9(이어서). Next 를 내리고 같은 임시 DB 에 다시 붙어 화면에서 한 저장을 확인한다.
+  const after = db();
+  const [m1] = await after`SELECT winning_team, review_completed_at IS NOT NULL AS done FROM match WHERE match_id = 'mr:M1'`;
+  assert.equal(m1.winning_team, 200, '승자 변경 저장');
+  assert.equal((await after`SELECT kills FROM match_participant WHERE match_id = 'mr:M1' AND participant_id = 1`)[0].kills, 77, '로스터 저장');
+  assert.equal((await after`SELECT bool_and((outcome = 'win') = (team_id = 200)) AS ok FROM match_participant WHERE match_id = 'mr:M1'`)[0].ok, true, '승자를 바꾸면 참가자 승패도 맞춰진다');
+  assert.ok((await after`SELECT 1 FROM review_change WHERE match_id = 'mr:M1' AND field = 'winning_team' AND after = '200'::jsonb`).length, '화면에서 고친 값은 수정 이력에 남는다');
+  assert.equal((await after`SELECT match_id FROM match_evidence_frame WHERE frame_path = 'out/ck/mr-a/m2-game.jpg'`)[0].match_id, 'mr:M2', '참고 사진 연결 저장');
+  const [single] = await after`SELECT m.series_id, m.series_game_no, s.best_of, s.event_id IS NOT NULL AS has_event FROM match m JOIN match_series s ON s.id = m.series_id WHERE m.match_id = 'mr:M3'`;
+  assert.deepEqual({ ...single }, { series_id: 'mr:M3', series_game_no: 1, best_of: 1, has_event: true }, '단판 확인 저장 — 시리즈가 대회를 넘겨받는다');
+  console.log('match review browser scenarios passed: same work list/order, VOD filter keeps target, linked vs reference, frames without POV, prev/next/keyboard/completion, event permalink, VOD screen find-only, unassigned vs confirmed single, edits persisted (roster draft per match, save, winner/outcome, history)');
 } catch (error) {
   if (app) console.error((await readFile(join(scratch, 'next.log'), 'utf8')).slice(-6000));
   throw error;

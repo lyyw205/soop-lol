@@ -21,10 +21,8 @@ import { adminHref } from "@/lib/admin-navigation";
 import { adminTabKeys } from "@/lib/admin-tab-keys";
 import { rosterFocus } from "@/lib/ck-review-progress";
 
-import {
-  frameUrl, hms, KIND_LABEL, MatchInspector, PovDiffBox, RosterInspector, vodAt,
-  type PovDiffRowView, type ReviewEvent, type ReviewMatch, type ReviewStreamer,
-} from "./CkReviewer";
+import { frameUrl, hms, KIND_LABEL, vodAt, type PovDiffRowView, type ReviewEvent, type ReviewMatch, type ReviewStreamer } from "./ck-review-shared";
+import { MatchInspector, PovDiffBox, RosterInspector } from "./MatchEditors";
 import {
   matchEvidence, nextUncompleted, representativeEvidence, visibleEvidence, workPosition,
   type EvidenceFrame, type EvidenceVodInput, type WorkItem,

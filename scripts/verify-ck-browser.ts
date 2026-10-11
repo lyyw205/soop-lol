@@ -64,8 +64,10 @@ try {
   const context=await browser.newContext({httpCredentials:{username:'ck_test',password:'disposable-only'},viewport:{width:1440,height:1100}});
   const p=await context.newPage();p.on('pageerror',e=>errors.push(e.message));await p.goto(url);
   await p.locator('.ck-review-queue-item[data-kind="match"]').first().waitFor();
+  // 편집은 경기 화면에서 한다(2026-10-12 — VOD 화면은 찾기 전용). 목록 주소를 들고 가 작업 목록이 이어진다.
+  const listFrom='/admin/ck?queue=all&review=all&q=browser';
   const choose=async(n:number,page=p)=>{
-    await page.getByRole('button',{name:`시각 미상 경기 browser:M${n}`,exact:true}).click();
+    await page.goto(`${base}/admin/ck/match/${encodeURIComponent(`browser:M${n}`)}?from=${encodeURIComponent(listFrom)}`);
     await page.getByRole('tab',{name:'경기',exact:true}).click();
     await page.getByRole('heading',{name:`browser:M${n}`,exact:true}).waitFor();
   };
@@ -78,8 +80,7 @@ try {
     await run();assert.ok((await response).ok());
     await page.locator('form:has(.ck-review-match-summary) [role=status]').waitFor();
   };
-  // 큐에서 경기를 누르면 편집 대상도 따라가고(초안이 남아 있어도), 로스터 초안이 다른 경기로 새지 않는다.
-  // ⚠ 편집할 세트 드롭다운을 따로 고르지 않는다 — 예전엔 그걸로 대신 골라서 큐 클릭이 안 먹는 회귀를 못 잡았다.
+  // 경기를 오가도 편집 대상은 그 경기이고, 로스터 초안이 다른 경기로 새지 않으며 돌아오면 남아 있다.
   await choose(1);await openRoster();await row(1).getByRole('button',{name:'참가자 1 KDA'}).click();
   await row(1).locator('input[placeholder=K]').fill('77');
   await choose(2);await openRoster();await row(1).getByRole('button',{name:'참가자 1 KDA'}).click();
@@ -122,7 +123,7 @@ try {
     JOIN match_participant pa ON pa.match_id=m.match_id AND pa.streamer_id=e.streamer_a_id
     WHERE m.match_id='browser:M1'`;
   assert.equal(publicWins[0].ok,true);
-  await verifyPriorityBrowser(context,base,lead);
+  await verifyPriorityBrowser(context,base);
   await verifyAdminBrowser(context,base,a.id);
   await verifyUnknownBrowser(context,base,a.id,b.id);
   assert.deepEqual(errors,[]);
