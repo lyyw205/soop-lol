@@ -193,7 +193,16 @@ export async function saveMatch(dto: MatchDto, source?: MatchSource): Promise<Sa
     `;
 
     if (inserted.length > 0) {
-      for (const p of participantRows) await insertParticipant(tx, p);
+      // ★ 상세 지표(perks·challenges)는 **스트리머 계정 줄만** 저장한다(2026-10-12). 경기당 10명 중 보통 9명은
+      //   일반인이고, 그들의 상세 지표는 어느 화면도 쓰지 않는데 DB 의 절반(732MB)을 차지해 운영 DB 가 용량 한도로
+      //   읽기 전용이 됐다. 기본 정보(계정·팀·챔피언·KDA)는 그대로 남긴다 — 나중에 등록되는 스트리머의 과거
+      //   조우를 되살리는 데 필요하다(CLAUDE.md 원칙 5). 지난 계정(active_to 있음)도 스트리머 계정으로 본다.
+      const streamerPuuids = new Set((await tx<{ puuid: string }[]>`
+        SELECT DISTINCT puuid FROM streamer_account
+         WHERE puuid = ANY(${participantRows.map((p) => p.puuid).filter(Boolean) as string[]}::text[])`).map((r) => r.puuid));
+      for (const p of participantRows) {
+        await insertParticipant(tx, p.puuid && streamerPuuids.has(p.puuid) ? p : { ...p, perks: null, challenges: null });
+      }
     }
     // 이미 있던 매치라도 파생은 다시 돈다 — 새 스트리머가 등록됐을 수 있다.
     const encounters = await writeEncounters(tx, matchRow, participantRows);
@@ -328,7 +337,7 @@ async function insertParticipant(tx: Tx, p: ParticipantRow): Promise<void> {
       ${p.wards_placed}, ${p.wards_killed}, ${p.control_wards}, ${p.turret_kills}, ${p.first_blood_kill},
       ${p.summoner1_id}, ${p.summoner2_id}, ${p.items},
       ${p.perks === null ? null : tx.json(p.perks as never)},
-      ${tx.json(p.challenges as never)}
+      ${p.challenges == null ? null : tx.json(p.challenges as never)}
     )
     -- ★ PK 가 (match_id, participant_id) 로 바뀌었다(0017). (match_id, puuid) 는
     --   이제 **부분** 유니크 인덱스(WHERE puuid IS NOT NULL)라 ON CONFLICT 이

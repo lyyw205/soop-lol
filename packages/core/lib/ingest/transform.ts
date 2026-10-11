@@ -87,7 +87,8 @@ export interface ParticipantRow {
   summoner2_id: number | null;
   items: number[];
   perks: unknown;
-  challenges: Record<string, number | undefined>;
+  /** 스트리머 계정 줄만 채운다 — 일반인 줄은 저장 직전에 null(db/ingest.ts saveMatch, 2026-10-12). */
+  challenges: Record<string, number | undefined> | null;
 }
 
 /**
