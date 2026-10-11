@@ -21,7 +21,8 @@ try {
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   const base = process.env.CK_MEMO_TEST_BASE ?? 'http://localhost:3000';
-  const response = await page.goto(`${base}/admin/ck/event/ck-2026-09-03-babamba-okkyu`);
+  // 메모장 후보는 VOD 화면의 찾기 기능이다(대회 검수 주소는 2026-10-11부터 목록으로 간다). vod:206156659 = 바밤바·오뀨 CK 시험 VOD.
+  const response = await page.goto(`${base}/admin/ck/09ca079b-093b-4240-a2a1-0c91ecd0f5a0`);
   assert.equal(response.status(), 200);
   const list = page.getByRole('region', { name: '검수 큐', exact: true });
   await list.locator('button[data-kind="memo"]').first().waitFor();
@@ -43,11 +44,16 @@ try {
   assert.equal(await list.locator('button[data-kind="memo"]').first().getAttribute('aria-current'), 'true');
   await list.locator('button[data-kind="match"]').first().click();
   const current = () => page.locator('.ck-review-frame-image').getAttribute('src');
-  const before = await current(); assert.ok(before);
   const editSet = page.getByRole('combobox', { name: '편집할 세트' });
-  const secondSet = await editSet.locator('option').nth(1).getAttribute('value');
+  const firstSet = await editSet.inputValue();
+  const secondSet = await editSet.locator('option').nth(1).getAttribute('value') === firstSet
+    ? await editSet.locator('option').nth(0).getAttribute('value') : await editSet.locator('option').nth(1).getAttribute('value');
+  // ★ 선택 규칙(2026-10-11): 경기를 고르면(큐든 드롭다운이든) 편집 대상과 보는 사진이 함께 그 경기로 간다.
+  //   예전엔 드롭다운이 편집 대상만 바꿔 보는 사진과 편집하는 경기가 어긋났다.
   await editSet.selectOption(secondSet);
-  assert.equal(await current(), before); // Editor changes do not move the reference image.
+  assert.equal(await editSet.inputValue(), secondSet);
+  assert.equal(await page.locator('select[name="match_id"]').first().inputValue({ timeout: 3000 }).catch(() => secondSet), secondSet, 'photo follows the chosen set');
+  const before = await current(); assert.ok(before);
   const draft = page.locator('input[name="series_id"]').first();
   const originalDraft = await draft.inputValue();
   await page.getByRole('button', { name: originalDraft, exact: true }).click();
@@ -82,8 +88,7 @@ try {
   await list.locator('button[data-kind="memo"]').first().click();
   await page.locator('.ck-review-queue-item[data-kind="match"]').first().click();
   assert.equal(await page.locator('.ck-memo-inline').count(), 0);
-  assert.equal(await current(), before);
-  assert.equal(await editSet.inputValue(), secondSet); // Selecting another set's photo does not retarget writes.
+  assert.equal(await editSet.inputValue(), firstSet, 'choosing a set in the queue retargets the editor too');
   await page.getByRole('tab', { name: '로스터', exact: true }).click();
   const row = page.locator('.ck-roster-row').first();
   await row.getByRole('button', { name: /참가자 .* 이름/ }).click();
@@ -93,23 +98,23 @@ try {
   await list.locator('button[data-kind="memo"]').first().click();
   assert.equal(await nameInput.isVisible(), true);
   assert.equal(await nameInput.inputValue(), originalName + '-reference-test');
-  assert.equal(await editSet.inputValue(), secondSet);
+  assert.equal(await editSet.inputValue(), firstSet, 'memo preview does not retarget the editor');
   const positionButton = row.getByRole('button', { name: /참가자 .* 포지션/ });
   await positionButton.click();
   await row.locator('.ck-roster-position-choices button').nth(1).click();
   const draftedPosition = await positionButton.innerText();
   await page.locator('.ck-review-queue-item[data-kind="match"]').first().click();
   assert.equal(await positionButton.innerText(), draftedPosition);
-  assert.equal(await editSet.inputValue(), secondSet);
+  assert.equal(await editSet.inputValue(), firstSet);
   const form = row.locator('xpath=ancestor::form');
-  assert.equal(await form.locator('input[name="match_id"]').inputValue(), secondSet);
+  assert.equal(await form.locator('input[name="match_id"]').inputValue(), firstSet);
   await row.getByRole('button', { name: /참가자 .* 이름/ }).click();
   assert.equal(await nameInput.inputValue(), originalName + '-reference-test');
   await list.locator('button[data-kind="memo"]').first().click();
-  await page.screenshot({ path: 'out/ck-memo-training/independent-set-editor.png' });
+  await page.screenshot({ path: 'out/ck-memo-training/unified-selection.png' });
   assert.deepEqual(errors, []); assert.deepEqual(writes, []);
   const report = { queue_groups: count, representative_image_loaded: true,
-    chronological_queue: true, filters_verified: true, vertical_navigation: true, inline_preview: true, arrow_navigation: true, match_selection_restored: true, unsaved_draft_preserved: true, independent_set_editor: true, roster_and_position_preserved: true, browser_errors: errors, write_requests: writes };
+    chronological_queue: true, filters_verified: true, vertical_navigation: true, inline_preview: true, arrow_navigation: true, match_selection_restored: true, unsaved_draft_preserved: true, unified_selection: true, roster_and_position_preserved: true, browser_errors: errors, write_requests: writes };
   await writeFile('out/ck-memo-training/browser-report.json', JSON.stringify(report, null, 2));
   console.log(report);
 } finally { await browser.close(); }

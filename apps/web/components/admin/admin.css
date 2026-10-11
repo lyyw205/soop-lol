@@ -161,6 +161,10 @@ body:has(.admin-theme) > footer { display: none; }
 .admin-theme .ck-review-frame-strip > button { position: relative; flex: 0 0 72px; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 5px; background: var(--color-ink-950); }
 .admin-theme .ck-review-frame-strip > button:hover { border-color: var(--color-accent-600); }
 .admin-theme .ck-review-frame-strip > button[aria-current="true"] { border-color: var(--color-accent-400); box-shadow: 0 0 0 1px var(--color-accent-400); }
+/* 경기 검수 화면: 참고(미연결) 사진은 점선·흐리게, 방송이 바뀌는 곳은 간격으로 구별한다. */
+.admin-theme .ck-review-frame-strip > button[data-reference] { border-style: dashed; opacity: .72; }
+.admin-theme .ck-review-frame-strip > button[data-vod-start] { margin-left: 10px; }
+.admin-theme .ck-review-queue-item[data-kind="vod"] .ck-review-queue-kind { color: var(--admin-muted); }
 .admin-theme .ck-review-frame-strip img { display: block; width: 70px; height: 42px; object-fit: cover; }
 .admin-theme .ck-review-frame-strip span { display: block; padding: 2px 3px; color: var(--color-ink-200); font-size: 9px; font-variant-numeric: tabular-nums; }
 .admin-theme .ck-review-minimap { position: relative; flex: 0 0 auto; height: 18px; margin-top: 10px; overflow: hidden; border: 1px solid var(--admin-line); border-radius: 6px; background: var(--color-ink-950); }

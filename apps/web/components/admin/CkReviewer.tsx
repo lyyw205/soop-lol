@@ -18,7 +18,7 @@
 
 import { adminTabKeys } from "@/lib/admin-tab-keys";
 import { useRouter, useSearchParams } from "next/navigation";
-import { adminReturn } from "@/lib/admin-navigation";
+import { adminHref, adminReturn } from "@/lib/admin-navigation";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -138,11 +138,6 @@ interface Props {
   events: ReviewEvent[];
   /** 확인된 값이 있을 때만 절대 경기 시각을 VOD 상대 초로 바꾼다. */
   vodStartedAt?: string | null;
-  /**
-   * 다시점 대회 화면에서만 준다 — 이 VOD(시점)가 직접 읽은 값 중 경기 값과 다른 칸, 경기별.
-   * 경기 값은 한 벌이라 어느 시점에서 고쳐도 같은 경기가 고쳐진다. docs/CK-MULTI-POV-PLAN.md §6
-   */
-  povDiffs?: Record<string, { compared: number; rows: PovDiffRowView[] }>;
 }
 
 export interface PovDiffRowView {
@@ -156,7 +151,7 @@ export interface PovDiffRowView {
 
 // ── 작은 조각 ────────────────────────────────────────────────────────
 
-function vodAt(url: string, seconds: number | null): string {
+export function vodAt(url: string, seconds: number | null): string {
   if (seconds == null) return url;
   try {
     const target = new URL(url);
@@ -165,7 +160,7 @@ function vodAt(url: string, seconds: number | null): string {
   } catch { return url; }
 }
 
-const hms = (sec: number | null) => {
+export const hms = (sec: number | null) => {
   if (sec == null) return "--:--:--";
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -178,16 +173,16 @@ const compactKst = (value: string, precision: string = "datetime") =>
   !value ? "—" : precision === "date" ? value.slice(0, 10) : value.replace("T", " ");
 
 /** 세트 이름은 core 의 setLabel 하나로 낸다 — 화면마다 규칙이 다르면 같은 판이 다르게 불린다. */
-const matchSetLabel = (m: { series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null }) =>
+export const matchSetLabel = (m: { series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null }) =>
   setLabel({ standalone: !m.series_id, best_of: m.best_of, set_order_known: m.set_order_known, series_game_no: m.series_game_no });
 const durationLabel = (sec: number | null) => sec == null
   ? "—"
   : `${Math.floor(sec / 60)}분${sec % 60 ? ` ${sec % 60}초` : ""}`;
 
 /** 프레임 파일을 서빙하는 라우트. `out/` 밖은 라우트가 거부한다. */
-const frameUrl = (path: string) => `/admin/ck/frame/${path.split("/").map(encodeURIComponent).join("/")}`;
+export const frameUrl = (path: string) => `/admin/ck/frame/${path.split("/").map(encodeURIComponent).join("/")}`;
 
-const KIND_LABEL: Record<ReviewFrame["kind"], string> = {
+export const KIND_LABEL: Record<ReviewFrame["kind"], string> = {
   result: "결과창",
   roster: "로스터",
   other: "그 밖",
@@ -203,7 +198,7 @@ const POSITIONS = ["", "TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
 
 type Projected = ProjectedMatch<ReviewMatch, ReviewFrame>;
 
-export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialTab, syncUrl = false, povDiffs, reviewQueueIds }: Props) {
+export function CkReviewer({ leadId, frames, matches, streamers, events, vodStartedAt, vodUrl, initialMatchId, initialFocus, initialTab, syncUrl = false, reviewQueueIds }: Props) {
   const router = useRouter(), params = useSearchParams();
   const memo = useMemoReferences(vodUrl);
   const projection = useMemo(
@@ -218,8 +213,9 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
   //   예전엔 참고 화면(picked)과 편집 대상(editingMatchId)을 따로 들고 있어서 둘이 어긋나는 경우가
   //   생길 때마다 예외(초안이 있으면 대상 유지·"참고 화면 ≠ 입력 대상" 안내…)가 붙었고,
   //   그 예외가 "다른 판을 눌러도 로스터가 안 바뀐다" 를 계속 되살렸다. 어긋날 수 없게 하나로 합친다.
-  //   · 경기와 보는 사진은 같은 상태 안의 두 칸이다. 미연결 사진·메모장을 넘기면 사진만 바뀌고,
-  //     "편집할 세트" 드롭다운은 경기만 바꾸고 사진은 그대로 둔다. 큐에서 경기를 누르면 둘 다 그 경기로 간다.
+  //   · 경기와 보는 사진은 같은 상태 안의 두 칸이다. 미연결 사진·메모장을 넘기면 사진만 바뀐다.
+  //     큐·"편집할 세트" 에서 경기를 고르면 둘 다 그 경기로 간다 — 드롭다운이 경기만 바꾸고 사진을 남기면
+  //     보는 사진과 편집 대상이 어긋났다(2026-10-11 재현).
   //   · 저장 안 한 로스터 초안은 경기별로 sessionStorage 에 남는다(use-review-draft) — 다른 판에 갔다 와도 복원된다.
   const rosterField = rosterFocus(initialFocus)?.focus;
   const [zoom, setZoom] = useState(false);
@@ -396,14 +392,15 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
             <div className="ck-review-panel p-3 text-xs">
               <label className="grid gap-2">편집할 세트
                 <select aria-label="편집할 세트" className={inputClass} value={editingMatch?.match_id ?? ""}
-                  disabled={!matches.length} onChange={event => setPicked({ matchId: event.target.value, frameId: selectedId })}>
+                  disabled={!matches.length} onChange={event => pickMatch(event.target.value)}>
                   {!matches.length && <option value="">저장된 경기 없음</option>}
                   {matches.map(match => <option key={match.match_id} value={match.match_id}>
                     {matchSetLabel(match)} · {match.match_id}
                   </option>)}
                 </select>
               </label>
-              {editingMatch && <p className="mt-2"><strong className="text-accent-400">편집 중: {matchSetLabel(editingMatch)}</strong></p>}
+              {editingMatch && <p className="mt-2 flex flex-wrap items-center justify-between gap-2"><strong className="text-accent-400">편집 중: {matchSetLabel(editingMatch)}</strong>
+                <a href={adminHref(`/admin/ck/match/${encodeURIComponent(editingMatch.match_id)}`, { from: params.get("from") })} className="text-ink-400 hover:text-ink-200">모든 방송 근거로 검수 →</a></p>}
             </div>
             <div className="ck-review-inspector-tabs" role="tablist" aria-label="검수 정보" onKeyDown={adminTabKeys}>
               <button type="button" role="tab" aria-selected={inspectorTab === "game"}
@@ -414,9 +411,6 @@ export function CkReviewer({ leadId, frames, matches, streamers, events, vodStar
 
             <div className="ck-review-inspector-body">
 
-              {editingMatch && povDiffs && (
-                <PovDiffBox diff={povDiffs[editingMatch.match_id]} match={editingMatch} streamers={streamers} />
-              )}
               {!editingMatch ? (
                 <div className="ck-review-panel p-4 text-xs leading-relaxed text-ink-400">
                   저장된 경기가 없습니다. 결과 프레임에서 새 경기를 만들 수 있습니다.
@@ -507,7 +501,7 @@ function CreateMatchFromFrame({ frame, matches, events, onCreated }: {
   </details>;
 }
 
-function PovDiffBox({ diff, match, streamers }: {
+export function PovDiffBox({ diff, match, streamers }: {
   diff: { compared: number; rows: PovDiffRowView[] } | undefined;
   match: ReviewMatch;
   streamers: ReviewStreamer[];
@@ -668,7 +662,7 @@ function FrameStrip({ frames, selectedId, onPick }: { frames: ReviewFrame[]; sel
 
 // ── 인스펙터: 경기 메타 ─────────────────────────────────────────────
 
-function MatchInspector({
+export function MatchInspector({
   leadId,
   match,
   events, otherDirty, onCompleted,
@@ -931,7 +925,7 @@ function EventLinkPicker({ value, events, onCommit, onCancel }: {
 
 // ── 인스펙터: 로스터 ────────────────────────────────────────────────
 
-function RosterInspector({
+export function RosterInspector({
   leadId,
   match,
   streamers,

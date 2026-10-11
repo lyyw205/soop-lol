@@ -13,7 +13,6 @@ import { isDeepStrictEqual } from "node:util";
 import type postgres from "postgres";
 
 import { db } from "./client.ts";
-import { lolReviewScope, type LoLReviewCollection } from "./lol-review-scope.ts";
 import { affectedStreamers } from "./ck.ts";
 import { recomputeChampionStatsInTx, rederiveEncountersInTx } from "./ingest.ts";
 import { resolveChampion } from "./participant.ts";
@@ -348,55 +347,6 @@ export async function getMatchPovViews(matchId: string): Promise<PovView[]> {
   });
 }
 
-export interface EventPovLead {
-  lead_id: string;
-  source_key: string;
-  title: string;
-  url: string | null;
-  observed_at: Date;
-  streamer_name: string | null;
-  /** 이 VOD 에서 나온 이 대회 경기 수. */
-  match_count: number;
-  /** 이 VOD 가 만든 경기가 있나. 검수 화면을 처음 열 때 이 시점을 먼저 보여 준다. */
-  creates: boolean;
-  /** 이 시점이 읽은 값 중 경기 값과 다른 채 아직 사람이 안 본 칸 수(계산값). */
-  mismatch_open: number;
-}
-
-/**
- * 대회 하나를 찍은 VOD 들 — 검수 화면 맨 위 시점 칩. 방송마다 시간축이 달라서, 칩을 고르면
- * 큐·프레임·미니맵이 그 VOD 기준으로 통째로 바뀐다. 한 방송이 VOD 둘로 나뉘면 칩도 둘이다.
- */
-export async function listEventPovLeads(eventId: string, collection?: LoLReviewCollection): Promise<EventPovLead[]> {
-  const sql = db();
-  const leads = await sql<Omit<EventPovLead, "mismatch_open">[]>`
-    SELECT el.id AS lead_id, el.source_key, el.title, el.url, el.observed_at,
-           (SELECT s.display_name FROM streamer s
-             WHERE s.id = COALESCE(el.streamer_id, (
-               SELECT c.streamer_id FROM streamer_channel c
-                WHERE c.channel_id = el.channel_id AND c.platform = 'soop'
-                ORDER BY c.active_to IS NULL DESC LIMIT 1))) AS streamer_name,
-           count(DISTINCT lm.match_id)::int AS match_count,
-           COALESCE(bool_or(p.role = 'created'), false) AS creates
-      FROM lead_match lm
-      JOIN match m ON m.match_id = lm.match_id
-      LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-      JOIN event_lead el ON el.id = lm.lead_id
-      LEFT JOIN match_pov p ON p.match_id = lm.match_id AND p.lead_id = lm.lead_id
-     WHERE COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid AND el.source_key LIKE 'vod:%'
-       AND ${lolReviewScope(collection)}
-     GROUP BY el.id
-     ORDER BY el.observed_at, el.source_key`;
-  const open = new Map<string, number>();
-  const matchIds = (await sql<{ match_id: string }[]>`
-    SELECT m.match_id FROM match m LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-     WHERE COALESCE(ms.event_id, m.event_id) = ${eventId}::uuid AND ${lolReviewScope(collection)}`).map((r) => r.match_id);
-  for (const id of matchIds) {
-    for (const v of await getMatchPovViews(id)) open.set(v.lead_id, (open.get(v.lead_id) ?? 0) + v.summary.mismatch_open);
-  }
-  return leads.map((l) => ({ ...l, mismatch_open: open.get(l.lead_id) ?? 0 }));
-}
-
 /** 검수 화면의 "이 시점이 읽은 값과 다른 칸" — 경기별로. 일치한 칸은 싣지 않는다. */
 export interface PovDiffRow {
   participant_id: number | null;
@@ -407,22 +357,18 @@ export interface PovDiffRow {
   status: "mismatch_open" | "mismatch_reviewed" | "pending" | "empty";
 }
 
-export async function povDiffsForLead(leadId: string, matchIds: string[]): Promise<Record<string, { compared: number; rows: PovDiffRow[] }>> {
-  const out: Record<string, { compared: number; rows: PovDiffRow[] }> = {};
-  for (const matchId of matchIds) {
-    const view = (await getMatchPovViews(matchId)).find((v) => v.lead_id === leadId);
-    if (!view) continue;
-    out[matchId] = {
-      compared: view.summary.compared,
-      rows: view.comparison.items.filter((i) => i.status !== "agree").map((i) => ({
-        participant_id: i.participant_id,
-        who: i.scope === "match" ? "경기" : i.key,
-        field: i.field,
-        stored: i.stored,
-        observed: i.observed,
-        status: (i.status === "mismatch" ? (i.reviewed ? "mismatch_reviewed" : "mismatch_open") : i.status) as PovDiffRow["status"],
-      })),
-    };
-  }
-  return out;
+/** 시점 하나가 읽은 값 중 경기 값과 다른 칸. 일치한 칸은 싣지 않는다. */
+export function povDiffOf(view: PovView): { compared: number; rows: PovDiffRow[] } {
+  return {
+    compared: view.summary.compared,
+    rows: view.comparison.items.filter((i) => i.status !== "agree").map((i) => ({
+      participant_id: i.participant_id,
+      who: i.scope === "match" ? "경기" : i.key,
+      field: i.field,
+      stored: i.stored,
+      observed: i.observed,
+      status: (i.status === "mismatch" ? (i.reviewed ? "mismatch_reviewed" : "mismatch_open") : i.status) as PovDiffRow["status"],
+    })),
+  };
 }
+

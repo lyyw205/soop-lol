@@ -80,21 +80,32 @@ export async function countOverviewSeries(opts: OverviewOptions = {}): Promise<n
   return row.n;
 }
 
+/**
+ * 목록의 순서 — 묶음(시리즈 또는 단독 경기) 순서와 묶음 안 세트 순서.
+ * ★ 목록(`listOverviewSeries`)과 검수 작업 목록(`listOverviewMatchIds`)이 **이 조각을 같이 쓴다.**
+ *   검수 화면의 이전·다음·완료 후 이동이 목록에 보이는 순서와 어긋나지 않게 하려는 것이다(2026-10-11).
+ */
+const GROUP_ORDER_COLUMNS = `COALESCE(m.series_id, m.match_id) AS key,
+           COALESCE(min(e.id::text), COALESCE(m.series_id, m.match_id)) AS group_key,
+           min(e.starts_at) AS event_start,
+           min((m.game_creation AT TIME ZONE 'Asia/Seoul')::date) AS played_day,
+           min(m.game_creation) FILTER (WHERE m.game_creation_precision = 'datetime') AS played_at,
+           min(m.game_creation) AS first_played`;
+const GROUP_ORDER = `COALESCE(event_start, max(first_played) OVER (PARTITION BY group_key)) DESC NULLS LAST, group_key,
+              played_day, played_at NULLS LAST, key`;
+const SET_ORDER = `m.series_game_no NULLS LAST, m.game_creation, m.match_id`;
+
 /** Bounded series summaries; all sets stay together even when a person/missing-field filter matches one set. */
 export async function listOverviewSeries(opts: OverviewOptions = {}): Promise<OverviewSeriesRow[]> {
   const sql = db();
   return sql<OverviewSeriesRow[]>`
     SELECT key, kind, event_id, event_name, round_label, best_of, set_order_known, first_played, game_creation_precision, sets
       FROM (
-    SELECT COALESCE(m.series_id, m.match_id) AS key,
-           COALESCE(min(e.id::text), COALESCE(m.series_id, m.match_id)) AS group_key,
-           min(e.id::text) AS event_id, min(e.starts_at) AS event_start,
-           min((m.game_creation AT TIME ZONE 'Asia/Seoul')::date) AS played_day,
-           min(m.game_creation) FILTER (WHERE m.game_creation_precision = 'datetime') AS played_at,
+    SELECT ${sql.unsafe(GROUP_ORDER_COLUMNS)},
+           min(e.id::text) AS event_id,
            COALESCE(min(e.kind), 'other') AS kind, min(e.name) AS event_name,
            min(ms.round_label) AS round_label, min(ms.best_of) AS best_of,
            COALESCE(bool_or(ms.set_order_known), false) AS set_order_known,
-           min(m.game_creation) AS first_played,
            CASE WHEN bool_and(m.game_creation_precision = 'datetime') THEN 'datetime' ELSE 'date' END AS game_creation_precision,
            json_agg(json_build_object(
              'match_id', m.match_id, 'series_game_no', m.series_game_no, 'winning_team', m.winning_team,
@@ -104,17 +115,38 @@ export async function listOverviewSeries(opts: OverviewOptions = {}): Promise<Ov
              'priority_reasons', ${sql.unsafe(LOL_PRIORITY_REASONS)},
              'position_count', rp.position_count, 'linked_count', rp.linked_count,
              'champion_count', rp.champion_count, 'kda_count', rp.kda_count
-           ) ORDER BY m.series_game_no NULLS LAST, m.game_creation, m.match_id) AS sets
+           ) ORDER BY ${sql.unsafe(SET_ORDER)}) AS sets
       FROM match m ${sql.unsafe(SERIES_EVENT_JOIN)} ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
       LEFT JOIN event_team bt ON bt.id = m.blue_team_id
       LEFT JOIN event_team rt ON rt.id = m.red_team_id
      WHERE ${overviewWhere(opts)}
      GROUP BY COALESCE(m.series_id, m.match_id) HAVING ${overviewHaving(opts)}
       ) s
-     ORDER BY COALESCE(event_start, max(first_played) OVER (PARTITION BY group_key)) DESC NULLS LAST, group_key,
-              played_day, played_at NULLS LAST, key
+     ORDER BY ${sql.unsafe(GROUP_ORDER)}
      LIMIT ${opts.limit ?? 1000} OFFSET ${opts.offset ?? 0}
   `;
+}
+
+export interface OverviewWorkItem { match_id: string; completed: boolean }
+
+/**
+ * 목록과 **같은 조건·같은 순서**의 경기 전부(페이지 구분 없음) — 검수 화면의 작업 목록.
+ * 목록은 시리즈 단위로 거르므로 검수 완료된 세트도 함께 보인다. 그래서 완료 여부를 같이 싣는다
+ * (완료 후 이동은 이 목록에서 다음 미완료를 고른다). 세트 요약은 만들지 않는다 — 전 범위 요약은 느리다.
+ */
+export async function listOverviewWorkList(opts: OverviewOptions = {}): Promise<OverviewWorkItem[]> {
+  const sql = db();
+  const rows = await sql<{ items: OverviewWorkItem[] }[]>`
+    SELECT items FROM (
+      SELECT ${sql.unsafe(GROUP_ORDER_COLUMNS)},
+             json_agg(json_build_object('match_id', m.match_id, 'completed', m.review_completed_at IS NOT NULL)
+               ORDER BY ${sql.unsafe(SET_ORDER)}) AS items
+        FROM match m ${sql.unsafe(SERIES_EVENT_JOIN)} ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
+       WHERE ${overviewWhere(opts)}
+       GROUP BY COALESCE(m.series_id, m.match_id) HAVING ${overviewHaving(opts)}
+    ) s
+    ORDER BY ${sql.unsafe(GROUP_ORDER)}`;
+  return rows.flatMap((r) => r.items);
 }
 
 export interface OverviewParticipant {

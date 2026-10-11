@@ -37,7 +37,8 @@ try {
   browser = await chromium.launch();
   const context = await browser.newContext({ httpCredentials: { username: 'memo-test', password: 'local-only' } });
   const page = await context.newPage(), errors = []; page.on('pageerror', e => errors.push(e.message));
-  const response = await page.goto(base+'/admin/ck/event/ck-2026-09-03-babamba-okkyu');
+  // 메모장 후보는 VOD 화면의 찾기 기능이다(대회 검수 주소는 2026-10-11부터 목록으로 간다).
+  const response = await page.goto(base+'/admin/ck/09ca079b-093b-4240-a2a1-0c91ecd0f5a0');
   await page.locator('.ck-review-queue-item[data-kind="memo"]').first().waitFor().catch(async error => {
     console.log({status: response.status(), errors, body: (await page.locator('body').innerText()).slice(0,1200), links: await page.locator('a[href*=player]').evaluateAll(links => links.map(x => x.href))}); throw error;
   });

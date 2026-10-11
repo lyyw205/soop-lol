@@ -13,7 +13,6 @@ import { applyAll } from './lib/migrations.ts';
 import { db, closeDb } from '../packages/core/lib/db/client.ts';
 import { countOverviewSeries, listOverviewSeries, getOverviewSeriesSets } from '../packages/core/lib/db/match-overview.ts';
 import { countUnidentifiedNames, listUnidentifiedParticipants, listEventLeads, upsertEventLead } from '../packages/core/lib/db/ck.ts';
-import { listEventPovLeads } from '../packages/core/lib/db/ck-pov.ts';
 import { lolReviewQueueIds } from '../packages/core/lib/db/review-priority.ts';
 
 const root = join(import.meta.dirname, '..'), pg = await disposablePglite();
@@ -57,7 +56,6 @@ try {
     const leads = await listEventLeads({ collection, channel_id: 'collection-test', with_matches: true });
     assert.equal(leads[0].id, lead);
     assert.equal(leads[0].match_count, collection === 'aram' ? 2 : 3);
-    assert.equal((await listEventPovLeads(event.id, collection))[0].match_count, collection === 'aram' ? 2 : 3);
     const queueIds = await lolReviewQueueIds(cases.map(c => c[0]), '/admin/aram?queue=all', collection);
     assert.deepEqual(queueIds.sort(), collection === 'aram' ? ['aram', 'mayhem'] : ids);
   }
@@ -66,7 +64,7 @@ try {
   assert.equal(await countOverviewSeries({ collection: 'rift', unreviewed: true }), 1, 'ARAM completion does not complete the Rift portion');
   assert.deepEqual(await lolReviewQueueIds(['aram', 'rift'], '/admin/aram?queue=priority', 'aram'), []);
   await sql`UPDATE match SET review_completed_at = NULL WHERE match_id = 'aram'`;
-  console.log('LoL collection DB checks passed: mixed series, counts, search, pagination, participants, channels, POVs, queues, completion.');
+  console.log('LoL collection DB checks passed: mixed series, counts, search, pagination, participants, channels, queues, completion.');
   if (process.argv.includes('--browser')) {
     // Release the only PGlite connection before the Next process connects.
     await closeDb();
@@ -101,9 +99,9 @@ try {
       await page.locator('.overview-series-head').click();
       await page.locator('.overview-sets').getByRole('checkbox').first().waitFor();
       assert.equal(await page.getByRole('checkbox', { name: /확인한 경기 선택/ }).count(), count, 'server action preserves collection');
+      // 경기 검수 화면의 작업 목록은 들어온 목록과 같은 범위다 — 칼바람 목록에서 들어오면 칼바람 경기만 센다.
       await page.locator('.overview-start').click();
-      await page.locator('.ck-review-queue-item[data-kind=match]').first().waitFor();
-      assert.equal(await page.locator('.ck-review-queue-item[data-kind=match]').count(), label === '칼바람' ? 2 : 3);
+      await page.getByText(new RegExp(`^\\d+ / ${count}$`)).waitFor();
       assert.equal(await page.locator('.admin-navigation [aria-current=page]').innerText(), `${label} 경기`, 'detail retains active section');
       await page.getByRole('link', { name: '← 검수 목록', exact: true }).click();
       await page.getByRole('heading', { name: `${label} 시리즈 비교`, exact: true }).waitFor();

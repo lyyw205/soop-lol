@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { countOverviewSeries, listOverviewSeries } from "@soop-lol/core/lib/db/match-overview";
-import { listEventLeads, type LeadEventKind } from "@soop-lol/core/lib/db/ck";
+import { listEventLeads } from "@soop-lol/core/lib/db/ck";
+import { LIST_KINDS, reviewListScope, type LoLListQuery } from "@/lib/lol-review-list";
 import { listDuplicateSuspects } from "@soop-lol/core/lib/db/ck-duplicates";
 import { Card, EmptyState } from "@/components/ui";
 import { MatchOverview } from "./MatchOverview";
@@ -10,16 +11,15 @@ import { EVENT_KIND_LABEL } from "@/lib/admin-labels";
 import { LOL_ADMIN } from "@/lib/admin-lol";
 import type { LoLReviewCollection } from "@soop-lol/core/lib/db/lol-review-scope";
 
-export type LoLListQuery = { kind?: string; review?: string; q?: string; page?: string; event?: string; focus?: string; channel?: string; queue?: string };
-const KINDS = ["ck", "land", "tournament", "showmatch", "scrim", "other"] as const;
+export type { LoLListQuery };
+const KINDS = LIST_KINDS;
 export async function LoLReviewList({ query, mode, collection = "rift" }: { query: LoLListQuery; mode: "queue" | "compare"; collection?: LoLReviewCollection }) {
-  const kind = KINDS.includes(query.kind as LeadEventKind) ? query.kind as LeadEventKind : undefined;
-  const queue: "priority" | "general" | undefined = query.queue === "general" ? "general" : query.queue === "all" ? undefined : "priority";
-  const page = adminPage(query.page), size = 50, pending = query.review !== "all";
+  // ★ 범위는 reviewListScope 하나로 — 경기 검수 화면의 작업 목록(이전·다음·완료 후 이동)도 같은 함수로 만든다.
+  const { kind, queue, pending, opts } = reviewListScope(query, collection);
+  const page = adminPage(query.page), size = 50;
   const section = LOL_ADMIN[collection];
   const path = section[mode];
   const href = adminHref(path, { ...query, queue: queue ?? "all", page });
-  const opts = { collection, kind, unreviewed: pending, q: query.q, event: query.event, focus: query.focus, queue };
   const [series, total, duplicates] = await Promise.all([listOverviewSeries({ ...opts, limit: size, offset: (page - 1) * size }), countOverviewSeries(opts),
     mode === "queue" ? listDuplicateSuspects() : Promise.resolve([])]);
   const leads = query.channel ? await listEventLeads({ collection, channel_id: query.channel, event_kind: kind, with_matches: true, unreviewed: pending }) : [];
