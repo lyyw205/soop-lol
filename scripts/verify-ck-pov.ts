@@ -427,6 +427,26 @@ try {
   const fcLinks = await sql()<{ n: number }[]>`
     SELECT count(*)::int AS n FROM lead_match lm JOIN event_lead el ON el.id = lm.lead_id WHERE el.source_key LIKE 'fc:%'`;
   check("lead_match 에 FC 단서가 없다", fcLinks[0].n === 0, JSON.stringify(fcLinks));
+
+  console.log("\n▸ 확정되는 화면 이름은 저장할 때 사람에 붙는다(2026-10-12 — 세션이 ck:who 를 건너뛰어도)");
+  // 준비: '에이닉' 은 pov-a 자리로 이미 붙어 있다. '겹친닉' 은 pov-b·pov-c 두 사람에게 붙어 있다(모호).
+  await sql()`UPDATE match_participant SET observed_name = '에이 닉' WHERE match_id = 'pov:m1' AND participant_id = 1`;
+  await sql()`UPDATE match_participant SET observed_name = '겹친닉' WHERE match_id = 'pov:m1' AND participant_id IN (2, 3)`;
+  fakeVod(VODS.f, [400]);
+  const named = full.map((p) => p.streamer_slug === "pov-a" ? { ...p, streamer_slug: undefined, observed_name: "에이닉" }
+    : p.streamer_slug === "pov-b" ? { ...p, streamer_slug: undefined, observed_name: "겹친닉" }
+    : p.streamer_slug === "pov-g" ? { ...p, streamer_slug: undefined, observed_name: "에이닉" } : p);   // f 는 방송 주인이라 그대로
+  r = await merge([scan(VODS.f, "pov_f", [400]), { resultType: "match", match_id: "pov:auto-name", game_mode: "CLASSIC", winning_team: 100,
+    played_at: "2026-09-27T00:00:00Z", played_at_precision: "date", result_evidence: "결과창", participants: named,
+    evidence_frames: [framePath(VODS.f, 400)], distinct_from: (await sql()`SELECT match_id FROM match WHERE match_id LIKE 'pov:%'`).map((x) => x.match_id) }]);
+  const seats = await sql()<{ participant_id: number; slug: string | null; observed_name: string | null }[]>`
+    SELECT mp.participant_id, s.slug, mp.observed_name FROM match_participant mp LEFT JOIN streamer s ON s.id = mp.streamer_id
+     WHERE mp.match_id = 'pov:auto-name' ORDER BY mp.participant_id`;
+  const seat = (n: number) => seats.find((x) => x.participant_id === n);
+  check("이미 사람이 붙은 이름(띄어쓰기 달라도)은 자동 연결", r.code === 0 && seat(1)?.slug === "pov-a", r.code ? r.out.slice(-1500) : JSON.stringify(seats));
+  check("두 사람에게 붙은 이름은 붙이지 않는다", seat(2)?.slug == null && seat(2)?.observed_name === "겹친닉", JSON.stringify(seat(2)));
+  check("같은 경기에 같은 사람을 두 번 붙이지 않는다(두 번째 '에이닉' 자리는 화면 이름만)", seat(7)?.slug == null && seat(7)?.observed_name === "에이닉", JSON.stringify(seat(7)));
+  check("저장 출력에 자동 연결을 알린다", r.out.includes("이름 자동 연결"), r.out.slice(-300));
 } finally {
   await closeDb();
   await server.stop();

@@ -54,6 +54,7 @@ import {
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
 import { submitMatchPovInTx } from "@soop-lol/core/lib/db/ck-pov";
 import { resolveChampion } from "@soop-lol/core/lib/db/participant";
+import { knownNameOwnersInTx, normName } from "@soop-lol/core/lib/db/known-names";
 import { ensureEventInTx } from "@soop-lol/core/lib/db/tournaments";
 import { vodWork } from "@soop-lol/core/lib/metrics/ck-vod-status";
 
@@ -445,7 +446,7 @@ async function povSubmissionOf(tx, r) {
   if ("series_game_no" in r) sub.match.series_game_no = r.series_game_no;
   for (const p of r.participants ?? []) {
     const ident = {
-      streamer_id: p.streamer_slug ? await streamerIdBySlugInTx(tx, p.streamer_slug) : null,
+      streamer_id: p.streamer_slug ? await streamerIdBySlugInTx(tx, p.streamer_slug) : autoIdOf(p),
       puuid: p.puuid ?? null,
       observed_name: p.observed_name ?? null,
     };
@@ -499,10 +500,24 @@ const doneLeads = new Set();
 let committed = false;
 /** 이번 파일이 넣은 VOD 판독 경기. 파일 끝에서 VOD 에 이어졌는지 본다. */
 const vodMatchIds = [];
+/**
+ * 화면 이름 → 확정된 사람(core/lib/db/known-names.ts). 세션이 `streamer_slug` 를 안 낸 자리에 저장할 때 붙인다 —
+ * 10/10 성훈 협곡랜드 18판이 세션의 `ck:who` 생략으로 10명 중 1명만 붙었던 것을 막는다(2026-10-12).
+ * 트랜잭션 안에서 한 번 채운다. 계정(puuid)을 낸 자리는 건드리지 않는다.
+ */
+let knownNames = new Map();
+let knownNamesLabel = new Map();
+const autoIdOf = (p) => (!p.streamer_slug && !p.puuid && p.observed_name ? knownNames.get(normName(p.observed_name)) ?? null : null);
 try {
   await db().begin(async (tx) => {
     // 단서·대회 행보다 먼저 잠근다. 다른 VOD의 신규 경기 저장과도 중복 검사를 직렬화한다.
     if (results.some((r) => r.resultType === "match")) await lockCkMatchWritesInTx(tx);
+    knownNames = await knownNameOwnersInTx(tx, results.flatMap((r) => (r.participants ?? [])
+      .filter((p) => !p.streamer_slug && !p.puuid && p.observed_name).map((p) => p.observed_name)));
+    if (knownNames.size) {
+      knownNamesLabel = new Map((await tx`SELECT id::text, display_name FROM streamer WHERE id = ANY(${[...knownNames.values()]}::uuid[])`)
+        .map((x) => [x.id, x.display_name]));
+    }
     for (const r of results) {
       if (r.resultType === "scan") {
         // ★ 단서에는 분류가 없다(0035) — 분류는 이어진 경기의 대회가 정한다.
@@ -696,14 +711,24 @@ try {
           console.log(`대회  ${r.event.slug}`);
         }
 
-        // slug → streamer_id. 화면 이름만 있는 자리는 그대로 둔다(0020).
+        // slug → streamer_id. 화면 이름만 있는 자리는 확정되는 이름이면 붙이고(known-names), 아니면 그대로 둔다(0020).
+        // ★ 같은 경기에 같은 사람이 두 번 들어가지 않게, slug 로 정해진 사람과 이미 붙인 사람에는 자동으로 붙이지 않는다.
         const participants = [];
+        const taken = new Set();
+        for (const p of r.participants) if (p.streamer_slug) { const id = await streamerIdBySlugInTx(tx, p.streamer_slug); if (id) taken.add(id); }
+        const autoLinked = [];
         for (const p of r.participants) {
           let streamerId = null;
           if (p.streamer_slug) {
             streamerId = await streamerIdBySlugInTx(tx, p.streamer_slug);
             if (!streamerId) {
               console.log(`      ⚠ 등록 안 된 slug: ${p.streamer_slug} — 화면 이름만 남긴다`);
+            }
+          } else {
+            const auto = autoIdOf(p);
+            if (auto && !taken.has(auto)) {
+              streamerId = auto; taken.add(auto);
+              autoLinked.push(`${p.observed_name}→${knownNamesLabel.get(auto) ?? auto}`);
             }
           }
           participants.push({
@@ -721,6 +746,7 @@ try {
           });
         }
 
+        if (autoLinked.length) console.log(`      이름 자동 연결 ${autoLinked.length}자리: ${autoLinked.join(" · ")}`);
         const wrote = await upsertMatchFromScanInTx(tx, {
           match_id: r.match_id,
           game_mode: r.game_mode,
