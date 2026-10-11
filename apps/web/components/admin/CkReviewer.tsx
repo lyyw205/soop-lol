@@ -174,7 +174,7 @@ const compactKst = (value: string, precision: string = "datetime") =>
 
 /** 세트 이름은 core 의 setLabel 하나로 낸다 — 화면마다 규칙이 다르면 같은 판이 다르게 불린다. */
 export const matchSetLabel = (m: { series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null }) =>
-  setLabel({ standalone: !m.series_id, best_of: m.best_of, set_order_known: m.set_order_known, series_game_no: m.series_game_no });
+  setLabel({ standalone: !m.series_id, unassigned: !m.series_id, best_of: m.best_of, set_order_known: m.set_order_known, series_game_no: m.series_game_no });
 const durationLabel = (sec: number | null) => sec == null
   ? "—"
   : `${Math.floor(sec / 60)}분${sec % 60 ? ` ${sec % 60}초` : ""}`;
@@ -705,6 +705,20 @@ export function MatchInspector({
       cancelField(name);
     }
   };
+  // 시리즈 미지정 → 단판으로 확인. 경기 ID 와 같은 키의 시리즈에 best_of=1 과 근거를 적는다(set-label.ts).
+  //   근거 없는 best_of 는 저장 단계가 거부한다(validateBestOf) — 모르면 미지정으로 둔다.
+  const confirmSingle = (evidence: string) => {
+    const form = formRef.current;
+    if (!form || pending || !evidence.trim()) return;
+    const values = { series_id: match.match_id, series_game_no: "1", best_of: "1", best_of_evidence: evidence.trim() };
+    for (const [name, value] of Object.entries(values)) {
+      const control = form.elements.namedItem(name);
+      if (control instanceof HTMLInputElement) control.value = value;
+    }
+    setDraft((current) => ({ ...current, ...values }));
+    setActiveField(null);
+    form.requestSubmit();
+  };
   const seriesFormatKeys = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -787,6 +801,16 @@ export function MatchInspector({
               <dd>{activeField === "series_game_no"
                 ? <input autoFocus name="series_game_no" inputMode="numeric" aria-label="세트 번호" {...field("series_game_no")}
                     onKeyDown={fieldKeys("series_game_no")} className={inputClass} />
+                : !draft.series_id ? <span className="grid gap-1">
+                    <span className="text-amber-300" title="아직 시리즈로 묶지 않았다 — 단판인지 다전제의 한 판인지 모른다">시리즈 미지정</span>
+                    {activeField === "confirm_single"
+                      ? <input autoFocus aria-label="단판 근거" placeholder="단판 근거: 규정 URL 또는 VOD 시각" className={inputClass}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") { event.preventDefault(); confirmSingle(event.currentTarget.value); }
+                            else if (event.key === "Escape") { event.preventDefault(); setActiveField(null); }
+                          }} />
+                      : <button type="button" className="text-left text-[11px] text-accent-400" onClick={() => openField("confirm_single")}>단판으로 확인</button>}
+                  </span>
                 : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("series_game_no")}>
                     {(() => {
                       const label = matchSetLabel({
@@ -873,7 +897,7 @@ export function MatchInspector({
 }
 
 type MatchMetaField = "winning_team" | "event_id" | "series_id" | "series_game_no" | "best_of" | "game_creation" | "game_duration"
-  | "game_creation_precision" | "set_order_known";
+  | "game_creation_precision" | "set_order_known" | "confirm_single";
 
 function EventLinkPicker({ value, events, onCommit, onCancel }: {
   value: string;

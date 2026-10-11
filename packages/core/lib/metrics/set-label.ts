@@ -5,9 +5,12 @@
  *   "시리즈가 있으면 N세트, 없으면 단판" 을 따로 적고 있었다. 그러면 대회 상세에서 "세트" 로
  *   보이던 판이 검수 화면을 누르면 다시 "1세트" 가 된다 — 검수자가 임시 순서를 사실로 읽는다.
  *
- * ★ 세 가지를 구분한다.
+ * ★ 네 가지를 구분한다.
  *   · 단판   — 원래 한 판짜리다. 시리즈가 없거나(공개 큐·단독 경기) 규정상 한 판(best_of=1).
  *              **수집한 세트가 하나뿐인 것**과는 다르다. Bo3 의 첫 판만 모았어도 하나다.
+ *   · 시리즈 미지정 — 화면 판독(수기) 경기인데 아직 시리즈로 묶지 않았다. 단판인지 다전제의 한 판인지
+ *              **모른다**(`unassigned`). 2026-10-12 관리자 화면의 "단판" 241경기가 전부 이것이었다 —
+ *              확인된 단판(best_of=1)은 0경기. 단판으로 확인하면 경기 ID 와 같은 키의 시리즈에 best_of=1 을 적는다.
  *   · N세트  — 세트 순서를 출처에서 확인했다(set_order_known).
  *   · 세트   — 시리즈의 한 판인 건 아는데 몇 번째인지는 모른다. 시드 생성기는 세트별 승자가
  *              없으면 승리 세트를 앞에 몰아 넣는다(build-meljang) — 그 번호는 우리가 만든 것이다.
@@ -15,6 +18,8 @@
 export interface SetLabelInput {
   /** 시리즈에 속하지 않은 단독 경기인가 (series_id 가 없거나, 시리즈 키가 곧 경기 ID). */
   standalone: boolean;
+  /** 시리즈를 아직 정하지 않은 수기 경기인가(series_id 없음). 넘기지 않으면 단독 경기를 단판으로 본다(공개 큐). */
+  unassigned?: boolean;
   best_of: number | null;
   set_order_known: boolean;
   series_game_no: number | null;
@@ -28,6 +33,7 @@ export interface SetLabelInput {
 export function setLabel(s: SetLabelInput): string {
   if (s.set_role === "bonus") return s.set_label?.trim() || "보너스";
   if (s.land) return s.set_order_known && s.series_game_no ? `${s.series_game_no}판` : "판";
+  if (s.unassigned) return "시리즈 미지정";
   if (s.standalone || s.best_of === 1) return "단판";
   if (s.set_order_known && s.series_game_no) return `${s.series_game_no}세트`;
   return "세트";

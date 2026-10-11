@@ -9,6 +9,7 @@
  *   5. 이전·다음(키보드 포함)·완료 후 이동이 같은 목록·같은 순서다.
  *   6. 예전 대회 검수 주소는 그 대회 목록으로 간다.
  *   7. VOD 화면의 "편집할 세트" 를 바꾸면 보는 사진도 그 세트로 간다(편집 대상과 사진이 어긋나지 않는다).
+ *   8. 묶지 않은 경기는 "시리즈 미지정" 이고 시리즈로 세지 않는다. 근거를 적어 "단판으로 확인" 하면 단판이 된다.
  */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -151,6 +152,24 @@ try {
   await page.getByText('이 경기에 근거가 붙은 방송이 없습니다.').waitFor();
   assert.equal(await editing(), 'mr:M3');
 
+  // 8. 시리즈 미지정 ≠ 단판. 목록은 묶지 않은 경기를 시리즈로 세지 않는다.
+  const eventMeta = async () => { await page.goto(`${base}${from}`); return (await page.locator('.overview-event-meta').first().innerText()).replace(/\s+/g, ' '); };
+  assert.equal(await eventMeta(), '시리즈 0 · 시리즈 미지정 3경기 · 세트 3');
+  assert.equal(await page.locator('.overview-series-round', { hasText: '단판' }).count(), 0, '묶지 않은 경기를 단판이라고 부르지 않는다');
+  await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M3')}?from=${encodeURIComponent(from)}`);
+  assert.match(await page.locator('.ck-review-page-head h1').innerText(), /시리즈 미지정/);
+  await page.getByRole('button', { name: '단판으로 확인', exact: true }).click();
+  const evidenceInput = page.getByRole('textbox', { name: '단판 근거', exact: true });
+  await evidenceInput.fill('VOD 2:10:00 "단판 한 판만" 공지');
+  await evidenceInput.press('Enter');
+  await page.locator('form:has(.ck-review-match-summary) [role=status]').waitFor();
+  // (Next 가 임시 DB 의 유일한 연결을 쓰므로 저장 결과는 화면으로 확인한다.)
+  await page.locator('.ck-review-page-head h1', { hasText: '단판' }).waitFor();
+  await page.getByRole('button', { name: 'Bo1 · VOD 2:10:00 "단판 한 판만" 공지', exact: true }).waitFor();
+  // 같은 대회 묶음에 남는다 = 시리즈가 대회를 넘겨받았다(시리즈 경기는 match.event_id 를 비운다).
+  assert.equal(await eventMeta(), '시리즈 1 · 시리즈 미지정 2경기 · 세트 3');
+  assert.equal(await page.locator('.overview-series-round', { hasText: '단판' }).count(), 1);
+
   // 5. 완료 후 이동 = 같은 목록에서 다음 미완료.
   await page.goto(`${base}/admin/ck/match/${encodeURIComponent(expected[0])}?from=${encodeURIComponent(from)}`);
   await page.getByRole('button', { name: '검수 완료로 표시' }).click();
@@ -166,7 +185,7 @@ try {
   assert.equal(await page.locator('select[name=match_id]').inputValue(), 'mr:M1');
 
   assert.deepEqual(errors, []);
-  console.log('match review browser scenarios passed: same work list/order, VOD filter keeps target, linked vs reference, frames without POV, prev/next/keyboard/completion, event permalink, VOD set selector moves photo');
+  console.log('match review browser scenarios passed: same work list/order, VOD filter keeps target, linked vs reference, frames without POV, prev/next/keyboard/completion, event permalink, VOD set selector moves photo, unassigned vs confirmed single');
 } catch (error) {
   if (app) console.error((await readFile(join(scratch, 'next.log'), 'utf8')).slice(-6000));
   throw error;

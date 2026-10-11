@@ -37,6 +37,8 @@ export interface OverviewSeriesRow {
   round_label: string | null;
   best_of: number | null;
   set_order_known: boolean;
+  /** 시리즈로 묶었나. false 면 키가 경기 ID 인 "시리즈 미지정" 한 경기다 — 단판과 다르다(set-label.ts). */
+  has_series: boolean;
   first_played: Date;
   game_creation_precision: "datetime" | "date";
   sets: OverviewSetSummary[];
@@ -99,13 +101,14 @@ const SET_ORDER = `m.series_game_no NULLS LAST, m.game_creation, m.match_id`;
 export async function listOverviewSeries(opts: OverviewOptions = {}): Promise<OverviewSeriesRow[]> {
   const sql = db();
   return sql<OverviewSeriesRow[]>`
-    SELECT key, kind, event_id, event_name, round_label, best_of, set_order_known, first_played, game_creation_precision, sets
+    SELECT key, kind, event_id, event_name, round_label, best_of, set_order_known, has_series, first_played, game_creation_precision, sets
       FROM (
     SELECT ${sql.unsafe(GROUP_ORDER_COLUMNS)},
            min(e.id::text) AS event_id,
            COALESCE(min(e.kind), 'other') AS kind, min(e.name) AS event_name,
            min(ms.round_label) AS round_label, min(ms.best_of) AS best_of,
            COALESCE(bool_or(ms.set_order_known), false) AS set_order_known,
+           bool_or(m.series_id IS NOT NULL) AS has_series,
            CASE WHEN bool_and(m.game_creation_precision = 'datetime') THEN 'datetime' ELSE 'date' END AS game_creation_precision,
            json_agg(json_build_object(
              'match_id', m.match_id, 'series_game_no', m.series_game_no, 'winning_team', m.winning_team,

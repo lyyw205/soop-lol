@@ -144,7 +144,9 @@ export function MatchOverview({ series, mode = "compare", returnTo = "/admin/ove
           {folded ? <ChevronRight size={16} aria-hidden /> : <ChevronDown size={16} aria-hidden />}
           <span className="overview-event-kind">{EVENT_KIND_LABEL[g.kind] ?? g.kind}</span>
           <span className="overview-event-name">{g.name ?? "대회 미연결"}</span>
-          <span className="overview-event-meta">시리즈 {g.series.length} · 세트 {setCount}</span>
+          {/* 묶지 않은 경기는 시리즈로 세지 않는다 — "시리즈 7 · 세트 7" 은 시리즈가 7개라는 뜻이 아니었다. */}
+          <span className="overview-event-meta">시리즈 {g.series.filter(s => s.has_series).length}
+            {g.series.some(s => !s.has_series) && <> · 시리즈 미지정 {g.series.filter(s => !s.has_series).length}경기</>} · 세트 {setCount}</span>
           <span className={`overview-series-review ${done === setCount ? "text-win" : done ? "text-amber-300" : "text-ink-400"}`}>검수 {done}/{setCount}</span>
         </button>
         <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-ink-800 px-4 py-2 text-[11px] text-ink-400" aria-label="현재 목록 참가자 정보 진행">
@@ -182,7 +184,8 @@ function SeriesItem({ s, isOpen, onToggle, sets, error, loading, onToggleReview,
     <div className="overview-series-row"><button type="button" className="overview-series-head" aria-expanded={isOpen} onClick={onToggle}>
       {isOpen ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
       <span className="overview-series-date">{kstPlayedAt(new Date(s.first_played), s.game_creation_precision)}</span>
-      <span className="overview-series-round">{s.round_label ?? (s.sets.length === 1 && isStandaloneSet(s.sets[0].match_id, s.key) ? "단판" : "라운드 미기재")}</span>
+      <span className="overview-series-round" data-unassigned={!s.has_series || undefined}>{s.round_label ?? (!s.has_series ? "시리즈 미지정"
+        : s.best_of === 1 || (s.sets.length === 1 && isStandaloneSet(s.sets[0].match_id, s.key)) ? "단판" : "라운드 미기재")}</span>
       <span className="overview-series-score">{sc ?? <span className="text-ink-500">팀 이름 없음</span>}<span className="block text-[11px] text-amber-300">{[...new Set(s.sets.filter(set => !set.completed).flatMap(set => set.priority_reasons))].join(' · ')}</span></span>
       <span className="overview-series-meta">
         {s.best_of && s.best_of > 1 && <span>{s.best_of}판 {Math.ceil(s.best_of / 2)}선승 · </span>}
@@ -198,7 +201,7 @@ function SeriesItem({ s, isOpen, onToggle, sets, error, loading, onToggleReview,
       <thead><tr><th scope="col">확인</th><th scope="col">경기</th><ReviewProgressHeaders includeRegistration={false} /></tr></thead>
       <tbody>{s.sets.map(set => <tr key={set.match_id}><td><input type="checkbox" aria-label={`${set.match_id} 확인한 경기 선택`} disabled={set.completed} checked={chosen.has(set.match_id)} onChange={e => choose(set.match_id, set.review_version, e.target.checked)} /></td><EventMatchRow cellsOnly href={reviewHref(set.match_id)} match={{ ...set,
         review_completed_at: set.completed ? "completed" : null,
-        label: setLabel({ standalone: isStandaloneSet(set.match_id, s.key), best_of: s.best_of, set_order_known: s.set_order_known, series_game_no: set.series_game_no }),
+        label: setLabel({ standalone: isStandaloneSet(set.match_id, s.key), unassigned: !s.has_series, best_of: s.best_of, set_order_known: s.set_order_known, series_game_no: set.series_game_no }),
         playedAt: kstPlayedAt(new Date(set.game_creation), set.game_creation_precision),
         winner: (set.winning_team === 100 ? set.blue_team ?? "1팀" : set.winning_team === 200 ? set.red_team ?? "2팀" : "승자 미정"), hidden: set.visibility === "hidden",
       }} /></tr>)}</tbody>
@@ -261,7 +264,7 @@ function SetCard({ series, set, subs, onToggleReview, returnTo, selected, choose
   returnTo: string; series: OverviewSeriesRow; set: OverviewSetDetail; subs?: Set<number>; onToggleReview: () => Promise<void>;
 }) {
   const [pending, startPending] = useTransition();
-  const label = setLabel({ standalone: isStandaloneSet(set.match_id, series.key), best_of: series.best_of,
+  const label = setLabel({ standalone: isStandaloneSet(set.match_id, series.key), unassigned: !series.has_series, best_of: series.best_of,
     set_order_known: series.set_order_known, series_game_no: set.series_game_no });
   const completed = !!set.review_completed_at;
   const blue = set.participants.filter(p => p.team_id === 100);

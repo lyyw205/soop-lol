@@ -21,3 +21,10 @@ test("시리즈가 없는 경기는 단판이다", () => {
   assert.equal(isStandaloneSet("m:g03s1", "m:g03s1"), true);
   assert.equal(isStandaloneSet("m:g03s1", "m:g03"), false);
 });
+
+test("시리즈 미지정: 묶지 않은 수기 경기는 단판이라고 부르지 않는다 — 확인된 단판(best_of=1)과 구별", () => {
+  assert.equal(setLabel({ ...base, standalone: true, unassigned: true }), "시리즈 미지정");
+  assert.equal(setLabel({ ...base, standalone: true, unassigned: false }), "단판", "넘기지 않으면 예전대로(공개 큐 단독 경기)");
+  assert.equal(setLabel({ ...base, standalone: true, best_of: 1 }), "단판", "단판으로 확인한 경기(경기 ID 키 시리즈 + best_of=1)");
+  assert.equal(setLabel({ ...base, unassigned: true, set_role: "bonus" }), "보너스", "보너스 판 이름이 먼저");
+});

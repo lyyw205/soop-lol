@@ -100,6 +100,6 @@ export function matchReviewTitle(match: {
   series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null;
   game_creation_epoch_ms: number; game_creation_precision: "datetime" | "date"; origin: string | null; source: string | null;
 }, eventName: string | null): string {
-  const set = setLabel({ standalone: !match.series_id, best_of: match.best_of, set_order_known: match.set_order_known, series_game_no: match.series_game_no });
+  const set = setLabel({ standalone: !match.series_id, unassigned: !match.series_id, best_of: match.best_of, set_order_known: match.set_order_known, series_game_no: match.series_game_no });
   return `${eventName ?? "대회 미지정"} · ${set} · ${kstPlayedAt(new Date(match.game_creation_epoch_ms), match.game_creation_precision)} · ${matchOriginLabel(match)}`;
 }
