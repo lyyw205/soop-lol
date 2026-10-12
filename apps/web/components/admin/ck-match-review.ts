@@ -20,6 +20,9 @@ import { projectReviewQueue, UNPLACED } from "./ck-review-queue.ts";
 
 export interface WorkItem { match_id: string; completed: boolean }
 
+/** 화면이 쓰는 작업 목록 요약 — 서버가 목록 전체에서 계산해 보낸다(목록은 수천 건이라 통째로 싣지 않는다). */
+export type WorkNav = ReturnType<typeof workPosition> & { nextUncompleted: string | null };
+
 /** 작업 목록에서 지금 경기의 자리와 앞뒤. 목록에 없으면(목록 밖에서 열었거나 범위를 벗어남) index -1. */
 export function workPosition(items: readonly WorkItem[], current: string) {
   const index = items.findIndex((item) => item.match_id === current);
@@ -56,7 +59,7 @@ export interface EvidenceVodInput {
 
 export type EvidenceFrame = EvidenceFrameInput & { lead_id: string; linked: boolean };
 
-export interface MatchEvidenceVod<V extends EvidenceVodInput> {
+export interface MatchEvidenceVod<V extends { lead_id: string }> {
   vod: V;
   /** 시각 순. linked = 이 경기에 연결된 사진, 아니면 같은 구간의 참고 사진. */
   frames: EvidenceFrame[];
@@ -84,7 +87,7 @@ export function matchEvidence<V extends EvidenceVodInput>(matchId: string, vods:
 }
 
 /** 방송 필터(null = 전체)가 보여 줄 사진. 방송 순서대로, 방송 안에서는 시각 순. */
-export function visibleEvidence<V extends EvidenceVodInput>(evidence: readonly MatchEvidenceVod<V>[], leadId: string | null): EvidenceFrame[] {
+export function visibleEvidence<V extends { lead_id: string }>(evidence: readonly MatchEvidenceVod<V>[], leadId: string | null): EvidenceFrame[] {
   return evidence.filter((item) => leadId == null || item.vod.lead_id === leadId).flatMap((item) => item.frames);
 }
 

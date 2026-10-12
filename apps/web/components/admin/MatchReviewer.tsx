@@ -21,16 +21,18 @@ import { adminHref } from "@/lib/admin-navigation";
 import { adminTabKeys } from "@/lib/admin-tab-keys";
 import { rosterFocus } from "@/lib/ck-review-progress";
 
-import { frameUrl, hms, KIND_LABEL, vodAt, type PovDiffRowView, type ReviewEvent, type ReviewMatch, type ReviewStreamer } from "./ck-review-shared";
+import { frameThumbUrl, frameUrl, hms, KIND_LABEL, vodAt, type PovDiffRowView, type ReviewEvent, type ReviewMatch, type ReviewStreamer } from "./ck-review-shared";
 import { MatchInspector, PovDiffBox, RosterInspector } from "./MatchEditors";
 import { SeriesPanel } from "./SeriesPanel";
 import type { MatchSeriesContext } from "@soop-lol/core/lib/db/match-series-review";
 import {
-  matchEvidence, nextUncompleted, representativeEvidence, visibleEvidence, workPosition,
-  type EvidenceFrame, type EvidenceVodInput, type WorkItem,
+  representativeEvidence, visibleEvidence,
+  type EvidenceFrame, type MatchEvidenceVod, type WorkNav,
 } from "./ck-match-review";
 
-export interface MatchReviewVod extends EvidenceVodInput {
+/** 화면이 받는 방송 정보 — 사진·구간 계산용 경기 목록은 서버가 계산을 끝낸 뒤라 싣지 않는다(문서 크기). */
+export interface MatchReviewVod {
+  lead_id: string;
   source_key: string;
   title: string;
   url: string | null;
@@ -38,24 +40,24 @@ export interface MatchReviewVod extends EvidenceVodInput {
   pov: { role: "created" | "added"; source: "own" | "rebroadcast"; link_basis: string | null; compared: number; rows: PovDiffRowView[] } | null;
 }
 
-export function MatchReviewer({ match, vods, series, compareHref, streamers, events, work, from, initialFocus, initialTab }: {
+export function MatchReviewer({ match, evidence, series, compareHref, streamers, events, nav, from, initialFocus, initialTab }: {
   match: ReviewMatch;
-  vods: MatchReviewVod[];
+  /** 방송별 근거(서버가 matchEvidence 로 계산 — 연결 사진과 같은 구간 참고 사진만). */
+  evidence: MatchEvidenceVod<MatchReviewVod>[];
   /** 시리즈 칸 — 이 경기의 시리즈 세트 전부, 또는 시리즈 미지정이면 묶을 후보. */
   series: MatchSeriesContext;
   /** 시리즈 비교 화면에서 이 시리즈만 연다. */
   compareHref: string | null;
   streamers: ReviewStreamer[];
   events: ReviewEvent[];
-  /** 들어온 목록의 경기 전부(목록 순서). 목록이 아닌 곳에서 열었으면 null. */
-  work: WorkItem[] | null;
+  /** 들어온 목록에서 이 경기의 자리와 앞뒤·다음 미완료(서버 계산). 목록이 아닌 곳에서 열었으면 null. */
+  nav: WorkNav | null;
   /** 돌아갈 목록 주소. 앞뒤 경기로 넘어가도 그대로 들고 간다. */
   from: string;
   initialFocus?: string;
   initialTab?: "game" | "roster";
 }) {
   const router = useRouter();
-  const evidence = useMemo(() => matchEvidence(match.match_id, vods), [match.match_id, vods]);
   const [filter, setFilter] = useState<string | null>(null);
   const visible = useMemo(() => visibleEvidence(evidence, filter), [evidence, filter]);
   const [frameId, setFrameId] = useState<string | null>(null);
@@ -66,12 +68,11 @@ export function MatchReviewer({ match, vods, series, compareHref, streamers, eve
   const [inspectorTab, setInspectorTab] = useState<"game" | "roster">(rosterFocus(initialFocus) ? "roster" : initialTab ?? "game");
   const [rosterDirtyId, setRosterDirtyId] = useState<string | null>(null);
 
-  const position = work ? workPosition(work, match.match_id) : null;
+  const position = nav;
   const matchHref = (id: string) => adminHref(`/admin/ck/match/${encodeURIComponent(id)}`, { from, focus: initialFocus });
   const go = (id: string | null) => { if (id) router.push(matchHref(id)); };
   const onCompleted = () => {
-    const next = work ? nextUncompleted(work, match.match_id) : null;
-    router.push(next ? matchHref(next) : from);
+    router.push(nav?.nextUncompleted ? matchHref(nav.nextUncompleted) : from);
   };
 
   useEffect(() => {
@@ -183,7 +184,7 @@ export function MatchReviewer({ match, vods, series, compareHref, streamers, eve
             <button type="button" disabled={!position.prev} onClick={() => go(position.prev)} className="text-accent-400 disabled:text-ink-600">↑ 이전</button>
             <span className="tabular-nums text-ink-200">{position.index + 1} / {position.total}</span>
             <button type="button" disabled={!position.next} onClick={() => go(position.next)} className="text-accent-400 disabled:text-ink-600">다음 ↓</button>
-          </div> : <p>{work ? "이 경기는 들어온 목록의 범위 밖입니다." : "목록에서 열지 않아 앞뒤 경기가 없습니다."}</p>}
+          </div> : <p>{nav ? "이 경기는 들어온 목록의 범위 밖입니다." : "목록에서 열지 않아 앞뒤 경기가 없습니다."}</p>}
           <a href={from} className="text-xs text-ink-400 hover:text-ink-200">목록으로</a>
         </header>
         <h3 className="px-0.5 pb-2 pt-3 text-[13px] font-bold text-ink-200">방송별 근거</h3>
@@ -226,7 +227,7 @@ function EvidenceStrip({ frames, selectedId, onPick, vodName }: {
       title={`${vodName(frame.lead_id)} · ${hms(frame.at_sec)} · ${KIND_LABEL[frame.kind]} · ${frame.linked ? "이 경기 근거" : "참고(미연결)"}`}
       onClick={() => onPick(frame.id)}>
       {/* eslint-disable-next-line @next/next/no-img-element -- 로컬 검수 프레임 */}
-      <img loading="lazy" src={frameUrl(frame.frame_path)} alt={`${hms(frame.at_sec)} 프레임`} />
+      <img loading="lazy" decoding="async" src={frameThumbUrl(frame.frame_path)} alt={`${hms(frame.at_sec)} 프레임`} />
       <span>{frame.linked ? "" : "참고 "}{hms(frame.at_sec)}</span>
     </button>)}
   </div>;

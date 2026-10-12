@@ -25,7 +25,7 @@ import { IDLE, type ActionState } from "@/lib/action-state";
 import { framesForSelection, resolveSelection, timelineSpan, type Picked } from "./ck-selection";
 import { projectReviewQueue, chronologicalReviewQueue, activeQueueIndex, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
 import {
-  compactKst, frameUrl, hms, inputClass, KIND_LABEL, matchSetLabel, vodAt,
+  compactKst, frameThumbUrl, frameUrl, hms, inputClass, KIND_LABEL, matchSetLabel, vodAt,
   type ReviewEvent, type ReviewFrame, type ReviewMatch,
 } from "./ck-review-shared";
 
@@ -407,7 +407,7 @@ function FrameStrip({ frames, selectedId, onPick }: { frames: ReviewFrame[]; sel
       title={`${hms(frame.at_sec)} · ${KIND_LABEL[frame.kind]}`}
       onClick={() => onPick(frame.id)}>
       {/* eslint-disable-next-line @next/next/no-img-element -- 로컬 검수 프레임 */}
-      <img loading="lazy" src={frameUrl(frame.frame_path)} alt={`${hms(frame.at_sec)} 프레임`} />
+      <img loading="lazy" decoding="async" src={frameThumbUrl(frame.frame_path)} alt={`${hms(frame.at_sec)} 프레임`} />
       <span>{hms(frame.at_sec)}</span>
     </button>)}
   </div>;

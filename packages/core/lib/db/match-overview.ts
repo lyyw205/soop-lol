@@ -67,8 +67,13 @@ function overviewHaving(opts: OverviewOptions) {
       AND CASE WHEN ${opts.queue ?? null} = 'priority' THEN cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) > 0
         ELSE cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) = 0 END))
     AND (${q || null}::text IS NULL OR bool_or(concat_ws(' ', e.name, ms.round_label, m.match_id, m.series_id) ILIKE ${'%' + (q ?? '') + '%'}
-      OR EXISTS (SELECT 1 FROM match_participant mp LEFT JOIN streamer person ON person.id = mp.streamer_id
-        WHERE mp.match_id = m.match_id AND concat_ws(' ', person.display_name, mp.observed_name) ILIKE ${'%' + (q ?? '') + '%'})))
+      -- ★ 경기마다 도는 EXISTS(상관 서브쿼리)가 아니라 한 번만 계산하는 IN 이다. 검색어가 있으면 목록·개수·검수 화면의
+      --   작업 목록이 모두 이 조건을 타는데, EXISTS 는 경기 수만큼 참가자 검색을 되풀이해 한 번에 1.2~1.9초가 걸렸다(2026-10-12 실측).
+      --   검색 범위는 이 목록이 다루는 경기(공개 큐 제외)로 좁힌다 — 참가자 30만 자리 중 2.6만 자리만 훑는다.
+      OR m.match_id IN (SELECT mp.match_id FROM match_participant mp
+          JOIN match mm ON mm.match_id = mp.match_id AND mm.game_code = 'lol' AND mm.source <> 'public_queue'
+          LEFT JOIN streamer person ON person.id = mp.streamer_id
+        WHERE concat_ws(' ', person.display_name, mp.observed_name) ILIKE ${'%' + (q ?? '') + '%'})))
     AND CASE ${opts.focus ?? ''} WHEN 'position' THEN bool_or(rp.position_count < 10)
       WHEN 'identity' THEN bool_or(rp.linked_count < 10) WHEN 'champion' THEN bool_or(rp.champion_count < 10)
       WHEN 'kda' THEN bool_or(rp.kda_count < 10) ELSE true END`;

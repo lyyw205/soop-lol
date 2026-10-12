@@ -7,7 +7,7 @@ import { getMatchReviewEvidence } from "@soop-lol/core/lib/db/match-review";
 import { listOverviewWorkList } from "@soop-lol/core/lib/db/match-overview";
 import { getMatchSeriesContext } from "@soop-lol/core/lib/db/match-series-review";
 import { MatchReviewer } from "@/components/admin/MatchReviewer";
-import { matchReviewTitle } from "@/components/admin/ck-match-review";
+import { matchEvidence, matchReviewTitle, nextUncompleted, workPosition } from "@/components/admin/ck-match-review";
 import { reviewMatchData } from "@/lib/ck-review-data";
 import { reviewListScopeFromHref } from "@/lib/lol-review-list";
 
@@ -27,13 +27,31 @@ export default async function MatchReviewPage({ params, searchParams }: {
   let matchId: string;
   try { matchId = decodeURIComponent(routeId); } catch { notFound(); }
   const query = await searchParams;
-  const ws = await getMatchReviewWorkspace(matchId);
+  // 서로 기다릴 필요가 없는 읽기는 한꺼번에 시작한다. 작업 목록은 들어온 주소에 모음(협곡·칼바람)이 있으면 바로,
+  // 없으면 경기를 읽은 뒤 정한다(2026-10-12: 순서대로 기다리던 것을 병렬로 — 검수 화면 이동 속도).
+  const wsPromise = getMatchReviewWorkspace(matchId);
+  const vodsPromise = getMatchReviewEvidence(matchId);
+  const seriesPromise = getMatchSeriesContext(matchId);
+  const workFor = async (listCollection: ReturnType<typeof adminLoLCollection>) => {
+    const list = adminReturn(query.from, LOL_ADMIN[listCollection ?? "rift"].queue);
+    const listScope = reviewListScopeFromHref(list);
+    return listScope ? listOverviewWorkList(listScope.opts) : null;
+  };
+  const early = adminLoLCollection(query.from);
+  const earlyWork = early ? workFor(early) : null;
+  const ws = await wsPromise;
   if (!ws) notFound();
-  const collection = adminLoLCollection(query.from) ?? (inLoLCollection(ws.detail.match, "aram") ? "aram" : "rift");
+  const collection = early ?? (inLoLCollection(ws.detail.match, "aram") ? "aram" : "rift");
   const from = adminReturn(query.from, LOL_ADMIN[collection].queue);
-  const scope = reviewListScopeFromHref(from);
-  const [vods, work, series] = await Promise.all([getMatchReviewEvidence(matchId), scope ? listOverviewWorkList(scope.opts) : null, getMatchSeriesContext(matchId)]);
+  const [vods, work, series] = await Promise.all([vodsPromise, earlyWork ?? workFor(collection), seriesPromise]);
   if (!series) notFound();
+  // 사진 계산(연결 사진 + 같은 구간 참고 사진)은 서버에서 끝낸다 — 방송의 사진 수백 장을 화면으로 보내지 않는다.
+  // 작업 목록 전체(수천 건)가 아니라 이 경기의 자리와 앞뒤·다음 미완료만 화면으로 보낸다.
+  const nav = work ? { ...workPosition(work, matchId), nextUncompleted: nextUncompleted(work, matchId) } : null;
+  const evidence = matchEvidence(matchId, vods).map(({ vod, frames, linked, reference }) => ({
+    vod: { lead_id: vod.lead_id, source_key: vod.source_key, title: vod.title, url: vod.url, streamer_name: vod.streamer_name, pov: vod.pov },
+    frames, linked, reference,
+  }));
   // 시리즈 비교 화면은 검색어로 시리즈 키를 찾는다(목록 검색이 시리즈 키를 본다).
   const compareHref = series.series ? adminHref(LOL_ADMIN[collection].compare, { q: series.series.id, queue: "all", review: "all" }) : null;
   const match = reviewMatchData(ws.detail);
@@ -47,7 +65,7 @@ export default async function MatchReviewPage({ params, searchParams }: {
         {match.source_url && <a href={match.source_url} target="_blank" rel="noreferrer" className="text-accent-400">출처 열기 ↗</a>}
       </p>
     </div></header>
-    <MatchReviewer key={matchId} match={match} vods={vods} series={series} compareHref={compareHref} streamers={ws.streamers} events={ws.events} work={work} from={from}
+    <MatchReviewer key={matchId} match={match} evidence={evidence} series={series} compareHref={compareHref} streamers={ws.streamers} events={ws.events} nav={nav} from={from}
       initialFocus={query.focus} initialTab={query.tab === "roster" ? "roster" : undefined} />
   </div>;
 }

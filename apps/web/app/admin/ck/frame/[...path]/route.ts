@@ -60,8 +60,33 @@ async function archiveRoot(fs: Fs): Promise<string | null> {
   try { return await fs.realpath(configured); } catch { return null; }
 }
 
+/**
+ * 썸네일(`?w=<가로 px>`) — 사진 줄의 70×42px 칸에 원본(장당 250~390KB)을 받으면 한 경기에 수 MB 가 내려오고,
+ * 브라우저의 동시 연결 수(6) 때문에 큰 사진이 그 줄 뒤에서 기다린다(2026-10-12 실측: 28장 3~4MB, 큰 사진 2.6~5.8초).
+ * 축소본은 원본 파일의 크기·수정 시각으로 키를 잡아 임시 폴더에 둔다 — 원본이 바뀌면 키가 달라진다.
+ * 축소를 못 하면(sharp 없음·깨진 파일) 원본을 그대로 준다 — 화면이 안 뜨는 것보다 느린 편이 낫다.
+ */
+const THUMB_WIDTHS = [96, 160, 320];
+
+async function thumbnail(fs: Fs, real: string, size: number, mtimeMs: number, width: number): Promise<Buffer | null> {
+  try {
+    const { createHash } = await import("node:crypto");
+    const { tmpdir } = await import("node:os");
+    const dir = join(tmpdir(), "soop-lol-frame-thumbs");
+    const file = join(dir, `${createHash("sha1").update(`${real}\0${size}\0${mtimeMs}\0${width}`).digest("hex")}.jpg`);
+    try { return await fs.readFile(file); } catch { /* 아직 없다 */ }
+    const sharp = (await import("sharp")).default;
+    const out = await sharp(real).resize({ width, withoutEnlargement: true }).jpeg({ quality: 70, mozjpeg: true }).toBuffer();
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(file, out);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
   const { path } = await params;
@@ -105,6 +130,13 @@ export async function GET(
 
     const info = await fs.stat(real);
     if (!info.isFile()) return new Response("파일이 아닙니다.", { status: 404 });
+    const wanted = Number(new URL(request.url).searchParams.get("w"));
+    const small = THUMB_WIDTHS.includes(wanted) ? await thumbnail(fs, real, info.size, info.mtimeMs, wanted) : null;
+    if (small) {
+      return new Response(new Uint8Array(small), {
+        headers: { "Content-Type": "image/jpeg", "Content-Length": String(small.length), "Cache-Control": "private, max-age=86400, immutable" },
+      });
+    }
     const body = await fs.readFile(real);
     return new Response(new Uint8Array(body), {
       headers: {

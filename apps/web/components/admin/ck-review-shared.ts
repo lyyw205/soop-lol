@@ -112,6 +112,8 @@ export const durationLabel = (sec: number | null) => sec == null
 
 /** 프레임 파일을 서빙하는 라우트. `out/` 밖은 라우트가 거부한다. */
 export const frameUrl = (path: string) => `/admin/ck/frame/${path.split("/").map(encodeURIComponent).join("/")}`;
+/** 사진 줄·목록의 작은 칸용 축소본(가로 160px). 큰 화면에는 frameUrl 을 쓴다. */
+export const frameThumbUrl = (path: string) => `${frameUrl(path)}?w=160`;
 
 export const KIND_LABEL: Record<ReviewFrame["kind"], string> = {
   result: "결과창",
