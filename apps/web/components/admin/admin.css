@@ -234,7 +234,10 @@ body:has(.admin-theme) > footer { display: none; }
   .admin-theme .ck-review-preview { grid-column: 2; grid-row: 1; }
   .admin-theme .ck-review-preview > header, .admin-theme .ck-review-preview > footer { flex: 0 0 auto; }
   .admin-theme .ck-review-frame { flex: 1 1 auto; min-height: 0; overflow: auto; }
-  .admin-theme .ck-review-frame-image { max-height: 100%; }
+  /* 사진 칸이 사진보다 낮아도(창 높이가 낮을 때) 사진이 칸 안에서 줄어든다 — max-height:100% 는 높이가 정해지지 않은 칸에서
+     풀리지 않아 사진이 넘쳐 스크롤됐다. 칸을 기준으로 채우고(contain) 비율만 지킨다. 원본 크기 모드(data-zoom)는 그대로 스크롤. */
+  .admin-theme .ck-review-frame:not([data-zoom=true]) { position: relative; }
+  .admin-theme .ck-review-frame:not([data-zoom=true]) .ck-review-frame-image { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; object-fit: contain; }
   .admin-theme .ck-review-inspector { grid-column: 3; grid-row: 1; min-height: 0; }
   .admin-theme .ck-review-inspector-shell { height: 100%; }
   .admin-theme .ck-review-inspector-body { flex: 1 1 auto; overflow: auto; }
