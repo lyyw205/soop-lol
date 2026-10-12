@@ -93,7 +93,11 @@ try {
 
   const editing = () => page.locator('form:has(.ck-review-match-summary) input[name=match_id]').inputValue();
   const currentId = () => decodeURIComponent(new URL(page.url()).pathname.split('/').pop()!);
-  const vodRow = (name: string) => page.getByRole('region', { name: '작업 목록과 방송별 근거' }).locator('button.ck-review-queue-item', { hasText: name });
+  // 시리즈 칸과 방송별 근거는 위 줄의 칩으로 여는 서랍이다(2026-10-12). Esc 로 닫는다.
+  const drawer = page.getByRole('region', { name: '방송별 근거' });
+  const openVods = async () => { if (!(await drawer.count())) await page.getByRole('button', { name: /^근거 방송/ }).click(); };
+  const vodRow = (name: string) => drawer.locator('button.ck-review-queue-item', { hasText: name });
+  const showReference = async () => { const b = page.getByRole('button', { name: /^참고 사진 \d+장 보기$/ }); if (await b.count()) await b.click(); };
   const strip = page.locator('.ck-review-frame-strip > button');
 
   // 6. 예전 대회 검수 주소는 그 대회 목록으로 간다.
@@ -122,9 +126,14 @@ try {
 
   // 2·3·4. M1: 방송 두 개, 연결 사진과 참고 사진, 필터는 사진만 바꾼다.
   await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M1')}?from=${encodeURIComponent(from)}`);
+  await openVods();
   await vodRow('전체').waitFor();
   assert.equal(await editing(), 'mr:M1');
   assert.match(await vodRow('전체').innerText(), /연결 2 · 참고 1/);
+  await page.keyboard.press('Escape');
+  assert.equal(await strip.count(), 2, '연결된 사진만 먼저 보인다');
+  assert.equal(await page.locator('.ck-review-frame-strip > button[data-reference]').count(), 0);
+  await showReference();
   assert.equal(await strip.count(), 3);
   assert.equal(await page.locator('.ck-review-frame-strip > button[data-reference]').count(), 1, '참고 사진은 구별 표시');
   for (let i = 0; i < 3; i++) {
@@ -133,6 +142,7 @@ try {
     const badge = await page.locator('.ck-review-preview > header').innerText();
     assert.match(badge, (await strip.nth(i).getAttribute('data-reference')) ? /참고 · 미연결/ : /이 경기 근거/);
   }
+  await openVods();
   await vodRow('방송 B').click();
   assert.equal(await editing(), 'mr:M1', '방송 필터는 편집 대상을 바꾸지 않는다');
   assert.equal(await strip.count(), 0, '사진이 한 장이면 줄은 없다');
@@ -141,10 +151,13 @@ try {
 
   // 4. M2: 방송 B 는 시점 기록 없이 사진만 연결 — 근거로 나오고 "판독 없음".
   await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M2')}?from=${encodeURIComponent(from)}`);
+  await openVods();
   await vodRow('방송 B').waitFor();
   assert.match(await vodRow('방송 B').innerText(), /연결 1 · 참고 0 · 판독 없음/);
   // 참고 사진을 이 경기 근거로 연결하면 표시가 바뀐다(DB 연결도 바뀐다).
   await vodRow('방송 A').click();
+  await page.keyboard.press('Escape');
+  await showReference();
   await page.locator('.ck-review-frame-strip > button[data-reference]').click();
   await page.getByRole('button', { name: '이 경기 근거로 연결', exact: true }).click();
   await page.getByRole('button', { name: '이 경기 근거에서 빼기', exact: true }).waitFor();
@@ -152,7 +165,7 @@ try {
 
   // 9. 편집은 경기 화면에서. 경기 사이를 오가도(다음·이전) 경기별 로스터 초안이 남는다.
   const roster = () => page.locator('form:has(input[name=roster])');
-  const kda = async () => { await page.getByRole('tab', { name: '로스터', exact: true }).click();
+  const kda = async () => {
     await page.locator('[data-participant-id="1"]').getByRole('button', { name: '참가자 1 KDA' }).click();
     return page.locator('[data-participant-id="1"] input[placeholder=K]'); };
   await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M1')}?from=${encodeURIComponent(from)}`);
@@ -165,7 +178,6 @@ try {
   assert.equal(await (await kda()).inputValue(), '77', '돌아오면 그 경기의 초안이 남아 있다');
   await roster().getByRole('button', { name: '변경사항 저장', exact: true }).click();
   await roster().locator('[role=status]', { hasText: '저장했습니다' }).waitFor();
-  await page.getByRole('tab', { name: '경기', exact: true }).click();
   const meta = page.locator('form:has(.ck-review-match-summary)');
   await meta.getByRole('button', { name: '2팀', exact: true }).click();
   await meta.locator('[role=status]').waitFor();
@@ -173,7 +185,8 @@ try {
 
   // M3: 근거가 없는 경기도 열리고 고칠 수 있다.
   await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M3')}?from=${encodeURIComponent(from)}`);
-  await page.getByText('이 경기에 근거가 붙은 방송이 없습니다.').waitFor();
+  await page.getByRole('button', { name: /^근거 방송 0 · 연결 사진 없음/ }).waitFor();
+  await page.getByText('근거 사진이 없습니다.').first().waitFor();
   assert.equal(await editing(), 'mr:M3');
 
   // 8. 시리즈 미지정 ≠ 단판. 목록은 묶지 않은 경기를 시리즈로 세지 않는다.
@@ -189,6 +202,7 @@ try {
   await page.locator('form:has(.ck-review-match-summary) [role=status]').waitFor();
   // (Next 가 임시 DB 의 유일한 연결을 쓰므로 저장 결과는 화면으로 확인한다.)
   await page.locator('.ck-review-page-head h1', { hasText: '단판' }).waitFor();
+  await page.getByText('경기 정보 더 보기', { exact: false }).click();
   await page.getByRole('button', { name: 'Bo1 · VOD 2:10:00 "단판 한 판만" 공지', exact: true }).waitFor();
   // 같은 대회 묶음에 남는다 = 시리즈가 대회를 넘겨받았다(시리즈 경기는 match.event_id 를 비운다).
   assert.equal(await eventMeta(), '시리즈 1 · 시리즈 미지정 2경기 · 세트 3');
@@ -196,6 +210,7 @@ try {
 
   // 10. 시리즈 칸 — M1 은 시리즈 미지정, 같은 대회의 M2·M3 가 후보. M2 와 새 시리즈로 묶으면 세트·스코어가 보인다.
   await page.goto(`${base}/admin/ck/match/${encodeURIComponent('mr:M1')}?from=${encodeURIComponent(from)}`);
+  await page.getByRole('button', { name: /^시리즈/ }).click();
   const seriesPanel = page.getByRole('region', { name: '시리즈', exact: true });
   await seriesPanel.getByText('시리즈 미지정 — 단판인지 다전제의 한 판인지 아직 모릅니다.').waitFor();
   assert.equal(await seriesPanel.locator('.ck-series-sets > li').count(), 3, '같은 대회의 앞뒤 경기 + 시각 순서 자리의 지금 경기');
@@ -215,6 +230,7 @@ try {
   await setRows.nth(1).getByRole('link').click();
   await page.waitForURL((url) => decodeURIComponent(url.pathname).endsWith('mr:M2'));
   assert.equal(new URL(page.url()).searchParams.get('from'), from, '세트로 넘어가도 작업 목록을 들고 간다');
+  await page.getByRole('button', { name: /^시리즈/ }).click();
   await page.getByRole('region', { name: '시리즈', exact: true }).locator('.ck-series-sets > li[aria-current=true] a[title="mr:M2"]').waitFor();
 
   // 5. 완료 후 이동 = 같은 목록에서 다음 미완료.

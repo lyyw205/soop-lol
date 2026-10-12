@@ -57,15 +57,15 @@ export default async function MatchReviewPage({ params, searchParams }: {
   const match = reviewMatchData(ws.detail);
   const event = ws.events.find((e) => e.id === match.event_id) ?? null;
   return <div className="ck-review-page">
-    <header className="ck-review-page-head"><div className="min-w-0">
+    <header className="ck-review-page-head">
       <AdminBackLink fallback={from}>검수 목록</AdminBackLink>
-      <h1 className="mt-1 truncate text-lg text-ink-200">{matchReviewTitle(match, event?.name ?? null)}</h1>
-      <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-400">
+      <h1 className="min-w-0 flex-1 truncate text-base text-ink-200">{matchReviewTitle(match, event?.name ?? null)}</h1>
+      <p className="flex shrink-0 items-center gap-2 text-[11px] text-ink-400">
         <span className="font-mono">{match.match_id}</span>
         {match.source_url && <a href={match.source_url} target="_blank" rel="noreferrer" className="text-accent-400">출처 열기 ↗</a>}
       </p>
-    </div></header>
+    </header>
     <MatchReviewer key={matchId} match={match} evidence={evidence} series={series} compareHref={compareHref} streamers={ws.streamers} events={ws.events} nav={nav} from={from}
-      initialFocus={query.focus} initialTab={query.tab === "roster" ? "roster" : undefined} />
+      initialFocus={query.focus} />
   </div>;
 }

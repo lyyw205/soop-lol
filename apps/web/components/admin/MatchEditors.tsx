@@ -21,7 +21,6 @@ import {
   type PovDiffRowView, type ReviewEvent, type ReviewMatch, type ReviewStreamer,
 } from "./ck-review-shared";
 import { ActionMessage, SubmitButton } from "./Field";
-import { ReviewCompletion } from "./ReviewCompletion";
 import { useCkForm } from "./use-ck-form";
 import { useReviewDraft } from "./use-review-draft";
 
@@ -88,17 +87,21 @@ export function PovDiffBox({ diff, match, streamers }: {
 export function MatchInspector({
   leadId,
   match,
-  events, otherDirty, onCompleted,
+  events, onBusy,
 }: {
   leadId: string;
   match: ReviewMatch;
-  events: ReviewEvent[]; otherDirty: boolean; onCompleted: () => void;
+  /** 대회 이름·검색용(대회가 189개라 이 목록은 서버에서 한 번에 받는다). */
+  events: ReviewEvent[];
+  /** 저장 중·미저장 초안·칸을 편집 중이면 true — 검수 완료 버튼(위 줄)이 이 동안 잠긴다. */
+  onBusy: (busy: boolean) => void;
 }) {
   const { base, draft, setDraft, field, state, action, pending, reload, dirty, stale } = useCkForm(`lol-meta:${match.match_id}`, metaFormValues(match), saveMatchMetaAction);
   const hidden = match.visibility === "hidden";
   const formRef = useRef<HTMLFormElement>(null);
   const [activeField, setActiveField] = useState<MatchMetaField | null>(null);
   const selectedEvent = events.find((event) => event.id === draft.event_id) ?? null;
+  useEffect(() => { onBusy(pending || dirty || activeField != null); }, [pending, dirty, activeField, onBusy]);
 
   const openField = (name: MatchMetaField) => {
     if (pending) return;
@@ -156,37 +159,6 @@ export function MatchInspector({
 
   return (
     <div className="ck-review-panel p-4">
-      <header className="mb-3 grid gap-2">
-        <div className="min-w-0">
-          <h3 className="break-all font-mono text-xs leading-relaxed text-ink-200">{match.match_id}</h3>
-        </div>
-        <div className="grid gap-2">
-          <p className="mt-0.5 text-[11px] text-ink-400">
-            {matchOriginLabel(match)}
-
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-          <AdminHistory key={match.match_id} scope="match" id={match.match_id} />
-          <ReviewCompletion matchId={match.match_id} version={match.review_version} completed={!!match.review_completed_at} disabled={pending || dirty || otherDirty || activeField != null} onCompleted={onCompleted} />
-          <form action={setMatchVisibilityAction}>
-            <input type="hidden" name="lead_id" value={leadId} />
-            <input type="hidden" name="match_id" value={match.match_id} />
-            <input type="hidden" name="visibility" value={hidden ? "public" : "hidden"} />
-            <button
-              className={`shrink-0 rounded border px-2 py-1 text-[11px] ${
-                hidden
-                  ? "border-win/40 text-win hover:bg-win/10"
-                  : "border-lose/40 text-lose hover:bg-lose/10"
-              }`}
-              title={hidden ? "공개로 되돌린다" : "무효판·중복판·시청 구간이면 공개에서 뺀다"}
-            >
-              {hidden ? "되살리기" : "공개에서 빼기"}
-            </button>
-          </form>
-          </div>
-        </div>
-      </header>
-
       {hidden && (
         <p className="mb-3 rounded border border-lose/30 bg-lose/5 px-2 py-1.5 text-[11px] text-ink-400">
           <b className="text-lose">공개에서 빠진 경기입니다.</b> 지워지지 않았고 조우·챔피언 통계에서도
@@ -211,7 +183,7 @@ export function MatchInspector({
         <input type="hidden" name="set_order_known" value={draft.set_order_known} />
 
         <fieldset disabled={pending} className="contents">
-          <dl className="ck-review-match-summary">
+          <dl className="ck-review-match-summary ck-review-match-summary--row">
             <div>
               <dt>승자</dt>
               <dd className="ck-review-winner-toggle">
@@ -246,6 +218,20 @@ export function MatchInspector({
                   </button>}</dd>
             </div>
             <div className="is-wide">
+              <dt>길이</dt>
+              <dd>{activeField === "game_duration"
+                ? <input autoFocus name="game_duration" inputMode="numeric" aria-label="경기 길이 초" {...field("game_duration")}
+                    onKeyDown={fieldKeys("game_duration")} className={inputClass} />
+                : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("game_duration")}>
+                    {durationLabel(draft.game_duration ? Number(draft.game_duration) : null)}
+                  </button>}</dd>
+            </div>
+          </dl>
+          {/* 드물게 만지는 칸 — 접어 둔다. 접어도 같은 폼 안이라 저장·편집 흐름은 그대로다. */}
+          <details className="ck-review-more">
+            <summary>경기 정보 더 보기 · 대회·시각·세트 순서·시리즈 키·다전제</summary>
+            <dl className="ck-review-match-summary">
+            <div className="is-wide">
               <dt>대회</dt>
               <dd>{activeField === "event_id"
                 ? <EventLinkPicker value={draft.event_id} events={events}
@@ -263,7 +249,7 @@ export function MatchInspector({
                     {compactKst(draft.game_creation, draft.game_creation_precision)}
                   </button>}</dd>
             </div>
-            <div>
+            <div className="has-left-border">
               <dt>시각 정확도</dt>
               {/* 기본값이 없는 값이다. 시각을 VOD 로 보정했으면 여기서 "시각까지" 로 바꿔야 공개 화면이 시각을 낸다. */}
               <dd className="ck-review-winner-toggle">
@@ -280,15 +266,6 @@ export function MatchInspector({
                   title={draft.series_id ? "세트 순서를 출처에서 확인했나 — 모르면 N세트 대신 「세트」로 표시한다" : "시리즈가 있는 경기만"}
                   onClick={() => commitField("set_order_known", value)}>{label}</button>)}
               </dd>
-            </div>
-            <div className="has-left-border">
-              <dt>길이</dt>
-              <dd>{activeField === "game_duration"
-                ? <input autoFocus name="game_duration" inputMode="numeric" aria-label="경기 길이 초" {...field("game_duration")}
-                    onKeyDown={fieldKeys("game_duration")} className={inputClass} />
-                : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("game_duration")}>
-                    {durationLabel(draft.game_duration ? Number(draft.game_duration) : null)}
-                  </button>}</dd>
             </div>
             <div className="is-wide">
               <dt>시리즈 키</dt>
@@ -311,11 +288,32 @@ export function MatchInspector({
                 : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("best_of")}
                     disabled={!draft.series_id}>{draft.best_of ? `Bo${draft.best_of} · ${draft.best_of_evidence || "근거 없음"}` : "미확정"}</button>}</dd>
             </div>
-          </dl>
+
+            </dl>
+          </details>
         </fieldset>
-        <div className="min-h-4"><CkFeedback state={state} reload={reload} pending={pending} /></div>
+        <div><CkFeedback state={state} reload={reload} pending={pending} /></div>
       </form>
     </div>
+  );
+}
+
+/** 경기 정보 아래쪽의 드문 동작 — 변경 이력·공개에서 빼기. 로스터 아래에 둔다. */
+export function MatchFooter({ leadId, match }: { leadId: string; match: ReviewMatch }) {
+  const hidden = match.visibility === "hidden";
+  return (
+    <footer className="ck-review-match-footer">
+        <span>{matchOriginLabel(match)}</span>
+        <AdminHistory key={match.match_id} scope="match" id={match.match_id} />
+        <form action={setMatchVisibilityAction}>
+          <input type="hidden" name="lead_id" value={leadId} />
+          <input type="hidden" name="match_id" value={match.match_id} />
+          <input type="hidden" name="visibility" value={hidden ? "public" : "hidden"} />
+          <button className={hidden ? "text-win" : "text-lose"} title={hidden ? "공개로 되돌린다" : "무효판·중복판·시청 구간이면 공개에서 뺀다"}>
+            {hidden ? "되살리기" : "공개에서 빼기"}
+          </button>
+        </form>
+    </footer>
   );
 }
 
@@ -420,7 +418,7 @@ export function RosterInspector({
           <h3 className="text-xs text-ink-200">로스터</h3>
           <span className="text-[10px] text-ink-500">{match.participants.length}/10 판독</span>
         </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-400">행을 눌러 수정하세요. 비어 있는 행은 누락 선수 추가용이며, 이름을 적은 행만 저장됩니다.</p>
+        <p className="mt-1 text-[10px] leading-relaxed text-ink-500">칸을 눌러 수정 · 빈 행은 누락 선수 추가(이름을 적은 행만 저장)</p>
       </header>
 
       <form action={action} className="grid gap-3">

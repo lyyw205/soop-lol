@@ -8,9 +8,8 @@ export async function verifyPriorityBrowser(context: BrowserContext, base: strin
   const sql = db();
   // 검수 완료는 경기 화면에서 — 완료 후 이동은 들어온 목록에서 다음 미완료(2026-10-11).
   await p.goto(base + '/admin/ck/match/browser%3AM1?from=' + encodeURIComponent('/admin/ck?queue=all&review=all&q=browser'));
-  await p.getByRole('tab', { name: '경기', exact: true }).click();
   await p.getByRole('button', { name: '검수 완료로 표시', exact: true }).click();
-  await p.getByRole('heading', { name: 'browser:M2', exact: true }).waitFor();
+  await p.locator('.ck-review-page-head', { hasText: 'browser:M2' }).waitFor();
   const [first] = await sql`SELECT review_version, review_completed_at FROM match WHERE match_id='browser:M1'`;
   assert.ok(first.review_completed_at, 'LoL completion advances only after saving');
   await setMatchReviewCompleted('browser:M1', false, first.review_version);
