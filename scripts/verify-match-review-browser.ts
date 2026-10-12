@@ -97,7 +97,6 @@ try {
   const drawer = page.getByRole('region', { name: '방송별 근거' });
   const openVods = async () => { if (!(await drawer.count())) await page.getByRole('button', { name: /^근거 방송/ }).click(); };
   const vodRow = (name: string) => drawer.locator('button.ck-review-queue-item', { hasText: name });
-  const showReference = async () => { const b = page.getByRole('button', { name: /^참고 사진 \d+장 보기$/ }); if (await b.count()) await b.click(); };
   const strip = page.locator('.ck-review-frame-strip > button');
 
   // 6. 예전 대회 검수 주소는 그 대회 목록으로 간다.
@@ -131,9 +130,11 @@ try {
   assert.equal(await editing(), 'mr:M1');
   assert.match(await vodRow('전체').innerText(), /연결 2 · 참고 1/);
   await page.keyboard.press('Escape');
-  assert.equal(await strip.count(), 2, '연결된 사진만 먼저 보인다');
+  assert.equal(await strip.count(), 3, '참고 사진도 기본으로 보인다');
+  await page.getByRole('button', { name: '참고 사진 숨기기', exact: true }).click();
+  assert.equal(await strip.count(), 2, '숨기면 연결된 사진만 남는다');
   assert.equal(await page.locator('.ck-review-frame-strip > button[data-reference]').count(), 0);
-  await showReference();
+  await page.getByRole('button', { name: /^참고 사진 \d+장 보기$/ }).click();
   assert.equal(await strip.count(), 3);
   assert.equal(await page.locator('.ck-review-frame-strip > button[data-reference]').count(), 1, '참고 사진은 구별 표시');
   for (let i = 0; i < 3; i++) {
@@ -157,7 +158,6 @@ try {
   // 참고 사진을 이 경기 근거로 연결하면 표시가 바뀐다(DB 연결도 바뀐다).
   await vodRow('방송 A').click();
   await page.keyboard.press('Escape');
-  await showReference();
   await page.locator('.ck-review-frame-strip > button[data-reference]').click();
   await page.getByRole('button', { name: '이 경기 근거로 연결', exact: true }).click();
   await page.getByRole('button', { name: '이 경기 근거에서 빼기', exact: true }).waitFor();

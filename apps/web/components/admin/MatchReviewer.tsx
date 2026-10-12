@@ -61,8 +61,8 @@ export function MatchReviewer({ match, evidence, series, compareHref, streamers,
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<string | null>(null);
-  // 연결된 사진이 하나도 없으면 참고 사진이라도 보여 준다. 있으면 연결된 것만 — 참고는 펼칠 때 보인다.
-  const [showReference, setShowReference] = useState(() => evidence.every((item) => item.linked === 0));
+  // 참고 사진(같은 구간의 미연결 사진)도 기본으로 보인다(2026-10-12 운영자 결정). "참고 사진 숨기기"로 접을 수 있다.
+  const [showReference, setShowReference] = useState(true);
   const visible = useMemo(() => visibleEvidence(evidence, filter).filter((frame) => showReference || frame.linked), [evidence, filter, showReference]);
   const [frameId, setFrameId] = useState<string | null>(null);
   const selected = visible.find((frame) => frame.id === frameId) ?? representativeEvidence(visible);
