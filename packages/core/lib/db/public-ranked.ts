@@ -8,16 +8,10 @@
  */
 
 import { db } from "./client.ts";
+import { STORED_CHALLENGE_KEYS } from "../ingest/transform.ts";
 
-/** 공개면에 내보내는 challenges 키. 늘릴 때는 화면에서 실제로 쓰는지부터 본다. */
-export const RANKED_CHALLENGE_KEYS = [
-  "killParticipation", "teamDamagePercentage", "damagePerMinute", "goldPerMinute", "kda",
-  "soloKills", "laneMinionsFirst10Minutes", "maxCsAdvantageOnLaneOpponent",
-  "laningPhaseGoldExpAdvantage", "perfectGame", "multikills",
-  // 기록실·케미(솔랭 도전) — 화면에서 쓰는 것만
-  "maxKillDeficit", "survivedSingleDigitHpCount", "saveAllyFromDeath", "killsOnOtherLanesEarlyJungleAsLaner",
-  "pickKillWithAlly", "outnumberedKills", "turretPlatesTaken", "visionScorePerMinute", "epicMonsterSteals", "killingSprees",
-] as const;
+/** 공개면에 내보내는 challenges 키 = 저장하는 키(ingest/transform). 늘릴 때는 화면에서 실제로 쓰는지부터 본다. */
+export const RANKED_CHALLENGE_KEYS = STORED_CHALLENGE_KEYS;
 export type RankedChallengeKey = (typeof RANKED_CHALLENGE_KEYS)[number];
 
 export interface PublicRankedGame {

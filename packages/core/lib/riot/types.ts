@@ -132,7 +132,7 @@ export interface ParticipantDto {
    * 라인전 지표의 금광. 타임라인 없이도 여기서 상당수가 나온다.
    *   soloKills / laneMinionsFirst10Minutes / maxLevelLeadLaneOpponent
    *   killParticipation / teamDamagePercentage / ...
-   * Riot 이 자주 바꾸므로 통째로 jsonb 에 저장하고 읽을 때 방어적으로 꺼낸다.
+   * Riot 이 자주 바꾸므로 읽을 때 방어적으로 꺼낸다. 저장은 화면이 쓰는 키만(ingest/transform STORED_CHALLENGE_KEYS).
    */
   challenges?: Record<string, number | undefined>;
 }

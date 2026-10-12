@@ -6,6 +6,7 @@ import {
   classifySource,
   deriveEncounters,
   durationSeconds,
+  STORED_CHALLENGE_KEYS,
   toMatchRow,
   toParticipantRows,
   type EncounterParticipant,
@@ -140,6 +141,30 @@ test("toParticipantRows — CS 는 미니언+정글몹 합이고 아이템은 7�
   assert.equal(rows[0].cs, 202);
   assert.deepEqual(rows[0].items, [3153, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(rows[0].challenges, {});
+});
+
+test("toParticipantRows — challenges 는 화면이 읽는 키만 남긴다(이벤트 모드·숫자 아닌 값은 버린다)", () => {
+  const challenges = { soloKills: 3, kda: 4.5, SWARM_KillEnemy: 0, abilityUses: 210, legendaryItemUsed: [3100] } as unknown as Record<string, number>;
+  const [row] = toParticipantRows(match({}, [participant({ puuid: "p1", challenges })]));
+  assert.deepEqual(row.challenges, { soloKills: 3, kda: 4.5 });
+  assert.ok(Object.keys(row.challenges!).every((k) => (STORED_CHALLENGE_KEYS as readonly string[]).includes(k)));
+});
+
+test("toParticipantRows — 룬은 핵심 룬과 보조 계열만, 공개 뷰(0069)가 읽는 경로 그대로", () => {
+  const perks = {
+    statPerks: { defense: 5011, flex: 5008, offense: 5008 },
+    styles: [
+      { description: "primaryStyle", style: 8100, selections: [{ perk: 8112, var1: 1719, var2: 0, var3: 0 }, { perk: 8143, var1: 1291 }] },
+      { description: "subStyle", style: 8000, selections: [{ perk: 8014, var1: 923 }] },
+    ],
+  };
+  const [row] = toParticipantRows(match({}, [participant({ puuid: "p1", perks })]));
+  assert.deepEqual(row.perks, { styles: [{ selections: [{ perk: 8112 }] }, { style: 8000 }] });
+  // 뷰의 경로: perks #>> '{styles,0,selections,0,perk}' · '{styles,1,style}'
+  assert.equal(row.perks?.styles[0].selections[0].perk, 8112);
+  assert.equal(row.perks?.styles[1].style, 8000);
+  // 둘 다 없으면 저장하지 않는다
+  assert.equal(toParticipantRows(match({}, [participant({ puuid: "p2", perks: { statPerks: { defense: 5002 } } })]))[0].perks, null);
 });
 
 test("toParticipantRows — 빈 포지션 문자열은 NULL 로 눕힌다", () => {

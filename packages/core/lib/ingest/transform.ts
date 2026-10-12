@@ -86,9 +86,50 @@ export interface ParticipantRow {
   summoner1_id: number | null;
   summoner2_id: number | null;
   items: number[];
-  perks: unknown;
-  /** 스트리머 계정 줄만 채운다 — 일반인 줄은 저장 직전에 null(db/ingest.ts saveMatch, 2026-10-12). */
-  challenges: Record<string, number | undefined> | null;
+  /** perks·challenges 는 화면이 읽는 값만(storedPerks·storedChallenges) — 일반인 줄은 저장 직전에 null(db/ingest.ts saveMatch). */
+  perks: StoredPerks | null;
+  challenges: Record<string, number> | null;
+}
+
+/**
+ * 저장하는 challenges 키 — **화면이 실제로 읽는 것만**(2026-10-12). 공개면(public-ranked)도 이 목록을 그대로 내보낸다.
+ * Riot 은 140여 개를 준다(이벤트 모드 SWARM_* 처럼 솔랭에선 늘 0인 것 포함). 통째로 두면 한 줄이 3KB 가 되고,
+ * 그게 공개 큐 2.7만 판에서 운영 DB 디스크를 채웠다. 늘릴 때는 화면에서 쓰는지부터 보고 여기에 더한다 —
+ * 이미 저장된 판엔 그 키가 없으니 Riot 보존 기간(2년) 안의 판만 다시 받아 채울 수 있다.
+ */
+export const STORED_CHALLENGE_KEYS = [
+  "killParticipation", "teamDamagePercentage", "damagePerMinute", "goldPerMinute", "kda",
+  "soloKills", "laneMinionsFirst10Minutes", "maxCsAdvantageOnLaneOpponent",
+  "laningPhaseGoldExpAdvantage", "perfectGame", "multikills",
+  // 기록실·케미(솔랭 도전)
+  "maxKillDeficit", "survivedSingleDigitHpCount", "saveAllyFromDeath", "killsOnOtherLanesEarlyJungleAsLaner",
+  "pickKillWithAlly", "outnumberedKills", "turretPlatesTaken", "visionScorePerMinute", "epicMonsterSteals", "killingSprees",
+] as const;
+
+export function storedChallenges(c: Record<string, unknown> | null | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const k of STORED_CHALLENGE_KEYS) {
+    const v = c?.[k];
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * 룬은 화면이 쓰는 두 값만 — 핵심 룬과 보조 계열. 모양은 Riot 원본의 경로를 그대로 따른다:
+ * 공개 뷰(0069)가 `perks #>> '{styles,0,selections,0,perk}'`·`'{styles,1,style}'` 로 읽는다.
+ */
+export interface StoredPerks {
+  styles: [{ selections: [{ perk: number | null }] }, { style: number | null }];
+}
+
+export function storedPerks(perks: unknown): StoredPerks | null {
+  const styles = (perks as { styles?: { style?: unknown; selections?: { perk?: unknown }[] }[] } | null)?.styles;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const keystone = n(styles?.[0]?.selections?.[0]?.perk);
+  const subStyle = n(styles?.[1]?.style);
+  if (keystone === null && subStyle === null) return null;
+  return { styles: [{ selections: [{ perk: keystone }] }, { style: subStyle }] };
 }
 
 /**
@@ -191,8 +232,8 @@ export function toParticipantRow(matchId: string, p: ParticipantDto): Participan
     summoner1_id: int(p.summoner1Id),
     summoner2_id: int(p.summoner2Id),
     items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].map((i) => i ?? 0),
-    perks: p.perks ?? null,
-    challenges: p.challenges ?? {},
+    perks: storedPerks(p.perks),
+    challenges: storedChallenges(p.challenges),
   };
 }
 

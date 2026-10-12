@@ -197,6 +197,7 @@ export async function saveMatch(dto: MatchDto, source?: MatchSource): Promise<Sa
       //   일반인이고, 그들의 상세 지표는 어느 화면도 쓰지 않는데 DB 의 절반(732MB)을 차지해 운영 DB 가 용량 한도로
       //   읽기 전용이 됐다. 기본 정보(계정·팀·챔피언·KDA)는 그대로 남긴다 — 나중에 등록되는 스트리머의 과거
       //   조우를 되살리는 데 필요하다(CLAUDE.md 원칙 5). 지난 계정(active_to 있음)도 스트리머 계정으로 본다.
+      //   스트리머 줄도 화면이 읽는 값만 담겨 온다(ingest/transform storedChallenges·storedPerks).
       const streamerPuuids = new Set((await tx<{ puuid: string }[]>`
         SELECT DISTINCT puuid FROM streamer_account
          WHERE puuid = ANY(${participantRows.map((p) => p.puuid).filter(Boolean) as string[]}::text[])`).map((r) => r.puuid));
