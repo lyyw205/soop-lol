@@ -69,8 +69,18 @@ const MIN_INTERVAL = {
  * 6MB 짜리를 받으니 회수는 적어도 무겁다 — 넉넉히 준다.
  */
 const PATTERNS = [
-  [/^vod-archive-.*\.sooplive\./, 700],
+  [/^vod-archive-.*\.sooplive\./, () => hlsInterval()],
 ];
+/**
+ * HLS 세그먼트 간격만 따로 — `SOOP_HLS_INTERVAL_MS`(비우면 700). 음성 준비는 세그먼트를 수천 개 연달아 받아서
+ * 이 간격이 준비 시간의 대부분이었다(2026-10-13: 2시간 VOD 1,193개 × 0.7초 ≈ 14분, 인식은 32초).
+ * 호출마다 읽는다 — 같은 프로세스 안에서 단계 시험을 할 수 있고, 음성 준비만 자기 값을 줄 수 있다.
+ */
+function hlsInterval() {
+  const raw = process.env.SOOP_HLS_INTERVAL_MS;
+  const v = Number(raw);
+  return raw != null && raw !== "" && Number.isFinite(v) && v >= 0 ? v : 700;
+}
 
 const DEFAULT_INTERVAL = 500;
 
@@ -80,7 +90,7 @@ const warned = new Set();
 function intervalFor(host) {
   const exact = MIN_INTERVAL[host];
   if (exact != null) return exact;
-  for (const [re, ms] of PATTERNS) if (re.test(host)) return ms;
+  for (const [re, ms] of PATTERNS) if (re.test(host)) return typeof ms === "function" ? ms() : ms;
   if (!warned.has(host)) {
     warned.add(host);
     console.warn(`[soop-http] 간격표에 없는 호스트: ${host} → 기본 ${DEFAULT_INTERVAL}ms. `

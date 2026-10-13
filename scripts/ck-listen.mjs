@@ -5,6 +5,8 @@
  *   npm run ck:listen -- --vod 189903183 --at 600:120 --engine qwen   # 같은 구간을 다시 읽는다
  *   npm run ck:listen -- --vod 189903183 --at 600:120 --dry-run
  *
+ * 신규 prepare/read/status/ack/config 경로는 독립 음성 맥락 실험이다(ck-local/listen.md).
+ * 아래 설명은 기존 --at 선택 구간 경로다.
  * ★ **보조 수단이다** (docs/CK-RESEARCH-PLAN.md §1·§3-C).
  *   기본 경로는 화면이고, 음성은 맥락이 필요할 때 고른 구간만 듣는다.
  *   이유는 계산 비용이 아니라 **확보 비용**이다 — 30분 표본에 HLS 298MB 를 받은 실측이 있다.
@@ -31,6 +33,14 @@ import { splitAudioRanges, audioManifest } from "./lib/ck-audio.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const args = process.argv.slice(2);
+// Independent context feature. The shared legacy --at route below stays compatible.
+if (args[0] && !args[0].startsWith("--")) {
+  try { await (await import("./ck-listen/cli.mjs")).main(args); }
+  catch (error) { console.error(`LISTEN 실패: ${String(error.message).replace(/https?:\/\/\S+/g, "[URL]").slice(0, 1200)}`); process.exitCode = 1; }
+  // A raw transcript can exceed a pipe buffer. Flush it before exiting.
+  await Promise.all([process.stdout, process.stderr].map((stream) => new Promise((resolve) => stream.write("", resolve))));
+  process.exit(process.exitCode ?? 0);
+}
 const flag = (n, d = null) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
 const vodId = flag("--vod");
 const atSpec = flag("--at");

@@ -24,8 +24,14 @@ const UA = { "User-Agent": "Mozilla/5.0" };
  *   1080p 로 오디오를 뜨면 필요한 것의 수십 배를 내려받는다.
  *   ⚠ 오디오 전용 렌디션이 **없는 VOD 가 실재한다**(207602969). 그때는 최저 화질로 간다.
  */
+/** 차단·오류 응답을 재생목록으로 읽지 않는다 — 상태 코드가 드러나야 차단을 알아챈다. */
+const playlistText = (r) => {
+  if (!r.ok) throw new Error(`HLS 재생목록 HTTP ${r.status}`);
+  return r.text();
+};
+
 export async function hlsSegments(file, { prefer = "video" } = {}) {
-  const master = await soopFetch(file.file, { headers: UA }).then((r) => r.text());
+  const master = await soopFetch(file.file, { headers: UA }).then(playlistText);
   const lines = master.split("\n").map((l) => l.trim());
 
   let rel = null;
@@ -60,7 +66,7 @@ export async function hlsSegments(file, { prefer = "video" } = {}) {
   if (!rel && !isMediaPlaylist) rel = lines.find((l) => l && !l.startsWith("#"));
   const base = rel ? new URL(rel, file.file).href : file.file;
   const dir = base.slice(0, base.lastIndexOf("/"));
-  const pl = rel ? (await soopFetch(base, { headers: UA }).then((r) => r.text())).split("\n") : lines;
+  const pl = rel ? (await soopFetch(base, { headers: UA }).then(playlistText)).split("\n") : lines;
 
   const segs = [];
   let t = 0;
@@ -88,7 +94,11 @@ export async function segmentsSpan({ segs, dir, init }, sec, span) {
   const parts = [Buffer.from(init ?? [])];
   let bytes = 0;
   for (const s of chosen) {
-    const buf = await soopFetch(`${dir}/${s.uri}`, { headers: UA }).then((r) => r.arrayBuffer());
+    // 차단(403·429)·서버 오류의 본문을 영상으로 이어붙이지 않는다 — 깨진 소리 대신 상태 코드가 드러나야 차단을 알아챈다.
+    const buf = await soopFetch(`${dir}/${s.uri}`, { headers: UA }).then((r) => {
+      if (!r.ok) throw new Error(`HLS 세그먼트 HTTP ${r.status}`);
+      return r.arrayBuffer();
+    });
     bytes += buf.byteLength;
     parts.push(Buffer.from(buf));
   }

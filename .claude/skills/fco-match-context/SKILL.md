@@ -46,7 +46,7 @@ description: 스트리머 간 FC 온라인 경기를 조사해 기록한다 — 
 fco:context list --vods        미조사 경기 + 후보 VOD 시간창
   → fco:context locate          경기마다 VOD 몇 초인가 + 뽑을 명령 (4종 · 결과 화면)
   → ck:probe --vod … --at/--between  프레임      (네가 연다)
-  ↔ ck:listen · 채팅 !공지       필요한 구간만
+  ↔ ck:listen · 채팅 !공지       필요한 구간만 (음성 기능을 켠 VOD 는 아래 「음성 원문」의 필수 열람)
   → fco:context draft --vods …  **뽑은 프레임 전량이 열거된 초안**
   → 초안을 채운다               연 것은 observed 를 쓰고, 안 연 것은 줄을 지운다
   → fco:context apply --file    반영 (유일한 창구, --dry-run 지원)
@@ -89,10 +89,50 @@ API 경기 목록이 아니라 **VOD 를 받아** 그 안의 FC 경기를 찾는
    - 결과: `created`(새 화면 경기, 숨김) · `linked`(같은 경기의 API·다른 화면 기록에 연결, 근거 복사) ·
      `needs_review`(후보가 둘 이상이거나 조건 부족 — **그대로 둔다**, 검수가 정한다) · `protected`(검수된 경기).
      관측은 어느 경우든 먼저 저장된다 — "API 가 곧 가져오겠지"로 저장을 건너뛰지 않는다.
-4. **맥락** — 행사·CK 로 볼 근거가 있으면 기존 흐름(`apply`)과 같다. 화면 경기는 `linked` 면 연결된 API 경기에, 아니면 아직
-   `apply` 대상이 아니다(API matchId 가 없다) — 맥락 근거는 `observed` 에 적어 두고 보고에 남긴다.
+4. **맥락 — 경기마다 결론을 남긴다(백필에서도 필수).** 저장한 경기와 이 VOD 시간대의 API 경기
+   (`fco:context list --from <VOD 날짜> --to <VOD 날짜> --streamer <방송 주인 slug>` — 결과 화면을 못 찾은 판도 API 에는 있다)마다
+   `apply` 로 `casual`·`event`·`unresolved` 중 하나를 남긴다. 대상 id: `linked` 면 연결된 API 경기, `created` 면 `screen` 이 찍은
+   화면 경기 id(`fcs:<VOD>@<초>`). `needs_review` 는 검수가 연결을 정하기 전이라 미루고 근거를 `observed` 와 보고에 남긴다.
+   음성 기능이 켜져 있으면 결론 전에 아래 [음성 원문](#음성-원문--기능을-켠-vod)을 읽는다.
+   - **대회·CK 는 행사로 묶는다 — 먼저 기존 행사를 찾는다.** `npm run fco:context -- events [--search <이름 일부>]` 로 같은 대회가 있는지 보고,
+     이름·날짜·참가자가 맞으면 그 slug·name·kind 를 **그대로** 쓴다(하나라도 다르면 apply 가 거부한다). 앞선 VOD 세션이 이미 만들었을 수 있다.
+   - 새로 만들 때: slug 는 `fc-<대회를 가리키는 영문·숫자>-<첫 경기 KST 날짜>`(예: `fc-tier3-cup-2026-10-11`), name 은 방송·공지에 나온 대회명
+     그대로(회차·날짜를 붙여 구별), kind 는 `tournament`(티어 대회·승격전·리그·컵) · `ck` · `scrim`(대회 대비 연습을 행사로 묶을 때) · `showmatch`.
+     `source_url` 은 공지·대진표 URL 이 있으면 그것, 없으면 근거를 본 VOD URL(`https://vod.sooplive.com/player/<번호>`).
+   - **여러 날·여러 방송에 걸친 한 대회는 한 행사다**(예선·본선·승격전 전체). 회차가 다르면(이번 주 대회와 다음 주 대회) 다른 행사다.
+     대회 대비 연습 경기를 대회 행사에 넣지 않는다.
+   - **방송 주인이 참가한 대회면 다른 참가자끼리의 경기 결과 화면도 저장하고 같은 행사로 묶는다.** 대회와 무관한 남의 경기 시청(프로 경기 등)은 저장하지 않는다.
+   - 제목·분위기만으로 `event` 로 묶지 않는다. 근거가 모자라면 `unresolved` 에 무엇을 보면 풀리는지 남긴다.
 5. **도장** — VOD 를 다 봤으면 `npm run fco:context -- scan --vod <번호> --status done --requested 0-<길이> --opened <연 초,…>`.
    못 끝냈으면 `--status running`. **롤 도장과 따로다** — 롤 조사가 끝난 VOD 도 FC 로는 따로 끝내야 한다.
+
+## 음성 원문 — 기능을 켠 VOD
+
+`npm run ck:listen -- status --vod <번호>` 가 `active:true` 면 적용한다(롤 조사와 같은 스위치). 백필 실행기가 Claude 시작 전에 VOD 전체를
+전사해 둔다 — FC 방송은 FC 구간이 VOD 의 91~94% 라 구간만 고르지 않는다. 롤이 이미 전사한 VOD 는 같은 원문을 그대로 쓴다.
+**명령(read·페이지·ack·search)과 해석 원칙은 [공통 절차](../ck-local/listen.md)를 따른다.** 읽는 시점과 기록만 아래 FC 규칙이다.
+
+1. **필수 — 경기 앞 대화와 경기 사이 대화.** 첫 경기는 시작 전 30분(`read --vod N --before <첫 경기 시작초>`), 다음 경기부터는
+   직전 경기 결과 화면부터 그 경기 시작까지(`--before <시작초> --previous-end <직전 결과 화면초>`). 창이 여럿이면
+   `--between a:b,c:d,…` 로 묶어 한 번에 읽는다. 시작초는 킥오프를 봤으면 그 초, 아니면 결과 화면 −12분(실측 경기 길이, docs/FCO-TIME-SAMPLES.md).
+   경기 맥락 결론(`apply`) 전에, 늦어도 `scan --status done` 전에 읽는다. 판별기 지도의 FC 구간(`fc.json` 의 `blocks`)은 대기실 잡담까지
+   묶어 여러 경기를 한 구간으로 잡으므로 이 기준에 쓰지 않는다(2026-10-13 시험: 구간 기준으로는 39초만 읽고 첫 경기 앞 "3티어 대회" 대화를 놓쳤다).
+2. **행사·시리즈 결론은 그 범위를 읽은 뒤.** `event`·`series` 로 묶을 때는 첫 경기 앞 안내부터 마지막 경기 뒤 마무리까지
+   `read --between` 으로 읽는다. 구간 앞 대화에서 행사·내기 단서가 나오면 친선으로 닫기 전에 그 앞뒤를 더 읽는다.
+3. **무엇을 듣나** — 친선/CK/대회, 대회명·주최, 몇 판 몇 선승, 상대 교체, 보상·벌칙, 본인 경기인지 남의 방송 시청인지.
+4. **덮지 않는다** — 닉네임·스코어·승부차기 승자는 결과 화면이 정본이다. 음성의 이름은 화면 철자를 확인하는 단서일 뿐이다.
+   **`best_of` 는 여전히 화면·공지 근거로만 넣는다** — 음성의 "3판 2선승" 은 `audio` 근거로 걸고 `best_of` 는 비운다.
+5. **결론에 쓴 발언은 그 경기 근거로 건다** — `kind: "audio"`, `frame_path` 없음, `observed` 는 원문 그대로(고쳐 쓰지 않는다):
+   ```json
+   { "evidence_key": "audio:<vod>@<청크 시작초>", "kind": "audio", "vod_title_no": 207643193, "at_sec": 1440, "end_sec": 1470,
+     "observed": "<원문 그대로>", "why": "<해석 — 왜 이 경기의 맥락인가>" }
+   ```
+6. **도장** — `fco:context scan … --listen-read <ack 한 패킷ID,…>` 가 읽은 범위를 `transcript_read` 에, `asr` 를 `signals` 에 넣는다
+   (ack 안 한 패킷이면 저장 전에 거부한다). 못 읽은 범위·사유는 `--listen-note "구간과 사유"`.
+7. **준비 종료 코드가 실패여도 이미 전사된 원문은 읽는다.** 실패는 "이번에 새로 전사하지 못했다"는 뜻이지 원문이 없다는 뜻이 아니다.
+   `status` 의 `coverage` 안에 든 필수 창은 위 1·2 대로 읽고, `missing` 에 걸린 부분만 확인 불가로 `--listen-note` 에 적는다.
+   `missing` 은 무음이 아니다. 필수 창이 전부 `missing` 이면 사유를 남기고 화면 조사로 진행한다 — 음성이 없다고 FC 조사를 멈추지 않는다.
+   **경기가 없는 VOD(남의 경기 시청 등)도 `done` 전에 FC 화면이 처음 나오는 지점 앞 30분을 읽는다** — 화면만으로 시청이라고 닫지 않는다.
 
 ## 경기마다 뽑는 장면 — 4종 + 결과 화면
 
@@ -148,7 +188,8 @@ npm run fco:context -- draft --vods 205292057,205320949 --event <행사slug> [--
 npm run fco:context -- show --match-id <넥슨matchId>
 npm run fco:context -- apply --file out/fco/0923.json [--dry-run] [--admin]
 npm run fco:context -- screen --file out/fco/<이름>.json [--dry-run]   # API 에 없는 경기 — VOD 결과 화면으로 기록
-npm run fco:context -- scan --vod <번호> --status done|running [--requested 0-<길이>] [--opened …]   # FC 조사 도장
+npm run fco:context -- scan --vod <번호> --status done|running [--requested 0-<길이>] [--opened …] [--listen-read <패킷ID,…>] [--listen-note "…"]   # FC 조사 도장
+npm run fco:context -- events [--search <이름 일부>]   # 기존 FC 행사(경기 수·기간·참가자) — 새 행사를 만들기 전에 같은 대회를 찾는다
 npm run fco:sync -- --streamer slug --nickname 감독명   # 계정 연결·경기 수집 (일일은 워커 engine_e_fco)
 ```
 
@@ -190,7 +231,7 @@ npm run fco:sync -- --streamer slug --nickname 감독명   # 계정 연결·경�
   }
   ```
   **상대가 바뀌면 시리즈가 아니다** — 그건 대회 안의 다른 매치업이라 `event` 로 묶는다(저장이 거부한다).
-  `best_of` 는 화면·공지에서 읽은 근거 없이는 못 넣는다. **「연속 3경기니까 Bo3」는 추측이다** —
+  `best_of` 는 화면·공지에서 읽은 근거 없이는 못 넣는다(음성 발언만으로도 넣지 않는다). **「연속 3경기니까 Bo3」는 추측이다** —
   형식을 모르면 비우고, 그래도 세트는 시리즈로 묶인다. 시리즈 승패는 저장하지 않고 세트에서 파생한다.
 - **근거는 「실제로 연 것 전부」다.** 결론을 설득할 최소한이 아니다. 판단에 쓴 화면, 쓰지 않았지만
   열어서 확인한 화면, 어긋나 보였던 화면까지 전부 건다 — 검수자는 네 결론이 아니라 **네가 본 것**을

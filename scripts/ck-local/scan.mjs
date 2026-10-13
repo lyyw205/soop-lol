@@ -163,6 +163,17 @@ if (args.includes("--finish")) {
     draft.candidates = g.candidates ?? [];
     out.push(...(g.results ?? []));
   }
+  // Optional audio-context adapter; visual discovery and result values stay independent.
+  // 기록 규칙은 FC 도장(fco:context scan)과 같은 함수(ck-listen/core.mjs scanListen)다.
+  const listenModule = new URL("../ck-listen/core.mjs", import.meta.url);
+  if (existsSync(listenModule) || flag("--listen-read") || flag("--listen-note")) {
+    const { scanListen } = await import(listenModule.href);
+    const audio = scanListen(process.cwd(), vodId, { read: flag("--listen-read")?.split(","), note: flag("--listen-note") });
+    if (flag("--listen-read")) draft.scan.transcript_read = mergeRanges([...(draft.scan.transcript_read ?? []), ...audio.transcript_read]);
+    if (audio.signals.length) draft.scan.signals = [...new Set([...(draft.scan.signals ?? ["frame"]), ...audio.signals])];
+    for (const line of audio.notes) draft.scan.note = `${draft.scan.note ?? ""}\n${line}`;
+    for (const line of audio.warnings) console.log(line);
+  }
   writeJson(join(dir, "final.json"), out.length === 1 ? draft : out);
   // ★ 경고만 한다(막지 않는다 — 합격선 금지). 10분 넘는 "게임 중" 라벨 구간인데 이 초안에 후보 결론도 연 원본도 근처에 없는 곳.
   //   ck-research: 롤 게임 구간은 대상이든 아니든 근거와 함께 닫는다. 클리드1 백필에서 솔랭·LCK 시청 구간 10곳이

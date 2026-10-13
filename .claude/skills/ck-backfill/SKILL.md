@@ -7,7 +7,8 @@ description: 사용자가 지정한 SOOP 스트리머의 과거 VOD를 기간 �
 
 사용자 요청으로만 실행한다. 화면 판독 규칙은 [ck-research](../ck-research/SKILL.md)가 정본이다.
 **FC 백필(`--game fconline`)** — 넥슨 API 는 최근 30일만 주므로 그 이전 FC 경기는 VOD 결과 화면으로 채운다.
-조사 세션은 [fco-match-context](../fco-match-context/SKILL.md)의 'VOD 에서 출발하기', 준비는 공용 지도 + FC 전용 판별기(fc.json),
+조사 세션은 [fco-match-context](../fco-match-context/SKILL.md)의 'VOD 에서 출발하기', 준비는 공용 지도 + FC 전용 판별기(fc.json)
++ 음성 원문 준비(`ck:listen` 스위치가 켜져 있을 때 — 롤 ck-local 백필과 같은 준비·같은 캐시),
 진척 도장은 `fco_scan`(롤 도장과 따로 — 롤로 끝낸 VOD 도 FC 로는 다시 본다), 마지막 요청 기간도 게임별이다(0055).
 FC 방송 채널 중 다시보기 대부분이 재생 파일 없음(구독자 전용으로 보임)인 곳이 있다 — 접근 불가로 남고 채울 수 없다.
 VOD 하나의 세션과 진척 확인이 끝나면 셸이 그 VOD 의 **결과 화면 앞뒤 원본**(−2분·−1분·−20초·+20초·+1분·+2분)을 뽑아 둔다(`fco:frames --vod`) — 검수 작업대가 앞뒤 맥락을 원본으로 넘겨 보는 재료다. 실패해도 백필은 계속하고, 롤 백필에는 붙지 않는다.

@@ -6,6 +6,25 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawn, type ChildProcess} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
+test('음성 준비 실패에도 Claude 조사·저장은 진행하고 FC 백필도 화면 준비 뒤 같은 준비를 돈다',async()=>{
+ const f=fixture('ok',{LISTEN_CODE:'2',NEXT_N:'1'});try{
+  assert.equal(await done(f.start()),0);
+  assert.match(f.order(),/prep\nlisten:prepare --vod 1 --if-enabled\nclaude\n/);
+ }finally{f.cleanup();}
+ const prompts=join(mkdtempSync(join(tmpdir(),'ck-backfill-prompt-')),'prompts');
+ const g=fixture('ok',{LISTEN_CODE:'2',NEXT_N:'1',PROMPT_LOG:prompts});try{
+  assert.equal(await done(g.start('--streamer','test','--game','fconline')),0);
+  assert.match(g.order(),/prep\nlisten:prepare --vod 1 --if-enabled\nclaude\n/);
+  const prompt=readFileSync(prompts,'utf8');
+  assert.match(prompt,/음성 준비 종료 코드 2/); assert.match(prompt,/'음성 원문' 절차/); assert.match(prompt,/--listen-read/);
+  assert.doesNotMatch(prompt,/첫 경기 전 기본 30분/); // 롤 문장을 FC 에 섞지 않는다.
+ }finally{g.cleanup();rmSync(join(prompts,'..'),{recursive:true,force:true});}
+ // 스킬을 바꾼 백필(ck-research)은 음성 준비를 돌리지 않는다.
+ const h=fixture('ok',{LISTEN_CODE:'0',NEXT_N:'1',CK_BACKFILL_SKILL:'ck-research'});try{
+  assert.equal(await done(h.start()),0);
+  assert.doesNotMatch(h.order(),/listen:/);
+ }finally{h.cleanup();}
+});
 function done(child:ChildProcess) {return new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});}
 async function until(check:()=>boolean) {for(let i=0;i<100;i++){if(check())return;await delay(50);}throw new Error('fixture timeout');}
 function fixture(mode:string, env:Record<string,string>={}) {
@@ -17,12 +36,14 @@ function fixture(mode:string, env:Record<string,string>={}) {
  copyFileSync(join(import.meta.dirname,'lib/ck-session-usage.ts'),join(dir,'scripts/lib/ck-session-usage.ts'));
  copyFileSync(join(import.meta.dirname,'ck-image-budget.ts'),join(dir,'scripts/ck-image-budget.ts'));
  copyFileSync(join(import.meta.dirname,'lib/ck-image-budget.ts'),join(dir,'scripts/lib/ck-image-budget.ts'));
+ if(env.LISTEN_CODE!==undefined){mkdirSync(join(dir,'scripts/ck-listen'),{recursive:true});writeFileSync(join(dir,'scripts/ck-listen/cli.mjs'),'');}
  // node: -e 는 진짜 node 로, ck-backfill.ts 명령은 흉내 낸다. next 는 NEXT_N 번까지 VOD 를 주고 3 으로 끝낸다.
  writeFileSync(join(dir,'bin/node'),`#!${process.execPath}\n`+String.raw`
  const fs=require('fs'), cp=require('child_process'), args=process.argv.slice(2);
  if(args[0]==='-e') {const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
  // ck-local 준비 단계(기본) — 실제 판별기 대신 PREP 줄만 찍는다.
  if(String(args[0]).endsWith('ck-local/scan.mjs')){fs.appendFileSync(process.env.ORDER,'prep\n');console.log('PREP: ck-local run_id=fake');process.exit(Number(process.env.PREP_CODE??0));}
+ if(String(args[0]).endsWith('ck-listen.mjs')){fs.appendFileSync(process.env.ORDER,'listen:'+args.slice(1).join(' ')+'\n');process.exit(Number(process.env.LISTEN_CODE??0));}
  if(['ck-session-usage.ts','ck-image-budget.ts'].some(p=>String(args[0]).endsWith(p))){const r=cp.spawnSync(process.execPath,args,{stdio:'inherit'});process.exit(r.status??1);}
  // FC 앞뒤 원본 추출 — 실제로 받지 않고 순서만 남긴다.
  // 롤 앞뒤 원본(ck-neighbors.ts)은 호출 순서 기록(ORDER)을 흐리지 않게 따로 적는다.

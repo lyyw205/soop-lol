@@ -154,11 +154,13 @@ while true; do
   PROMPT="/$SKILL FC 과거 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD). 스킬의 'VOD 에서 출발하기' 흐름을 그대로 따른다.
 ck-backfill 스킬이나 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다. SOOP 조사 도구는 병렬 실행하지 않는다.
 - VOD 안의 FC 경기를 전부 찾는다. 결과 화면 원본을 열어 읽은 경기만 fco:context screen 으로 저장한다(--dry-run 으로 형식을 먼저 확인).
+- 저장한 경기와 이 VOD 시간대의 API 경기마다 스킬 4단계대로 apply 로 결론(casual/event/unresolved)을 남긴다. 대회·CK 를 놓치지 않는다 —
+  행사를 만들기 전에 npm run fco:context -- events 로 기존 행사를 찾아 같은 대회면 그 slug·name·kind 를 그대로 쓴다(앞선 VOD 세션이 만들었을 수 있다).
 - 탐색 단계를 마칠 때마다 npm run fco:context -- scan --vod $VOD --status running --requested <본 범위> --opened <연 초> 로 진척을 남긴다.
 - VOD 전 범위를 다 봤을 때만 --status done --requested 0-<영상 길이>. FC 화면이 하나도 없으면 무엇을 보고 그렇게 판단했는지 --note 에 적고 done.
 - 재생 파일이 없거나(구독자 전용 등) 삭제·비공개를 실제 확인했으면 npm run ck:backfill -- access --vod $VOD --status unavailable --reason <확인 근거>.
   일시 오류는 --status temporary 로 남기고 이 세션을 끝낸다.
-종료 뒤 셸이 DB 도장(fco_scan)으로 진척을 확인한다. 찾은 경기 수·저장 결과(created/linked/needs_review)·못 찾은 구간을 요약한다."
+종료 뒤 셸이 DB 도장(fco_scan)으로 진척을 확인한다. 찾은 경기 수·저장 결과(created/linked/needs_review)·경기별 맥락 결론(행사 slug)·못 찾은 구간을 요약한다."
   else
     PROMPT="/$SKILL 수동 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD).
 분석은 $SKILL 스킬을 그대로 따른다. ck-backfill 스킬이나 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다.
@@ -194,6 +196,19 @@ ck:local --finish는 --resume <요약 JSON 파일>을 받는다. 다음 작업�
       PROMPT+=$'\n'"준비 단계 결과(이번 실행): ${PREP_LINE#PREP: } — 이 run_id 의 산출물만 쓴다."
     else
       PROMPT+=$'\n'"준비 단계 실패(종료 코드 $PREP_CODE, 로그 $PREP_OUT) — 준비 산출물을 쓰지 말고 스킬의 준비 실패 절차로 조사한다."
+    fi
+  fi
+  # 음성 원문 준비 — 롤 ck-local·FC 백필 공용, 같은 스위치(ck:listen config). 전사는 VOD 단위 캐시라
+  #   한쪽 게임이 이미 전사한 VOD 는 다시 받지 않는다. 화면 준비(probe.json 시간축) 뒤에 직렬로 돈다.
+  if [[ ( ( "$GAME" == lol && "$SKILL" == ck-local ) || ( "$GAME" == fconline && "$SKILL" == fco-match-context ) ) && -f scripts/ck-listen/cli.mjs ]]; then
+    LISTEN_OUT="$DIR/listen-$VOD.log"
+    # 백필은 사용자가 요청한 조사라 음성 없이 넘어가지 않게 차례를 길게 기다린다(기본 4시간 — 롤 자동 조사가 긴 VOD 를 받아쓰는 중일 수 있다).
+    run_child env CK_LISTEN_LOCK_WAIT_SECONDS="${CK_LISTEN_LOCK_WAIT_SECONDS:-14400}" bash -c 'node scripts/ck-listen.mjs prepare --vod "$1" --if-enabled >"$2" 2>&1' _ "$VOD" "$LISTEN_OUT"
+    LISTEN_CODE=$?
+    if [[ "$GAME" == fconline ]]; then
+      PROMPT+=$'\n'"음성 준비 종료 코드 $LISTEN_CODE (로그 $LISTEN_OUT). ck:listen status --vod $VOD 확인. 활성화됐으면 스킬의 '음성 원문' 절차를 따른다 — 경기 앞·사이 대화(첫 경기 시작 전 30분, 다음 경기부터는 직전 결과 화면~그 경기 시작)를 맥락 결론(apply)·done 전에 읽고, 행사·시리즈 결론은 그 범위의 원문을 읽은 뒤 낸다. 도장에 --listen-read <ack 한 패킷ID>. 준비 종료 코드가 실패여도 status 의 coverage(이미 전사된 범위)는 읽는다 — missing 만 확인 불가로 기록하고 화면 조사로 진행한다."
+    else
+      PROMPT+=$'\n'"음성 준비 종료 코드 $LISTEN_CODE (로그 $LISTEN_OUT). ck:listen status --vod $VOD 확인. 활성화됐으면 결과창 판독 뒤 분류 제출 전에 준비 대화를 필수 열람한다(첫 경기 전 기본 30분). 준비 종료 코드가 실패여도 status 의 coverage(이미 전사된 범위)는 읽는다 — missing 만 확인 불가로 기록하고 기존 조사로 진행한다."
     fi
   fi
   if (( IMAGE_ENABLED )); then

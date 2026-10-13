@@ -9,7 +9,9 @@
  *   clue   LoL 조사 중 실제로 연 FC 화면의 교차 단서
  *   screen VOD 결과 화면에서 읽은 경기를 저장 — API 에 없는 경기(30일 이전 등). 관측을 먼저 숨겨 저장하고,
  *          같은 경기의 API·화면 기록이 유일하게 맞으면 연결, 애매하면 검수 대기(docs/FCO-SCREEN-MATCH-DESIGN.md). --dry-run 지원
- *   scan   VOD 하나의 FC 조사 도장(raw.fco_scan) — 롤 도장(scan)과 따로다. done 은 VOD 전 범위를 본 뒤에만
+ *   events 기존 FC 행사 목록(경기 수·기간·참가자) — 여러 VOD 에 걸친 같은 대회를 한 행사로 묶으려고, 새 행사를 만들기 전에 찾아본다
+ *   scan   VOD 하나의 FC 조사 도장(raw.fco_scan) — 롤 도장(scan)과 따로다. done 은 VOD 전 범위를 본 뒤에만.
+ *          --listen-read 는 실제로 읽고 ack 한 음성 패킷의 범위를 transcript_read 에 넣는다(롤과 같은 함수, ck-listen/core.mjs)
  *
  * 시간창 제안은 실측(docs/FCO-TIME-SAMPLES.md)의 초기값이다 — matchDate 는 경기 종료 시각,
  * 경기 구간 ≈ [matchDate−12분, matchDate]. 판정 규칙이 아니라 탐색 시작점이다.
@@ -468,14 +470,50 @@ async function screenCommand() {
   if (failed) process.exitCode = 1;
 }
 
+/**
+ * 기존 FC 행사 — 세션은 앞선 VOD 에서 만든 행사를 모른다. 같은 대회를 VOD 마다 새 slug 로 만들면 한 대회가 여러 행사로 쪼개진다.
+ * 경기 기간·참가자를 같이 보여 줘서 "이름이 비슷한 다른 회차"와 "같은 대회"를 가를 수 있게 한다.
+ */
+async function eventsCommand() {
+  const q = option("search")?.trim() || null;
+  const rows = await db()<{ slug: string | null; name: string; kind: string; organizer: string | null; source_url: string | null;
+    starts_at: Date | null; games: number; first: Date | null; last: Date | null; people: string[] }[]>`
+    SELECT e.slug, e.name, e.kind, e.organizer, e.source_url, e.starts_at, g.games, g.first, g.last, g.people
+      FROM event e
+      LEFT JOIN LATERAL (
+        SELECT count(DISTINCT m.match_id)::int AS games, min(m.game_creation) AS first, max(m.game_creation) AS last,
+               COALESCE(array_remove(array_agg(DISTINCT s.slug), NULL), '{}') AS people
+          FROM match m
+          LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+          LEFT JOIN fco_match_participant p ON p.match_id = m.match_id
+          LEFT JOIN streamer s ON s.id = p.streamer_id
+         WHERE m.game_code = 'fconline' AND COALESCE(ms.event_id, m.event_id) = e.id
+      ) g ON true
+     WHERE e.game_code = 'fconline'
+       AND (${q}::text IS NULL OR e.name ILIKE '%' || ${q}::text || '%' OR e.slug ILIKE '%' || ${q}::text || '%')
+     ORDER BY COALESCE(g.last, e.starts_at) DESC NULLS LAST, e.name
+  `;
+  const day = (d: Date | null) => (d ? new Date(d.getTime() + 9 * 3600_000).toISOString().slice(0, 10) : "?"); // KST 날짜
+  for (const r of rows) {
+    console.log(`${r.slug ?? "(slug 없음)"} | ${r.kind} | ${r.name} | 경기 ${r.games}${r.games ? ` (${day(r.first)}~${day(r.last)})` : ""}`
+      + `${r.people.length ? ` | ${r.people.join(",")}` : ""}${r.source_url ? ` | ${r.source_url}` : ""}`);
+  }
+  console.log(`\n${rows.length}개${q ? ` ('${q}' 검색)` : ""} — 같은 대회면 이 slug·이름·kind 를 그대로 쓴다(다르면 apply 가 거부한다).`);
+}
+
 /** FC 조사 도장. done 은 VOD 전 범위를 본 뒤에만 — 범위가 모자라면 partial 로 다시 큐에 든다(vodWork). */
 async function scanCommand() {
   const vod = Number(option("vod"));
   const status = option("status");
   if (!Number.isInteger(vod) || !["done", "running", "failed"].includes(String(status))) {
-    throw new Error("사용법: npm run fco:context -- scan --vod 207643193 --status done|running|failed [--requested 0-12000] [--opened 5310,5400] [--failed a-b] [--note '…']");
+    throw new Error("사용법: npm run fco:context -- scan --vod 207643193 --status done|running|failed [--requested 0-12000] [--opened 5310,5400] [--failed a-b] [--note '…'] [--listen-read <ack한 패킷ID,…>] [--listen-note '음성 확인 한계']");
   }
   const ranges = (v?: string) => (v ?? "").split(",").filter(Boolean).map((r) => r.split("-").map(Number) as [number, number]);
+  // 음성 원문 열람 기록 — 롤 ck:local --finish 와 같은 함수. ack 안 한 패킷이면 DB 에 쓰기 전에 거부한다.
+  const { scanListen } = await import("./ck-listen/core.mjs");
+  const listen = scanListen(process.cwd(), String(vod), { read: option("listen-read")?.split(",").filter(Boolean), note: option("listen-note") });
+  for (const line of listen.warnings) console.log(line);
+  const note = [option("note"), ...listen.notes].filter(Boolean).join("\n") || undefined;
   const { markLeadScan, upsertEventLead } = await import("@soop-lol/core/lib/db/ck");
   const { vodWork } = await import("@soop-lol/core/lib/metrics/ck-vod-status");
   const span = await vodSpan(vod);
@@ -490,7 +528,8 @@ async function scanCommand() {
     status: status as "done" | "running" | "failed",
     requested: ranges(option("requested")), failed: ranges(option("failed")),
     opened: (option("opened") ?? "").split(",").filter(Boolean).map(Number),
-    note: option("note"), finished_at: new Date().toISOString(),
+    note, finished_at: new Date().toISOString(),
+    ...(listen.transcript_read.length ? { transcript_read: listen.transcript_read as [number, number][], signals: ["frame", "asr"] as ("frame" | "asr")[] } : {}),
   }, { key: "fco_scan" });
   const [row] = await db()<{ raw: Record<string, unknown> }[]>`SELECT raw FROM event_lead WHERE id = ${leadId}::uuid`;
   const work = vodWork(row.raw, span.lengthSec, "fco_scan");
@@ -507,8 +546,9 @@ async function main() {
     case "clue": return clueCommand();
     case "screen": return screenCommand();
     case "scan": return scanCommand();
+    case "events": return eventsCommand();
     default:
-      throw new Error("사용법: npm run fco:context -- <list|locate|draft|show|apply|clue|screen|scan> …  (파일 상단 주석 참고)");
+      throw new Error("사용법: npm run fco:context -- <list|locate|draft|show|apply|clue|screen|scan|events> …  (파일 상단 주석 참고)");
   }
 }
 
