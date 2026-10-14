@@ -39,6 +39,21 @@ import * as versus_server from "./versus/server/index.ts";
 
 export const MODULES: RegisteredModule[] = [
   {
+    name: "cam_link",
+    version: "0.1.0",
+    title: "실시간 캠공유",
+    description: "공개 VDO.Ninja 방 링크(사람마다 시작·보기)를 만들어 합방하는 사람들이 서로의 캠을 실시간으로 주고받게 한다. 보기는 명단 고정, 지난 방은 브라우저에 기억해 같은 링크를 다시 쓴다. 서버·DB 를 쓰지 않는다 — 디렉터리를 지우면 끝이다.",
+    schema: "mod_cam_link",
+    routes: [{"path":"/cam","title":"실시간 캠공유"}],
+    provides: ["cam-link"],
+    navOrder: 30,
+    site: "platform",
+    jobs: [
+
+    ],
+    hasUi: true,
+  },
+  {
     name: "community",
     version: "0.1.0",
     title: "커뮤니티",

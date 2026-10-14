@@ -22,6 +22,7 @@ export interface ModuleUiEntry {
 }
 
 export const MODULE_UI: Record<string, () => Promise<ModuleUiEntry>> = {
+  "cam_link": () => import("./cam_link/ui/page.tsx"),
   "community": () => import("./community/ui/page.tsx"),
   "fc_club_value": () => import("./fc_club_value/ui/page.tsx"),
   "fc_tournaments": () => import("./fc_tournaments/ui/page.tsx"),

@@ -1,0 +1,95 @@
+/* 실시간 캠공유 — 이 모듈 안에서만 쓰는 이름(cam-)이다. 사이트 공용 토큰만 읽는다. */
+.cam {
+  --cam-panel: var(--color-ink-900, #101219);
+  --cam-line: var(--color-ink-700, #222634);
+  --cam-muted: var(--color-ink-400, #6b7280);
+  --cam-text: var(--color-ink-200, #c7ccd8);
+  --cam-accent: var(--color-accent-500, #38bdf8);
+  --cam-bg: var(--color-ink-950, #0a0b0f);
+  max-width: 560px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  color: var(--cam-text);
+  font-size: var(--type-body, 14px);
+  line-height: var(--leading-body, 1.5);
+}
+.cam-head h1 { margin: 0 0 8px; font-size: var(--type-page, 26px); line-height: var(--leading-title, 1.3); color: #fff; }
+.cam-head p { margin: 0; }
+.cam-head strong { color: var(--cam-accent); font-weight: 600; }
+.cam-hint { margin: 0; color: var(--cam-muted); font-size: var(--type-dense); }
+
+.cam-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: var(--panel-padding, 20px); border: 1px solid var(--cam-line); border-radius: 14px; background: var(--cam-panel); }
+.cam-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cam-panel-head h2 { margin: 0; font-size: var(--type-card, 16px); color: #fff; }
+.cam-panel-head small { color: var(--cam-muted); font-weight: 400; font-size: var(--type-dense); }
+.cam-pill {
+  padding: 2px 10px; border-radius: 999px; border: 1px solid #4ade8066; background: #4ade8014;
+  color: var(--color-win, #4ade80); font-size: var(--type-meta); font-weight: 600; white-space: nowrap;
+}
+
+.cam-seats { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.cam-seat { display: flex; align-items: center; gap: 10px; }
+.cam-step {
+  display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--cam-accent); color: var(--cam-bg); font-size: var(--type-dense); font-weight: 700;
+}
+.cam-name {
+  flex: 1; width: 0; min-width: 0; height: var(--control-height-sm, 36px); padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--cam-line); background: var(--cam-bg); color: #fff; font: inherit; font-weight: 600;
+}
+.cam-name:focus { outline: none; border-color: var(--cam-accent); }
+.cam-remove, .cam-remove-gap { flex: none; width: 28px; }
+.cam-remove { height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--cam-muted); font: inherit; font-size: var(--type-card); cursor: pointer; }
+.cam-remove:hover { color: var(--color-lose, #f87171); background: #f8717114; }
+.cam-add {
+  min-height: var(--control-height-sm, 36px); border: 1px dashed var(--cam-line); border-radius: 8px;
+  background: transparent; color: var(--cam-text); font: inherit; font-weight: 600; cursor: pointer;
+}
+.cam-add:hover { border-color: var(--cam-accent); color: #fff; }
+
+.cam-go { display: grid; gap: 10px; }
+.cam-primary, .cam-secondary {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--control-height, 44px); padding: 0 16px; border-radius: 10px;
+  font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
+}
+.cam-primary { border: 0; background: var(--cam-accent); color: var(--cam-bg); font-size: var(--type-card); }
+.cam-secondary { border: 1px solid var(--cam-line); background: var(--cam-panel); color: #fff; }
+.cam-secondary:hover { border-color: var(--cam-accent); }
+
+.cam-panel > h2, .cam-restart h2 { margin: 0; font-size: var(--type-card, 16px); color: #fff; }
+.cam-warn { margin: 0; padding: 8px 12px; border-radius: 8px; background: #f8717114; border: 1px solid #f8717155; color: #fecaca; font-size: var(--type-dense); }
+.cam-restart { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; }
+.cam-restart > div { display: grid; gap: 4px; }
+.cam-steps { margin: 0; padding-left: 20px; list-style: decimal; display: grid; gap: 6px; }
+.cam-steps li::marker { color: var(--cam-accent); font-weight: 700; }
+.cam-steps b { color: #fff; }
+.cam-guide a { color: var(--cam-accent); }
+.cam-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.cam-option-label { display: grid; color: #fff; font-weight: 600; }
+.cam-option-label small { color: var(--cam-muted); font-weight: 400; font-size: var(--type-meta); }
+.cam-segment { display: inline-flex; flex: none; padding: 3px; border-radius: 10px; background: var(--cam-bg); border: 1px solid var(--cam-line); }
+.cam-segment button {
+  min-height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--cam-muted); font: inherit; font-weight: 600; cursor: pointer;
+}
+.cam-segment button[aria-checked="true"] { background: var(--color-ink-700, #222634); color: #fff; }
+.cam-toggle { cursor: pointer; }
+.cam-toggle input {
+  appearance: none; flex: none; width: 40px; height: 22px; margin: 0; border-radius: 999px; position: relative;
+  background: var(--color-ink-600, #2f3546); cursor: pointer; transition: background .15s;
+}
+.cam-toggle input::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; transition: transform .15s;
+}
+.cam-toggle input:checked { background: var(--cam-accent); }
+.cam-toggle input:checked::after { transform: translateX(18px); }
+.cam input:focus-visible, .cam button:focus-visible, .cam a:focus-visible { outline: 2px solid var(--cam-accent); outline-offset: 2px; }
+
+
+@media (max-width: 520px) {
+  .cam-restart { grid-template-columns: minmax(0, 1fr); }
+}
