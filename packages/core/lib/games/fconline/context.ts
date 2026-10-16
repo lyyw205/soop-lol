@@ -8,7 +8,7 @@ import { db } from "../../db/client.ts";
 import { allowedFormat, isFormat, type Format } from "../../metrics/format.ts";
 import {
   ensureFcoFriendlyEventInTx, ensureFcoPairBucketInTx, fcoContextStatus, fcoPairOf, FCO_CONTEXT_NOTE_FIELD,
-  FCO_EVENT_CONCLUSION_FORMATS, FCO_LATEST_NOTE_LATERAL, FCO_PLACEMENT_JOIN, type FcoContextStatus, type FcoEventConclusionFormat,
+  FCO_EVENT_CONCLUSION_FORMATS, FCO_LATEST_NOTE_LATERAL, FCO_PLACEMENT_JOIN, type FcoContextStatus,
 } from "./classify.ts";
 
 type Tx = postgres.TransactionSql;
@@ -65,8 +65,8 @@ export interface FcoContextInput {
   event?: {
     slug: string;
     name: string;
-    /** 진행 방식 — 자동 조사가 낼 수 있는 것은 ck·tournament·concept 뿐이다(친선은 friendly 결론, 모르면 unresolved). */
-    format: FcoEventConclusionFormat;
+    /** 진행 방식 — 새로 만들거나 자동 조사가 낼 수 있는 것은 ck·tournament·concept 뿐이다(친선은 friendly 결론, 모르면 unresolved). 사람은 이미 있는 행사의 값을 그대로 줄 수 있다. */
+    format: Format;
     organizer?: string | null;
     /** 확인 근거 URL. 필수 — 근거 없는 행사 연결은 받지 않는다. */
     source_url: string;
@@ -165,11 +165,17 @@ async function recordNote(tx: Tx, matchId: string, judgment: string, note: strin
   out.actions.push(`판단 기록 ${judgment}`);
 }
 
-/** 결론 event 의 행사 — 찾거나 만든다. 이미 있으면 이름·진행 방식을 대조만 하고 고치지 않는다. */
-async function resolveEventConclusion(tx: Tx, meta: FcoContextInput["event"], out: FcoContextOutcome): Promise<{ id: string; slug: string }> {
+/**
+ * 결론 event 의 행사 — 찾거나 만든다. 이미 있으면 이름·진행 방식을 대조만 하고 고치지 않는다.
+ * 새로 만들거나 자동 조사가 낼 수 있는 진행 방식은 ck·tournament·concept 뿐이다. 사람(admin)은 **이미 있는** 실제 행사라면
+ * 진행 방식과 무관하게 고를 수 있다(친선 행사·옛 scrim 에서 넘어온 분류 전 행사 등 — 사람이 정한 자리다).
+ */
+async function resolveEventConclusion(tx: Tx, meta: FcoContextInput["event"], actor: Actor, out: FcoContextOutcome): Promise<{ id: string; slug: string }> {
   if (!meta?.slug || !meta.name) throw new Error("event 결론에는 event{slug,name,format,source_url}가 필수다");
   const format = (meta as { format?: string }).format;
-  if (!format || !(FCO_EVENT_CONCLUSION_FORMATS as readonly string[]).includes(format)) {
+  const [found] = await tx<{ format: string; auto_bucket: boolean }[]>`SELECT format, auto_bucket FROM event WHERE slug = ${meta.slug} AND game_code = 'fconline'`;
+  const adminPicksExisting = actor === "admin" && found && !found.auto_bucket && format === found.format && allowedFormat("fconline", found.format as Format);
+  if (!adminPicksExisting && (!format || !(FCO_EVENT_CONCLUSION_FORMATS as readonly string[]).includes(format))) {
     throw new Error(`event.format 은 ${FCO_EVENT_CONCLUSION_FORMATS.join("·")} 중 하나다 (입력: ${format ?? "없음"}) — `
       + "친선은 사람이 conclusion friendly 로, 형식을 모르면 unresolved 로 남긴다");
   }
@@ -355,7 +361,7 @@ export async function applyFcoMatchContext(
       }
 
       let target: { id: string; slug: string } | null = null;
-      if (input.conclusion === "event") target = await resolveEventConclusion(tx, input.event, out);
+      if (input.conclusion === "event") target = await resolveEventConclusion(tx, input.event, createdBy, out);
       if (input.conclusion === "friendly") {
         const pair = await fcoPairOf(tx, game.match_id);
         if (!pair) throw new Error("친선은 스트리머 두 사람의 판에만 정한다 — 한쪽이 스트리머가 아니면 개인 기록이다");

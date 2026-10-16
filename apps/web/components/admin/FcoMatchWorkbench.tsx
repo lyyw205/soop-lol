@@ -37,6 +37,7 @@ import { IDLE, type ActionState } from "@/lib/action-state";
 
 import { FcoContextReviewer } from "./FcoContextReviewer";
 import { ActionMessage, SubmitButton } from "./Field";
+import { formatChipLabel } from "@soop-lol/core/lib/metrics/format";
 import { decisionBadge, EventDecision, EventTab, FcoReviewControls, type ReviewControlsUnit } from "./FcoReviewParts";
 import { VodFrameViewer, type ViewerVod } from "./VodFrameViewer";
 
@@ -179,7 +180,7 @@ export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventO
   const visible = useMemo(() => matches.filter((m) => {
     if (filter === "todo") return !m.review_completed_at && valueMatches.some(v => v.match_id === m.match_id);
     if (filter === "mismatch") return hasMismatch(m);
-    if (filter === "lonely") return m.source === "manual" && m.views.length <= 1;
+    if (filter === "lonely") return m.collected_via === "vod" && m.views.length <= 1;
     return true;
   }), [matches, filter]);
   const rows = [...(event && common.length ? [COMMON] : []), ...visible.map((m) => m.match_id)];
@@ -228,7 +229,8 @@ export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventO
   const seriesStandings = useMemo(() => {
     if (!event) return [];
     const by = new Map<string, FcoReviewUnit["matches"]>();
-    for (const m of event.unit.matches) if (m.series_id) by.set(m.series_id, [...(by.get(m.series_id) ?? []), m]);
+    // 한 판짜리 시리즈(set:<경기 id>)는 다전제가 아니다 — 스코어 줄을 만들지 않는다.
+    for (const m of event.unit.matches) if (m.series_id && m.series_id !== `set:${m.match_id}`) by.set(m.series_id, [...(by.get(m.series_id) ?? []), m]);
     return [...by].map(([id, sets]) => ({
       id,
       standing: fcoSeriesStanding(sets.map((m) => ({
@@ -347,10 +349,10 @@ export function FcoMatchWorkbench({ matches: rawMatches, streamers, vods, eventO
                 <button type="button" className="ck-review-queue-item" aria-current={m.match_id === selectedId ? "true" : undefined} onClick={() => pick(m.match_id)}>
                   <span className="min-w-0">
                     <span className="block truncate text-xs text-ink-200">
-                      {d?.bracket_label ? `${d.bracket_label} · ` : d?.series_id ? `${d.series_game_no ?? "?"}세트 · ` : ""}{m.sides.length === 2 ? sidesText(m.sides) : m.match_id}
+                      {d?.round_label ? `${d.round_label} · ` : d?.series_id && d.series_id !== `set:${d.match_id}` ? `${d.series_game_no ?? "?"}세트 · ` : ""}{m.sides.length === 2 ? sidesText(m.sides) : m.match_id}
                     </span>
                     <span className="block truncate text-[10px] text-ink-400">
-                      {kst(m.played_at)} · {m.source === "provider_api" ? "넥슨" : "화면"}{m.views.length > 1 ? ` · 시점 ${m.views.length}` : ""}
+                      {kst(m.played_at)} · {m.collected_via === "api" ? "넥슨" : "화면"}{m.views.length > 1 ? ` · 시점 ${m.views.length}` : ""}
                     </span>
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-0.5 text-[10px]">
@@ -563,7 +565,7 @@ function CandidatePanel({ m }: { m: FcoMatchUnit }) {
           <input type="hidden" name="target_id" value={c.match_id} />
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <span className={c.verdict === "same" ? "text-win" : c.verdict === "maybe" ? "text-amber-400" : "text-ink-400"}>{VERDICT_LABEL[c.verdict]}</span>
-            <span className="text-ink-400">· {c.source === "provider_api" ? "넥슨 기록" : "화면 기록"} · {c.gap_sec >= 0 ? "+" : ""}{Math.round(c.gap_sec / 60)}분</span>
+            <span className="text-ink-400">· {c.collected_via === "api" ? "넥슨 기록" : "화면 기록"} · {c.gap_sec >= 0 ? "+" : ""}{Math.round(c.gap_sec / 60)}분</span>
           </div>
           <p className="text-xs text-ink-200">{c.sides.map((s) => `${s.streamer_name ?? s.nickname} ${s.score ?? "?"}`).join(" : ")}</p>
           <div className="flex items-center gap-2"><SubmitButton tone="ghost">같은 경기로 붙이기</SubmitButton></div>
@@ -585,9 +587,9 @@ function ContextPanel({ m, eventOptions }: { m: FcoMatchUnit; eventOptions: FcoE
   return (
     <div className="ck-review-panel grid gap-2 p-3">
       <p className="text-[11px] font-semibold text-ink-200">맥락 — 무슨 판이었나</p>
-      {ctx.event && <p className="text-xs text-ink-200">현재: <b className="text-accent-400">{ctx.event.name}</b> <span className="text-ink-400">({ctx.event.kind})</span></p>}
+      {ctx.event && <p className="text-xs text-ink-200">현재: <b className="text-accent-400">{ctx.event.name}</b> <span className="text-ink-400">({formatChipLabel(ctx.event.format)})</span></p>}
       {!ctx.event && ctx.judgment && (
-        <p className="text-xs text-ink-200">현재: <b className={ctx.judgment.judgment === "casual" ? "text-ink-300" : "text-amber-400"}>{ctx.judgment.judgment === "casual" ? "단순 친선" : "미해결"}</b>
+        <p className="text-xs text-ink-200">현재: <b className="text-amber-400">미해결 · 분류 전</b>
           <span className="ml-1 text-ink-400">— {ctx.judgment.note}</span></p>
       )}
       {ctx.status === "uninvestigated" && <p className="text-xs text-ink-400">아직 맥락을 정하지 않았습니다.</p>}
@@ -611,8 +613,7 @@ function SessionTab({ session, matches, eventOptions, onPick }: {
   const done = matches.filter((m) => m.review_completed_at).length;
   const ctxCount = new Map<string, number>();
   for (const m of matches) {
-    const label = m.context.event ? `${m.context.event.name}(${m.context.event.kind})` : m.context.judgment?.judgment === "casual" ? "단순 친선"
-      : m.context.judgment?.judgment === "unresolved" ? "미해결" : "미조사";
+    const label = m.context.event ? `${m.context.event.name}(${formatChipLabel(m.context.event.format)})` : m.context.judgment ? "미해결" : "미조사";
     ctxCount.set(label, (ctxCount.get(label) ?? 0) + 1);
   }
   const firstTodo = matches.find((m) => !m.review_completed_at);

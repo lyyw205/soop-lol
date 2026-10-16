@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 
 import {
   applyFcoMatchContext, applyFcoMatchContexts, approveFcoContext, approveFcoEvent, holdFcoContext, holdFcoEvent,
-  listFcoEventOptions, decideFcoEventMatch, updateFcoEvent,
+  listFcoEventOptions, decideFcoEventMatch, updateFcoEvent, type FcoContextInput,
 } from "@soop-lol/core/lib/games/fconline/context";
+import { FCO_EVENT_CONCLUSION_FORMATS } from "@soop-lol/core/lib/games/fconline/classify";
+import type { Format } from "@soop-lol/core/lib/metrics/format";
 
 import type { ActionState } from "@/lib/action-state";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -74,8 +76,8 @@ export async function reviewToggleAction(_prev: ActionState, form: FormData): Pr
 }
 
 /**
- * 분류 변경 — 미해결/단순 친선(판단) 과 CK/대회(행사 연결)를 한 창구에서 받는다.
- * 화면은 토글 하나로 보이지만 저장 규칙은 그대로다: 근거 없는 도장은 거부된다.
+ * 분류 변경 — 미해결(판단 메모)·친선(사람만)과 대회·CK·컨셉(행사로 옮김)을 한 창구에서 받는다.
+ * 화면은 토글 하나로 보이지만 저장 규칙은 그대로다: 근거 없는 행사는 거부된다.
  */
 export async function setClassAction(_prev: ActionState, form: FormData): Promise<ActionState & { nextHref?: string }> {
   await requireAdmin();
@@ -86,31 +88,33 @@ export async function setClassAction(_prev: ActionState, form: FormData): Promis
     const expected = versions(form);
     if (ids.some(id => expected[id] === undefined)) throw new Error("선택한 경기의 기준값이 없습니다. 새로고침해 주세요.");
     const target = text(form, "target");
-    if (target === "unresolved" || target === "casual") {
-      // 사람이 고를 때 메모는 선택이다. 판단 표(0032)는 빈 메모를 받지 않으므로 "메모 없음"임을 그대로 적는다
-      // (지어내지 않는다 — 자동 조사(auto)는 여전히 근거가 필수다. 이 경로는 admin 뿐이다).
+    if (target === "unresolved") {
+      // 사람이 고를 때 메모는 선택이다. 빈 메모는 남지 않으므로 "메모 없음"임을 그대로 적는다
+      // (지어내지 않는다 — 자동 조사(auto)는 여전히 남은 질문이 필수다. 이 경로는 admin 뿐이다).
       const note = text(form, "note") || "검수자 판단(메모 없음)";
-      const out = await applyFcoMatchContexts(ids.map(id => ({ provider_match_id: id, expectedVersion: expected[id], conclusion: target, note })));
+      const out = await applyFcoMatchContexts(ids.map(id => ({ provider_match_id: id, expectedVersion: expected[id], conclusion: "unresolved" as const, note })));
       refresh();
       return summarize(out);
     }
-    // 행사 계열 — 기존 행사를 고르거나(event_id) 새로 만든다.
-    const kind = target;
-    if (!["ck", "scrim", "tournament", "showmatch", "other"].includes(kind)) {
-      throw new Error(`알 수 없는 분류다: ${target}`);
+    if (target === "friendly") {
+      // 친선은 사람이 확인해 정한다 — 경기마다 (두 사람, 날짜) 친선 행사로 옮긴다.
+      const out = await applyFcoMatchContexts(ids.map(id => ({ provider_match_id: id, expectedVersion: expected[id], conclusion: "friendly" as const })), { relink: true });
+      refresh();
+      return summarize(out);
     }
+    // 행사 계열 — 기존 실제 행사를 고르거나(existing_event_id) 새로 만든다(대회·CK·컨셉).
     const pickedId = text(form, "existing_event_id");
-    let meta: { slug: string; name: string; kind: string; organizer: string | null; source_url: string };
+    let meta: NonNullable<FcoContextInput["event"]>;
     if (pickedId) {
-      const options = await listFcoEventOptions();
-      const found = options.find((o) => o.id === pickedId);
+      const found = (await listFcoEventOptions()).find((o) => o.id === pickedId);
       if (!found) throw new Error("고른 행사를 찾을 수 없다");
       if (!found.slug) throw new Error("slug 없는 행사에는 연결할 수 없다");
       if (!found.source_url) throw new Error("확인 근거 URL 이 없는 행사다 — 먼저 행사에 근거를 채운다");
-      meta = { slug: found.slug, name: found.name, kind: found.kind, organizer: found.organizer, source_url: found.source_url };
+      meta = { slug: found.slug, name: found.name, format: found.format, organizer: found.organizer, source_url: found.source_url };
     } else {
+      if (!(FCO_EVENT_CONCLUSION_FORMATS as readonly string[]).includes(target)) throw new Error(`알 수 없는 분류다: ${target}`);
       meta = {
-        slug: text(form, "slug"), name: text(form, "name"), kind,
+        slug: text(form, "slug"), name: text(form, "name"), format: target as Format,
         organizer: text(form, "organizer") || null, source_url: text(form, "source_url"),
       };
       if (!meta.slug || !meta.name) throw new Error("새 행사에는 slug 와 이름이 필요하다");
@@ -120,8 +124,7 @@ export async function setClassAction(_prev: ActionState, form: FormData): Promis
       : undefined;
     if (series && ids.length > 1) throw new Error("세트 번호는 경기별로 지정해 주세요.");
     const out = await applyFcoMatchContexts(ids.map(id => ({
-      provider_match_id: id, expectedVersion: expected[id], conclusion: "event" as const,
-      event: meta as NonNullable<Parameters<typeof applyFcoMatchContext>[0]["event"]>, ...(series ? { series } : {}),
+      provider_match_id: id, expectedVersion: expected[id], conclusion: "event" as const, event: meta, ...(series ? { series } : {}),
     })), { relink: true });
     const destination = await listFcoEventOptions().then(events => events.find(event => event.slug === meta.slug)).catch(() => undefined);
     revalidatePath("/admin/fco");
@@ -173,19 +176,16 @@ export async function addEvidenceAction(_prev: ActionState, form: FormData): Pro
   }
 }
 
-/** [경기] 탭 — 이 경기를 대회에 넣거나 빼고, 브래킷 위치를 정한다. 저장하면 곧바로 공개 연결에 반영된다. */
+/** [경기] 탭 — 이 경기를 대회에 넣거나 뺀다. 저장하면 곧바로 공개 소속에 반영된다(빼면 그날 두 사람 묶음으로 돌아간다). */
 export async function decideMatchAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   await requireAdmin();
   try {
     const decision = text(form, "decision");
     if (decision !== "include" && decision !== "exclude") throw new Error("포함 또는 제외를 고른다");
-    const no = text(form, "bracket_no");
     const out = await decideFcoEventMatch({
       eventId: text(form, "event_id"),
       providerMatchId: text(form, "provider_match_id"),
       decision, expectedVersion: version(form),
-      bracketNo: no ? Number(no) : null,
-      bracketLabel: text(form, "bracket_label") || null,
       note: text(form, "note") || null,
     }, { createdBy: "admin" });
     refresh();
@@ -201,7 +201,7 @@ export async function updateEventAction(_prev: ActionState, form: FormData): Pro
   try {
     await updateFcoEvent(text(form, "event_id"), {
       expectedVersion: version(form), name: text(form, "name"),
-      kind: text(form, "kind") || undefined,
+      format: text(form, "format") || undefined,
       organizer: text(form, "organizer"),
       source_url: text(form, "source_url"),
     });

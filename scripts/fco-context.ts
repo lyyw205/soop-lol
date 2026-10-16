@@ -5,7 +5,7 @@
  *   locate 경기마다 VOD 몇 초인가 — 4종 지점(경기 전·시작·종료·종료 후)과 결과 화면 5분할 명령
  *   draft  뽑은 프레임을 **전부 열거한** 반영 초안. 읽은 것만 채우고 나머지는 지운다
  *   show   경기 하나의 맥락 상세 (판단 이력·근거·행사)
- *   apply  반영 (유일한 쓰기 창구) — casual/unresolved/event + 근거. --dry-run 지원
+ *   apply  반영 (유일한 쓰기 창구) — event(ck·tournament·concept)/unresolved + 근거. friendly 는 --admin(사람)만. --dry-run 지원
  *   clue   LoL 조사 중 실제로 연 FC 화면의 교차 단서
  *   screen VOD 결과 화면에서 읽은 경기를 저장 — API 에 없는 경기(30일 이전 등). 관측을 먼저 숨겨 저장하고,
  *          같은 경기의 API·화면 기록이 유일하게 맞으면 연결, 애매하면 검수 대기(docs/FCO-SCREEN-MATCH-DESIGN.md). --dry-run 지원
@@ -38,7 +38,6 @@ const flag = (name: string) => args.includes(`--${name}`);
 const STATUS_LABEL: Record<FcoContextStatus, string> = {
   uninvestigated: "미조사",
   unresolved: "미해결",
-  casual: "단순 친선",
   event: "행사",
 };
 
@@ -56,7 +55,7 @@ async function listCommand() {
   for (const row of queue) {
     const played = new Date(row.played_at);
     const kst = new Date(played.getTime() + 9 * 3600_000).toISOString().replace("T", " ").slice(0, 16);
-    const tail = row.status === "event" ? `${row.event_name} (${row.event_kind})`
+    const tail = row.status === "event" ? `${row.event_name} (${row.event_format})`
       : row.judgment_note ? row.judgment_note.slice(0, 40) : "";
     console.log(`${kst} KST | ${STATUS_LABEL[row.status].padEnd(5)} | ${row.players} | 근거 ${row.evidence_count} | ${row.provider_match_id}${tail ? ` | ${tail}` : ""}`);
   }
@@ -163,7 +162,7 @@ async function resolveTargets(): Promise<FcoTarget[]> {
       .filter((m) => m.decision !== "exclude")
       .map((m) => ({
         provider_match_id: m.provider_match_id, played_at: m.played_at,
-        who: m.participants.map((p) => p.name).join(" vs "), label: m.bracket_label,
+        who: m.participants.map((p) => p.name).join(" vs "), label: m.round_label,
       }));
   } else {
     const queue = await listFcoContextQueue({ from: option("from"), to: option("to"), streamer: option("streamer") });
@@ -299,7 +298,7 @@ async function showCommand() {
   console.log(`${detail.provider_match_id}  (${detail.match_id})`);
   console.log(`시각(UTC) ${detail.played_at} · 모드 ${detail.mode_key} · 상태 ${STATUS_LABEL[detail.status]}`);
   for (const p of detail.participants) console.log(`  ${p.slug ?? p.nickname}  ${p.outcome}  ${p.score ?? "?"}골`);
-  if (detail.event) console.log(`행사: ${detail.event.name} (${detail.event.kind}) ${detail.event.source_url ?? ""}`);
+  if (detail.event) console.log(`행사: ${detail.event.name} (${detail.event.format}) ${detail.event.source_url ?? ""}`);
   if (detail.history.length) {
     console.log("판단 이력 (최신부터):");
     for (const h of detail.history) console.log(`  [${h.created_at}] ${h.judgment} (${h.created_by}) — ${h.note}`);
@@ -456,7 +455,7 @@ async function screenCommand() {
       }
       const r = await saveFcoScreenMatch(input);
       tally[r.status] = (tally[r.status] ?? 0) + 1;
-      const extra = r.status === "linked" ? ` → ${r.link_to} (${r.link_to_source === "provider_api" ? "API 경기" : "다른 화면 경기"}에 연결·근거 복사)`
+      const extra = r.status === "linked" ? ` → ${r.link_to} (${r.link_to_via === "api" ? "API 경기" : "다른 화면 경기"}에 연결·근거 복사)`
         : r.status === "needs_review" ? ` → 검수 대기: 후보 ${r.candidates.join(", ")}`
         : r.status === "protected" ? ` — ${r.reason}`
         : r.expect_api ? " (최근 30일·등록 계정 — API 경기가 오면 reconcile 이 연결한다)" : "";
@@ -476,29 +475,29 @@ async function screenCommand() {
  */
 async function eventsCommand() {
   const q = option("search")?.trim() || null;
-  const rows = await db()<{ slug: string | null; name: string; kind: string; organizer: string | null; source_url: string | null;
+  const rows = await db()<{ slug: string | null; name: string; format: string; organizer: string | null; source_url: string | null;
     starts_at: Date | null; games: number; first: Date | null; last: Date | null; people: string[] }[]>`
-    SELECT e.slug, e.name, e.kind, e.organizer, e.source_url, e.starts_at, g.games, g.first, g.last, g.people
+    SELECT e.slug, e.name, e.format, e.organizer, e.source_url, e.starts_at, g.games, g.first, g.last, g.people
       FROM event e
       LEFT JOIN LATERAL (
         SELECT count(DISTINCT m.match_id)::int AS games, min(m.game_creation) AS first, max(m.game_creation) AS last,
                COALESCE(array_remove(array_agg(DISTINCT s.slug), NULL), '{}') AS people
           FROM match m
-          LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+          JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
           LEFT JOIN fco_match_participant p ON p.match_id = m.match_id
           LEFT JOIN streamer s ON s.id = p.streamer_id
-         WHERE m.game_code = 'fconline' AND COALESCE(ms.event_id, m.event_id) = e.id
+         WHERE m.game_code = 'fconline' AND ms.event_id = e.id
       ) g ON true
-     WHERE e.game_code = 'fconline'
+     WHERE e.game_code = 'fconline' AND NOT e.auto_bucket
        AND (${q}::text IS NULL OR e.name ILIKE '%' || ${q}::text || '%' OR e.slug ILIKE '%' || ${q}::text || '%')
      ORDER BY COALESCE(g.last, e.starts_at) DESC NULLS LAST, e.name
   `;
   const day = (d: Date | null) => (d ? new Date(d.getTime() + 9 * 3600_000).toISOString().slice(0, 10) : "?"); // KST 날짜
   for (const r of rows) {
-    console.log(`${r.slug ?? "(slug 없음)"} | ${r.kind} | ${r.name} | 경기 ${r.games}${r.games ? ` (${day(r.first)}~${day(r.last)})` : ""}`
+    console.log(`${r.slug ?? "(slug 없음)"} | ${r.format} | ${r.name} | 경기 ${r.games}${r.games ? ` (${day(r.first)}~${day(r.last)})` : ""}`
       + `${r.people.length ? ` | ${r.people.join(",")}` : ""}${r.source_url ? ` | ${r.source_url}` : ""}`);
   }
-  console.log(`\n${rows.length}개${q ? ` ('${q}' 검색)` : ""} — 같은 대회면 이 slug·이름·kind 를 그대로 쓴다(다르면 apply 가 거부한다).`);
+  console.log(`\n${rows.length}개${q ? ` ('${q}' 검색)` : ""} — 같은 대회면 이 slug·이름·format 을 그대로 쓴다(다르면 apply 가 거부한다).`);
 }
 
 /** FC 조사 도장. done 은 VOD 전 범위를 본 뒤에만 — 범위가 모자라면 partial 로 다시 큐에 든다(vodWork). */
