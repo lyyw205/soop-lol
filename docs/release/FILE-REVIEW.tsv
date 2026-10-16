@@ -1,0 +1,455 @@
+path	bytes	role	disposition	reference_count	review_note
+docs/ARCHITECTURE-REVIEW-2026-09-28.md	22376	전체 아키텍처 변경 점검 — 2026-09-28	검증 이력 보존	0	해당 날짜의 증거; 현재 전체 통과로 해석 금지
+docs/ARCHITECTURE.md	16143	구조	현행 정본 유지	9	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-BACKFILL-HARDENING-PLAN.md	21081	백필 안정성·사용량 개선 최종 계획	유지·상태 표기	3	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-BACKFILL-PLAN.md	18535	CK 수동 백필 최종 계획	대체된 계획 보관	1	0046으로 대체; 현행 CK-BACKFILL.md
+docs/CK-BACKFILL-SESSION-PLAN.md	27227	백필 이미지 누적과 재열람을 줄이는 구현 계획	유지·상태 표기	1	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-BACKFILL.md	14717	수동 CK 백필	현행 정본 유지	5	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-COLLECTION.md	38698	내전(CK) 수집 — 실측으로 알아낸 것	유지·상태 표기	25	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-LISTEN-CONTEXT-PLAN.md	46507	ck:listen 음성 맥락 도입 계획	유지·상태 표기	0	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-LOCAL-DETECTOR.md	36106	ck-local 결과창 판별기 학습 계획	유지·상태 표기	13	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-LOCAL-FC-PLAN.md	14946	로컬 준비 단계 공유 — 롤·FC 온라인 (C안)	유지·상태 표기	5	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-LOCAL-FIX-PLAN.md	26061	ck-local 실험판 수정 계획	유지·상태 표기	4	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-LOCAL-OPTIMIZE.md	11177	ck-local 최적화 계획	유지·상태 표기	0	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-MULTI-POV-PLAN.md	27599	CK 다시점 경기 통합 최종 계획	유지·상태 표기	10	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-POV-LIGHT-PLAN.md	14598	(보류) CK 다시점 2단계 — 가벼운 모드 계획	보류 설계 보관	2	현행 조사 규칙으로 적용 금지
+docs/CK-RESEARCH-PLAN.md	27797	CK 조사 스킬 재설계 계획 — 프레임 우선, 판단은 조사자에게	유지·상태 표기	13	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-RESULT-SEARCH-QUEUE-PLAN.md	19511	CK 결과 화면 탐색·검수 큐 개편 계획	검증 이력 보존	2	해당 날짜의 증거; 현재 전체 통과로 해석 금지
+docs/CK-REVIEW-FINAL-PLAN.md	21816	CK 재검토 결과와 최종 수정안	검증 이력 보존	1	해당 날짜의 증거; 현재 전체 통과로 해석 금지
+docs/CK-REVIEW-RECORD-MODEL.md	8019	CK 검수 기록 모델	현행 정본 유지	1	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/CK-UNKNOWN-REVIEW.md	14608	미확인 참가자 공개·일괄 연결 재검토	검증 이력 보존	0	해당 날짜의 증거; 현재 전체 통과로 해석 금지
+docs/COMMUNITY-PLAN.md	59065	커뮤니티 — 구현 계획	유지·상태 표기	30	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/FCO-CLUB-VALUE-PLAN.md	35205	FC 구단가치 — 순위·스쿼드·가치 변동 계획	유지·상태 표기	9	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/FCO-MATCH-CONTEXT-SKILL-PLAN.md	15267	FC 온라인 경기 맥락 조사 스킬 계획	유지·상태 표기	5	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/FCO-SCREEN-MATCH-DESIGN.md	22116	FC 온라인 — 화면으로만 아는 경기의 저장 설계	유지·상태 표기	12	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/FCO-TIME-SAMPLES.md	7338	FC 온라인 경기–VOD 시간 대응 실측	유지·상태 표기	12	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/FCONLINE-SITE.md	7717	FC 온라인 사이트와 대회 기록	유지·상태 표기	2	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/LOCAL-VLM-PLAN.md	34936	CK 조사에 로컬 비전 모델 도입 계획	유지·상태 표기	1	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/LOL-RANK-DUO-PLAN.md	14329	롤 랭크 채우기 + 솔랭 듀오 특별 콘텐츠 — 계획	유지·상태 표기	0	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/MELJANG-VERIFY.md	92888	멸망전 세트 검증 장부	검증 이력 보존	3	해당 날짜의 증거; 현재 전체 통과로 해석 금지
+docs/MULTI-GAME-FCONLINE-PLAN.md	9580	멀티게임 · FC온라인 전환 계획	유지·상태 표기	3	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/OPS-OFFICE.md	8518	운영 오피스	현행 정본 유지	0	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/PLAN.md	28293	soop-lol — 설계 문서	유지·상태 표기	119	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/PLATFORM-LAYER-PLAN.md	11179	플랫폼 층(로비) — 구현 계획	유지·상태 표기	7	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/RESEARCH.md	9990	사전 리서치 — 경쟁 지형 · 데이터 소스 · 법적 제약	유지·상태 표기	10	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/SCHEDULE-PLAN.md	23410	편성표(스케줄) — 구현 계획	유지·상태 표기	9	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/SERIES-EVENT-MODEL.md	4443	대회 · 시리즈 · 매치 모델	현행 정본 유지	0	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/SETUP.md	21750	셋업	현행 정본 유지	10	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/SITE-CONSISTENCY-PLAN.md	30114	화면 간 규칙 통일 계획 (2026-10-13)	유지·상태 표기	1	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/SITE-CONSISTENCY-RESULT.md	14928	화면 간 규칙 통일 — 구현 결과	검증 이력 보존	1	해당 날짜의 증거; 현재 전체 통과로 해석 금지
+docs/TOURNAMENT-CODE.md	8644	토너먼트 코드 — 내전 데이터를 잡는 유일한 합법 경로	유지·상태 표기	9	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/TOURNAMENT-FORMAT-PLAN.md	12825	대회 형식 — 경기 칸과 화살표로 저장하기	유지·상태 표기	8	계획과 결과가 섞인 경우 첫머리의 현재 상태·정본 링크 필요
+docs/design/implementation/README.md	3135	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/implementation/directory-mobile.png	552835	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/implementation/home-desktop.png	773248	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/implementation/home-mobile.png	336388	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/implementation/profile-desktop.png	756874	디자인 검토 이력	비공개 보관 후보	2	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/implementation/profile-mobile.png	446235	디자인 검토 이력	비공개 보관 후보	4	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/README.md	2751	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/compact-matchups-desktop.png	528789	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/compact-matchups-mobile.png	16083	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/matchup-list-refined.png	15704	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/personal-1440.png	825409	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/personal-360.png	358545	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/personal-768.png	680568	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/versus-1440.png	802418	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/versus-360.png	353919	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/layout-consistency/versus-768.png	660945	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/opponent-history/README.md	3387	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/opponent-history/desktop.png	613998	디자인 검토 이력	비공개 보관 후보	12	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/opponent-history/mobile-tab.png	68596	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/opponent-history/mobile.png	334289	디자인 검토 이력	비공개 보관 후보	12	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/opponent-history/summary-desktop.png	60623	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/opponent-history/summary-mobile.png	56430	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/personal-history/README.md	2096	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/personal-history/desktop.png	575890	디자인 검토 이력	비공개 보관 후보	12	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/personal-history/mobile.png	283797	디자인 검토 이력	비공개 보관 후보	12	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/personal-records/README.md	3285	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/personal-records/personal-desktop.png	813021	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/personal-records/personal-mobile.png	500645	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/personal-records/versus-mobile.png	358728	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/README.md	3152	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/a-actual-desktop.png	393520	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/a-card.png	320925	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/a-sample-desktop.png	421751	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/a-sample-mobile.png	280798	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/b-actual-desktop.png	337533	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/b-sample-desktop.png	381069	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/live-desktop-right-rail.png	358894	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/live-desktop.png	414247	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/live-mobile.png	230693	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/profile-card/versus-sidebar-check.png	40913	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/record-flow/README.md	2065	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/record-flow/example-ten-360.png	28746	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/record-flow/example-ten-980.png	34955	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/record-flow/history-desktop.png	23895	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/record-flow/history-mobile.png	20522	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/record-flow/recent-desktop.png	15748	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/README.md	5743	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/a-desktop.png	145963	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/a-mobile.png	51507	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/a-profile-mobile.png	43399	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/a-profile.png	137857	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/b-desktop.png	145384	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/b-mobile.png	48383	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/b-profile-mobile.png	42239	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/b-profile.png	131480	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/c-desktop.png	150681	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/c-mobile.png	50392	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/c-profile-mobile.png	43181	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/c-profile.png	131392	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/ref-fixtured.png	638803	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/ref-fixtured.txt	3189	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/ref-onefootball.png	200330	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/ref-onefootball.txt	1074	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/ref-uc-investments-detail.png	25330	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/ref-uc-investments.png	25330	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-01/ref-uc-investments.txt	93	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/README.md	4438	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/d-desktop.png	195633	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/d-mobile.png	63681	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/d-profile-mobile.png	47689	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/d-profile.png	165086	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/e-desktop.png	419766	디자인 검토 이력	비공개 보관 후보	5	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/e-mobile.png	144647	디자인 검토 이력	비공개 보관 후보	5	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/e-profile-mobile.png	78741	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/e-profile.png	223486	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-deeplol.json	3685	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-deeplol.png	806282	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-elo-player.json	12866	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-elo-player.png	143268	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-elo.json	15847	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-elo.png	321191	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-fow-detail.json	19025	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-fow-detail.png	254432	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-fow.json	10147	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-fow.png	184524	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-opgg.json	623	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-opgg.png	32839	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-poro.json	14491	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-poro.png	493531	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-soop.json	15158	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-02/ref-soop.png	185178	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-03/README.md	3350	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-03/desktop.png	559080	디자인 검토 이력	비공개 보관 후보	12	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-03/mobile-360.png	266019	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-03/mobile.png	149754	디자인 검토 이력	비공개 보관 후보	12	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-03/profile-desktop.png	321882	디자인 검토 이력	비공개 보관 후보	2	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/round-03/profile-mobile.png	110005	디자인 검토 이력	비공개 보관 후보	4	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/shared-match-details/README.md	2528	디자인 검토 이력	비공개 보관 후보	14	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/shared-match-details/personal-desktop.png	28491	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/shared-match-details/personal-mobile.png	42301	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/shared-match-details/versus-desktop.png	41781	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/shared-match-details/versus-mobile.png	44124	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/README.md	11319	디자인 검토 이력	비공개 보관 후보	15	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/a-bracket-desktop.png	776681	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/a-detail-desktop.png	1087495	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/a-detail-mobile.png	486010	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/a-index-desktop.png	1334056	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/a-index-mobile.png	779339	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/a-records-desktop.png	892109	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/a-set-detail-desktop.png	346210	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/a-teams-desktop.png	959261	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/b-detail-desktop.png	531234	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/b-detail-mobile.png	321353	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/b-index-desktop.png	429109	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/b-index-mobile.png	277726	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/b-set-detail-desktop.png	129156	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/build-data.mjs	3897	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/bracket-desktop.png	475882	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/bracket-mobile.png	197405	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/detail-desktop.png	774676	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/detail-mobile.png	382088	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/index-desktop.png	439998	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/index-mobile.png	242360	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/info-desktop.png	476856	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/info-mobile.png	230494	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/meljang-desktop.png	440974	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/meljang-mobile.png	228749	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/records-desktop.png	583483	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/records-mobile.png	301810	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/set-desktop.png	200443	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/set-mobile.png	233934	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/teams-desktop.png	539084	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/teams-mobile.png	214026	디자인 검토 이력	비공개 보관 후보	0	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/production/verification.json	222	디자인 검토 이력	비공개 보관 후보	2	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/verification.json	278	디자인 검토 이력	비공개 보관 후보	2	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+docs/design/tournaments/verify.mjs	5959	디자인 검토 이력	비공개 보관 후보	1	채택 근거·출처·회귀 스크린샷 보존; 운영 배포 제외
+scripts/_cov.ts	1631	일회성 조사 스크립트	보관·제거 후보	0	저장소 내 경로 참조 없음; 개인 /tmp·고정 대상 확인. 외부 수동 호출 여부는 미확인
+scripts/_dup.mjs	1888	일회성 조사 스크립트	보관·제거 후보	0	저장소 내 경로 참조 없음; 개인 /tmp·고정 대상 확인. 외부 수동 호출 여부는 미확인
+scripts/_dup2.mjs	2854	일회성 조사 스크립트	보관·제거 후보	0	저장소 내 경로 참조 없음; 개인 /tmp·고정 대상 확인. 외부 수동 호출 여부는 미확인
+scripts/_fco_probe2.mjs	815	일회성 조사 스크립트	보관·제거 후보	0	저장소 내 경로 참조 없음; 개인 /tmp·고정 대상 확인. 외부 수동 호출 여부는 미확인
+scripts/_q27.mjs	972	일회성 조사 스크립트	보관·제거 후보	0	저장소 내 경로 참조 없음; 개인 /tmp·고정 대상 확인. 외부 수동 호출 여부는 미확인
+scripts/_tmp_rosters.mjs	960	일회성 조사 스크립트	보관·제거 후보	0	저장소 내 경로 참조 없음; 개인 /tmp·고정 대상 확인. 외부 수동 호출 여부는 미확인
+scripts/apply-listed-names.mjs	3403	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/apply-meljang-lineups.mjs	10046	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/asr/README.md	5671	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/check.py	2557	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/check.sh	524	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/env.sh	1524	로컬 추론·준비·실험	로컬 유지·실험 분리	3	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/install.sh	1264	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/prepare.py	746	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/probe-vod.mjs	3254	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/report.py	7494	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/runtime.py	1134	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/sample-vod.mjs	5598	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/transcribe.py	5289	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/asr/transcribe.sh	529	로컬 추론·준비·실험	로컬 유지·실험 분리	3	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/benchmark-ck-image-budget.ts	10682	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/bracket-apply.ts	2485	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/build-champions.mjs	2376	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/build-meljang-2026.mjs	5345	운영 CLI·자료 생성	유지·명령 분류	3	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/build-meljang.mjs	39722	운영 CLI·자료 생성	유지·명령 분류	4	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/build-soop-fa.mjs	5647	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-archive.ts	7463	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-auto-queue.test.ts	2673	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-auto-queue.ts	2326	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-auto-shell.test.ts	12540	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-auto.sh	22048	운영 CLI·자료 생성	유지·명령 분류	11	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-backfill-par.sh	5593	운영 CLI·자료 생성	유지·명령 분류	4	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-backfill-shell.test.ts	22315	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-backfill.sh	25763	운영 CLI·자료 생성	유지·명령 분류	14	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-backfill.ts	13830	운영 CLI·자료 생성	유지·명령 분류	4	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-context/audio.mjs	7514	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-context/cli.mjs	8903	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-context/common.mjs	3608	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-context/context.test.ts	11723	회귀 테스트	유지	1	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-context/frames.mjs	8438	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-context/model.mjs	4739	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-context/packet.mjs	10033	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-context/reranker-bench.py	21425	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-context/runtime.sh	1186	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-context/select.mjs	8700	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-dedupe.ts	3737	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-image-budget-runner.test.ts	2138	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-image-budget.ts	9667	운영 CLI·자료 생성	유지·명령 분류	7	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-link-known.ts	4271	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-listen.mjs	10794	운영 CLI·자료 생성	유지·명령 분류	7	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-listen.test.ts	1361	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-listen/cli.mjs	5431	운영 CLI·자료 생성	유지·명령 분류	4	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-listen/core.mjs	17538	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-listen/core.test.ts	31404	회귀 테스트	유지	1	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-listen/prepare.mjs	19141	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-listen/worker.py	2033	운영 CLI·자료 생성	유지·명령 분류	3	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-local/detector/augment.py	5256	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/collect.mjs	4673	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/compare_aug.py	2002	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/compare_one_two.py	3447	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/detect.py	6395	로컬 추론·준비·실험	로컬 유지·실험 분리	3	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/embed.py	4541	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/fc_seed.ts	1721	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/label.py	2238	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/memo-labels.json	234621	로컬 추론·준비·실험	로컬 유지·실험 분리	3	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/memo.py	6626	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/memo_runtime.py	3920	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/models/memo-rollout.json	245	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/models/memo.json	18815	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/multi.py	6254	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/rebroadcast.py	6286	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/runs.py	776	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/sheets.py	575	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/detector/test_memo.py	2471	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-local/detector/test_memo_runtime.py	3179	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-local/detector/test_sheets.py	813	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-local/detector/test_training.py	1636	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-local/detector/train.py	15741	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/experiments/augment_memo.py	3646	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/experiments/context_probe.py	19544	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/experiments/memo-augmentation-templates.json	1079	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/experiments/memo_dataset.py	3452	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/experiments/spatial_memo.py	7490	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/experiments/test_context_probe.py	2239	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-local/experiments/train_memo.py	4121	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/experiments/verify_memo_runtime.py	2025	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/finish.test.ts	2195	회귀 테스트	유지	1	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-local/image.mjs	3787	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/memo-refresh.py	4936	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/preparation-compat.mjs	333	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/preparation-compat.test.mjs	843	회귀 테스트	유지	1	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-local/rebroadcast-seed.ts	2485	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/review.mjs	1947	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/review.test.ts	986	회귀 테스트	유지	1	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-local/scan.mjs	29119	로컬 추론·준비·실험	로컬 유지·실험 분리	5	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/ck-local/test_memo_refresh.py	901	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ck-merge.mjs	56326	운영 CLI·자료 생성	유지·명령 분류	10	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-mode.ts	1535	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-name.ts	8396	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-neighbors.ts	3448	운영 CLI·자료 생성	유지·명령 분류	3	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-probe.mjs	21817	운영 CLI·자료 생성	유지·명령 분류	7	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-queue.ts	21431	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-record.ts	15772	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-session-usage.ts	1224	운영 CLI·자료 생성	유지·명령 분류	5	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ck-who.mjs	13715	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/collect-leads.ts	29835	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/community-samples.ts	15130	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/consistency-checks.test.ts	957	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/contact-sheet.mjs	3627	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/cross-collect.ts	4859	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/data/team-logo-coverage.json	26160	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/data/team-logo-pending.json	9461	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/data/tournament-logo-coverage.json	3878	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/dev-db.ts	14009	운영 CLI·자료 생성	유지·명령 분류	3	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/enrich-meljang-roster.mjs	10043	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fake-riot.ts	8189	운영 CLI·자료 생성	유지·명령 분류	5	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fco-candidates.ts	7250	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fco-context-frames.ts	6648	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fco-context.ts	37887	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fco-find-event-matches.ts	2337	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fco-local/fc_detect.py	2303	로컬 추론·준비·실험	로컬 유지·실험 분리	2	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/fco-local/fc_review.py	2918	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/fco-local/fc_train.py	5831	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/fco-local/fclib.py	2398	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/fco-local/harvest.ts	4798	로컬 추론·준비·실험	로컬 유지·실험 분리	0	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/fco-local/score_test.ts	3860	로컬 추론·준비·실험	로컬 유지·실험 분리	1	모델/venv/산출물은 별도; 실험 파일을 운영 필수로 간주하지 않음
+scripts/fco-oldest-squad.ts	11787	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fco-public-snapshot.ts	7913	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fco-sync.ts	3947	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fill-listed-names.mjs	5942	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fill-roster-gaps.mjs	8936	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/fill-vote-ranks.mjs	5587	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/identify-candidates.ts	11917	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/lib/ck-audio.test.ts	1524	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/ck-audio.ts	1892	공용 수집·검증 라이브러리	유지	1	운영 스크립트와 테스트의 공유 경계
+scripts/lib/ck-auto-queue.ts	2722	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/ck-backfill-guard.test.ts	2513	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/ck-backfill-guard.ts	1956	공용 수집·검증 라이브러리	유지	1	운영 스크립트와 테스트의 공유 경계
+scripts/lib/ck-backfill.test.ts	2145	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/ck-backfill.ts	2913	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/ck-image-budget.test.ts	5070	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/ck-image-budget.ts	7592	공용 수집·검증 라이브러리	유지	3	운영 스크립트와 테스트의 공유 경계
+scripts/lib/ck-probe-points.mjs	689	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/ck-probe-points.test.ts	681	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/ck-session-usage.test.ts	1203	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/ck-session-usage.ts	1502	공용 수집·검증 라이브러리	유지	1	운영 스크립트와 테스트의 공유 경계
+scripts/lib/cli.mjs	1155	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/consistency-checks.ts	2631	공용 수집·검증 라이브러리	유지	1	운영 스크립트와 테스트의 공유 경계
+scripts/lib/disposable-pglite.ts	810	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/disposable-postgres.ts	1833	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/file-lock.mjs	949	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/migrations.test.ts	1775	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/migrations.ts	4396	공용 수집·검증 라이브러리	유지	1	운영 스크립트와 테스트의 공유 경계
+scripts/lib/namu.mjs	25663	공용 수집·검증 라이브러리	유지	4	운영 스크립트와 테스트의 공유 경계
+scripts/lib/result-names.mjs	7751	공용 수집·검증 라이브러리	유지	2	운영 스크립트와 테스트의 공유 경계
+scripts/lib/result-names.test.ts	4387	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/soop-board-gate.mjs	1449	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/soop-board.mjs	4764	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/soop-fa.mjs	1902	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/soop-http.mjs	8002	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/soop-vod.mjs	30389	공용 수집·검증 라이브러리	유지	6	운영 스크립트와 테스트의 공유 경계
+scripts/lib/soop-vod.test.ts	3150	회귀 테스트	유지	1	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/sooplol.mjs	3260	공용 수집·검증 라이브러리	유지	1	운영 스크립트와 테스트의 공유 경계
+scripts/lib/verify-admin-browser.ts	14592	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-ck-duplicates.ts	20562	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-community-db.ts	22744	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-match-series.ts	4391	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-member-db.ts	17728	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-priority-browser.ts	2807	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-puuid-move-db.ts	10235	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-review-progress.ts	6084	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-review-record-migration.ts	3290	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-schedule-db.ts	16830	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-unknown-browser.ts	8050	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-unknown-migration.ts	3475	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/verify-unknown.ts	9210	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/lib/vod-hls.mjs	6170	공용 수집·검증 라이브러리	유지	0	운영 스크립트와 테스트의 공유 경계
+scripts/lib/vod-hls.test.ts	1114	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/lib/vod-timeline.mjs	13097	공용 수집·검증 라이브러리	유지	8	운영 스크립트와 테스트의 공유 경계
+scripts/lib/vod-timeline.test.ts	4953	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/link-namu-identity.ts	5222	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/match-meljang-vods.mjs	12363	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/meljang-seasons.mjs	20158	운영 CLI·자료 생성	유지·명령 분류	3	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/migrate.ts	7955	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/namu-bracket.mjs	2058	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/office-dialogue.test.ts	2995	회귀 테스트	유지	1	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/office-timetable.test.ts	1730	회귀 테스트	유지	0	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/ops-office.ts	1500	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/ops-usage.ts	6946	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/pick-result-frame.mjs	5177	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/probe-fconline.ts	3790	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/repair-puuid.ts	4659	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/scan-vod-chat.mjs	3955	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/scan-vod-frames.mjs	7537	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/schedule-notices/README.txt	5398	공지 수집·CLI 분석	로컬 유지	0	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/analysis.txt	1911	공지 수집·CLI 분석	로컬 유지	0	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/analyze.mjs	5682	공지 수집·CLI 분석	로컬 유지	0	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/collect.mjs	5741	공지 수집·CLI 분석	로컬 유지	0	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/config.example.json	428	공지 수집·CLI 분석	로컬 유지	0	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/context.ts	1042	공지 수집·CLI 분석	로컬 유지	0	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/core.mjs	6080	공지 수집·CLI 분석	로컬 유지	0	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/install.sh	831	공지 수집·CLI 분석	로컬 유지	1	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/main.mjs	2357	공지 수집·CLI 분석	로컬 유지	1	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/run.sh	252	공지 수집·CLI 분석	로컬 유지	4	공개 반영기가 아닌 review-only 후보; 상태·이미지 보존 정책 필요
+scripts/schedule-notices/schedule-notices.test.ts	7432	회귀 테스트	유지	1	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/seed-streamers.ts	9916	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/seed-tournament.ts	33030	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/set-watchlist.ts	9913	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-champion-icons.mjs	1319	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-champion-splash.mjs	2310	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-fco-grade-icons.mjs	2980	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-fco-ratings.ts	1077	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-fco-team-colors.ts	1099	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-lol-build-icons.mjs	2703	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-modules.ts	10428	운영 CLI·자료 생성	유지·명령 분류	2	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-team-logos.mjs	2166	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/sync-tournament-logos.mjs	2169	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/systemd/ck-auto-fc.service	247	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/ck-auto-fc.timer	164	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/ck-auto-worker.path	314	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/ck-auto-worker.service	340	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/ck-auto.service	480	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/ck-auto.timer	370	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/install.sh	3488	로컬 정기 실행	AWS/로컬 소유권 분리	10	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-community.service	1257	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-community.timer	347	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-fco-club.service	1370	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-fco-club.timer	396	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-fco-prices.service	972	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-fco-prices.timer	371	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-fco-rating.service	1239	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-fco-rating.timer	470	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-fco.service	1003	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-fco.timer	389	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-office.service	339	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-office.timer	159	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-ops-usage.service	457	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-ops-usage.timer	326	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-rank.service	1269	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-rank.timer	351	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-schedule-analyze.service	235	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-schedule-analyze.timer	138	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-schedule-poll.service	226	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/systemd/soop-schedule-poll.timer	152	로컬 정기 실행	AWS/로컬 소유권 분리	0	%h/repos 경로·호스트별 flock; 설치는 실제 실행을 시작함
+scripts/trim-participant-detail.ts	6812	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/tsconfig.json	347	운영 CLI·자료 생성	유지·명령 분류	0	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/typography-baseline.json	4721	운영 CLI·자료 생성	유지·명령 분류	1	실행 전 --apply/--dry-run 및 DB 쓰기 여부 확인
+scripts/verify-admin-hardening.ts	8651	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-admin-lol-collections.ts	10221	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-admin-review.ts	8104	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-aram-upgrade.ts	3496	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-bracket.ts	16881	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ck-backfill.ts	23822	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ck-browser.ts	10392	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ck-cell-lock.ts	18863	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ck-concurrency.ts	6712	통합·브라우저 검증	유지·실행 진입점 정리	2	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ck-memo-browser.mjs	5583	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ck-memo-feedback-browser.mjs	4429	통합·브라우저 검증	유지·실행 진입점 정리	0	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ck-pov.ts	34022	통합·브라우저 검증	유지·실행 진입점 정리	3	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ck-review.ts	10110	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-community-browser.ts	21421	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-consistency-browser.ts	6072	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-consistency-upgrade.ts	3269	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-db.ts	140496	통합·브라우저 검증	유지·실행 진입점 정리	4	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-fco-club.ts	18697	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-fco-context.ts	45564	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-fco-event-dates.ts	7359	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-fco-screen-review.ts	29644	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-fco-screen.ts	18168	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-fco.ts	13961	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-ingest.ts	23118	통합·브라우저 검증	유지·실행 진입점 정리	2	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-match-review-browser.ts	22540	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-modules.selftest.ts	19861	회귀 테스트	유지	3	npm test는 .test.ts만 포함; Python·.test.mjs는 별도 실행
+scripts/verify-modules.ts	28149	통합·브라우저 검증	유지·실행 진입점 정리	3	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-office-browser.ts	13815	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-review-priority.ts	5774	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-sheet-axis.mjs	5529	통합·브라우저 검증	유지·실행 진입점 정리	2	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
+scripts/verify-tournaments.mjs	7635	통합·브라우저 검증	유지·실행 진입점 정리	1	실행 결과는 보고서; 외부 DB·파일 상태 격리 확인 필요
