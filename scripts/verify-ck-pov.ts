@@ -74,10 +74,17 @@ let fileNo = 0;
  * ★ 비동기로 돌린다. PGlite 서버가 **이 프로세스 안에서** 돌기 때문에 spawnSync 로 기다리면
  *   서버도 같이 멈춰 자식이 연결을 못 한다(CONNECT_TIMEOUT).
  */
+/**
+ * ★ 판은 행사 안에만 들어간다(0089). 행사를 적지 않은 시험 경기는 형식 미확인 VOD 판독처럼 미분류 행사에 둔다 —
+ *   ck:merge 는 행사 없는 새 경기를 거부한다(그 거부 자체는 ck-merge 를 직접 쓰는 아래 시험이 따로 본다).
+ *   시리즈에 붙이는 판은 시리즈의 행사를 따르므로 손대지 않는다.
+ */
+const POV_EVENT = { slug: "pov-ck", name: "다시점 시험 내전", format: "unclassified" };
+const withEvent = (r: any) => r && r.resultType === "match" && !r.event && !r.event_id && !r.series_id ? { ...r, event: POV_EVENT } : r;
 function merge(results: unknown[]): Promise<{ code: number; out: string }> {
   mkdirSync(WORK, { recursive: true });
   const file = join(WORK, `r${++fileNo}.json`);
-  writeFileSync(file, JSON.stringify(results));
+  writeFileSync(file, JSON.stringify(results.map(withEvent)));
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [join(ROOT, "scripts", "ck-merge.mjs"), "--result", file], {
       cwd: ROOT, env: { ...process.env, DATABASE_URL, DATABASE_POOL_MAX: "2" },
@@ -121,21 +128,19 @@ try {
     const result = await merge([
       scan(VODS.h, 'pov_h', [100]),
       { resultType:'match', match_id:'pov:aram', game_mode:'ARAM', winning_team:100,
-        event:{slug:'pov-aram',name:'칼바람 CK',kind:'ck'}, played_at:'2026-09-25T00:00:00Z',
+        event:{slug:'pov-aram',name:'칼바람 CK',format:'ck'}, played_at:'2026-09-25T00:00:00Z',
         played_at_precision:'date',duration:900,result_evidence:'칼바람 나락 결과창',participants:full,
         evidence_frames:[framePath(VODS.h,100)] },
     ]);
     check('실제 merge로 ARAM 저장',result.code===0,result.code?result.out:'');
     const [m]=await sql()`SELECT game_mode,map_id FROM match WHERE match_id='pov:aram'`;
     check('모드와 맵 구분',m?.game_mode==='ARAM'&&m?.map_id===12);
-    check('칼바람 공개 조회에만 경기 존재',(await sql()`SELECT category FROM core_public.aram_match WHERE match_id='pov:aram'`)[0]?.category==='aram_custom');
-    check('일반 경기/대회/상대전적에서 제외',
-      (await sql()`SELECT 1 FROM core_public.match WHERE match_id='pov:aram'`).length===0
-      &&(await sql()`SELECT 1 FROM core_public.tournament_match WHERE match_id='pov:aram'`).length===0
-      &&(await sql()`SELECT 1 FROM core_public.streamer_encounter WHERE match_id='pov:aram'`).length===0);
-    check('칼바람 상대전적은 별도로 보존',(await sql()`SELECT 1 FROM core_public.aram_encounter WHERE match_id='pov:aram'`).length>0);
-    check('칼바람 챔피언 통계는 별도로 보존',(await sql()`SELECT 1 FROM core_public.aram_champion_stat WHERE category='aram_custom'`).length>0);
-    check('일반 챔피언 통계에 칼바람 없음',(await sql()`SELECT 1 FROM core_public.champion_stat WHERE category='aram_custom'`).length===0);
+    // ★ 0089: 칼바람 구분은 저장된 분류가 아니라 맵(match.map) 하나다. 진행 방식(ck)은 행사에 따로 있다.
+    const mapsOf = async () => (await sql()`SELECT DISTINCT map, format FROM core_public.lol_versus_set WHERE match_id='pov:aram'`)
+      .map((r: any) => `${r.map}/${r.format}`);
+    check('공개 세트에 칼바람(맵) · CK(진행 방식)로 따로 잡힌다', JSON.stringify(await mapsOf())==='["aram/ck"]', JSON.stringify(await mapsOf()));
+    check('칼바람 상대전적 재료도 같은 맵으로', (await sql()`SELECT 1 FROM core_public.versus_pair_set WHERE match_id='pov:aram' AND map='aram'`).length>0
+      && (await sql()`SELECT 1 FROM core_public.versus_pair_set WHERE match_id='pov:aram' AND map<>'aram'`).length===0);
 
     const correction = {match_id:'pov:aram',expected_mode:'ARAM',game_mode:'CLASSIC' as const,
       evidence_frame:framePath(VODS.h,100),reason:'모드 정정 경로 회귀 검증'};
@@ -150,20 +155,18 @@ try {
       && (await sql()`SELECT game_mode FROM match WHERE match_id='pov:aram'`)[0]?.game_mode==='ARAM',preview.code?preview.out:'');
     await assert.rejects(ck.correctMatchMode({...correction,evidence_frame:framePath(VODS.a,999)}),/근거 프레임/);
     await ck.correctMatchMode(correction);
-    check('분류 정정은 경기·상대전적·챔피언 집계를 함께 이동',
-      (await sql()`SELECT category FROM core_public.match WHERE match_id='pov:aram'`)[0]?.category==='ck'
-      && (await sql()`SELECT 1 FROM core_public.streamer_encounter WHERE match_id='pov:aram'`).length>0
-      && (await sql()`SELECT 1 FROM core_public.aram_champion_stat`).length===0
-      && (await sql()`SELECT 1 FROM core_public.champion_stat WHERE category='ck'`).length>0);
+    check('모드 정정은 맵을 따라 바꾸고 공개 세트·상대전적이 함께 이동한다(파생 표 없음)',
+      JSON.stringify(await mapsOf())==='["rift/ck"]'
+      && (await sql()`SELECT 1 FROM core_public.versus_pair_set WHERE match_id='pov:aram' AND map='rift'`).length>0, JSON.stringify(await mapsOf()));
     await assert.rejects(ck.correctMatchMode(correction),/조회 이후 모드가 변경/);
     const history=await ck.listReviewChanges({match_id:'pov:aram'});
     check('근거·전후 값이 정정 이력에 남는다',history.some(h=>h.field==='game_mode'&&h.before==='ARAM'&&h.after==='CLASSIC')
       && history.some(h=>h.field==='mode_evidence'&&(h.after as any)?.frame===correction.evidence_frame));
     await ck.correctMatchMode({...correction,expected_mode:'CLASSIC',game_mode:'ARAM'});
     await ck.correctMatchMode({...correction,game_mode:'ARAM'});
-    check('칼바람으로 재정정·재전송 후 통계가 중복되지 않는다',
-      (await sql()`SELECT 1 FROM core_public.champion_stat WHERE category='ck'`).length===0
-      && (await sql()`SELECT max(games)::int AS n FROM core_public.aram_champion_stat`)[0]?.n===1
+    check('칼바람으로 재정정·재전송 후 세트가 중복되지 않는다',
+      JSON.stringify(await mapsOf())==='["aram/ck"]'
+      && (await sql()<{n:number}[]>`SELECT count(DISTINCT match_id)::int n FROM core_public.lol_versus_set WHERE match_id='pov:aram'`)[0]?.n===1
       && (await ck.listReviewChanges({match_id:'pov:aram'})).length===history.length*2);
   }
 

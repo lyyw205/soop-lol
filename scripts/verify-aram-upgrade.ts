@@ -37,5 +37,23 @@ try {
     [{games:1,kills:5,kda_games:1}]);
   await pg.exec("UPDATE streamer SET visibility='hidden' WHERE slug='aram-upgrade'");
   assert.equal((await pg.query('SELECT * FROM core_public.aram_champion_stat')).rows.length,0,'숨긴 스트리머 제외');
-  console.log('ARAM 0071 upgrade: 원본 보존, 기존 집계 분리, 구형 모드 유지, 공개 숨김 경계 통과');
+  await pg.exec("UPDATE streamer SET visibility='public' WHERE slug='aram-upgrade'");
+
+  // ── 0089 까지: 칼바람 구분은 저장된 분류(category)가 아니라 맵(match.map, 모드에서 정해지는 생성 칼럼) 하나다 ──
+  // 영상 판독 판은 행사 안에 있어야 0089 가 옮겨 담는다(행사 직접 → 같은 행사의 한 판짜리 시리즈).
+  await pg.exec(`INSERT INTO event(id,slug,name,kind,game_code) VALUES('00000000-0000-0000-0000-0000000000a1','aram-upgrade-ck','칼바람 내전','ck','lol');
+    UPDATE match SET event_id='00000000-0000-0000-0000-0000000000a1';`);
+  for(const m of migrations.filter(m=>m.version>'0071')) await pg.exec(`BEGIN;${m.sql}COMMIT;`);
+  assert.deepEqual((await pg.query('SELECT match_id, map, scope, series_id FROM match ORDER BY match_id')).rows, [
+    {match_id:'upgrade:aram',map:'aram',scope:'versus',series_id:'set:upgrade:aram'},
+    {match_id:'upgrade:classic',map:'rift',scope:'versus',series_id:'set:upgrade:classic'},
+    {match_id:'upgrade:hidden',map:'aram',scope:'versus',series_id:'set:upgrade:hidden'},
+    {match_id:'upgrade:legacy',map:'rift',scope:'versus',series_id:'set:upgrade:legacy'},
+  ],'구형 CUSTOM 은 제목 추정 없이 협곡, 칼바람은 모드에서');
+  assert.deepEqual((await pg.query("SELECT match_id, map, format FROM core_public.lol_versus_set ORDER BY match_id")).rows, [
+    {match_id:'upgrade:aram',map:'aram',format:'ck'},{match_id:'upgrade:classic',map:'rift',format:'ck'},{match_id:'upgrade:legacy',map:'rift',format:'ck'},
+  ],'공개 세트는 숨긴 경기를 빼고, 맵과 진행 방식을 따로 단다');
+  await pg.exec("UPDATE streamer SET visibility='hidden' WHERE slug='aram-upgrade'");
+  assert.equal((await pg.query('SELECT 1 FROM core_public.lol_versus_set')).rows.length,0,'숨긴 스트리머 제외');
+  console.log('ARAM 0071 upgrade: 원본 보존, 기존 집계 분리, 구형 모드 유지, 공개 숨김 경계 · 0089 맵 칼럼·공개 세트 통과');
 } finally {await pg.close();}
