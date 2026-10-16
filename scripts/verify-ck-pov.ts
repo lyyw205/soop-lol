@@ -81,10 +81,10 @@ let fileNo = 0;
  */
 const POV_EVENT = { slug: "pov-ck", name: "다시점 시험 내전", format: "unclassified" };
 const withEvent = (r: any) => r && r.resultType === "match" && !r.event && !r.event_id && !r.series_id ? { ...r, event: POV_EVENT } : r;
-function merge(results: unknown[]): Promise<{ code: number; out: string }> {
+function merge(results: unknown[], opts: { raw?: boolean } = {}): Promise<{ code: number; out: string }> {
   mkdirSync(WORK, { recursive: true });
   const file = join(WORK, `r${++fileNo}.json`);
-  writeFileSync(file, JSON.stringify(results.map(withEvent)));
+  writeFileSync(file, JSON.stringify(opts.raw ? results : results.map(withEvent)));
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [join(ROOT, "scripts", "ck-merge.mjs"), "--result", file], {
       cwd: ROOT, env: { ...process.env, DATABASE_URL, DATABASE_POOL_MAX: "2" },
@@ -125,6 +125,14 @@ try {
     check('새 경기의 모드를 생략하면 기본 CK로 섞이지 않고 파일 전체 거부',missingMode.code!==0
       && missingMode.out.includes('game_mode')
       && (await sql()`SELECT 1 FROM event_lead WHERE source_key=${`vod:${VODS.h}`}`).length===0);
+    // ★ 행사 없는 새 경기·옛 event.kind 는 조용히 기타로 넣지 않고 파일 전체를 거부한다(0089).
+    const base = {resultType:'match',match_id:'pov:no-event',game_mode:'CLASSIC',winning_team:100,played_at:'2026-09-25T00:00:00Z',
+      played_at_precision:'date',result_evidence:'결과창',participants:full,evidence_frames:[framePath(VODS.h,100)]};
+    const noEvent=await merge([scan(VODS.h,'pov_h',[100]),base],{raw:true});
+    check('행사 없는 새 경기는 파일 전체 거부',noEvent.code!==0&&noEvent.out.includes('행사가 필요하다')
+      &&(await sql()`SELECT 1 FROM match WHERE match_id='pov:no-event'`).length===0,noEvent.out.slice(-300));
+    const oldKind=await merge([scan(VODS.h,'pov_h',[100]),{...base,event:{slug:'pov-old',name:'옛 분류',kind:'other'}}],{raw:true});
+    check('옛 event.kind 는 바꿔 주지 않고 거부(format 으로 적으라고 말한다)',oldKind.code!==0&&oldKind.out.includes('event.format'),oldKind.out.slice(-300));
     const result = await merge([
       scan(VODS.h, 'pov_h', [100]),
       { resultType:'match', match_id:'pov:aram', game_mode:'ARAM', winning_team:100,
