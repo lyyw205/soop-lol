@@ -15,6 +15,7 @@ await server.start();
 process.env.DATABASE_URL = `postgres://postgres@127.0.0.1:${port}/postgres`;
 const { db, closeDb } = await import("../packages/core/lib/db/client.ts");
 const { linkFcoAccount, saveFcoMatch } = await import("../packages/core/lib/games/fconline/ingest.ts");
+const { placeSetInTx, placeSingleSetInTx } = await import("../packages/core/lib/db/classification.ts");
 const { listFcoEvents, getFcoEvent, listFcoEventGames, listFcoRecentEvents } = await import("../packages/core/lib/db/fconline.ts");
 const { eventPeriod, eventYear } = await import("../packages/modules/fc_tournaments/ui/event-dates.ts");
 
@@ -26,7 +27,7 @@ try {
 
   async function event(slug: string, start: string | null = null, end: string | null = null) {
     const [row] = await sql<{ id: string }[]>`
-      INSERT INTO event (slug, name, game_code, kind, starts_at, ends_at)
+      INSERT INTO event (slug, name, game_code, format, starts_at, ends_at)
       VALUES (${slug}, ${slug}, 'fconline', 'tournament', ${start}, ${end}) RETURNING id`;
     return row.id;
   }
@@ -36,12 +37,10 @@ try {
         matchDetail: { matchResult: '승' }, shoot: { goalTotal: 2 } },
       { ouid: 'opponent-ouid', nickname: '상대', matchDetail: { matchResult: '패' }, shoot: { goalTotal: 1 } },
     ] });
-    if (options.series) {
-      await sql`INSERT INTO match_series (id, game_code, event_id) VALUES (${options.series}, 'fconline', ${eventId})`;
-      await sql`UPDATE match SET series_id = ${options.series}, series_game_no = 1 WHERE match_id = ${'fco:' + id}`;
-    } else {
-      await sql`UPDATE match SET event_id = ${eventId} WHERE match_id = ${'fco:' + id}`;
-    }
+    // 판을 행사에 두는 길은 classification.ts 하나다(시리즈 경유 한 길).
+    await sql.begin((tx) => options.series
+      ? placeSetInTx(tx, { match_id: 'fco:' + id, game_no: 1, actor: 'admin', series: { id: options.series, game_code: 'fconline', event_id: eventId } })
+      : placeSingleSetInTx(tx, { match_id: 'fco:' + id, game_code: 'fconline', event_id: eventId, actor: 'admin' }));
     if (options.hidden) await sql`UPDATE match SET visibility = 'hidden' WHERE match_id = ${'fco:' + id}`;
   }
 
@@ -100,9 +99,9 @@ try {
     assert.equal(eventYear(row), '2027');
     assert.equal(eventPeriod(row).text, '2027.01.01');
   }
-  await sql`UPDATE event SET kind = 'ck' WHERE id = ${middle}`;
+  await sql`UPDATE event SET format = 'ck' WHERE id = ${middle}`;
   assert.ok(!(await listFcoEvents()).some(e=>e.slug === 'middle'), '대회 목록에는 CK가 없다');
-  assert.equal((await getFcoEvent('middle'))?.kind,'ck','CK 상세는 계속 열린다');
+  assert.equal((await getFcoEvent('middle'))?.format,'ck','CK 상세는 계속 열린다');
   assert.ok((await listFcoRecentEvents()).some(e=>e.slug === 'middle'),'메인 최근 행사는 CK 포함');
   assert.equal(await getFcoEvent('missing'), null);
   await sql`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'dates-player'`;
