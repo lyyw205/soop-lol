@@ -203,11 +203,13 @@ export async function assertAttachAllowedInTx(tx: Tx, eventId: string, matchIds:
  * 판을 그 행사에서 꺼내 어디에 둘지는 호출자가 정한다(보통 그 판의 자동 묶음으로 placeSingleSetInTx).
  */
 export async function excludeFromEventInTx(tx: Tx, input: { event_id: string; match_id: string; actor: Actor; note?: string | null }): Promise<void> {
-  await tx`
+  const written = await tx`
     INSERT INTO event_exclusion (event_id, match_id, decided_by, note)
     VALUES (${input.event_id}::uuid, ${input.match_id}, ${input.actor}, ${input.note ?? null})
     ON CONFLICT (event_id, match_id) DO UPDATE SET decided_by = EXCLUDED.decided_by, note = EXCLUDED.note, decided_at = now()
-      WHERE event_exclusion.decided_by = 'auto' OR EXCLUDED.decided_by = 'admin'`;
+      WHERE event_exclusion.decided_by = 'auto' OR EXCLUDED.decided_by = 'admin'
+    RETURNING 1`;
+  if (!written.length) return;  // 사람의 제외를 자동이 덮으려 했다 — 바뀐 것이 없으니 이력도 없다
   await tx`INSERT INTO review_change (match_id, entity, entity_key, field, before, after, actor)
            VALUES (${input.match_id}, 'classification', ${input.event_id}, 'event_exclusion', NULL,
                    ${tx.json({ decided_by: input.actor, note: input.note ?? null })}, ${input.actor})`;
