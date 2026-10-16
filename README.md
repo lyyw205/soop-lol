@@ -39,6 +39,8 @@ npm run dev
 
 | 문서 | 내용 |
 |---|---|
+| [docs/release/REVIEW-2026-10-15.md](docs/release/REVIEW-2026-10-15.md) | 출시 전 검증 결과·필수 해결 항목·AWS/로컬 분리·폴더 정리 목록 |
+| [docs/release/CHECKLIST.md](docs/release/CHECKLIST.md) | 기존 아키텍처 점검표 + 가입·배포·폴더 보존·검증 도구 점검 |
 | [docs/CK-BACKFILL.md](docs/CK-BACKFILL.md) | 사용자 요청으로 과거 VOD 최근순 조사·중단 재개 |
 | [docs/SETUP.md](docs/SETUP.md) | **여기부터.** Riot API 키 발급, Supabase, 로컬 개발, 검증 |
 | [docs/PLAN.md](docs/PLAN.md) | 설계 전문 — 도메인 모델·수집 파이프라인·지표 정의·화면·로드맵 |

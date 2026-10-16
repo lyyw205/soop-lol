@@ -40,3 +40,11 @@ seed/fco-account-sweep.json
 
 # Next.js 검증용 빌드 캐시
 apps/web/.next-*/
+
+# 디자인 시안에 복사한 스트리머 프로필 사진 — 저장소가 공개다. 실제 사람 사진이라 삭제 요청이 와도 히스토리에서 못 지운다.
+#   화면은 프로필 주소(profile_image_url)로 원본을 보여 준다. 시안의 사본은 로컬에만 둔다.
+apps/web/public/design-lab/**/avatar-*.jpg
+
+# 음성 원문(ck:listen) 실행 상태 — 잠금과 시험 기록.
+.local/ck-listen/prepare.lock
+.local/ck-listen/trials/

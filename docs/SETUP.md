@@ -115,6 +115,32 @@ anon 키로는 아무것도 못 읽고, 우리 앱(`postgres.js` 로 소유자 �
 `evidence`(제보자 메모)가 anon 키만으로 그대로 읽힌다. 삭제 요청 경로를 살려둔 의미가 사라진다.
 공개 API 가 필요해지면 그때 **뷰 + 명시적 정책**으로 연다.
 
+### 용량·잠금 점검 — `npm run ops:usage` (2026-10-12)
+
+Free 플랜 한도(DB 500MB · 전송량 5GB/월)를 넘겨 DB 가 읽기 전용이 됐고, 그걸 모른 조사 세션이 저장에 실패했다.
+그 뒤로 **대량 쓰기·조사 세션은 점검을 통과해야 시작한다.**
+
+| 명령 | 하는 일 |
+|---|---|
+| `npm run ops:usage` | 잠금(기본 읽기 전용·설정 출처·Supabase 관리 상태)·DB 크기(템플릿 포함 10진 MB)·WAL·물리 디스크·큰 표·하루 증가량·지난 24시간 DB 전송 계측 |
+| `npm run ops:usage -- --gate` | 관문 — 잠겼거나 한도 95%·물리 디스크 90% 이상이거나 쓰기 실패 기록이 있으면 종료 코드 3 |
+| `soop-ops-usage.timer` | 매시 20분 `--record` — `out/ops/usage.jsonl` 에 쌓고, 정상이 아니면 `out/ops/ALERT` 를 쓴다(멈춤이면 서비스가 실패로 보인다) |
+
+- **관문을 거치는 것**: 롤·FC 조사(`ck-auto.sh` — 회차 시작과 세션마다), 백필(`ck-backfill.sh` — 세션마다), 공개 큐 적재(워커 `live`·`backfill` — 조각마다).
+  랭크·FC 경기·구단·시세 같은 작은 정기 수집은 막지 않는다 — 놓친 날은 다시 못 구하고 쓰는 양이 작다.
+- **쓰기 실패 표시** `out/ops/write-blocked.json` — `ck:merge`·`ck:queue`·워커가 읽기 전용·디스크 부족으로 실패하면 남긴다.
+  있으면 보고·정기 기록·관문 모두 **멈춤**이고, 새 세션을 띄우지 않고 진행 중인 롤 세션도 멈춘다(종료 코드 21).
+  회차 시작 점검(`--gate --clear-flag`)은 **원인 해소를 확인한 표시만** 지운다 — 읽기 전용은 기본 읽기 전용 off 일 때,
+  디스크 부족은 물리 디스크를 실제로 읽어(토큰 필요) 중단선 아래일 때. 원인을 모르거나 확인 못 하면 사람이 확인하고 파일을 지운다.
+- **관리 API 토큰** `~/.config/soop-lol/ops.env` 의 `SUPABASE_MGMT_TOKEN`(권한 600, 저장소 밖) — soop-lol 이 있는 계정의 개인 토큰.
+  없으면 Supabase 관리 잠금 상태와 물리 디스크가 **미확인**으로 나온다(정상으로 치지 않는다). 웹·조사 세션의 `.env.local` 에는 넣지 않는다.
+  `ops:usage` 와 `npm run worker` 가 이 파일을 읽는다(공개 큐 적재 전 점검이 같은 토큰·한도를 보게).
+- 판정은 [`packages/core/lib/db/health.ts`](../packages/core/lib/db/health.ts) 하나다. 설정 출처(`configuration file`)는 값이 어디서 왔는지일 뿐
+  누가 잠갔는지가 아니다 — 그건 관리 상태로만 안다. 요금제를 바꾸면 `DB_QUOTA_MB` 로 한도를 준다(기본 500).
+- **전송량 재기**: `DB_WIRE_TRACE=1 npm run …` 이면 그 프로세스가 DB 에서 받은 바이트(TLS 포함)를 끝날 때 찍는다.
+  `ck-auto.sh`·`ck-backfill.sh` 는 `DB_WIRE_LOG=out/ops/db-wire.jsonl` 로 스크립트별로 남긴다. 연결 한 번이 약 12KB 다.
+  누적 전송량 전체는 DB 에서 볼 수 없다 — 대시보드 Usage 의 Shared Pooler Egress 로 본다.
+
 > 스키마를 바꿀 땐 **[`db/migrations/`](../db/migrations/) 에 다음 번호의 새 파일을 추가**한다. 이미 적용된 파일은 고치지 않는다
 > (러너가 파일 지문을 장부에 남겨 바뀐 파일을 거부한다 — 빈 줄 하나도). 적용은 `npm run db:migrate`, 상태는 `npm run db:migrate -- --status`.
 > 로컬 검증(`npm run verify:db`)은 같은 마이그레이션 묶음을 PGlite 에 올려 본다. `db/schema.sql` 은 없어졌다 — 다시 만들지 않는다.
@@ -236,6 +262,10 @@ npm run worker -- loop       # 운영 기본값. A > B > D > C 우선순위로 �
 로컬에서는 상주 워커(`loop`)를 띄우지 않고 **작업마다 systemd 사용자 타이머**로 돌린다. `loop` 는 아래 작업을
 안에서 또 돌리므로 둘을 같이 쓰면 레이트리밋을 합쳐서 넘긴다. 서버 배포 뒤에는 `loop` 하나로 옮긴다.
 
+**정기 작업의 정본은 등록부 `ops/jobs/*.json`(작업 하나 = 파일 하나)이다**(2026-10-16). 무엇을·언제·어느 잠금으로 돌리고,
+어느 설치 묶음에 들고, 지우려면 무엇을 하는지가 거기 있다. 설치기는 그 목록만 읽고, `npm run verify:automation`
+이 유닛·설치기·운영 화면과 어긋나는 곳(주인 없는 유닛 등)을 잡는다. 아래 표는 요약이다(ops/README.md).
+
 | 타이머 | 명령 | 주기 (KST) | 잠금 | 놓치면 |
 |---|---|---|---|---|
 | `soop-rank` | `worker -- rank` | 매일 09:00 | `riot` | **그날 티어는 영영 없다** |
@@ -243,17 +273,32 @@ npm run worker -- loop       # 운영 기본값. A > B > D > C 우선순위로 �
 | `soop-fco-club` | `worker -- fco-club` | 2시간마다 (:10) | `fc-site` | **지나간 날의 구단가치는 못 구한다** |
 | `soop-fco-rating` | `worker -- fco-rating` | 2시간마다 (홀수 시 :40) | `fc-site` | 지나간 시점의 티어는 못 구한다 |
 | `soop-fco-prices` | `worker -- fco-prices` | 매일 12:40 | `fc-site` | 365일 소급되어 메워진다 |
-| `ck-auto` | `scripts/ck-auto.sh` | 매일 07:00 | 자기 잠금 + 채널 잠금 | 다음 회차가 이전 조사 다음부터 잇는다 |
+| `ck-auto` | `scripts/ck-auto.sh --poll` | 매시간 정각 | 조회 잠금 | 발견한 VOD를 대기 목록에 보존 |
+| `ck-auto-fc` | `scripts/ck-auto.sh --fc` | 매일 07:00 | FC 실행 잠금 | 남은 맥락 미조사 경기부터 재개 |
 
 ```bash
-scripts/systemd/install.sh                 # 데이터 수집 4종 설치·활성화
-scripts/systemd/install.sh --with-ck-auto  # + 매일 와치리스트 조사(Claude 비용·디스크·GPU 부하)
-scripts/systemd/install.sh --status        # 다음 실행 시각·마지막 결과
+scripts/systemd/install.sh                    # 기본 묶음: 랭크·FC 수집 5종 · 운영 DB 점검 · 운영 오피스
+scripts/systemd/install.sh --with-ck-auto     # + 롤 자동 조사(목록 확인·조사) · FC 맥락 자동 조사
+scripts/systemd/install.sh --bundle schedule  # 편성표(공지 수집·일정 분석) — 예전 scripts/schedule-notices/install.sh enable
+scripts/systemd/install.sh --bundle community # 커뮤니티 정리 — 가입을 열 때
+scripts/systemd/install.sh --status           # 작업마다 상태·마지막 실행·다음 실행
+scripts/systemd/install.sh --list             # 묶음별 작업
+npm run verify:automation -- --host           # 이 PC 에 설치된 유닛과 등록부 대조
 journalctl --user -u soop-rank.service     # 로그
 ```
 
 - 같은 출처를 쓰는 작업은 같은 잠금(`out/locks/*.lock`)을 잡아 겹치지 않는다. 앞 작업이 돌면 30분까지 기다린다.
 - `Persistent=true` — PC·WSL 이 꺼져 있던 동안 놓친 회차는 켜지자마자 한 번 돈다.
+- **VOD 발견과 조사는 분리한다.** 시간별 조회는 Claude를 호출하지 않고 `out/ck/auto/queue.json`에
+  대기를 등록한다. `ck-auto-worker.path`가 조사 서비스를 깨우고, 롤 작업자 최대 3개가 하나씩 가져간다.
+  조사 중 들어온 VOD는 빈 작업자가 다음 정각을 기다리지 않고 이어받는다. 같은 VOD는 중복 등록하지 않으며,
+  같은 채널은 백필과 공통 잠금으로 겹치지 않는다. 완료·진척·반복 제한은 기존 DB 판정을 그대로 사용한다.
+  아직 조사를 시작하지 않은 VOD도 `daily-state.json`의 pending으로 보존하므로 마지막 완료 지점이 앞서가도 빠지지 않는다.
+- 미완료 VOD는 회차당 최대 3세션을 잇고, 남으면 1시간 뒤 다시 시도한다. 진척 없음은 6시간 뒤 재판정하며
+  기존 3회 반복 제한을 적용한다. `queue.json`에는 실행 순서·소유권·재시도 시각만 두며 경기 데이터는 넣지 않는다.
+  `touch out/ck/auto/STOP`은 롤, `touch out/ck/auto/FC_STOP`은 FC를 현재 세션 저장 뒤 멈춘다(다음 회차 재개).
+  수동 조회는 `scripts/ck-auto.sh --dry-run`, 즉시 목록 갱신은 `systemctl --user start ck-auto.service`,
+  조사 로그는 `journalctl --user -u ck-auto-worker.service`와 `out/ck/auto/run-work-*/run.log`에서 본다.
 - ⚠ **WSL 은 열린 창이 없으면 스스로 꺼지고, 그동안 타이머도 안 돈다.** 윈도우 작업 스케줄러에
   로그온 시 `wsl.exe -d Ubuntu-24.04 --exec sleep infinity` 를 걸어 WSL 을 깨워 둔다.
 - 일부 대상(계정·카드)이라도 실패하면 실행 기록은 `failed`, 종료 코드는 **3** 이다 — `--status` 에 실패로 보인다.
