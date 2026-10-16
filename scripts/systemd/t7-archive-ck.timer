@@ -1,0 +1,10 @@
+[Unit]
+Description=soop-lol out/ck → T7 3시간마다
+
+[Timer]
+OnBootSec=30min
+OnUnitActiveSec=3h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

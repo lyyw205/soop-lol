@@ -1,0 +1,10 @@
+[Unit]
+Description=soop-lol 새 대기 VOD가 있으면 조사 작업자 시작
+
+[Path]
+# 작업자가 종료하는 순간 새 VOD가 들어와도 요청 파일이 남아 다음 실행으로 이어진다.
+PathExists=%h/repos/soop-lol/out/ck/auto/wake
+Unit=ck-auto-worker.service
+
+[Install]
+WantedBy=default.target

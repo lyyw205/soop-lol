@@ -1,0 +1,41 @@
+{
+  "id": "fco-club",
+  "title": "FC 구단가치 · 스쿼드",
+  "group": "collect",
+  "install": "default",
+  "units": [
+    "scripts/systemd/soop-fco-club.service",
+    "scripts/systemd/soop-fco-club.timer"
+  ],
+  "run": "npm run -s worker -- fco-club",
+  "schedule": "2시간마다 :10",
+  "record": "runner",
+  "office": {
+    "room": "fc",
+    "cadence": "2시간마다",
+    "max_age_min": 180,
+    "max_run_min": 40
+  },
+  "locks": [
+    "out/locks/nexon.lock",
+    "out/locks/fc-site.lock"
+  ],
+  "resources": [
+    "nexon",
+    "fc-site"
+  ],
+  "job_run_names": [
+    "engine_f_fco_club"
+  ],
+  "docs": [
+    "docs/SETUP.md",
+    "docs/FCO-CLUB-VALUE-PLAN.md"
+  ],
+  "notes": "시한부 — 지나간 시점의 구단가치는 못 구한다. 잠금 순서는 nexon → fc-site(바꾸지 않는다).",
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job fco-club",
+    "apps/worker/src/main.ts 의 명령과 운영 화면 대사(apps/web/components/admin/office/dialogue.ts)에 이름이 있으면 그 줄",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

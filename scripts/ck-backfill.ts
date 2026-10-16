@@ -103,7 +103,7 @@ async function plan() {
   if (values.vod && !inRange.length) throw new Error(`요청 채널·기간에 VOD ${values.vod}가 없다`);
   await ensureVodLeads(target, inRange);
   const vods = await evaluate(inRange);
-  const listed = new Set(wide.map(v=>`vod:${v.title_no}`));
+  const listed = new Set([...wide.map(v=>v.title_no), ...wide.clips].map(no=>`vod:${no}`));
   const missing = (await channelLeadsBetween(target.channel_id, from!, to!))
     .filter(l => !listed.has(l.source_key))
     .map(l => ({ vod: Number(l.source_key.slice(4)), title: l.title, reason: vodWork(l.raw, null).reason }))

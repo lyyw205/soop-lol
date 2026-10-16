@@ -1,0 +1,39 @@
+{
+  "id": "fco-prices",
+  "title": "FC 카드 시세",
+  "group": "collect",
+  "install": "default",
+  "units": [
+    "scripts/systemd/soop-fco-prices.service",
+    "scripts/systemd/soop-fco-prices.timer"
+  ],
+  "run": "npm run -s worker -- fco-prices",
+  "schedule": "매일 12:40",
+  "record": "runner",
+  "office": {
+    "room": "fc",
+    "cadence": "매일",
+    "max_age_min": 1560,
+    "max_run_min": 90
+  },
+  "locks": [
+    "out/locks/fc-site.lock"
+  ],
+  "resources": [
+    "fc-site"
+  ],
+  "job_run_names": [
+    "engine_g_fco_prices"
+  ],
+  "docs": [
+    "docs/SETUP.md",
+    "docs/FCO-CLUB-VALUE-PLAN.md"
+  ],
+  "notes": "365일까지 소급되어 메워진다.",
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job fco-prices",
+    "apps/worker/src/main.ts 의 명령과 운영 화면 대사(apps/web/components/admin/office/dialogue.ts)에 이름이 있으면 그 줄",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

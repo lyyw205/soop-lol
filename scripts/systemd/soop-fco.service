@@ -10,6 +10,7 @@ Type=oneshot
 WorkingDirectory=%h/repos/soop-lol
 Environment=PATH=%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
 ExecStartPre=/usr/bin/mkdir -p %h/repos/soop-lol/out/locks
-ExecStart=/usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/nexon.lock npm run -s worker -- fco
+# 감싸는 실행기(scripts/ops/run-job.ts)가 실행 하나를 job_run 한 행으로 남긴다 — 원래 명령·종료 코드는 그대로(ops/jobs/fco-matches.json).
+ExecStart=%h/.local/node/bin/node %h/repos/soop-lol/scripts/ops/run-job.ts --job fco-matches -- /usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/nexon.lock npm run -s worker -- fco
 TimeoutStartSec=80min
 Nice=10

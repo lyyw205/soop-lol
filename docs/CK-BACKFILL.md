@@ -124,11 +124,45 @@ node --env-file-if-exists=apps/web/.env.local scripts/ck-mode.ts \
 기본은 미리보기다. 적용 시 경기 분류·맵·조우·챔피언 통계·수정 이력을 한 트랜잭션으로 갱신한다.
 이미 다른 정정이 모드를 바꿨으면 거부하며, API 원본 경기는 이 도구로 수정하지 않는다.
 
+## 터미널 밖에서 오래 돌리기 — 임시 방식
+
+> 정식 작업(`ck-backfill@.service`·`ck:backfill start`)이 생기기 전까지의 방식이다(docs/AUTOMATION-REDESIGN-PLAN.md §5.4).
+> 지금은 저장소에 유닛 파일이 없고, 아래처럼 그때그때 임시 유닛을 띄운다.
+
+몇 시간~며칠 걸리는 백필은 터미널·Claude 세션이 닫혀도 계속 돌도록 사용자 systemd 임시 유닛으로 띄운다.
+
+```bash
+systemd-run --user --unit=<이름> --collect --working-directory="$PWD" \
+  ~/.local/node/bin/node scripts/ops/run-job.ts --job ck-backfill -- \
+  scripts/ck-backfill.sh --streamer <이름> [--game fconline] --from <날짜> --to <날짜>
+systemctl --user status <이름>          # 상태
+journalctl --user -u <이름> | tail      # 셸 출력
+scripts/ck-backfill.sh --stop           # 저장 경계에서 멈춤(유닛을 죽이지 않는다)
+```
+
+- 감싸는 실행기(`run-job.ts --job ck-backfill`)를 앞에 두면 운영 화면 백필 카드에 생존 신호·세션 진척·멈춘 이유(완료·사용자 정지·DB 관문·진척 없음)가 남는다(2026-10-16). 빼도 백필은 똑같이 돈다.
+- `--collect` — 끝나면 유닛이 사라진다. 결과는 `out/ck/backfill/run-*/run.log` 마지막 `종료:` 줄로 본다.
+- 앞 백필이 공통 잠금을 쥐고 있으면 75로 바로 끝난다. 앞 백필이 끝나면 이어서 시작하게 하려고
+  `bash -c 'until flock -n out/ck/auto/.lock true; do sleep 60; done; scripts/ck-backfill.sh …'` 처럼
+  잠금이 풀릴 때까지 기다리는 고리를 감싼 적이 있다. 이것은 스킬의 "75면 대기 작업을 만들지 않는다"와 다른,
+  **사용자가 요청했을 때만 쓰는 예외**다. 정식 동작(`--wait-lock`)으로 넣을지는 아직 정하지 않았다(재설계 계획 §9-3).
+- **멈춰도 알림이 없다.** 띄운 사람이 따로 멈춤 감시(유닛이 끝나거나 `run.log`가 오래 안 바뀌면 알림)를 걸어야 한다.
+  재시작할 때마다 다시 건다(2026-10-14 05:19 멈춤을 3시간 놓쳤다).
+- 유닛 이름은 사람이 알아보게(`fc-backfill-<채널>` 등). 같은 이름이 남아 있으면 `systemd-run` 이 거부한다.
+
 ## 자동 조사와의 관계
 
-같은 `out/ck/auto/.lock` 을 잡는다. 백필이 도는 동안 자동 타이머는 건너뛰고, 자동이 도는 중이면 백필은 75 로
-시작하지 않는다. 어느 쪽을 돌릴지는 사람이 정한다. 잠금은 둘을 동시에 띄운 사고로 SOOP 호출 속도가 두 배가
-되는 것만 막는다(속도 제한이 프로세스마다 따로 있다).
+잠금은 두 층이다(2026-10-16 코드 대조 — 예전 설명 "자동 조사와 같은 잠금"은 틀렸다).
+
+| 잠금 | 누가 잡나 | 막는 것 |
+|---|---|---|
+| `out/ck/auto/.lock` | 백필(`ck-backfill.sh`·`ck-backfill-par.sh`)만 | 백필 둘이 동시에 도는 것. 바쁘면 75 |
+| `out/ck/backfill/channel-<채널>.lock` | 백필과 자동 조사(`ck-auto.sh --work`) 둘 다 | 같은 채널을 둘이 동시에 조사하는 것. 백필이 바쁜 채널을 만나면 75, 자동 조사는 그 VOD 를 1시간 뒤로 미룬다 |
+| `out/ck/auto/daily.lock`·`poll.lock`·`fc.lock` | 자동 조사만 | 자동 조사 회차끼리 |
+
+그래서 **자동 조사와 백필은 채널이 다르면 동시에 돈다.** 그때 SOOP 호출 속도 제한은 프로세스마다 따로라
+합쳐서 빨라진다 — 지금 이것을 막는 장치는 없다(병렬 백필은 `SOOP_PACE` 로 합산 속도를 맞추지만 자동 조사와는 나누지 않는다).
+음성 준비(전사)는 따로 `.local/ck-listen/prepare.lock` 하나를 둘이 같이 쓴다.
 
 백필이 `running` 으로 멈춘 VOD 는 와치리스트 채널이면 자동 조사가 기간과 무관하게 이어받는다(의도한 정책).
 두 쪽이 같은 도장을 보므로 먼저 끝낸 쪽이 찍고, 다른 쪽은 건너뛴다.

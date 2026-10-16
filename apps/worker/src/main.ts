@@ -1,3 +1,4 @@
+import { nextClubCollectionAt } from "@soop-lol/core/lib/metrics/club-state";
 /**
  * 수집 워커 진입점.
  *
@@ -18,6 +19,7 @@
  */
 
 import { closeDb } from "@soop-lol/core/lib/db/client";
+import { DbGateBlocked } from "@soop-lol/core/lib/db/write-block";
 import { sleep } from "@soop-lol/core/lib/riot/rate-limiter";
 import { nextKstHour } from "@soop-lol/core/lib/time";
 
@@ -35,6 +37,7 @@ import { moduleJobsDue, runDueModuleJobs } from "./modules.ts";
 import { errorMessage, log } from "./log.ts";
 
 const SCOPE = "worker";
+const DB_GATE_RETRY_MS = 10 * 60 * 1000;
 
 // ── 종료 신호 ────────────────────────────────────────────────────────
 
@@ -148,7 +151,7 @@ async function loop(ctx: WorkerContext) {
   // Engine E 는 넥슨 버킷을 쓰므로 Riot 예산과 경쟁하지 않지만, 로그가 섞이지 않게 순서는 지킨다.
   let nextFco = ctx.nexon ? nextKstHour(new Date(), cfg.fcoHourKst).getTime() : Infinity;
   // F(구단 스냅샷)는 시한부라 넥슨 키가 없어도 돈다. G(시세)는 F 가 남긴 보유 카드를 본다 — F 다음에.
-  let nextFcoClub = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
+  let nextFcoClub = nextClubCollectionAt(new Date(), cfg.fcoHourKst).getTime();
   // H(티어)는 F 와 따로 자기 주기로 돈다 — 첫 회차는 F 직후(신원 확인용 구단 스냅샷이 먼저 있어야 한다).
   let nextFcoRating = nextFcoClub + 60_000;
   // 커뮤니티 정기 작업은 DB 만 쓴다 — 하루 한 번 새벽에.
@@ -183,7 +186,7 @@ async function loop(ctx: WorkerContext) {
       if (now >= nextFcoClub) {
         await runJob(ctx, "engine_f_fco_club", () => runFcoClubEngine(ctx));
         await runJob(ctx, "engine_g_fco_prices", () => runFcoPriceEngine(ctx));
-        nextFcoClub = nextKstHour(new Date(), cfg.fcoHourKst).getTime();
+        nextFcoClub = nextClubCollectionAt(new Date(), cfg.fcoHourKst).getTime();
         continue;
       }
       if (now >= nextFcoRating) {
@@ -216,6 +219,13 @@ async function loop(ctx: WorkerContext) {
       }
     } catch (e) {
       if (isFatal(e)) throw e;
+      if (e instanceof DbGateBlocked) {
+        // 공개 큐 적재(B·C)만 쉰다 — 다시 부르면 같은 점검에 막혀 아래 순위 잡(FC 등)이 영영 못 돈다.
+        log.warn(SCOPE, `${e.message} — ${DB_GATE_RETRY_MS / 60_000}분 뒤 다시 본다`);
+        nextLive = Math.max(nextLive, Date.now() + DB_GATE_RETRY_MS);
+        backfillPausedUntil = Date.now() + DB_GATE_RETRY_MS;
+        continue;
+      }
       log.error(SCOPE, "잡 실패 — 계속 진행한다", { error: errorMessage(e) });
       await nap(cfg.idleMs);
       continue;

@@ -1,0 +1,11 @@
+# 매시 — 조사·수집과 별개로 돈다. 조사가 멈춰 있어도 용량·잠금 변화를 기록하고 하루 증가량을 낸다(2026-10-12 사고 뒤).
+[Unit]
+Description=soop-lol 운영 DB 점검 타이머
+
+[Timer]
+OnCalendar=*-*-* *:20:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

@@ -2,7 +2,7 @@ import { kstDateString } from '@soop-lol/core/lib/time';
 import { newestFirst, vodDate } from '@soop-lol/core/lib/metrics/ck-vod-status';
 import type { BackfillVod } from '@soop-lol/core/lib/db/ck-backfill';
 
-interface ListVod { title_no:number; ended_at:string; title:string; channel_id:string; hours:number; url:string }
+interface ListVod { title_no:number; ended_at:string; title:string; channel_id:string; hours:number; url:string; file_type?:string|null }
 export type BroadcastList = ListVod[] & {truncated?:boolean};
 export type ListBroadcasts = (channel:string, opts:{from?:string;to?:string;maxPages?:number})=>Promise<BroadcastList>;
 
@@ -17,12 +17,12 @@ export const MAX_PAGES = 200;
  *   예전 백필은 endDate 만 보내 첫날 이후 전부 "상한 밖 VOD" 오류로 멈췄다.
  * ★ 잘린 목록은 오류다. 일부만 받은 채 "기간 전체를 봤다" 고 하지 않는다.
  */
-export async function listRange(channel:string, from:string, to:string, list:ListBroadcasts): Promise<BackfillVod[]> {
+export async function listRange(channel:string, from:string, to:string, list:ListBroadcasts): Promise<BackfillVod[] & {clips:number[]}> {
   if (!/^\d{4}-\d\d-\d\d$/.test(from) || !/^\d{4}-\d\d-\d\d$/.test(to) || from > to) throw new Error(`잘못된 기간: ${from} ~ ${to}`);
   const rows = await list(channel,{from,to,maxPages:MAX_PAGES});
   if (rows.truncated) throw new Error(`${from} ~ ${to} 목록이 잘렸다(조회 실패 또는 ${MAX_PAGES}페이지 초과). 기간을 나눠 요청할 것`);
   const seen = new Set<number>();
-  const out: BackfillVod[] = [];
+  const out = Object.assign([] as BackfillVod[], { clips: [] as number[] });
   for (const v of rows) {
     if (!Number.isSafeInteger(v.title_no) || v.title_no <= 0) throw new Error('잘못된 VOD 목록 응답');
     const day = kstDateString(vodDate(v.ended_at));
@@ -30,8 +30,12 @@ export async function listRange(channel:string, from:string, to:string, list:Lis
     if (day < from || day > to) throw new Error(`API가 요청 기간 밖의 VOD를 반환했다: ${v.title_no} (${day})`);
     if (seen.has(v.title_no)) continue;
     seen.add(v.title_no);
+    // ★ 클립은 조사 대상이 아니다 — 편집본이라 경기 전체가 없고, 방송 시작 시각(broad_start)이 없어 시간축을 못 세운다.
+    //   목록에 섞여 들어와 FC 백필이 2분 클립에서 "진척 없음"으로 멈췄다(2026-10-15). 목록에 있었다는 것만 남긴다.
+    if (v.file_type === 'CLIP') { out.clips.push(v.title_no); continue; }
     out.push({ title_no:v.title_no, ended_at:vodDate(v.ended_at).toISOString(), title:v.title, channel_id:channel, url:v.url,
       duration_sec: v.hours>0 && Number.isFinite(v.hours) ? Math.round(v.hours*3600) : null });
   }
-  return out.sort(newestFirst);
+  out.sort(newestFirst);
+  return out;
 }

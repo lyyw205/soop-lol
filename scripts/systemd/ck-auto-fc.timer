@@ -1,0 +1,9 @@
+[Unit]
+Description=soop-lol 매일 07시 FC 맥락 조사 타이머
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 Asia/Seoul
+Persistent=true
+
+[Install]
+WantedBy=timers.target

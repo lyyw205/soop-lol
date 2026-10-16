@@ -12,7 +12,7 @@
 #   SOOP 이 병목이 아니면(판독 세션이 대부분이면) 이대로도 빨라진다. 더 올리려면 SOOP_PACE 를 직접 줄이되 권하지 않는다.
 # ★ Claude 실패(사용량 한도·로그인 만료)가 나면 새 스트리머를 더 시작하지 않는다. "진척 없음"(4)은 그 스트리머만 건너뛴다.
 #
-# 종료 코드: 0 정상/중복 채널 건너뜀 · 4 진척 없이 멈춘 채널 있음 · 75 공통 잠금 충돌 · 130 중단 · 그 외 첫 실패 코드
+# 종료 코드: 0 정상/중복 채널 건너뜀 · 4 진척 없이 멈춘 채널 있음 · 5 운영 DB 점검에서 멈춤(ops:usage) · 75 공통 잠금 충돌 · 130 중단 · 그 외 첫 실패 코드
 set -o pipefail  # -u 는 안 쓴다: 빈 연관 배열의 ${#A[@]} 가 unbound 로 죽는다
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$HOME/.local/node/bin:$PATH"
@@ -36,6 +36,8 @@ mkdir -p out/ck/auto out/ck/backfill
 exec 9>out/ck/auto/.lock
 flock -n 9 || { echo '다른 CK 조사가 실행 중이다. 이번 백필은 시작하지 않는다.'; exit 75; }
 rm -f "$STOP_FILE"
+# 운영 DB 점검 — 통과하면 지난 쓰기 실패 표시를 지운다. 워커들은 세션마다 다시 본다.
+npm run -s ops:usage -- --gate --clear-flag || { echo '운영 DB 점검에서 멈춤 — npm run ops:usage 로 확인'; exit 5; }
 export CK_BACKFILL_PARENT_LOCK=1 CK_BACKFILL_LOCKED=1
 export SOOP_PACE="${SOOP_PACE:-$JOBS}"
 DIR="$(mktemp -d "$ROOT/out/ck/backfill/par-$(date +%Y%m%d-%H%M%S)-XXXXXX")"

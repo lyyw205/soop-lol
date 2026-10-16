@@ -1,0 +1,10 @@
+[Unit]
+Description=SOOP SEEK operations office snapshot and incident collector (no AI)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/soop-lol
+Environment=PATH=%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node --env-file-if-exists=apps/web/.env.local scripts/ops-office.ts --notify
+TimeoutStartSec=45s
+Nice=10

@@ -1,0 +1,11 @@
+# 끝난 VOD 폴더를 보관 디스크(T7, D:)로 옮긴다 — 이 PC 전용. 설치: install.sh --with-t7-archive
+[Unit]
+Description=soop-lol out/ck VOD 폴더를 T7(D:)로 옮긴다
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/soop-lol
+Nice=10
+IOSchedulingClass=idle
+# 감싸는 실행기(scripts/ops/run-job.ts)가 실행 하나를 job_run 한 행으로 남긴다 — 원래 명령·종료 코드는 그대로(ops/jobs/t7-archive-ck.json).
+ExecStart=%h/.local/node/bin/node %h/repos/soop-lol/scripts/ops/run-job.ts --job t7-archive-ck -- %h/repos/soop-lol/scripts/t7-archive-ck.sh

@@ -1,0 +1,7 @@
+[Unit]
+Description=Analyze pending schedule notices only
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=10min
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,34 @@
+{
+  "id": "schedule-poll",
+  "title": "방송 공지 수집",
+  "display_group": "편성표",
+  "group": "collect",
+  "install": "schedule",
+  "install_hook": "scripts/schedule-notices/run.sh init",
+  "units": [
+    "scripts/systemd/soop-schedule-poll.service",
+    "scripts/systemd/soop-schedule-poll.timer"
+  ],
+  "run": "scripts/schedule-notices/run.sh poll",
+  "schedule": "30분마다(앞 실행이 끝난 뒤) · Claude 호출 없음",
+  "record": "exit_code",
+  "office": {
+    "room": "schedule",
+    "cadence": "30분마다",
+    "max_age_min": 65,
+    "max_run_min": 20
+  },
+  "locks": [],
+  "resources": [
+    "soop-board"
+  ],
+  "publication": "검토 후보까지(사람이 승인)",
+  "docs": [
+    "docs/SCHEDULE-PLAN.md"
+  ],
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job schedule-poll",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

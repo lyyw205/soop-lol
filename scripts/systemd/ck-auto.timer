@@ -1,10 +1,10 @@
-# 매일 아침 07:00(KST — 시스템 시간대). Persistent=true: 꺼져 있던 동안 놓친 회차는 켜지자마자 한 번 돈다.
+# 매시간 정각(KST). 놓친 조회는 PC가 켜질 때 한 번 수행한다.
 # 대상이 "채널마다 이전에 조사한 다음부터" 라 며칠 꺼져 있어도 그 사이 VOD 를 다음 회차가 잇는다.
 [Unit]
-Description=soop-lol 매일 와치리스트 조사 타이머
+Description=soop-lol 시간별 VOD 발견 타이머
 
 [Timer]
-OnCalendar=*-*-* 07:00:00
+OnCalendar=*-*-* *:00:00 Asia/Seoul
 Persistent=true
 
 [Install]

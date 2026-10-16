@@ -1,0 +1,44 @@
+{
+  "id": "ck-backfill",
+  "title": "CK 수동 백필",
+  "group": "research",
+  "install": "manual",
+  "units": [],
+  "run": "scripts/ck-backfill.sh --streamer <이름> [--game fconline] --from <날짜> --to <날짜>",
+  "schedule": "사용자 요청 때만 — 오래 걸리면 systemd-run 임시 유닛(docs/CK-BACKFILL.md)",
+  "record": "runner",
+  "office": {
+    "room": "backfill",
+    "cadence": "사용자 요청",
+    "max_run_min": 4320
+  },
+  "locks": [
+    "out/ck/auto/.lock",
+    "out/ck/backfill/channel-<채널>.lock",
+    ".local/ck-listen/prepare.lock"
+  ],
+  "resources": [
+    "soop-vod",
+    "asr",
+    "claude",
+    "disk",
+    "db"
+  ],
+  "skills": [
+    "ck-backfill",
+    "ck-local",
+    "fco-match-context"
+  ],
+  "stop_files": [
+    "out/ck/backfill/STOP"
+  ],
+  "publication": "롤 즉시 공개 · FC 화면 경기는 숨김 후 검수",
+  "docs": [
+    "docs/CK-BACKFILL.md"
+  ],
+  "notes": "운영 화면에 아직 없다(재설계 계획 §5.4에서 정식 작업으로). 멈춰도 알림이 없으니 띄운 사람이 멈춤 감시를 건다.",
+  "remove": [
+    "이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

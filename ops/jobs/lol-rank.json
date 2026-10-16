@@ -1,0 +1,39 @@
+{
+  "id": "lol-rank",
+  "title": "랭크 스냅샷",
+  "group": "collect",
+  "install": "default",
+  "units": [
+    "scripts/systemd/soop-rank.service",
+    "scripts/systemd/soop-rank.timer"
+  ],
+  "run": "npm run -s worker -- rank",
+  "schedule": "매일 09:00 · 놓친 회차는 켜지자마자",
+  "record": "runner",
+  "office": {
+    "room": "lol",
+    "cadence": "매일",
+    "max_age_min": 1560,
+    "max_run_min": 60
+  },
+  "locks": [
+    "out/locks/riot.lock"
+  ],
+  "resources": [
+    "riot"
+  ],
+  "job_run_names": [
+    "engine_a_rank"
+  ],
+  "docs": [
+    "docs/SETUP.md",
+    "docs/PLAN.md"
+  ],
+  "notes": "시한부 — 하루 안 쌓으면 그날은 영원히 구멍이다(같은 실행이 닉네임도 갱신한다).",
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job lol-rank",
+    "apps/worker/src/main.ts 의 명령과 운영 화면 대사(apps/web/components/admin/office/dialogue.ts)에 이름이 있으면 그 줄",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

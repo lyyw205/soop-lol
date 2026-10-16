@@ -1,0 +1,34 @@
+{
+  "id": "schedule-analyze",
+  "title": "방송 일정 분석",
+  "display_group": "편성표",
+  "group": "collect",
+  "install": "schedule",
+  "install_hook": "scripts/schedule-notices/run.sh init",
+  "units": [
+    "scripts/systemd/soop-schedule-analyze.service",
+    "scripts/systemd/soop-schedule-analyze.timer"
+  ],
+  "run": "scripts/schedule-notices/run.sh analyze",
+  "schedule": "10분마다(앞 실행이 끝난 뒤) · claude -p --json-schema",
+  "record": "exit_code",
+  "office": {
+    "room": "schedule",
+    "cadence": "10분마다",
+    "max_age_min": 35,
+    "max_run_min": 20
+  },
+  "locks": [],
+  "resources": [
+    "claude"
+  ],
+  "publication": "검토 후보까지(사람이 승인)",
+  "docs": [
+    "docs/SCHEDULE-PLAN.md"
+  ],
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job schedule-analyze",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "ck-context",
+  "title": "CK 음성 · 맥락 실험",
+  "group": "experiment",
+  "install": "none",
+  "units": [],
+  "run": "node scripts/ck-context/cli.mjs",
+  "schedule": "사람이 시험할 때만",
+  "record": "none",
+  "locks": [],
+  "resources": [
+    "asr",
+    "claude"
+  ],
+  "skills": [
+    "ck-context"
+  ],
+  "docs": [],
+  "notes": "운영 ck-local·자동 조사·DB 를 바꾸지 않는 실험(출력 out/ck-context/). 4B 모델 채택은 보류.",
+  "remove": [
+    "이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

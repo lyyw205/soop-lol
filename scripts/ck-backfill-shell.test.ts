@@ -4,17 +4,18 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,copyFileSync,readFileSync,existsSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {spawn, type ChildProcess} from 'node:child_process';
+import {spawn, spawnSync, type ChildProcess} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 test('음성 준비 실패에도 Claude 조사·저장은 진행하고 FC 백필도 화면 준비 뒤 같은 준비를 돈다',async()=>{
  const f=fixture('ok',{LISTEN_CODE:'2',NEXT_N:'1'});try{
   assert.equal(await done(f.start()),0);
-  assert.match(f.order(),/prep\nlisten:prepare --vod 1 --if-enabled\nclaude\n/);
+  assert.match(f.order(),/prep\nlisten:prepare --vod 1 --if-enabled --plan lol\nclaude\n/); // 화면 지도의 경기 활동 구간만
  }finally{f.cleanup();}
  const prompts=join(mkdtempSync(join(tmpdir(),'ck-backfill-prompt-')),'prompts');
  const g=fixture('ok',{LISTEN_CODE:'2',NEXT_N:'1',PROMPT_LOG:prompts});try{
   assert.equal(await done(g.start('--streamer','test','--game','fconline')),0);
-  assert.match(g.order(),/prep\nlisten:prepare --vod 1 --if-enabled\nclaude\n/);
+  assert.match(g.order(),/prep\nlisten:prepare --vod 1 --if-enabled --plan fc\nclaude\n/);
+  assert.match(readFileSync(prompts,'utf8'),/prepare --vod 1 --between/); // 범위 밖이 필요하면 그 범위만 더 준비
   const prompt=readFileSync(prompts,'utf8');
   assert.match(prompt,/음성 준비 종료 코드 2/); assert.match(prompt,/'음성 원문' 절차/); assert.match(prompt,/--listen-read/);
   assert.doesNotMatch(prompt,/첫 경기 전 기본 30분/); // 롤 문장을 FC 에 섞지 않는다.
@@ -25,12 +26,49 @@ test('음성 준비 실패에도 Claude 조사·저장은 진행하고 FC 백필
   assert.doesNotMatch(h.order(),/listen:/);
  }finally{h.cleanup();}
 });
+test('--print-prompt 는 실제 세션에 넘기는 지시문과 같은 문장을 낸다(롤·FC, 경로만 run-print)',async()=>{
+ const norm=(s:string)=>s.replace(/out\/ck\/backfill\/run-[^/ ]+\//g,'out/ck/backfill/RUN/');
+ for(const [game,args,prep] of [['lol',[],['--prep-line','PREP: ck-local run_id=fake']],['fconline',['--game','fconline'],['--prep-code','1']]] as const){
+  const f=fixture('ok',{LISTEN_CODE:'2',NEXT_N:'1',PROMPT_FILE:'prompt.txt'});try{
+   assert.equal(await done(f.start('--streamer','test',...args)),0);
+   const real=norm(readFileSync(join(f.dir,'prompt.txt'),'utf8'));
+   const printed=spawnSync('bash',[join(f.dir,'scripts/ck-backfill.sh'),'--print-prompt','--vod','1',...args,...prep,'--listen-code','2'],{cwd:f.dir,encoding:'utf8',env:{...process.env,PATH:join(f.dir,'bin')+':'+process.env.PATH}});
+   assert.equal(printed.status,0,printed.stderr);
+   assert.equal(norm(printed.stdout),real+'\n',game);
+  }finally{f.cleanup();}
+ }
+});
+test('백필이 끝난 분기마다 멈춘 이유를 남긴다 — 종료 코드 0 이라도 완료와 사용자 정지가 다르다',async()=>{
+ const reason=(dir:string)=>JSON.parse(readFileSync(join(dir,'stop.json'),'utf8'));
+ const cases:[string,Record<string,string>,number,string,RegExp][]=[
+  ['ok',{NEXT_N:'1'},0,'completed',/요청 기간을 끝까지 처리 · 조사 세션 1회/],
+  ['stop',{NEXT_N:'2'},0,'user_stop',/요청으로 멈춤/],
+  ['ok',{NEXT_N:'1',OPS_CODE:'3'},5,'blocked_external',/운영 DB 점검/],
+  ['ok',{NEXT_N:'1',AFTER_CODE:'4'},4,'no_progress',/진척 없음/],
+  ['fail',{NEXT_N:'1'},9,'error',/Claude 실행 실패\(종료 코드 9\)/],
+ ];
+ for(const [mode,env,code,why,detail] of cases){
+  const dir=mkdtempSync(join(tmpdir(),'ck-backfill-run-'));
+  const f=fixture(mode,{...env,OPS_RUN_DIR:dir});try{
+   assert.equal(await done(f.start()),code,why);
+   assert.equal(reason(dir).reason,why); assert.match(reason(dir).detail,detail);
+  }finally{f.cleanup();rmSync(dir,{recursive:true,force:true});}
+ }
+ // 세션마다 진척(세션 수·마지막 VOD)을 남긴다.
+ const dir=mkdtempSync(join(tmpdir(),'ck-backfill-run-'));
+ const g=fixture('ok',{NEXT_N:'2',OPS_RUN_DIR:dir});try{
+  assert.equal(await done(g.start()),0);
+  const p=JSON.parse(readFileSync(join(dir,'progress.json'),'utf8'));
+  assert.deepEqual([p.done,p.unit,p.last_item],[2,'세션','vod:2']);
+ }finally{g.cleanup();rmSync(dir,{recursive:true,force:true});}
+});
 function done(child:ChildProcess) {return new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});}
 async function until(check:()=>boolean) {for(let i=0;i<100;i++){if(check())return;await delay(50);}throw new Error('fixture timeout');}
 function fixture(mode:string, env:Record<string,string>={}) {
  const dir=mkdtempSync(join(tmpdir(),'ck-backfill-shell-'));
  mkdirSync(join(dir,'scripts/lib'),{recursive:true});mkdirSync(join(dir,'bin'));
  copyFileSync(join(import.meta.dirname,'ck-backfill.sh'),join(dir,'scripts/ck-backfill.sh'));
+ mkdirSync(join(dir,'scripts/ops'),{recursive:true});copyFileSync(join(import.meta.dirname,'ops/ops-stop.sh'),join(dir,'scripts/ops/ops-stop.sh'));
  copyFileSync(join(import.meta.dirname,'ck-backfill-par.sh'),join(dir,'scripts/ck-backfill-par.sh'));
  copyFileSync(join(import.meta.dirname,'ck-session-usage.ts'),join(dir,'scripts/ck-session-usage.ts'));
  copyFileSync(join(import.meta.dirname,'lib/ck-session-usage.ts'),join(dir,'scripts/lib/ck-session-usage.ts'));
@@ -59,10 +97,18 @@ function fixture(mode:string, env:Record<string,string>={}) {
   if(n>Number(process.env.NEXT_N??2))process.exit(3);fs.writeFileSync(opt('--current'),JSON.stringify({vod:{title_no:n}}));}
  if(command==='after'){fs.writeFileSync(require('path').join(require('path').dirname(opt('--current')),'after.json'),JSON.stringify({vod:1,before:{saved_matches:0},after:{saved_matches:2}}));process.exit(Number(process.env.AFTER_CODE??0));}
  `,{mode:0o755});
+ // 운영 DB 점검(npm run -s ops:usage) 대역 — OPS_CODE=3 이면 멈춤. 호출은 ORDER 를 흐리지 않게 OPS 에 따로 남긴다.
+ writeFileSync(join(dir,'bin/npm'),'#!/bin/bash\n'+String.raw`
+ [[ "$1 $2 $3" == "run -s ops:usage" ]] || { echo "fixture npm: $*" >&2; exit 97; }
+ shift 3; [[ "$1" == -- ]] && shift; [[ -n "$OPS" ]] && echo "$*" >> "$OPS"
+ if [[ -n "$OPS_CODE" && "$OPS_CODE" != 0 ]]; then echo 'DB 점검 멈춤 — fixture'; exit "$OPS_CODE"; fi
+ echo 'DB 점검 정상'
+ `,{mode:0o755});
  writeFileSync(join(dir,'bin/claude'),'#!/bin/bash\n'+String.raw`
  if [[ "$1" == --version ]]; then echo '2.1.293 (Claude Code)'; exit 0; fi
  echo claude >> "$ORDER"
  if [[ -n "$PROMPT_LOG" ]]; then printf '%s\n' "$@" >> "$PROMPT_LOG"; fi
+ if [[ -n "$PROMPT_FILE" ]]; then prev=""; for x in "$@"; do [[ "$prev" == -p ]] && printf '%s' "$x" > "$PROMPT_FILE"; prev=$x; done; fi
  for a in "$@"; do [[ "$a" == /ck-local* ]] && echo skill:ck-local >> "$ORDER"; [[ "$a" == /ck-research* ]] && echo skill:ck-research >> "$ORDER"; [[ "$a" == /fco-match-context* ]] && echo skill:fco >> "$ORDER"; [[ "$a" == *"fco_scan"* ]] && echo fc-prompt >> "$ORDER"; [[ "$a" == *"run_id=fake"* ]] && echo got-prep >> "$ORDER"; done
  while (( $# )); do [[ "$1" == --model ]] && echo "model:$2" >> "$ORDER"; shift; done
  if flock -n out/ck/auto/.lock true; then echo unlocked >> "$ORDER"; exit 91; fi
@@ -258,4 +304,20 @@ test('세션 분량은 인계 요약과 함께 전달하고 0이면 분할 목�
    assert.doesNotMatch(readFileSync(log,'utf8'),/이번 세션 목표는/);
   }finally{g.cleanup();}
  }finally{f.cleanup();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('운영 DB 점검이 멈춤이면 세션 없이 5로 끝나고, 첫 점검만 지난 쓰기 실패 표시를 지운다',async()=>{
+ const f=fixture('ok',{OPS_CODE:'3',OPS:''});try {
+  const ops=join(f.dir,'ops');
+  const child=spawn('bash',[join(f.dir,'scripts/ck-backfill.sh'),'--streamer','test'],{env:{...process.env,HOME:join(f.dir,'home'),PATH:join(f.dir,'bin')+':'+process.env.PATH,ORDER:join(f.dir,'order'),MODE:'ok',OPS_CODE:'3',OPS:ops},stdio:'ignore',cwd:f.dir});
+  assert.equal(await done(child),5);
+  assert.doesNotMatch(f.order(),/claude/);
+  assert.equal(readFileSync(ops,'utf8'),'--gate --clear-flag\n');
+ }finally{f.cleanup();}
+ const g=fixture('ok');try {
+  const ops=join(g.dir,'ops');
+  const child=spawn('bash',[join(g.dir,'scripts/ck-backfill.sh'),'--streamer','test'],{env:{...process.env,HOME:join(g.dir,'home'),PATH:join(g.dir,'bin')+':'+process.env.PATH,ORDER:join(g.dir,'order'),MODE:'ok',OPS:ops},stdio:'ignore',cwd:g.dir});
+  assert.equal(await done(child),0);
+  assert.equal(readFileSync(ops,'utf8'),'--gate --clear-flag\n--gate\n--gate\n', '세션마다 다시 보고, 지우기는 첫 점검만');
+ }finally{g.cleanup();}
 });

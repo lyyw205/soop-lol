@@ -1,0 +1,26 @@
+{
+  "id": "ops-office",
+  "title": "운영 오피스 수집기",
+  "group": "ops",
+  "install": "default",
+  "units": [
+    "scripts/systemd/soop-office.service",
+    "scripts/systemd/soop-office.timer"
+  ],
+  "run": "node --env-file-if-exists=apps/web/.env.local scripts/ops-office.ts --notify",
+  "schedule": "1분마다(앞 실행이 끝난 뒤) · AI 없음",
+  "record": "none",
+  "locks": [],
+  "resources": [
+    "db"
+  ],
+  "docs": [
+    "docs/OPS-OFFICE.md"
+  ],
+  "notes": "자기 자신은 운영 화면 작업 목록에 없다.",
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job ops-office",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

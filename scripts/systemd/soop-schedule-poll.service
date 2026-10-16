@@ -1,0 +1,9 @@
+[Unit]
+Description=SOOP schedule notices: collect changed posts (no LLM)
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/soop-lol
+# 감싸는 실행기(scripts/ops/run-job.ts)가 실행 하나를 job_run 한 행으로 남긴다 — 원래 명령·종료 코드는 그대로(ops/jobs/schedule-poll.json).
+ExecStart=%h/.local/node/bin/node %h/repos/soop-lol/scripts/ops/run-job.ts --job schedule-poll -- %h/repos/soop-lol/scripts/schedule-notices/run.sh poll
+TimeoutStartSec=15min
+Nice=10

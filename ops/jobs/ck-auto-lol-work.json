@@ -1,0 +1,52 @@
+{
+  "id": "ck-auto-lol-work",
+  "title": "롤 자동 조사 — 조사",
+  "display_group": "롤 자동 조사",
+  "group": "research",
+  "install": "ck-auto",
+  "units": [
+    "scripts/systemd/ck-auto-worker.path",
+    "scripts/systemd/ck-auto-worker.service"
+  ],
+  "run": "scripts/ck-auto.sh --work",
+  "schedule": "wake 파일이 생기면(목록 확인 뒤)",
+  "record": "runner",
+  "office": {
+    "room": "research",
+    "cadence": "새 VOD 도착 시",
+    "max_run_min": 365
+  },
+  "locks": [
+    "out/ck/auto/daily.lock",
+    "out/ck/backfill/channel-<채널>.lock",
+    ".local/ck-listen/prepare.lock"
+  ],
+  "resources": [
+    "soop-vod",
+    "asr",
+    "claude",
+    "disk",
+    "db"
+  ],
+  "skills": [
+    "ck-local",
+    "ck-research"
+  ],
+  "stop_files": [
+    "out/ck/auto/STOP"
+  ],
+  "publication": "즉시 공개(검수 화면에서 사후 수정)",
+  "critical": true,
+  "docs": [
+    "docs/CK-COLLECTION.md",
+    "docs/CK-BACKFILL.md",
+    "docs/SETUP.md"
+  ],
+  "notes": "멈추면 출시 차별점(롤 CK 완전 자동화)이 사라진다(2026-10-15 마케팅 결정). C: 여유 6GB 이하에서 스스로 멈춘다.",
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job ck-auto-lol-work",
+    "scripts/ck-auto.sh 의 해당 모드(--poll·--work·--fc)와 docs/SETUP.md 의 표 줄",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

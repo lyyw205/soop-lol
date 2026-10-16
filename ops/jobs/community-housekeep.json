@@ -1,0 +1,38 @@
+{
+  "id": "community-housekeep",
+  "title": "커뮤니티 보존 기간 · 정리",
+  "group": "maintenance",
+  "install": "community",
+  "units": [
+    "scripts/systemd/soop-community.service",
+    "scripts/systemd/soop-community.timer"
+  ],
+  "run": "npm run -s worker -- community-housekeep",
+  "schedule": "매일 04:30",
+  "record": "runner",
+  "office": {
+    "room": "community",
+    "cadence": "매일",
+    "max_age_min": 1560,
+    "max_run_min": 30
+  },
+  "locks": [
+    "out/locks/community.lock"
+  ],
+  "resources": [
+    "db"
+  ],
+  "job_run_names": [
+    "community_housekeep"
+  ],
+  "docs": [
+    "docs/COMMUNITY-PLAN.md"
+  ],
+  "notes": "가입을 열 때 설치한다(공개 전에는 정리할 글·회원이 없다) — 그래서 기본 묶음이 아니라 따로 설치한다.",
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job community-housekeep",
+    "apps/worker/src/main.ts 의 명령과 운영 화면 대사(apps/web/components/admin/office/dialogue.ts)에 이름이 있으면 그 줄",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

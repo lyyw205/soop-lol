@@ -12,6 +12,7 @@ Environment=PATH=%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
 ExecStartPre=/usr/bin/mkdir -p %h/repos/soop-lol/out/locks
 # 티어는 FC 홈페이지만 쓴다(넥슨 API 안 씀) — fc-site 잠금 하나. 구단가치(F)에서 2026-10-08 분리했다:
 # 목요일 정기 점검 때 스쿼드 조회가 실패해도 티어는 직전 구단 스냅샷의 신원으로 받는다.
-ExecStart=/usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/fc-site.lock npm run -s worker -- fco-rating
+# 감싸는 실행기(scripts/ops/run-job.ts)가 실행 하나를 job_run 한 행으로 남긴다 — 원래 명령·종료 코드는 그대로(ops/jobs/fco-rating.json).
+ExecStart=%h/.local/node/bin/node %h/repos/soop-lol/scripts/ops/run-job.ts --job fco-rating -- /usr/bin/flock -w 1800 %h/repos/soop-lol/out/locks/fc-site.lock npm run -s worker -- fco-rating
 TimeoutStartSec=60min
 Nice=10

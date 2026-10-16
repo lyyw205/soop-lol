@@ -1,0 +1,26 @@
+{
+  "id": "ops-usage",
+  "title": "운영 DB 사용량 기록",
+  "group": "ops",
+  "install": "default",
+  "units": [
+    "scripts/systemd/soop-ops-usage.service",
+    "scripts/systemd/soop-ops-usage.timer"
+  ],
+  "run": "npm run -s ops:usage -- --record",
+  "schedule": "매시 :20",
+  "record": "exit_code",
+  "locks": [],
+  "resources": [
+    "db"
+  ],
+  "docs": [
+    "docs/OPS-OFFICE.md"
+  ],
+  "notes": "운영 화면 작업 목록에는 없다(재설계 2단계에서 등록부를 읽게 되면 보인다).",
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job ops-usage",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

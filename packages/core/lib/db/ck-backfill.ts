@@ -3,7 +3,7 @@
  * 여기서 따로 저장하는 건 "마지막 요청 기간" 하나다 — 다음 요청의 기본값일 뿐이다.
  */
 import { db } from './client.ts';
-import { activeCandidates, vodDate, type ScanRaw } from '../metrics/ck-vod-status.ts';
+import { activeCandidates, vodDate, vodWork, type ScanRaw } from '../metrics/ck-vod-status.ts';
 
 export interface BackfillTarget { id: string; display_name: string; slug: string; channel_id: string }
 export type BackfillGame = 'lol' | 'fconline';
@@ -43,6 +43,36 @@ export async function vodRaws(titleNos: number[]): Promise<Map<number, ScanRaw>>
   const rows = keys.length ? await db()<{ source_key: string; raw: ScanRaw }[]>`
     SELECT source_key, raw FROM event_lead WHERE source='vod_title' AND source_key=ANY(${keys})` : [];
   return new Map(rows.map(r=>[Number(r.source_key.slice(4)), r.raw]));
+}
+
+/**
+ * 채널마다 **조사를 끝낸 가장 늦은 VOD 의 단서 시각** — 조사 도장이 있고 vodWork 가 할 일 없음으로 보는 것 중 최신.
+ * 시간별 VOD 목록(ck:queue plan)이 "어디부터 다시 훑나" 를 정한다. 끝낸 VOD 가 없는 채널은 Map 에 없다.
+ * ★ 전송량 (2026-10-12) — 예전엔 와치리스트 채널의 조사 도장 원본 전체(약 3.6MB)를 매시간 받아 JS 에서 골랐다.
+ *   판정(vodWork)은 TS 에만 있으므로 DB 로 옮기지 않고, 채널마다 최신 도장부터 몇 개씩 받아 처음 끝난 것을 찾으면
+ *   그 채널은 멈춘다. 대개 채널당 한 줄이다. 결과는 예전(전체에서 최댓값)과 같다 — 최신부터 보다 처음 만난 것이 최댓값이다.
+ */
+export async function lastFinishedScans(channels: string[]): Promise<Map<string, Date>> {
+  const mark = new Map<string, Date>();
+  let pending = [...new Set(channels)];
+  // 처음엔 한 줄씩(대개 최신 도장이 끝난 것이다), 못 찾은 채널만 1 → 4 → 16 … 줄로 넓힌다.
+  for (let offset = 0, step = 1; pending.length > 0; offset += step, step *= 4) {
+    const rows = await db()<{ channel_id: string; observed_at: Date; raw: ScanRaw }[]>`
+      SELECT channel_id, observed_at, raw FROM (
+        SELECT channel_id, observed_at, raw,
+               row_number() OVER (PARTITION BY channel_id ORDER BY observed_at DESC, source_key DESC) AS rn
+          FROM event_lead WHERE source = 'vod_title' AND channel_id = ANY(${pending}) AND raw ? 'scan') x
+       WHERE rn > ${offset} AND rn <= ${offset + step}
+       ORDER BY channel_id, rn`;
+    const seen = new Set<string>();
+    for (const r of rows) {
+      seen.add(r.channel_id);
+      if (!mark.has(r.channel_id) && vodWork(r.raw, null).reason === null) mark.set(r.channel_id, r.observed_at);
+    }
+    // 끝난 것을 찾았거나 더 볼 도장이 없는 채널은 그만 본다.
+    pending = pending.filter((c) => seen.has(c) && !mark.has(c));
+  }
+  return mark;
 }
 
 /** 조사 결과를 다시 읽어 만드는 인계 자료. 별도 진행 테이블이나 추측한 재개 커서는 없다. */

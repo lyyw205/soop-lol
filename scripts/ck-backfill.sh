@@ -7,21 +7,27 @@
 #   scripts/ck-backfill.sh --streamer 걍하리 --game fconline --from ... --to ...   # FC 과거 백필(도장 fco_scan · FC 스킬)
 #   scripts/ck-backfill.sh --streamer 임아니 --image-limit-mib 12 --max-sessions 1 # 이미지 제한 시험(기본 꺼짐)
 #   scripts/ck-backfill.sh --stop                                               # 지금 조사 세션을 저장한 뒤 멈춤
+#   scripts/ck-backfill.sh --print-prompt --vod 123 [--game fconline] [--prep-line 'PREP: …'] [--listen-code 0]
+#                                                                               # 세션 지시문만 출력(잠금·DB·Claude 없음)
 #   Ctrl-C / TERM                                                               # 즉시 멈춤(조사 중 VOD 는 마지막 저장 지점부터)
 #
 # ★ --model 은 claude -p 조사 세션에만 건다. 전역 기본 모델(/model, ~/.claude/settings.json)은
 #   안 건드린다 — 다른 백필·자동 조사가 이 실행이 끝난 뒤에도 계속 원래 기본값을 쓰게 한다.
 # ★ 세션 하나는 VOD 하나만 다룬다. 긴 VOD는 저장 경계에서 나눠 잇는다. 세션이 끝날 때마다 DB 도장을 다시 읽어 실제 진척을 확인한다.
 #   진척이 없거나 Claude 가 실패하면 멈춘다 — 사용량 한도·로그인 만료에 목록을 헛돌지 않는다.
-# ★ 자동 조사와 같은 flock 을 잡는다. 둘을 동시에 띄운 사고로 SOOP 호출 속도가 두 배가 되는 걸 막는다.
+# ★ 잠금 두 개(2026-10-16 코드 대조): out/ck/auto/.lock 은 **백필끼리만** 막는다(병렬 실행기 ck-backfill-par.sh 포함).
+#   자동 조사(ck-auto.sh)는 이 잠금을 잡지 않는다 — 둘은 채널 잠금(out/ck/backfill/channel-<id>.lock)으로 같은 채널만 피하고
+#   다른 채널이면 동시에 돈다. 그때 SOOP 호출 속도는 프로세스마다 따로라 합쳐서 늘어난다(막지 않는다).
 #
 # 종료 코드: 0 끝까지·요청으로 멈춤 · 75 다른 조사 실행 중 · 130 중단 · 4 진척 없음 · 그 외 실패
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$HOME/.local/node/bin:$PATH"
 cd "$ROOT"
+# 감싸는 실행기(scripts/ops/run-job.ts)에 멈춘 이유를 남긴다 — 종료 코드 0 이 기간 완료·요청 정지·세션 상한을 다 뜻해서 코드만으로는 모른다.
+source "$ROOT/scripts/ops/ops-stop.sh"
 STOP_FILE="$ROOT/out/ck/backfill/STOP"
-STREAMER=""; FROM=""; TO=""; ONLY_VOD=""; MODEL="${CK_BACKFILL_MODEL:-sonnet}"; GAME="lol"
+STREAMER=""; FROM=""; TO=""; ONLY_VOD=""; PRINT=0; P_PREP_LINE=""; P_PREP_CODE=1; P_LISTEN_CODE=""; MODEL="${CK_BACKFILL_MODEL:-sonnet}"; GAME="lol"
 SESSION_GAMES="${CK_BACKFILL_SESSION_GAMES:-0}"
 MAX_SESSIONS=0; RESET_STALL=0
 # ★ 세션당 비용 상한(달러, claude -p --max-budget-usd). 0 이면 끈다. 문맥이 수십만 토큰까지 자라는 세션이
@@ -42,30 +48,31 @@ SKILL_ENV="${CK_BACKFILL_SKILL:-}"
 
 while (( $# )); do
   case "$1" in
-    --streamer|--from|--to|--vod|--model|--game|--session-games|--max-sessions|--max-budget|--image-limit-mib|--image-warn-mib)
-      if (( $# < 2 )); then echo "$1 값 필요" >&2; exit 1; fi
-      case "$1" in --streamer) STREAMER="$2";; --from) FROM="$2";; --to) TO="$2";; --vod) ONLY_VOD="$2";; --model) MODEL="$2";; --game) GAME="$2";; --session-games) SESSION_GAMES="$2";; --max-sessions) MAX_SESSIONS="$2";; --max-budget) MAX_BUDGET="$2";; --image-limit-mib) IMAGE_LIMIT="$2";; --image-warn-mib) IMAGE_WARN="$2";; esac
+    --streamer|--from|--to|--vod|--model|--game|--session-games|--max-sessions|--max-budget|--image-limit-mib|--image-warn-mib|--prep-line|--prep-code|--listen-code)
+      if (( $# < 2 )); then echo "$1 값 필요" >&2; ops_stop error "인자·환경 오류"; exit 1; fi
+      case "$1" in --streamer) STREAMER="$2";; --from) FROM="$2";; --to) TO="$2";; --vod) ONLY_VOD="$2";; --model) MODEL="$2";; --game) GAME="$2";; --session-games) SESSION_GAMES="$2";; --max-sessions) MAX_SESSIONS="$2";; --max-budget) MAX_BUDGET="$2";; --image-limit-mib) IMAGE_LIMIT="$2";; --image-warn-mib) IMAGE_WARN="$2";; --prep-line) P_PREP_LINE="$2";; --prep-code) P_PREP_CODE="$2";; --listen-code) P_LISTEN_CODE="$2";; esac
       shift 2;;
     --stop)
       mkdir -p "$(dirname "$STOP_FILE")"; touch "$STOP_FILE"
-      echo '멈춤 요청을 남겼다. 지금 조사 세션을 마친 뒤 멈춘다.'; exit 0;;
+      echo '멈춤 요청을 남겼다. 지금 조사 세션을 마친 뒤 멈춘다.'; exit 0;; # ops: 멈춤 요청만 남기는 명령
     --reset-stall) RESET_STALL=1; shift;;
-    --help) sed -n 2,16p "$0"; exit 0;;
-    *) echo "알 수 없는 인자: $1" >&2; exit 1;;
+    --print-prompt) PRINT=1; shift;;
+    --help) sed -n 2,20p "$0"; exit 0;; # ops: 도움말
+    *) echo "알 수 없는 인자: $1" >&2; ops_stop error "인자·환경 오류"; exit 1;;
   esac
 done
-[[ -n "$STREAMER" ]] || { echo '--streamer 필요' >&2; exit 1; }
-[[ "$GAME" == lol || "$GAME" == fconline ]] || { echo "--game 은 lol 또는 fconline" >&2; exit 1; }
-[[ -n "$MODEL" && "$SESSION_GAMES" =~ ^[0-9]+$ ]] || { echo '모델 이름과 --session-games 0 이상 정수가 필요하다' >&2; exit 1; }
-[[ "$MAX_SESSIONS" =~ ^[0-9]+$ ]] || { echo '--max-sessions 0 이상 정수가 필요하다(0: 제한 없음)' >&2; exit 1; }
-[[ "$MAX_BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo '--max-budget 은 0 이상 숫자(달러, 0: 제한 없음)' >&2; exit 1; }
+[[ -n "$STREAMER" ]] || (( PRINT )) || { echo '--streamer 필요' >&2; ops_stop error "인자·환경 오류"; exit 1; }
+[[ "$GAME" == lol || "$GAME" == fconline ]] || { echo "--game 은 lol 또는 fconline" >&2; ops_stop error "인자·환경 오류"; exit 1; }
+[[ -n "$MODEL" && "$SESSION_GAMES" =~ ^[0-9]+$ ]] || { echo '모델 이름과 --session-games 0 이상 정수가 필요하다' >&2; ops_stop error "인자·환경 오류"; exit 1; }
+[[ "$MAX_SESSIONS" =~ ^[0-9]+$ ]] || { echo '--max-sessions 0 이상 정수가 필요하다(0: 제한 없음)' >&2; ops_stop error "인자·환경 오류"; exit 1; }
+[[ "$MAX_BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo '--max-budget 은 0 이상 숫자(달러, 0: 제한 없음)' >&2; ops_stop error "인자·환경 오류"; exit 1; }
 [[ "$IMAGE_LIMIT" =~ ^[0-9]+(\.[0-9]+)?$ && "$IMAGE_WARN" =~ ^[0-9]+(\.[0-9]+)?$ && "$IMAGE_FLUSH_SECONDS" =~ ^[1-9][0-9]*$ ]] \
-  || { echo '이미지 한도·경고는 0 이상 숫자, 저장 종료 유예는 양의 정수' >&2; exit 1; }
+  || { echo '이미지 한도·경고는 0 이상 숫자, 저장 종료 유예는 양의 정수' >&2; ops_stop error "인자·환경 오류"; exit 1; }
 IMAGE_ENABLED=0
 if [[ ! "$IMAGE_LIMIT" =~ ^0*(\.0*)?$ ]]; then
-  [[ "$GAME" == lol ]] || { echo '이미지 제한 1차 검증은 LoL 백필만 지원한다' >&2; exit 1; }
+  [[ "$GAME" == lol ]] || { echo '이미지 제한 1차 검증은 LoL 백필만 지원한다' >&2; ops_stop error "인자·환경 오류"; exit 1; }
   node -e 'const [w,l]=process.argv.slice(1).map(Number);process.exit(w>0&&w<l&&l<=12?0:1)' "$IMAGE_WARN" "$IMAGE_LIMIT" \
-    || { echo '이미지 한도는 0 < 경고 < 차단 <= 12 MiB' >&2; exit 1; }
+    || { echo '이미지 한도는 0 < 경고 < 차단 <= 12 MiB' >&2; ops_stop error "인자·환경 오류"; exit 1; }
   IMAGE_ENABLED=1
 fi
 # 게임별 기본값. 롤: ck-local + 판별기 준비. FC: FC 스킬(VOD 에서 출발하기) + 공용 준비 → FC 전용 판별기(fc.json).
@@ -81,75 +88,10 @@ if [[ -n "${CK_BACKFILL_FRAMES+set}" ]]; then FRAMES_CMD="$CK_BACKFILL_FRAMES"
 elif [[ "$GAME" == fconline ]]; then FRAMES_CMD='node --env-file-if-exists=apps/web/.env.local scripts/fco-context-frames.ts --vod {vod}'
 # 롤: 경기에 연결된 결과창마다 앞뒤 3장(3초 간격) 원본을 사람 검수용으로 올린다(ck-neighbors.ts, 토큰 0 · 2026-10-09).
 else FRAMES_CMD='node --env-file-if-exists=apps/web/.env.local scripts/ck-neighbors.ts --vod {vod}'; fi
-for program in node claude flock setsid; do command -v "$program" >/dev/null || { echo "$program 필요" >&2; exit 1; }; done
-mkdir -p out/ck/auto out/ck/backfill
-# ★ CK_BACKFILL_PARENT_LOCK=1 — scripts/ck-backfill-par.sh 가 이미 잠금을 쥐고 스트리머별로 이 셸을 병렬로 띄운 경우.
-#   잠금(자동 조사와의 상호 배제)은 부모가 갖고 있으니 여기서 다시 잡지 않고, 멈춤 요청도 부모가 지운다
-#   (한 워커가 지우면 나머지 워커가 멈춤을 못 본다).
-if [[ "${CK_BACKFILL_PARENT_LOCK:-}" != 1 ]]; then
-  exec 9>out/ck/auto/.lock
-  flock -n 9 || { echo '다른 CK 조사가 실행 중이다. 이번 백필은 시작하지 않는다.'; exit 75; }
-  # 지난 실행이 소비하지 못한 멈춤 요청이 새 실행을 곧바로 멈추지 않게 한다.
-  rm -f "$STOP_FILE"
-fi
-export CK_BACKFILL_LOCKED=1
-DIR="$(mktemp -d "$ROOT/out/ck/backfill/run-$(date +%Y%m%d-%H%M%S)-XXXXXX")"
-QUEUE="$DIR/queue.json"; CURRENT="$DIR/current.json"; LOG="$DIR/run.log"
-: >"$LOG"  # cli() 의 첫 호출이 아직 없는 파일을 <로 열다 리다이렉션 오류를 내는 것을 막는다.
-echo "로그: $LOG"
-CHILD=""
-stop() {
-  trap '' INT TERM
-  if [[ -n "$CHILD" ]]; then
-    kill -TERM -- "-$CHILD" 2>/dev/null || true
-    # 외부 조사 도구를 포함한 프로세스 그룹을 회수한 뒤 잠금을 놓는다.
-    for _ in {1..20}; do kill -0 -- "-$CHILD" 2>/dev/null || break; sleep 0.2; done
-    kill -KILL -- "-$CHILD" 2>/dev/null || true
-    wait "$CHILD" 2>/dev/null || true
-  fi
-  echo '중단됨. 다음 실행이 DB 도장을 다시 읽어 이어간다.' | tee -a "$LOG"
-  exit 130
-}
-trap stop INT TERM
-run_child() {
-  setsid "$@" >>"$LOG" 2>&1 & CHILD=$!
-  wait "$CHILD"; local code=$?; CHILD=""; return "$code"
-}
-# 로그에 쌓되, 이번 명령이 남긴 줄은 화면에도 보여준다.
-cli() {
-  local n; n=$(wc -l <"$LOG" 2>/dev/null || echo 0)
-  run_child node --env-file-if-exists=apps/web/.env.local scripts/ck-backfill.ts "$@" --game "$GAME"; local code=$?
-  tail -n +"$((n+1))" "$LOG"; return "$code"
-}
-say() { echo "$*" | tee -a "$LOG"; }
-
-# 별칭이 달라도 같은 채널을 동시에 조사하지 않는다. 부모 공통 잠금과 역할이 다르다.
-cli target --streamer "$STREAMER" --write "$DIR/target.json" || exit "$?"
-CHANNEL="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); if(!/^[a-zA-Z0-9_-]+$/.test(c.channel_id))process.exit(1);console.log(c.channel_id)' "$DIR/target.json")" || exit 1
-exec 8>"out/ck/backfill/channel-$CHANNEL.lock"
-flock -n 8 || { say "이미 조사 중인 채널: $CHANNEL"; exit 75; }
-say "설정: game=$GAME model=$MODEL session-games=$SESSION_GAMES max-sessions=$MAX_SESSIONS max-budget=$MAX_BUDGET image-limit-mib=$IMAGE_LIMIT"
-GUARD_ARGS=(--guard-dir "$ROOT/out/ck/backfill/guards")
-
-PLAN_ARGS=(plan --streamer "$STREAMER" --write "$QUEUE")
-[[ -n "$FROM" ]] && PLAN_ARGS+=(--from "$FROM")
-[[ -n "$TO" ]] && PLAN_ARGS+=(--to "$TO")
-[[ -n "$ONLY_VOD" ]] && PLAN_ARGS+=(--vod "$ONLY_VOD")
-cli "${PLAN_ARGS[@]}"; CODE=$?
-(( CODE == 0 )) || exit "$CODE"
-
-SESSIONS=0; RESULT=""
-while true; do
-  if [[ -f "$STOP_FILE" ]]; then [[ "${CK_BACKFILL_PARENT_LOCK:-}" == 1 ]] || rm -f "$STOP_FILE"; RESULT='요청으로 멈춤'; CODE=0; break; fi
-  NEXT_ARGS=(next --queue "$QUEUE" --current "$CURRENT" "${GUARD_ARGS[@]}")
-  (( RESET_STALL == 0 )) || NEXT_ARGS+=(--reset-stall)
-  cli "${NEXT_ARGS[@]}"; CODE=$?
-  RESET_STALL=0  # 명시적 재개도 첫 대상 한 번만 허용한다. 반복 제한을 매 세션 지우지 않는다.
-  if (( CODE == 3 )); then RESULT='요청 기간을 끝까지 처리'; CODE=0; break; fi
-  if (( CODE == 4 )); then RESULT='결과 진척 없는 반복으로 재개 보류'; break; fi
-  (( CODE == 0 )) || { RESULT='다음 VOD 선택 실패'; break; }
-  VOD="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1]));console.log(String(c.vod.title_no))' "$CURRENT")" || { CODE=1; RESULT='current.json 읽기 실패'; break; }
-  SESSIONS=$((SESSIONS+1))
+# 세션 하나에 넘기는 전체 지시문 — 실제 실행과 --print-prompt 가 같은 함수를 쓴다(문장을 고치면 둘이 함께 바뀐다).
+#   전역 VOD·DIR·CURRENT·GAME·SKILL·SESSION_GAMES·IMAGE_* 를 읽는다.
+backfill_prompt() {  # $1 준비 결과(ok·fail·빈 값=준비 명령 없음) · $2 ok 면 PREP 줄, fail 이면 종료 코드 · $3 음성 준비 종료 코드(빈 값: 음성 준비 안 함)
+  local PROMPT PREP_OUT="$DIR/prep-$VOD.log" LISTEN_OUT="$DIR/listen-$VOD.log" LISTEN_CODE="$3"
   if [[ "$GAME" == fconline ]]; then
   PROMPT="/$SKILL FC 과거 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD). 스킬의 'VOD 에서 출발하기' 흐름을 그대로 따른다.
 ck-backfill 스킬이나 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다. SOOP 조사 도구는 병렬 실행하지 않는다.
@@ -172,7 +114,7 @@ SOOP 조사 도구는 병렬 실행하지 않는다. 먼저 $DIR/resume.json 의
 done은 탐색 완료이지 모든 값 확정이 아니다. 필수 탐색·결과창 보완·교차검증 처리를 끝냈다면 미해결 후보와 질문을 보존하고 done으로 저장한다.
 완료 전 후보별 확인 구간·탐색 종료 사유·교차검증 시도와 한계를 확인한다. 남은 필수 탐색이 있으면 running과 구체적인 다음 행동을 남긴다.
 미해결을 억지로 not_target으로 닫거나 삭제하지 않는다. 이전 인계의 사용자 판단 필요라는 말만으로 종료하지 말고 resume.json의 completion_policy로 재평가한다.
-방송 주인이 참가하지 않은 재송출 결과창도 직접 읽어 rebroadcast 근거로 쓸 수 있다. 본인 VOD에서만 읽어야 한다는 이유로 보류하지 않는다.
+재송출 결과창은 방송 주인이 그 경기·같은 시리즈·같은 대회의 참가자일 때만 rebroadcast 근거로 쓴다. 방송 주인과 무관한 남의 경기 시청은 not_target으로 관찰만 남긴다.
 삭제·비공개를 실제 확인했으면 npm run ck:backfill -- access --vod $VOD --status unavailable --reason <확인 근거> 로 남긴다.
 일시 오류는 --status temporary 로 남기고 이 세션을 끝낸다. scan.failed 는 시간 범위 배열이며 사유를 넣지 않는다.
 못 본 구간이 영상 길이 밖이거나 세그먼트가 영구 누락이라 다시 봐도 못 푸는 것이면 scan.resolved_failed 로 닫고 이유를 note 에 남긴다.
@@ -188,27 +130,16 @@ ck:local --finish는 --resume <요약 JSON 파일>을 받는다. 다음 작업�
 지금 확인한 범위만 기록하고, 준비된 이미지가 있다는 이유로 전체를 본 것으로 쓰지 않는다. 묶음 크기는 완료 조건이 아니다."
     fi
   fi
-  if [[ -n "$PREP_CMD" ]]; then
-    PREP_OUT="$DIR/prep-$VOD.log"
-    say "준비: ${PREP_CMD//\{vod\}/$VOD}"
-    run_child bash -c "${PREP_CMD//\{vod\}/$VOD} >'$PREP_OUT' 2>&1"; PREP_CODE=$?
-    if (( PREP_CODE == 0 )) && PREP_LINE="$(grep '^PREP: ' "$PREP_OUT" | tail -1)" && [[ -n "$PREP_LINE" ]]; then
-      PROMPT+=$'\n'"준비 단계 결과(이번 실행): ${PREP_LINE#PREP: } — 이 run_id 의 산출물만 쓴다."
-    else
-      PROMPT+=$'\n'"준비 단계 실패(종료 코드 $PREP_CODE, 로그 $PREP_OUT) — 준비 산출물을 쓰지 말고 스킬의 준비 실패 절차로 조사한다."
-    fi
+  if [[ "$1" == ok ]]; then
+    PROMPT+=$'\n'"준비 단계 결과(이번 실행): ${2#PREP: } — 이 run_id 의 산출물만 쓴다."
+  elif [[ "$1" == fail ]]; then
+    PROMPT+=$'\n'"준비 단계 실패(종료 코드 $2, 로그 $PREP_OUT) — 준비 산출물을 쓰지 말고 스킬의 준비 실패 절차로 조사한다."
   fi
-  # 음성 원문 준비 — 롤 ck-local·FC 백필 공용, 같은 스위치(ck:listen config). 전사는 VOD 단위 캐시라
-  #   한쪽 게임이 이미 전사한 VOD 는 다시 받지 않는다. 화면 준비(probe.json 시간축) 뒤에 직렬로 돈다.
-  if [[ ( ( "$GAME" == lol && "$SKILL" == ck-local ) || ( "$GAME" == fconline && "$SKILL" == fco-match-context ) ) && -f scripts/ck-listen/cli.mjs ]]; then
-    LISTEN_OUT="$DIR/listen-$VOD.log"
-    # 백필은 사용자가 요청한 조사라 음성 없이 넘어가지 않게 차례를 길게 기다린다(기본 4시간 — 롤 자동 조사가 긴 VOD 를 받아쓰는 중일 수 있다).
-    run_child env CK_LISTEN_LOCK_WAIT_SECONDS="${CK_LISTEN_LOCK_WAIT_SECONDS:-14400}" bash -c 'node scripts/ck-listen.mjs prepare --vod "$1" --if-enabled >"$2" 2>&1' _ "$VOD" "$LISTEN_OUT"
-    LISTEN_CODE=$?
+  if [[ -n "$LISTEN_CODE" ]]; then
     if [[ "$GAME" == fconline ]]; then
-      PROMPT+=$'\n'"음성 준비 종료 코드 $LISTEN_CODE (로그 $LISTEN_OUT). ck:listen status --vod $VOD 확인. 활성화됐으면 스킬의 '음성 원문' 절차를 따른다 — 경기 앞·사이 대화(첫 경기 시작 전 30분, 다음 경기부터는 직전 결과 화면~그 경기 시작)를 맥락 결론(apply)·done 전에 읽고, 행사·시리즈 결론은 그 범위의 원문을 읽은 뒤 낸다. 도장에 --listen-read <ack 한 패킷ID>. 준비 종료 코드가 실패여도 status 의 coverage(이미 전사된 범위)는 읽는다 — missing 만 확인 불가로 기록하고 화면 조사로 진행한다."
+      PROMPT+=$'\n'"음성 준비 종료 코드 $LISTEN_CODE (로그 $LISTEN_OUT). ck:listen status --vod $VOD 확인. 활성화됐으면 스킬의 '음성 원문' 절차를 따른다 — 경기 앞·사이 대화(첫 경기 시작 전 30분, 다음 경기부터는 직전 결과 화면~그 경기 시작)를 맥락 결론(apply)·done 전에 읽고, 행사·시리즈 결론은 그 범위의 원문을 읽은 뒤 낸다. 도장에 --listen-read <ack 한 패킷ID>. 준비 종료 코드가 실패여도 status 의 coverage(이미 전사된 범위)는 읽는다 — missing 만 확인 불가로 기록하고 화면 조사로 진행한다. done 도장은 관문이 검사한다 — 저장한 경기 앞·사이 필수 창(경기가 없으면 첫 FC 화면 앞 30분)을 읽지 않았으면 거부되고 읽을 범위를 알려 준다. 키워드 검색·샘플로 대신하지 않고 그 범위를 read 로 읽는다. 다 못 읽으면 running 으로 남긴다. 준비는 화면 지도의 첫 경기 30분 전~마지막 경기 끝(+5분)만 했다(--plan) — 그 밖 범위가 필요하면 npm run ck:listen -- prepare --vod $VOD --between 시작초:끝초 로 그 범위만 준비한 뒤 읽는다."
     else
-      PROMPT+=$'\n'"음성 준비 종료 코드 $LISTEN_CODE (로그 $LISTEN_OUT). ck:listen status --vod $VOD 확인. 활성화됐으면 결과창 판독 뒤 분류 제출 전에 준비 대화를 필수 열람한다(첫 경기 전 기본 30분). 준비 종료 코드가 실패여도 status 의 coverage(이미 전사된 범위)는 읽는다 — missing 만 확인 불가로 기록하고 기존 조사로 진행한다."
+      PROMPT+=$'\n'"음성 준비 종료 코드 $LISTEN_CODE (로그 $LISTEN_OUT). ck:listen status --vod $VOD 확인. 활성화됐으면 결과창 판독 뒤 분류 제출 전에 준비 대화를 필수 열람한다(첫 경기 전 기본 30분). 준비 종료 코드가 실패여도 status 의 coverage(이미 전사된 범위)는 읽는다 — missing 만 확인 불가로 기록하고 기존 조사로 진행한다. 준비는 화면 지도의 첫 경기 30분 전~마지막 경기 끝(+5분)만 했다(--plan) — 그 밖 범위가 필요하면 npm run ck:listen -- prepare --vod $VOD --between 시작초:끝초 로 그 범위만 준비한 뒤 읽는다."
     fi
   fi
   if (( IMAGE_ENABLED )); then
@@ -221,6 +152,124 @@ ck:local --finish를 쓰면 --status running --resume <인계 JSON>을 명시한
 개요만 본 상태는 원본 opened를 꾸미지 말고 기존 scan 입력으로 ck:merge에 저장한다. 경기값을 모르면 후보의 관찰·질문으로 남긴다.
 이미지를 준비한 사실은 열람 근거가 아니다. 예산 소진은 done 조건이 아니며, 다음 세션은 DB 저장분만 이어받는다."
   fi
+  printf '%s' "$PROMPT"
+}
+# 음성 원문 준비 — 롤 ck-local·FC 백필 공용, 같은 스위치(ck:listen config). 전사는 VOD 단위 캐시라
+#   한쪽 게임이 이미 전사한 VOD 는 다시 받지 않는다. 화면 준비(probe.json 시간축) 뒤에 직렬로 돈다.
+listen_enabled() { [[ ( ( "$GAME" == lol && "$SKILL" == ck-local ) || ( "$GAME" == fconline && "$SKILL" == fco-match-context ) ) && -f scripts/ck-listen/cli.mjs ]]; }
+
+# 지시문만 출력하고 끝낸다 — 잠금·DB·Claude 를 건드리지 않는다. 문장을 고칠 때 전후를 diff 로 확인하는 용도
+#   (docs/AUTOMATION-REDESIGN-PLAN.md §5.5.7). 경로는 실제 실행의 run 폴더 대신 run-print 로 찍힌다.
+#   준비 명령이 있는 설정이면 --prep-line 이 있을 때 성공 문장, 없으면 --prep-code(기본 1)의 실패 문장을 붙인다.
+#   --listen-code 는 실제 실행이 음성 준비를 돌리는 설정(listen_enabled)일 때만 붙는다.
+if (( PRINT )); then
+  [[ "$ONLY_VOD" =~ ^[0-9]+$ ]] || { echo '--print-prompt 는 --vod <번호> 가 필요하다' >&2; exit 1; } # ops: 출력 모드는 감싸지 않는다
+  VOD="$ONLY_VOD"; DIR="$ROOT/out/ck/backfill/run-print"; CURRENT="$DIR/current.json"
+  P_STATE=""; P_VALUE=""
+  if [[ -n "$PREP_CMD" ]]; then
+    if [[ -n "$P_PREP_LINE" ]]; then P_STATE=ok; P_VALUE="$P_PREP_LINE"; else P_STATE=fail; P_VALUE="$P_PREP_CODE"; fi
+  fi
+  listen_enabled || P_LISTEN_CODE=""
+  backfill_prompt "$P_STATE" "$P_VALUE" "$P_LISTEN_CODE"
+  echo
+  exit 0 # ops: 출력 모드
+fi
+for program in node claude flock setsid; do command -v "$program" >/dev/null || { echo "$program 필요" >&2; ops_stop error "인자·환경 오류"; exit 1; }; done
+mkdir -p out/ck/auto out/ck/backfill
+# ★ CK_BACKFILL_PARENT_LOCK=1 — scripts/ck-backfill-par.sh 가 이미 잠금을 쥐고 스트리머별로 이 셸을 병렬로 띄운 경우.
+#   잠금(자동 조사와의 상호 배제)은 부모가 갖고 있으니 여기서 다시 잡지 않고, 멈춤 요청도 부모가 지운다
+#   (한 워커가 지우면 나머지 워커가 멈춤을 못 본다).
+if [[ "${CK_BACKFILL_PARENT_LOCK:-}" != 1 ]]; then
+  exec 9>out/ck/auto/.lock
+  flock -n 9 || { echo '다른 CK 조사가 실행 중이다. 이번 백필은 시작하지 않는다.'; ops_stop lock_busy "다른 백필이 공통 잠금(out/ck/auto/.lock)을 쥐고 있다"; exit 75; }
+  # 지난 실행이 소비하지 못한 멈춤 요청이 새 실행을 곧바로 멈추지 않게 한다.
+  rm -f "$STOP_FILE"
+fi
+export CK_BACKFILL_LOCKED=1
+# 세션 안의 스크립트가 DB 에서 받은 바이트를 스크립트별로 남긴다(전송량 계측 — npm run ops:usage).
+mkdir -p "$ROOT/out/ops"; export DB_WIRE_LOG="$ROOT/out/ops/db-wire.jsonl"
+DIR="$(mktemp -d "$ROOT/out/ck/backfill/run-$(date +%Y%m%d-%H%M%S)-XXXXXX")"
+QUEUE="$DIR/queue.json"; CURRENT="$DIR/current.json"; LOG="$DIR/run.log"
+: >"$LOG"  # cli() 의 첫 호출이 아직 없는 파일을 <로 열다 리다이렉션 오류를 내는 것을 막는다.
+echo "로그: $LOG"
+CHILD=""
+stop() {
+  trap '' INT TERM
+  if [[ -n "$CHILD" ]]; then
+    kill -TERM -- "-$CHILD" 2>/dev/null || true
+    # 외부 조사 도구를 포함한 프로세스 그룹을 회수한 뒤 잠금을 놓는다.
+    for _ in {1..20}; do kill -0 -- "-$CHILD" 2>/dev/null || break; sleep 0.2; done
+    kill -KILL -- "-$CHILD" 2>/dev/null || true
+    wait "$CHILD" 2>/dev/null || true
+  fi
+  echo '중단됨. 다음 실행이 DB 도장을 다시 읽어 이어간다.' | tee -a "$LOG"
+  ops_stop killed "중단 신호(INT·TERM) — 조사 중 VOD 는 마지막 저장 지점부터"
+  exit 130
+}
+trap stop INT TERM
+run_child() {
+  setsid "$@" >>"$LOG" 2>&1 & CHILD=$!
+  wait "$CHILD"; local code=$?; CHILD=""; return "$code"
+}
+# 로그에 쌓되, 이번 명령이 남긴 줄은 화면에도 보여준다.
+cli() {
+  local n; n=$(wc -l <"$LOG" 2>/dev/null || echo 0)
+  run_child node --env-file-if-exists=apps/web/.env.local scripts/ck-backfill.ts "$@" --game "$GAME"; local code=$?
+  tail -n +"$((n+1))" "$LOG"; return "$code"
+}
+say() { echo "$*" | tee -a "$LOG"; }
+
+# 별칭이 달라도 같은 채널을 동시에 조사하지 않는다. 부모 공통 잠금과 역할이 다르다.
+cli target --streamer "$STREAMER" --write "$DIR/target.json" || { c=$?; ops_stop error "대상 채널 확인 실패: $STREAMER"; exit "$c"; }
+CHANNEL="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); if(!/^[a-zA-Z0-9_-]+$/.test(c.channel_id))process.exit(1);console.log(c.channel_id)' "$DIR/target.json")" || { ops_stop error "대상 채널 id 가 잘못됐다"; exit 1; }
+exec 8>"out/ck/backfill/channel-$CHANNEL.lock"
+flock -n 8 || { say "이미 조사 중인 채널: $CHANNEL"; ops_stop lock_busy "이미 조사 중인 채널: $CHANNEL(자동 조사 또는 다른 백필)"; exit 75; }
+say "설정: game=$GAME model=$MODEL session-games=$SESSION_GAMES max-sessions=$MAX_SESSIONS max-budget=$MAX_BUDGET image-limit-mib=$IMAGE_LIMIT"
+GUARD_ARGS=(--guard-dir "$ROOT/out/ck/backfill/guards")
+
+PLAN_ARGS=(plan --streamer "$STREAMER" --write "$QUEUE")
+[[ -n "$FROM" ]] && PLAN_ARGS+=(--from "$FROM")
+[[ -n "$TO" ]] && PLAN_ARGS+=(--to "$TO")
+[[ -n "$ONLY_VOD" ]] && PLAN_ARGS+=(--vod "$ONLY_VOD")
+cli "${PLAN_ARGS[@]}"; CODE=$?
+(( CODE == 0 )) || { ops_stop error "VOD 목록 계획 실패(코드 $CODE)"; exit "$CODE"; }
+
+SESSIONS=0; RESULT=""; REASON=unknown
+while true; do
+  if [[ -f "$STOP_FILE" ]]; then [[ "${CK_BACKFILL_PARENT_LOCK:-}" == 1 ]] || rm -f "$STOP_FILE"; RESULT='요청으로 멈춤'; REASON=user_stop; CODE=0; break; fi
+  # 운영 DB 점검 — 세션마다 다시 본다. 첫 세션 전에는 지난 쓰기 실패 표시를 지울 수 있다(병렬 실행이면 부모가 지운다).
+  GATE_ARGS=(--gate); (( SESSIONS == 0 )) && [[ "${CK_BACKFILL_PARENT_LOCK:-}" != 1 ]] && GATE_ARGS+=(--clear-flag)
+  GATE_OUT=$(npm run -s ops:usage -- "${GATE_ARGS[@]}" 2>&1); GATE_CODE=$?
+  if (( GATE_CODE != 0 )); then say "  $GATE_OUT"; RESULT='운영 DB 점검에서 멈춤(npm run ops:usage)'; REASON=blocked_external; CODE=5; break; fi
+  NEXT_ARGS=(next --queue "$QUEUE" --current "$CURRENT" "${GUARD_ARGS[@]}")
+  (( RESET_STALL == 0 )) || NEXT_ARGS+=(--reset-stall)
+  cli "${NEXT_ARGS[@]}"; CODE=$?
+  RESET_STALL=0  # 명시적 재개도 첫 대상 한 번만 허용한다. 반복 제한을 매 세션 지우지 않는다.
+  if (( CODE == 3 )); then RESULT='요청 기간을 끝까지 처리'; REASON=completed; CODE=0; break; fi
+  if (( CODE == 4 )); then RESULT='결과 진척 없는 반복으로 재개 보류'; REASON=no_progress; break; fi
+  (( CODE == 0 )) || { RESULT='다음 VOD 선택 실패'; REASON=error; break; }
+  VOD="$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1]));console.log(String(c.vod.title_no))' "$CURRENT")" || { CODE=1; RESULT='current.json 읽기 실패'; REASON=error; break; }
+  SESSIONS=$((SESSIONS+1))
+  PREP_STATE=""; PREP_VALUE=""
+  if [[ -n "$PREP_CMD" ]]; then
+    PREP_OUT="$DIR/prep-$VOD.log"
+    say "준비: ${PREP_CMD//\{vod\}/$VOD}"
+    run_child bash -c "${PREP_CMD//\{vod\}/$VOD} >'$PREP_OUT' 2>&1"; PREP_CODE=$?
+    if (( PREP_CODE == 0 )) && PREP_LINE="$(grep '^PREP: ' "$PREP_OUT" | tail -1)" && [[ -n "$PREP_LINE" ]]; then
+      PREP_STATE=ok; PREP_VALUE="$PREP_LINE"
+    else
+      PREP_STATE=fail; PREP_VALUE="$PREP_CODE"
+    fi
+  fi
+  LISTEN_RESULT=""  # LISTEN_CODE 를 미리 비우지 않는다 — 원래처럼 준비를 돌린 뒤에만 정한다
+  if listen_enabled; then
+    LISTEN_OUT="$DIR/listen-$VOD.log"
+    # 백필은 사용자가 요청한 조사라 음성 없이 넘어가지 않게 차례를 길게 기다린다(기본 4시간 — 롤 자동 조사가 긴 VOD 를 받아쓰는 중일 수 있다).
+    LISTEN_PLAN=lol; [[ "$GAME" == fconline ]] && LISTEN_PLAN=fc # 화면 지도의 경기 활동 구간만 받는다(scripts/ck-listen/core.mjs prepareRanges)
+    run_child env CK_LISTEN_LOCK_WAIT_SECONDS="${CK_LISTEN_LOCK_WAIT_SECONDS:-14400}" bash -c 'node scripts/ck-listen.mjs prepare --vod "$1" --if-enabled --plan "$3" >"$2" 2>&1' _ "$VOD" "$LISTEN_OUT" "$LISTEN_PLAN"
+    LISTEN_CODE=$?; LISTEN_RESULT=$LISTEN_CODE
+  fi
+  PROMPT="$(backfill_prompt "$PREP_STATE" "$PREP_VALUE" "$LISTEN_RESULT")"
   # ★ --no-session-persistence — 세션 대화 기록(~/.claude/projects/*.jsonl)을 남기지 않는다. 이미지가 base64 로
   #   통째로 들어가 백필 세션 기록만 하루에 21.7GB 가 쌓여 C: 를 채웠다(2026-10-05). 재개는 DB 로 하고,
   #   사용량은 실행 폴더의 session-*.json·usage.jsonl 에 따로 남으므로 이 기록은 쓰지 않는다.
@@ -234,6 +283,7 @@ ck:local --finish를 쓰면 --status running --resume <인계 JSON>을 명시한
     if (( CLAUDE_CODE == 20 )); then
       say '  이미지 차단 후 저장·종료 유예가 끝났다 — DB 저장분을 확인한다'; CLAUDE_CODE=0
     fi
+    (( CLAUDE_CODE == 21 )) && say '  운영 DB 쓰기가 막혀 세션을 멈췄다(out/ops/write-blocked.json)'
   else
     run_child bash -c 'output=$1; shift; exec "$@" >"$output"' _ "$SESSION_OUT" claude "${CLAUDE_ARGS[@]}"; CLAUDE_CODE=$?
   fi
@@ -245,17 +295,19 @@ ck:local --finish를 쓰면 --status running --resume <인계 JSON>을 명시한
   cli after --current "$CURRENT" "${GUARD_ARGS[@]}"; AFTER_CODE=$?
   run_child node scripts/ck-session-usage.ts "$SESSION_OUT" "$DIR/after.json" "$DIR/usage.jsonl" "$MODEL" \
     || say "사용량은 집계하지 못했다. 원본: $SESSION_OUT"
-  if (( CLAUDE_CODE != 0 )); then RESULT="Claude 실행 실패(종료 코드 $CLAUDE_CODE)"; CODE=$CLAUDE_CODE; break; fi
-  if (( AFTER_CODE == 4 )); then RESULT='진척 없음 또는 결과 없는 반복 제한'; CODE=4; break; fi
-  (( AFTER_CODE == 0 )) || { RESULT='진척 확인 실패'; CODE=$AFTER_CODE; break; }
+  if (( CLAUDE_CODE != 0 )); then RESULT="Claude 실행 실패(종료 코드 $CLAUDE_CODE)"; REASON=error; (( CLAUDE_CODE == 21 )) && REASON=blocked_external RESULT="운영 DB 쓰기가 막혀 세션을 멈췄다(out/ops/write-blocked.json)"; CODE=$CLAUDE_CODE; break; fi
+  if (( AFTER_CODE == 4 )); then RESULT='진척 없음 또는 결과 없는 반복 제한'; REASON=no_progress; CODE=4; break; fi
+  ops_progress "$SESSIONS" "" "세션" "vod:$VOD"
+  (( AFTER_CODE == 0 )) || { RESULT='진척 확인 실패'; REASON=error; CODE=$AFTER_CODE; break; }
   if [[ -n "$FRAMES_CMD" ]]; then
     say "앞뒤 원본: ${FRAMES_CMD//\{vod\}/$VOD}"
     run_child bash -c "${FRAMES_CMD//\{vod\}/$VOD}" \
       || say "  ⚠ 앞뒤 원본을 다 못 뽑았다 — 백필은 계속한다. 나중에: ${FRAMES_CMD//\{vod\}/$VOD}"
   fi
-  if (( MAX_SESSIONS > 0 && SESSIONS >= MAX_SESSIONS )); then RESULT='지정한 세션 수까지 처리(기간 완료와 별개)'; CODE=0; break; fi
+  if (( MAX_SESSIONS > 0 && SESSIONS >= MAX_SESSIONS )); then RESULT='지정한 세션 수까지 처리(기간 완료와 별개)'; REASON=time_cap; CODE=0; break; fi
 done
 say "종료: $RESULT · 조사 세션 ${SESSIONS}회"
 cli status --streamer "$STREAMER"
 echo "전체 로그: $LOG"
+ops_stop "$REASON" "$RESULT · 조사 세션 ${SESSIONS}회"
 exit "$CODE"

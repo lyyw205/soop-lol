@@ -1,0 +1,12 @@
+[Unit]
+Description=soop-lol 운영 DB 점검 (잠금·용량·물리 디스크·증가 속도 — 경고면 out/ops/ALERT)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/soop-lol
+Environment=PATH=%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
+# 멈춤 판정이면 종료 코드 3 — 실패로 남아 install.sh --status 에 보인다. 기록은 out/ops/usage.jsonl.
+# 감싸는 실행기(scripts/ops/run-job.ts)가 실행 하나를 job_run 한 행으로 남긴다 — 원래 명령·종료 코드는 그대로(ops/jobs/ops-usage.json).
+ExecStart=%h/.local/node/bin/node %h/repos/soop-lol/scripts/ops/run-job.ts --job ops-usage -- /usr/bin/env npm run -s ops:usage -- --record
+TimeoutStartSec=5min
+Nice=10

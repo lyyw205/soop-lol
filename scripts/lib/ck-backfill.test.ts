@@ -23,3 +23,10 @@ test('잘린 목록은 일부라도 넘기지 않는다',async()=>{
 test('잘못된 기간은 조회하지 않는다',async()=>{
  await assert.rejects(listRange('c','2026-09-20','2026-09-18',async()=>{throw new Error('called');}),/잘못된 기간/);
 });
+
+test('클립은 조사 목록에서 빠지고 "목록에 있었다"로만 남는다 — 시작 시각이 없어 FC 백필이 멈췄다',async()=>{
+ const rows=[v(3,'2026-09-19'),{...v(2,'2026-09-19'),file_type:'CLIP'},{...v(1,'2026-09-19'),file_type:'REVIEW'}];
+ const out=await listRange('c','2026-09-18','2026-09-20',soop(rows));
+ assert.deepEqual(out.map(r=>r.title_no),[3,1]);
+ assert.deepEqual(out.clips,[2]);
+});

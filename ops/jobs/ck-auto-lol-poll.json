@@ -1,0 +1,38 @@
+{
+  "id": "ck-auto-lol-poll",
+  "title": "롤 자동 조사 — VOD 목록 확인",
+  "display_group": "롤 자동 조사",
+  "group": "research",
+  "install": "ck-auto",
+  "units": [
+    "scripts/systemd/ck-auto.service",
+    "scripts/systemd/ck-auto.timer"
+  ],
+  "run": "scripts/ck-auto.sh --poll",
+  "schedule": "매시 정각 · Claude 호출 없음",
+  "record": "runner",
+  "office": {
+    "room": "research",
+    "cadence": "매시간",
+    "max_age_min": 100,
+    "max_run_min": 40
+  },
+  "locks": [
+    "out/ck/auto/poll.lock"
+  ],
+  "resources": [
+    "soop-vod",
+    "db"
+  ],
+  "docs": [
+    "docs/CK-COLLECTION.md",
+    "docs/SETUP.md"
+  ],
+  "notes": "새 VOD 를 실행 큐에 넣고 wake 파일을 남긴다. 조사 정상 여부는 이 작업이 아니라 ck-auto-lol-work 로 판단한다.",
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job ck-auto-lol-poll",
+    "scripts/ck-auto.sh 의 해당 모드(--poll·--work·--fc)와 docs/SETUP.md 의 표 줄",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}

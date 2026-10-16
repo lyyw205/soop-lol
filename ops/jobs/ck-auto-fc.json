@@ -1,0 +1,44 @@
+{
+  "id": "ck-auto-fc",
+  "title": "FC 맥락 자동 조사",
+  "group": "research",
+  "install": "ck-auto",
+  "units": [
+    "scripts/systemd/ck-auto-fc.service",
+    "scripts/systemd/ck-auto-fc.timer"
+  ],
+  "run": "scripts/ck-auto.sh --fc",
+  "schedule": "매일 07:00",
+  "record": "runner",
+  "office": {
+    "room": "research",
+    "cadence": "매일",
+    "max_age_min": 1800,
+    "max_run_min": 365
+  },
+  "locks": [
+    "out/ck/auto/fc.lock"
+  ],
+  "resources": [
+    "soop-vod",
+    "claude",
+    "db"
+  ],
+  "skills": [
+    "fco-match-context"
+  ],
+  "stop_files": [
+    "out/ck/auto/FC_STOP"
+  ],
+  "publication": "API 경기 맥락 — 검수 화면에서 사후 수정",
+  "docs": [
+    "docs/FCO-SCREEN-MATCH-DESIGN.md",
+    "docs/SETUP.md"
+  ],
+  "remove": [
+    "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job ck-auto-fc",
+    "scripts/ck-auto.sh 의 해당 모드(--poll·--work·--fc)와 docs/SETUP.md 의 표 줄",
+    "units 파일들과 이 파일을 지운다",
+    "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"
+  ]
+}
