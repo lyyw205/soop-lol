@@ -11,7 +11,7 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 **경기 분류는 두 가지뿐이다**(0089 · [docs/CLASSIFICATION-REDESIGN-PLAN.md](docs/CLASSIFICATION-REDESIGN-PLAN.md)): 맵(롤 협곡/칼바람)과
 **진행 방식**(롤 CK·랜드·대회·스크림·솔랭내기·컨셉 / FC 대회·CK·컨셉·친선, 모르면 미분류). 전부 스트리머 간 내전이다.
 진행 방식은 행사(`event.format`)에만 있고 판은 세트 → 시리즈 → 행사 한 길로 찾는다. 수집 경로(API·영상·수기·토너먼트 코드)는 분류를 정하지 않는다.
-공개 큐 개인 전적은 **지명한 것만** 모은다(`collection_target`) — 랭크 점수만 연결 계정 전원.
+공개 큐 개인 전적은 **지명한 것만** 모은다 — 지명 = 목적 하나 + 사람(그 사람의 연결 계정 전부) + 큐 + 기간(`npm run collect`, [docs/COLLECTION-DESIGNATION-PLAN.md](docs/COLLECTION-DESIGNATION-PLAN.md)). 랭크 점수만 연결 계정 전원.
 
 ## 먼저 읽을 것
 
@@ -35,7 +35,7 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 | 롤 대회 — 나무위키 시드 | 경기 875건(`origin='wiki_seed'`, 멸망전 등 과거 대회). 롤 수기 경기 전체가 만든 조우 34,399건 | [seed/README.md](seed/README.md) |
 | **FC 온라인 — 넥슨 API + VOD 맥락** | **운영 중.** API 경기 2,790건. 화면으로만 아는 경기(30일 이전)는 저장 구조만 있다(0050, 공개 전) | [docs/FCO-SCREEN-MATCH-DESIGN.md](docs/FCO-SCREEN-MATCH-DESIGN.md) |
 | FC 온라인 — 구단가치·스쿼드·시세(공식 홈페이지) | 2026-10-02 첫 수집(16계정, 카드 379장). 주기 실행은 서버 배포 때(구단 2시간 · 시세 하루 1회). 그 전엔 손으로 `worker -- fco-club` | [docs/FCO-CLUB-VALUE-PLAN.md](docs/FCO-CLUB-VALUE-PLAN.md) |
-| **롤 공개 큐 — Riot API(지명 수집)** | 전원 수집은 없앴다(2026-10-16 사용자 결정, 0089). 경기 기록은 `collection_target`(계정·큐·기간)만 — 첫 지명은 솔랭 도전. 랭크 점수는 연결 계정 전원 매일. Riot 키 상태는 docs/SETUP.md §1 | [docs/CLASSIFICATION-REDESIGN-PLAN.md](docs/CLASSIFICATION-REDESIGN-PLAN.md) §4 |
+| **롤 공개 큐 — Riot API(지명 수집)** | 전원 수집은 없앴다(2026-10-16 사용자 결정, 0089). 경기 기록은 지명(0090 — 목적 하나 + 사람 + 큐 + 기간, 사람의 연결 계정 전부)만 — 첫 지명은 솔랭 도전 `ttgyo-duo`. 다루기는 `npm run collect`. 랭크 점수는 연결 계정 전원 매일. Riot 키 상태는 docs/SETUP.md §1 | [docs/COLLECTION-DESIGNATION-PLAN.md](docs/COLLECTION-DESIGNATION-PLAN.md) |
 | **커뮤니티 — 회원·글·댓글·신고** | **코드 완성·합침**(2026-10-08). 운영 DB 적용 완료(0081·0082 — 다음 마이그레이션 번호는 0090 — 2026-10-16 0088·0089 적용) · **공개 전** — 로그인 앱(카카오·구글) 미등록 · 정리 타이머는 가입을 열 때 설치 · 운영 DB 에 미리보기 샘플 글 — 가입 열기 전 `scripts/community-samples.ts --remove` · 플랫폼 모듈 `community` + 기록은 core | [docs/COMMUNITY-PLAN.md](docs/COMMUNITY-PLAN.md) |
 | 롤 내전 — 토너먼트 코드 | 미시작. Production Key 가 필요하고 그 심사 요건이 "동작하는 사이트"라 **배포(M4) 뒤에만** 가능하다. VOD 판독과는 별개 경로다 | [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) |
 
