@@ -101,6 +101,8 @@ function created(matchId: string, at: string) {
   const champs = ["가렌", null, null, null, "룰루", "아리", "징크스", "리 신", "블리츠크랭크", "코르키"];
   return {
     resultType: "match", match_id: matchId, game_mode: "CLASSIC", winning_team: 100, played_at: at,
+    // 판은 행사 안에만 들어간다(0089). 형식을 확인하지 못한 VOD 판독은 미분류 행사다.
+    event: { slug: "cl-ck", name: "칸 보호 시험 내전", format: "unclassified" },
     // 별개의 네 경기다. 중복 방지 규칙이 같은 날짜·KDA·경기 시간을 같은 판으로
     // 판단하지 않도록 시험 입력에도 서로 다른 경기 시간을 준다.
     played_at_precision: "date", duration: 1800 + new Date(at).getUTCHours() * 10, result_evidence: "결과창 점수판",
@@ -149,7 +151,9 @@ try {
   check("사람 연결만 고친 경기는 칸 단위 보호", (await lockOf(M.link))?.mode === "cells", JSON.stringify(await lockOf(M.link)));
 
   console.log("\n▸ a. 사람 연결만 고친 경기 — 다른 칸의 빈 챔피언이 자동 판독으로 채워진다(ck:merge)");
-  const statBefore = await sql()<{ n: number }[]>`SELECT COALESCE(max(games), 0)::int n FROM champion_stat WHERE streamer_id = ${id.b} AND champion_id = 42`;
+  // 공개 집계는 원본의 뷰다(0089 — 파생 표 없음). 채운 칸이 곧바로 그 사람의 공개 세트에 잡혀야 한다.
+  const champSets = () => sql()<{ n: number }[]>`SELECT count(*)::int n FROM core_public.lol_versus_set WHERE streamer_id = ${id.b} AND champion_id = 42`;
+  const statBefore = await champSets();
   r = await merge([scan(VOD_B, "cl_c", [200]), second(M.link, [{ streamer_slug: "cl-a", kills: 7 }])]);
   check("시점 제출 통과", r.code === 0 && r.out.includes("빈 칸 채움 3"), r.out.slice(-500));
   const link = await rows(M.link);
@@ -162,8 +166,8 @@ try {
       && autoRows.some((c) => c.entity_key === "2" && c.field === "champion_name" && c.after === "Corki"),
     JSON.stringify(autoRows));
   check("자동 채움 뒤에도 사람 칸만 사람 것으로 남는다(칸 보호 유지)", (await lockOf(M.link))?.mode === "cells");
-  const statAfter = await sql()<{ n: number }[]>`SELECT COALESCE(max(games), 0)::int n FROM champion_stat WHERE streamer_id = ${id.b} AND champion_id = 42`;
-  check("★ 파생(챔피언 통계 — 시즌별·전체 행 모두 1경기)이 같은 트랜잭션에서 다시 계산된다", statBefore[0].n === 0 && statAfter[0].n === 1, `${statBefore[0].n} → ${statAfter[0].n}`);
+  const statAfter = await champSets();
+  check("★ 채운 챔피언이 공개 세트(core_public.lol_versus_set)에 곧바로 잡힌다", statBefore[0].n === 0 && statAfter[0].n === 1, `${statBefore[0].n} → ${statAfter[0].n}`);
 
   console.log("\n▸ c. 값이 있는 칸과 다른 판독은 덮지 않고 불일치로 남는다");
   check("★ 1번 킬(0)은 7 로 안 바뀐다", link[0].kills === 0, JSON.stringify(link[0]));
@@ -175,9 +179,9 @@ try {
   check("식별 통과", r.code === 0 && r.out.includes("1명") && r.out.includes("안 바꿈 3번"), r.out.slice(-300));
   check("★ 빈 10번 자리는 연결된다", (await seat(M.link, 10)).streamer_id === id.j);
   check("★★ 사람이 연결한 3번 자리는 그대로", (await seat(M.link, 3)).streamer_id === id.c);
-  check("★ 파생(조우)도 다시 계산돼 새로 연결된 사람이 조우에 들어간다",
-    (await sql()<{ n: number }[]>`SELECT count(*)::int n FROM streamer_encounter
-      WHERE match_id = ${M.link} AND ${id.j} IN (streamer_a_id, streamer_b_id)`)[0].n > 0);
+  check("★ 새로 연결된 사람이 공개 상대전적 재료(versus_pair_set)에 곧바로 들어간다",
+    (await sql()<{ n: number }[]>`SELECT count(*)::int n FROM core_public.versus_pair_set
+      WHERE match_id = ${M.link} AND a_streamer_id = ${id.j}`)[0].n > 0);
   check("식별 채움도 actor=auto", (await changes(M.link)).some((c) => c.actor === "auto" && c.entity_key === "10" && c.field === "streamer_id"));
 
   console.log("\n▸ e. 같은 입력 재제출 — 추가 변경·이력 없음");
