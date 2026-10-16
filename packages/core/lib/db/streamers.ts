@@ -6,6 +6,7 @@
  */
 
 import { db } from "./client.ts";
+import { pruneUncoveredPersonalInTx } from "./collection.ts";
 import type {
   AccountEvidence,
   CareerEventRow,
@@ -356,8 +357,9 @@ export async function linkAccount(input: LinkAccountInput): Promise<void> {
         updated_at = now()
     `;
     await tx`UPDATE account_candidate SET state = 'approved' WHERE puuid = ${input.puuid} AND state <> 'approved'`;
-    // ★ 연결은 수집 대상을 만들지 않는다(docs/CLASSIFICATION-REDESIGN-PLAN.md §4). 경기 기록 수집은 사람이
-    //   collection_target(계정·큐·기간)에 지명한 것만이다 — 옛 구조는 여기서 백필 대기열에 자동 등록해
+    // ★ 연결만으로는 수집 대상이 생기지 않는다(docs/CLASSIFICATION-REDESIGN-PLAN.md §4). 경기 기록 수집은 사람이 지명한
+    //   스트리머의 계정만이다(collection_scope, docs/COLLECTION-DESIGNATION-PLAN.md) — 지명된 사람에게 계정을 붙이면 그 계정이
+    //   저절로 범위에 들어가고 다음 백필이 시작일까지 거슬러 받는다. 옛 구조는 여기서 연결 계정 전원을 백필 대기열에 넣어
     //   하루 2.7만 판(89% 일반인)을 쌓았다. 랭크 점수는 연결된 계정 전원을 매일 본다(Engine A).
     // ★ 다시 만들 파생 표도 없다 — 공개 뷰가 연결을 질의 시점에 읽어 과거 판의 자리가 그 자리에서 이 사람으로 보인다.
   });
@@ -394,6 +396,8 @@ export async function unlinkAccount(streamerId: string, puuid: string): Promise<
     if (rows.length) await tx`UPDATE account_candidate SET state = 'pending'
       WHERE puuid = ${puuid} AND state = 'approved'
         AND NOT EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.puuid = ${puuid} AND sa.active_to IS NULL)`;
+    // ★ 지명된 사람의 계정이면 그 계정만으로 모은 개인 기록 판은 범위 밖이 된다 — 잘못 붙인 계정의 판이 남지 않게 같은 트랜잭션에서 정리한다.
+    if (rows.length) await pruneUncoveredPersonalInTx(tx);
     return rows.length > 0;
   });
 }
@@ -538,7 +542,7 @@ export interface AdminCounts {
   matches: number;
   rank_snapshots: number;
   pending_candidates: number;
-  /** 백필이 아직 끝나지 않은 지명 수집(collection_target) 수. 계정 수가 아니다 — 한 계정에 큐·기간별 지명이 여럿일 수 있다. */
+  /** 백필이 아직 끝나지 않은 지명 범위 칸(지명 × 계정 × 큐) 수. 아직 한 번도 안 집은 칸도 센다. */
   collection_pending: number;
 }
 
@@ -551,7 +555,9 @@ export async function adminCounts(): Promise<AdminCounts> {
            (SELECT count(*) FROM match)::int                                             AS matches,
            (SELECT count(*) FROM rank_snapshot)::int                                     AS rank_snapshots,
            (SELECT count(*) FROM account_candidate WHERE state = 'pending')::int         AS pending_candidates,
-           (SELECT count(*) FROM collection_target WHERE state <> 'done')::int           AS collection_pending
+           (SELECT count(*) FROM collection_scope c LEFT JOIN collection_progress p
+              ON p.order_id = c.order_id AND p.puuid = c.puuid AND p.queue_id = c.queue_id
+             WHERE p.state IS DISTINCT FROM 'done')::int                                 AS collection_pending
   `;
   return rows[0];
 }

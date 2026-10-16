@@ -1,7 +1,7 @@
 /**
  * Engine B — 지명 수집의 신규 판 따라잡기 (docs/CLASSIFICATION-REDESIGN-PLAN.md §4).
  *
- * ★ 대상은 collection_target(계정·큐·기간) 뿐이다. 연결된 계정 전원을 순회하지 않는다 — 옛 구조는 그래서
+ * ★ 대상은 지명 범위(collection_scope — 지명된 사람의 연결 계정 × 큐 × 기간)뿐이다. 연결된 계정 전원을 순회하지 않는다 — 옛 구조는 그래서
  *   하루 2.7만 판을 쌓았다. 지명 밖의 판은 Riot 에 묻지도 않고(matchIds 의 queue·startTime·endTime),
  *   혹시 섞여 와도 saveMatch 가 저장하지 않는다.
  *
@@ -13,14 +13,12 @@
  * 그건 N틱마다 도는 전수 조사(sweep)가 메운다. 잃어도 되는 상태다.
  */
 
+import { listLiveScopes, newestCoveredAt, type CollectionScope } from "@soop-lol/core/lib/db/collection";
 import {
   filterUnknownMatchIds,
   filterUnmappedPuuids,
-  listLiveTargets,
-  newestCoveredAt,
   noteAccountMatchSynced,
   recordAccountCandidates,
-  type CollectionTarget,
 } from "@soop-lol/core/lib/db/ingest";
 import { toEpochSeconds } from "@soop-lol/core/lib/time";
 
@@ -43,7 +41,7 @@ export async function runLiveEngine(
   state: LiveState,
   now = new Date(),
 ): Promise<EngineResult> {
-  const targets = await listLiveTargets(now, ctx.cfg.liveLookbackMs);
+  const targets = await listLiveScopes(now, ctx.cfg.liveLookbackMs);
   if (targets.length === 0) return { processed: 0, detail: { note: "지명 수집 대상이 없다" } };
 
   state.tick++;
@@ -52,7 +50,7 @@ export async function runLiveEngine(
   const sweep = ctx.cfg.liveSweepEveryTicks <= 1 || state.tick % ctx.cfg.liveSweepEveryTicks === 1;
 
   // 한 계정에 지명이 여럿(큐·기간별)일 수 있다 — spectator 는 계정마다 한 번.
-  const accounts = new Map<string, CollectionTarget>();
+  const accounts = new Map<string, CollectionScope>();
   for (const t of targets) if (!accounts.has(t.puuid)) accounts.set(t.puuid, t);
 
   const { inGame, candidates } = await scanLive(ctx, [...accounts.values()]);
@@ -94,7 +92,7 @@ export async function runLiveEngine(
 }
 
 /** spectator 한 바퀴. 게임 중인 지명 계정과, 같은 로비에서 본 미매핑 puuid 를 모은다. */
-async function scanLive(ctx: WorkerContext, accounts: CollectionTarget[]) {
+async function scanLive(ctx: WorkerContext, accounts: CollectionScope[]) {
   const inGame = new Set<string>();
   const lobby = new Map<string, { game_name: string | null; tag_line: string | null; seen_with: Set<string> }>();
 
@@ -147,7 +145,7 @@ async function scanLive(ctx: WorkerContext, accounts: CollectionTarget[]) {
 }
 
 /** 이 지명으로 가진 가장 최근 판 이후의 새 판을 전부 적재한다. */
-async function catchUp(ctx: WorkerContext, t: CollectionTarget, now: Date) {
+async function catchUp(ctx: WorkerContext, t: CollectionScope, now: Date) {
   // 이 지명으로 아직 가진 판이 없으면 최근 며칠만 본다 — 그 이전은 Engine C(백필)의 일이다.
   const covered = await newestCoveredAt(t);
   const lookback = new Date(now.getTime() - ctx.cfg.liveLookbackMs);
@@ -176,7 +174,7 @@ async function catchUp(ctx: WorkerContext, t: CollectionTarget, now: Date) {
 
   if (newest) await noteAccountMatchSynced(t.puuid, newest);
   if (ingested > 0) {
-    log.info(SCOPE, t.label, { queue: t.queue_id, purpose: t.purpose, new: ingested, details });
+    log.info(SCOPE, t.label, { queue: t.queue_id, order: t.slug, new: ingested, details });
   }
   return { ingested, details };
 }

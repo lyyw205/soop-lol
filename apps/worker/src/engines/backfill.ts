@@ -1,7 +1,7 @@
 /**
  * Engine C — 지명 수집의 과거 백필 (docs/CLASSIFICATION-REDESIGN-PLAN.md §4).
  *
- * ★ 대상은 collection_target(계정·큐·기간) 하나씩이다. 옛 ingest_cursor(연결된 계정 전원)의 검증된 로직 —
+ * ★ 대상은 지명 범위(collection_scope — 지명된 사람의 연결 계정 × 큐 × 기간)의 칸 하나씩이다. 옛 ingest_cursor(연결된 계정 전원)의 검증된 로직 —
  *   커서를 반드시 내리기, 끝(기간 시작·2년 보존 경계·빈 응답·전부 삭제된 구간) 감지, SKIP LOCKED — 는 그대로 쓰고
  *   키만 지명 단위로 바꿨다. Riot 에는 그 지명의 큐·기간만 묻는다(matchIds 의 queue·startTime·endTime).
  *
@@ -12,13 +12,8 @@
  * 09:00 랭크 스냅샷이나 라이브 폴링이 백필에 밀려 늦어지면 안 된다.
  */
 
-import {
-  claimBackfillTarget,
-  filterUnknownMatchIds,
-  matchCoverage,
-  saveBackfillProgress,
-  type CollectionTarget,
-} from "@soop-lol/core/lib/db/ingest";
+import { claimBackfillScope, saveScopeProgress, type CollectionScope } from "@soop-lol/core/lib/db/collection";
+import { filterUnknownMatchIds, matchCoverage } from "@soop-lol/core/lib/db/ingest";
 import { toEpochSeconds } from "@soop-lol/core/lib/time";
 
 import { isFatal, type WorkerContext } from "../context.ts";
@@ -35,7 +30,7 @@ export interface BackfillSliceResult extends EngineResult {
 }
 
 export async function runBackfillSlice(ctx: WorkerContext, now = new Date()): Promise<BackfillSliceResult> {
-  const target = await claimBackfillTarget(undefined, now);
+  const target = await claimBackfillScope(undefined, now);
   if (!target) return { processed: 0, exhausted: true, detail: { note: "백필할 지명이 없다" } };
 
   // 아래 끝: 지명 기간의 시작과 Riot 보존 경계 중 늦은 쪽. 위 끝: 커서가 없으면 기간의 끝(열린 기간이면 지금).
@@ -43,10 +38,10 @@ export async function runBackfillSlice(ctx: WorkerContext, now = new Date()): Pr
   const horizon = new Date(Math.max(target.starts_at.getTime(), retention.getTime()));
   const before = target.cursor_before
     ?? (target.ends_at && target.ends_at < now ? target.ends_at : now);
-  const who = { target: target.label, queue: target.queue_id, purpose: target.purpose };
+  const who = { target: target.label, queue: target.queue_id, order: target.slug };
 
   if (before <= horizon) {
-    await saveBackfillProgress({ id: target.id, state: "done", reachedEnd: true });
+    await saveScopeProgress({ id: target.id, state: "done", reachedEnd: true });
     log.info(SCOPE, "기간 시작(또는 2년 경계) 도달", who);
     return { processed: 0, exhausted: false, detail: { ...who, reachedEnd: true } };
   }
@@ -56,10 +51,10 @@ export async function runBackfillSlice(ctx: WorkerContext, now = new Date()): Pr
   } catch (e) {
     if (isFatal(e)) {
       // 키가 죽었다. 이건 지명 문제가 아니므로 실패로 남기지 않는다.
-      await saveBackfillProgress({ id: target.id, state: "pending" });
+      await saveScopeProgress({ id: target.id, state: "pending" });
       throw e;
     }
-    await saveBackfillProgress({ id: target.id, state: "error", error: errorMessage(e) });
+    await saveScopeProgress({ id: target.id, state: "error", error: errorMessage(e) });
     log.error(SCOPE, "백필 슬라이스 실패", { ...who, error: errorMessage(e) });
     return { processed: 0, exhausted: false, detail: { ...who, error: true } };
   }
@@ -67,11 +62,11 @@ export async function runBackfillSlice(ctx: WorkerContext, now = new Date()): Pr
 
 async function slice(
   ctx: WorkerContext,
-  target: CollectionTarget,
+  target: CollectionScope,
   horizon: Date,
   before: Date,
 ): Promise<BackfillSliceResult> {
-  const who = { target: target.label, queue: target.queue_id, purpose: target.purpose };
+  const who = { target: target.label, queue: target.queue_id, order: target.slug };
   const ids = await ctx.riot.matchIds(target.puuid, {
     queue: target.queue_id,
     startTime: toEpochSeconds(horizon),
@@ -80,7 +75,7 @@ async function slice(
   });
 
   if (ids.length === 0) {
-    await saveBackfillProgress({ id: target.id, state: "done", reachedEnd: true });
+    await saveScopeProgress({ id: target.id, state: "done", reachedEnd: true });
     log.info(SCOPE, "백필 완료", who);
     return { processed: 0, exhausted: false, detail: { ...who, reachedEnd: true } };
   }
@@ -130,15 +125,15 @@ async function slice(
   // 커서를 못 내리므로 여기서 멈추지 않으면 같은 창을 영원히 다시 요청한다.
   if (!oldestCovered) {
     if (stopped) {
-      await saveBackfillProgress({ id: target.id, state: "pending" });
+      await saveScopeProgress({ id: target.id, state: "pending" });
     } else {
-      await saveBackfillProgress({ id: target.id, state: "done", reachedEnd: true });
+      await saveScopeProgress({ id: target.id, state: "done", reachedEnd: true });
       log.warn(SCOPE, "구간 전체가 삭제된 경기라 백필을 종료한다", { ...who, ids: ids.length });
     }
     return { processed: ingested, exhausted: false, detail: { ...who, dead } };
   }
 
-  await saveBackfillProgress({
+  await saveScopeProgress({
     id: target.id,
     // 1초 물러선다. 경계 매치를 다시 받아도 filterUnknownMatchIds·matchCoverage 가 걸러낸다.
     before: new Date(oldestCovered.getTime() - 1000),

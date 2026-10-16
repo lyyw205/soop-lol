@@ -174,7 +174,7 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
       summoner_level: summonerLevel,
       profile_icon_id: profileIconId,
     });
-    // ★ 계정 연결은 수집 대상을 늘리지 않는다(0089) — 경기 기록은 지명(collection_target)한 것만 모은다.
+    // ★ 연결만으로는 수집 대상이 생기지 않는다 — 경기 기록은 지명된 사람의 계정만 모은다(collection_scope, 0090).
     await linkAccount({
       edit: editing,
       candidate_id: candidateId || undefined,

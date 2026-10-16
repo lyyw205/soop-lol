@@ -5,7 +5,7 @@
  *
  * 롤 Riot 수집은 두 갈래뿐이다(docs/CLASSIFICATION-REDESIGN-PLAN.md §4, 사용자 결정 12):
  *   · **랭크 점수** — 연결된 활성 계정 전원, 매일(rank_snapshot·닉네임 갱신)
- *   · **지명 수집** — collection_target(계정·큐·기간)에 사람이 등록한 것만. 그 판은 개인 기록(scope='personal')이다.
+ *   · **지명 수집** — 지명(collection_order — 목적·사람·큐·기간)의 범위 안 판만. 그 판은 개인 기록(scope='personal')이다.
  * ★ 목록 밖 공개 큐 판을 저장하는 경로는 **없다.** saveMatch 가 저장 직전에 지명을 다시 확인하고, 지명이 없으면
  *   아무것도 쓰지 않는다 — 엔진이 범위를 잘못 물어도(혹은 Riot 이 범위 밖 판을 섞어 줘도) 저장 단계에서 막힌다.
  *   옛 구조는 "연결된 계정 전원"을 긁어 하루 2.7만 판·참가자 27만 행(89% 일반인)을 쌓았고 운영 DB 가 읽기 전용이 됐다.
@@ -19,6 +19,7 @@ import type postgres from "postgres";
 
 import { ensureAutoBucketInTx, lolCodeBucketSlug, placeSingleSetInTx } from "./classification.ts";
 import { db } from "./client.ts";
+import { coveredPuuidsInTx } from "./collection.ts";
 import {
   isTournamentCodeGame,
   toDetailRows,
@@ -46,7 +47,7 @@ export interface RankTarget {
 }
 
 /**
- * 랭크 점수 대상. **스트리머에게 붙어 있고 현재 유효한** 계정 전원이다 — 경기 기록 수집 대상(collection_target)과 별개다.
+ * 랭크 점수 대상. **스트리머에게 붙어 있고 현재 유효한** 계정 전원이다 — 경기 기록 수집 범위(지명, collection.ts)와 별개다.
  * `active_to IS NULL` 조건이 빠지면 양도된 옛 계정까지 계속 조회한다.
  *
  * 유효 계정은 스트리머 하나에만 붙는다(`streamer_account_one_owner_idx`)므로 이 조인은 계정당 한 행이다.
@@ -140,153 +141,7 @@ export async function saveProfile(input: {
   `;
 }
 
-// ── 지명 수집 대상(collection_target) ────────────────────────────────
-
-export interface CollectionTarget {
-  id: string;
-  puuid: string;
-  queue_id: number;
-  starts_at: Date;
-  ends_at: Date | null;
-  purpose: string;
-  /** 백필 커서 — 이 시각 **이전**을 아직 덜 봤다. null 이면 아직 시작 전(위쪽 끝부터). */
-  cursor_before: Date | null;
-  reached_end: boolean;
-  state: "pending" | "running" | "done" | "error";
-  /** 이 계정의 지금 주인. 지명은 계정 단위라 스트리머에 안 붙은 계정일 수도 있다(null). */
-  streamer_id: string | null;
-  /** 로그용 이름. */
-  label: string;
-}
-
-const TARGET_COLUMNS = (sql: postgres.Sql) => sql`
-  t.id, t.puuid, t.queue_id, t.starts_at, t.ends_at, t.purpose, t.cursor_before, t.reached_end, t.state,
-  (SELECT sa.streamer_id FROM streamer_account sa WHERE sa.puuid = t.puuid AND sa.active_to IS NULL LIMIT 1) AS streamer_id,
-  coalesce((SELECT s.display_name FROM streamer_account sa JOIN streamer s ON s.id = sa.streamer_id
-             WHERE sa.puuid = t.puuid AND sa.active_to IS NULL LIMIT 1),
-           (SELECT ra.game_name FROM riot_account ra WHERE ra.puuid = t.puuid),
-           left(t.puuid, 8)) AS label`;
-
-export interface CollectionTargetInput {
-  puuid: string;
-  queue_id: number;
-  starts_at: Date;
-  ends_at?: Date | null;
-  /** 왜 모으나(예: `solo_challenge:ttgyo-duo`). 비울 수 없다 — 이유 없는 수집을 만들지 않는다. */
-  purpose: string;
-  note?: string | null;
-}
-
-/**
- * 지명을 등록한다 — 롤 경기 기록 수집 대상이 생기는 **유일한 길**이다(계정 연결은 대상을 만들지 않는다).
- * 같은 (계정, 큐, 시작) 은 하나다 — 다시 부르면 끝·목적·메모를 고친다.
- * ★ 끝이 바뀌면 백필을 처음부터 다시 돈다 — 늘어난 구간을 아무도 안 보게 되는 것을 막는다. 이미 가진 판은
- *   API 를 쓰지 않고 지나가므로(matchCoverage) 다시 도는 비용은 목록 조회뿐이다.
- */
-export async function addCollectionTarget(input: CollectionTargetInput): Promise<string> {
-  if (!input.purpose.trim()) throw new Error("지명 수집에는 목적(purpose)이 필요하다.");
-  if (!Number.isInteger(input.queue_id) || input.queue_id < 0) throw new Error(`큐 번호가 올바르지 않다: ${input.queue_id}`);
-  if (input.ends_at && input.ends_at <= input.starts_at) throw new Error("지명 기간의 끝은 시작보다 늦어야 한다.");
-  const sql = db();
-  const [row] = await sql<{ id: string }[]>`
-    INSERT INTO collection_target (puuid, queue_id, starts_at, ends_at, purpose, note)
-    VALUES (${input.puuid}, ${input.queue_id}, ${input.starts_at}, ${input.ends_at ?? null}, ${input.purpose.trim()}, ${input.note ?? null})
-    ON CONFLICT (puuid, queue_id, starts_at) DO UPDATE SET
-      cursor_before = CASE WHEN EXCLUDED.ends_at IS DISTINCT FROM collection_target.ends_at THEN NULL ELSE collection_target.cursor_before END,
-      reached_end   = CASE WHEN EXCLUDED.ends_at IS DISTINCT FROM collection_target.ends_at THEN false ELSE collection_target.reached_end END,
-      state         = CASE WHEN EXCLUDED.ends_at IS DISTINCT FROM collection_target.ends_at THEN 'pending' ELSE collection_target.state END,
-      ends_at = EXCLUDED.ends_at, purpose = EXCLUDED.purpose, note = EXCLUDED.note, updated_at = now()
-    RETURNING id
-  `;
-  return row.id;
-}
-
-/**
- * 실시간(B)이 따라잡을 지명 — 기간이 시작됐고, 아직 열려 있거나 최근(`lookbackMs` 안)에 끝난 것.
- * 끝난 지 오래된 지명은 백필(C)만 맡는다.
- */
-export async function listLiveTargets(now: Date, lookbackMs: number): Promise<CollectionTarget[]> {
-  const sql = db();
-  const since = new Date(now.getTime() - lookbackMs);
-  return sql<CollectionTarget[]>`
-    SELECT ${TARGET_COLUMNS(sql)}
-      FROM collection_target t
-     WHERE t.game_code = 'lol'
-       AND t.starts_at <= ${now}
-       AND (t.ends_at IS NULL OR t.ends_at > ${since})
-       AND EXISTS (SELECT 1 FROM riot_account ra WHERE ra.puuid = t.puuid AND ra.is_active)
-     ORDER BY t.puuid, t.queue_id, t.starts_at
-  `;
-}
-
-/**
- * 이 지명으로 이미 가진 가장 최근 판의 시각 — 실시간 따라잡기의 시작점.
- * ★ 저장된 원본에서 구한다(따로 커서 칸을 두지 않는다). 옛 `last_match_synced_at` 도 "가장 최근에 넣은 판의 시각"이었고,
- *   오래된 것부터 넣다가 실패하면 거기서 멈추므로 같은 뜻이 된다. 지명이 여럿인 계정도 지명마다 따로 맞다.
- */
-export async function newestCoveredAt(t: Pick<CollectionTarget, "puuid" | "queue_id" | "starts_at" | "ends_at">): Promise<Date | null> {
-  const sql = db();
-  const [row] = await sql<{ at: Date | null }[]>`
-    SELECT max(m.game_creation) AS at
-      FROM match_participant p
-      JOIN match m ON m.match_id = p.match_id
-     WHERE p.puuid = ${t.puuid} AND m.game_code = 'lol' AND m.queue_id = ${t.queue_id}
-       AND m.game_creation >= ${t.starts_at}
-       AND (${t.ends_at}::timestamptz IS NULL OR m.game_creation < ${t.ends_at})
-  `;
-  return row?.at ?? null;
-}
-
-/**
- * 백필 대상 지명 하나를 집는다.
- * `FOR UPDATE SKIP LOCKED` — 워커를 두 개 띄워도 같은 지명을 겹쳐 긁지 않는다.
- *
- * ★ 실패(error)한 지명은 `retryAfterMs` 가 지나야 다시 집는다. 옛 ingest_cursor 는 실패 횟수로 영구 제외했는데, 일시적인 5xx
- *   몇 번에 시한부 백필이 영영 빠지는 것보다 늦게라도 다시 시도하는 편이 낫다 — 오래된 순으로 돌아가므로 다른 지명을 굶기지 않는다.
- */
-export async function claimBackfillTarget(retryAfterMs = 60 * 60 * 1000, now = new Date()): Promise<CollectionTarget | null> {
-  const sql = db();
-  const retryBefore = new Date(now.getTime() - retryAfterMs);
-  const [claimed] = await sql<{ id: string }[]>`
-    UPDATE collection_target SET state = 'running', updated_at = now()
-     WHERE id = (
-       SELECT t.id FROM collection_target t
-        WHERE t.game_code = 'lol'
-          AND t.state <> 'done' AND NOT t.reached_end
-          AND (t.state <> 'error' OR t.updated_at < ${retryBefore})
-          AND t.starts_at < ${now}
-          AND EXISTS (SELECT 1 FROM riot_account ra WHERE ra.puuid = t.puuid AND ra.is_active)
-        ORDER BY t.updated_at
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-     )
-    RETURNING id
-  `;
-  if (!claimed) return null;
-  const [row] = await sql<CollectionTarget[]>`SELECT ${TARGET_COLUMNS(sql)} FROM collection_target t WHERE t.id = ${claimed.id}::uuid`;
-  return row ?? null;
-}
-
-/** 백필 한 조각의 결과를 기록한다. 커서는 아래로만 간다(coalesce — 안 주면 그대로). */
-export async function saveBackfillProgress(patch: {
-  id: string;
-  before?: Date | null;
-  state: "pending" | "running" | "done" | "error";
-  reachedEnd?: boolean;
-  error?: string | null;
-}): Promise<void> {
-  const sql = db();
-  const failed = patch.state === "error";
-  await sql`
-    UPDATE collection_target SET
-      cursor_before = coalesce(${patch.before ?? null}, cursor_before),
-      state         = ${patch.state},
-      reached_end   = ${patch.reachedEnd ?? false} OR reached_end,
-      last_error    = ${failed ? patch.error ?? "unknown" : null},
-      updated_at    = now()
-     WHERE id = ${patch.id}::uuid
-  `;
-}
+// ── 지명 수집 — 범위·진척·정리는 collection.ts 한 곳이다(0090). 여기서는 저장 관문만 그것을 부른다 ──
 
 // ── 매치 적재 ────────────────────────────────────────────────────────
 
@@ -338,7 +193,7 @@ export interface SaveMatchResult {
  * Riot 판 하나를 적재한다. **한 트랜잭션**이다 — 판만 들어가고 참가자가 빠진 상태가 남지 않는다.
  *
  *   · 토너먼트 코드 판 → 내전 세트. KST 날짜별 자동 미분류 묶음에 한 판짜리 시리즈(placeSingleSetInTx, actor auto).
- *   · 그 밖의 판 → 지명(collection_target: 참가 계정·큐·기간)이 있을 때만 개인 기록. 없으면 저장하지 않는다.
+ *   · 그 밖의 판 → 지명 범위(collection_scope: 지명된 사람의 연결 계정·큐·기간)가 덮을 때만 개인 기록. 아니면 저장하지 않는다.
  *   · 참가자 10명은 기본 칸만, 상세는 그 판을 지명한 계정의 행만(lol_participant_detail).
  *
  * 이미 있는 판은 다시 쓰지 않는다 — 자리(시리즈·행사)는 사람이 옮겼을 수 있고, 자동 경로가 되돌리면 안 된다.
@@ -353,11 +208,7 @@ export async function saveMatch(dto: MatchDto): Promise<SaveMatchResult> {
   return sql.begin(async (tx) => {
     // 지명 확인 — 공개 큐 판이 저장되는 **유일한** 근거다.
     const puuids = participantRows.map((p) => p.puuid).filter((x): x is string => Boolean(x));
-    const targeted = new Set((await tx<{ puuid: string }[]>`
-      SELECT DISTINCT puuid FROM collection_target
-       WHERE game_code = 'lol' AND puuid = ANY(${puuids}::text[]) AND queue_id = ${matchRow.queue_id}
-         AND starts_at <= ${matchRow.game_creation}
-         AND (ends_at IS NULL OR ${matchRow.game_creation} < ends_at)`).map((r) => r.puuid));
+    const targeted = await coveredPuuidsInTx(tx, puuids, matchRow.queue_id, matchRow.game_creation);
     if (!code && targeted.size === 0) {
       return { state: "out_of_scope", scope: null, game_creation: matchRow.game_creation, details: 0, candidates: 0 };
     }

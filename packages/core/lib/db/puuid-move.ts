@@ -15,13 +15,13 @@ import type postgres from "postgres";
 
 /**
  * `puuid` 를 들고 있는 테이블 전부. 하나라도 빠뜨리면 그 데이터가 끊긴다.
- * ★ collection_target(지명 수집, 0089)은 riot_account 를 ON DELETE CASCADE 로 참조한다 — 빠뜨리면 아래 5) 의
+ * ★ collection_progress(지명 수집 진척, 0090)는 riot_account 를 ON DELETE CASCADE 로 참조한다 — 빠뜨리면 아래 5) 의
  *   옛 행 삭제가 FK 로 막히지 않고 **지명을 조용히 지운다.** 파생 표(조우)와 전원 백필 커서는 0089 에서 없어졌다.
  */
 export const PUUID_REFERENCES = [
   { table: "streamer_account", column: "puuid" },
   { table: "rank_snapshot", column: "puuid" },
-  { table: "collection_target", column: "puuid" },
+  { table: "collection_progress", column: "puuid" },
   { table: "match_participant", column: "puuid" },
   { table: "account_candidate", column: "puuid" },
 ] as const;

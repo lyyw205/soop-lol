@@ -5,7 +5,7 @@ import { nextClubCollectionAt } from "@soop-lol/core/lib/metrics/club-state";
  *   node apps/worker/src/main.ts <command>
  *
  *   rank      Engine A — 랭크 스냅샷 1회 (연결된 활성 계정 전원)
- *   live      Engine B — 지명 수집(collection_target)의 신규 판 따라잡기 1회
+ *   live      Engine B — 지명 범위(collection_scope)의 신규 판 따라잡기 1회
  *   backfill  Engine C — 지명 수집의 백필 한 조각 (--all 이면 대기열이 빌 때까지)
  *   fco       Engine E — FC 경기 수집 1회
  *   fco-club  Engine F — FC 공식 구단가치·스쿼드 6칸 스냅샷 1회

@@ -74,7 +74,7 @@ export interface ParticipantRow {
   assists: number;
 }
 
-/** 상세 — 지명 계정(collection_target)의 행만 lol_participant_detail 에 둔다. 지금 솔랭 도전만 읽는다. */
+/** 상세 — 지명 범위(collection_scope) 계정의 행만 lol_participant_detail 에 둔다. 지금 솔랭 도전만 읽는다. */
 export interface DetailRow {
   match_id: string;
   participant_id: number;
