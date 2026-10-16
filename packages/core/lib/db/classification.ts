@@ -256,8 +256,27 @@ export async function moveSeriesInTx(tx: Tx, input: { series_id: string; event_i
   const sets = await tx<{ match_id: string }[]>`SELECT match_id FROM match WHERE series_id = ${input.series_id}`;
   await assertAttachAllowedInTx(tx, input.event_id, sets.map((r) => r.match_id), input.actor);
   await tx`UPDATE match_series SET event_id = ${input.event_id}::uuid, updated_at = now() WHERE id = ${input.series_id}`;
+  await dropEmptyBucketInTx(tx, s.event_id);  // 옮기고 나서 비게 된 자동 묶음은 남기지 않는다
   await tx`INSERT INTO review_change (match_id, entity, entity_key, field, before, after, actor)
            VALUES (NULL, 'series', ${input.series_id}, 'event_id', ${tx.json(s.event_id)}, ${tx.json(input.event_id)}, ${input.actor})`;
+}
+
+/**
+ * 판을 시리즈 밖 개인 기록으로 되돌린다 — 내전이 아니라고 판단한 판(FC 의 한쪽만 스트리머인 판 등)을 행사에서 뺄 때.
+ * 개인 기록은 API 로 받은 판만 될 수 있다(영상·수기 판은 내전으로 들어온 것이라 시리즈 밖에 둘 곳이 없다).
+ */
+export async function releaseToPersonalInTx(tx: Tx, input: { match_id: string; actor: Actor; note?: string | null }): Promise<void> {
+  const [m] = await tx<{ series_id: string | null; collected_via: string }[]>`
+    SELECT series_id, collected_via FROM match WHERE match_id = ${input.match_id} FOR UPDATE`;
+  if (!m) throw new Error(`경기 ${input.match_id} 가 없다.`);
+  if (!m.series_id) return;
+  if (m.collected_via !== "api") throw new Error(`경기 ${input.match_id} 는 ${m.collected_via} 판이라 개인 기록으로 둘 수 없다 — 행사를 옮긴다.`);
+  await tx`UPDATE match SET series_id = NULL, series_game_no = NULL, scope = 'personal', set_role = 'main', set_label = NULL
+            WHERE match_id = ${input.match_id}`;
+  await tx`INSERT INTO review_change (match_id, entity, entity_key, field, before, after, actor)
+           VALUES (${input.match_id}, 'classification', ${input.match_id}, 'scope', ${tx.json({ series_id: m.series_id })},
+                   ${tx.json({ scope: "personal", note: input.note ?? null })}, ${input.actor})`;
+  await dropEmptySeriesInTx(tx, m.series_id);
 }
 
 /** 판이 하나도 남지 않은 시리즈는 남기지 않는다. 비게 된 자동 묶음 행사도 지운다(실제 행사는 남긴다 — 팀·대진·일정이 매달려 있을 수 있다). */
@@ -266,7 +285,10 @@ export async function dropEmptySeriesInTx(tx: Tx, seriesId: string): Promise<voi
     DELETE FROM match_series ms WHERE ms.id = ${seriesId}
        AND NOT EXISTS (SELECT 1 FROM match m WHERE m.series_id = ms.id)
     RETURNING event_id`;
-  if (!gone) return;
-  await tx`DELETE FROM event e WHERE e.id = ${gone.event_id}::uuid AND e.auto_bucket
+  if (gone) await dropEmptyBucketInTx(tx, gone.event_id);
+}
+
+async function dropEmptyBucketInTx(tx: Tx, eventId: string): Promise<void> {
+  await tx`DELETE FROM event e WHERE e.id = ${eventId}::uuid AND e.auto_bucket
              AND NOT EXISTS (SELECT 1 FROM match_series ms WHERE ms.event_id = e.id)`;
 }

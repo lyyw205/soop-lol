@@ -242,7 +242,7 @@ try {
   await check("사람의 제외는 현재 제약으로 남는다 / 판단 메모는 이력으로", async () => {
     assert.deepEqual(await q(`SELECT e.slug, x.match_id, x.decided_by, x.note FROM event_exclusion x JOIN event e ON e.id = x.event_id`),
       [{ slug: "fc-tour", match_id: "f_excl", decided_by: "admin", note: "개막 전 연습" }]);
-    const notes = await q<{ after: { judgment: string } }>(`SELECT after FROM review_change WHERE field = 'fco_match_context' ORDER BY match_id`);
+    const notes = await q<{ after: { judgment: string } }>(`SELECT after FROM review_change WHERE field = 'context_note' ORDER BY match_id`);
     assert.deepEqual(notes.map((n) => n.after.judgment), ["casual", "unresolved"]);
   });
   await check("공개 큐: 지명 범위만 개인 기록으로, 상세는 지명 계정만", async () => {
@@ -438,6 +438,19 @@ try {
       await sql.begin((tx) => cls.placeSetInTx(tx, { match_id: "q3", game_no: 2, actor: "admin", series: { id: "set:q1", game_code: "fconline", event_id: tour } }));
       assert.equal((await sql`SELECT count(*)::int AS n FROM event WHERE slug = ${slug3}`)[0]!.n, 0);
       assert.equal((await sql`SELECT count(*)::int AS n FROM match_series WHERE id = 'set:q3'`)[0]!.n, 0);
+    });
+    await check("개인 기록으로 되돌리기 — API 판만, 시리즈·빈 묶음 정리 / 시리즈를 옮기면 빈 묶음이 남지 않는다", async () => {
+      await fcGame("q4", "2026-09-22 20:00+09"); await place("q4", "2026-09-22 20:00+09");
+      const slug4 = (await bucketOf("q4"))!;
+      await sql.begin((tx) => cls.releaseToPersonalInTx(tx, { match_id: "q4", actor: "admin", note: "한쪽만 스트리머" }));
+      assert.deepEqual((await sql`SELECT scope, series_id FROM match WHERE match_id = 'q4'`)[0], { scope: "personal", series_id: null });
+      assert.equal((await sql`SELECT count(*)::int AS n FROM event WHERE slug = ${slug4}`)[0]!.n, 0);
+      await assert.rejects(sql.begin((tx) => cls.releaseToPersonalInTx(tx, { match_id: "dir", actor: "admin" })), /vod 판이라/);
+      await fcGame("q5", "2026-09-23 20:00+09"); await place("q5", "2026-09-23 20:00+09");
+      const slug5 = (await bucketOf("q5"))!;
+      const tour = (await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = 'fc-tour'`)[0]!.id;
+      await sql.begin((tx) => cls.moveSeriesInTx(tx, { series_id: "set:q5", event_id: tour, actor: "admin" }));
+      assert.equal((await sql`SELECT count(*)::int AS n FROM event WHERE slug = ${slug5}`)[0]!.n, 0);
     });
   } finally {
     await sql.end();

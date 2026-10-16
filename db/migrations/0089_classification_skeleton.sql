@@ -262,11 +262,11 @@ ALTER TABLE review_change DROP CONSTRAINT review_change_entity_check;
 ALTER TABLE review_change ADD CONSTRAINT review_change_entity_check
   CHECK (entity IN ('match', 'series', 'participant', 'frame', 'classification'));
 INSERT INTO review_change (match_id, entity, entity_key, field, before, after, actor, changed_at)
-SELECT c.match_id, 'classification', c.match_id, 'fco_match_context', NULL,
+SELECT c.match_id, 'classification', c.match_id, 'context_note', NULL,
        jsonb_build_object('judgment', c.judgment, 'note', c.note), c.created_by, c.created_at
   FROM fco_match_context c;
 INSERT INTO review_change (match_id, entity, entity_key, field, before, after, actor, changed_at)
-SELECT d.match_id, 'classification', d.event_id::text, 'fco_event_match_decision', NULL,
+SELECT d.match_id, 'classification', d.event_id::text, 'event_decision', NULL,
        jsonb_build_object('decision', d.decision, 'bracket_no', d.bracket_no, 'bracket_label', d.bracket_label, 'note', d.note),
        d.created_by, d.created_at
   FROM fco_event_match_decision d;
@@ -317,14 +317,15 @@ ALTER TABLE match_participant
   DROP COLUMN items, DROP COLUMN summoner1_id, DROP COLUMN summoner2_id, DROP COLUMN perks, DROP COLUMN challenges;
 
 -- ── 10. 트리거 함수: 옛 칸을 읽던 곳 ────────────────────────────────────────────
+-- ★ scope 는 시리즈 유무와 묶인 분류 칸이라 여기 넣지 않는다 — 분류 이동은 경기 값의 변경이 아니다(시리즈 칸 변경이 롤 검수·FC 맥락 확인을 이미 다룬다).
 CREATE OR REPLACE FUNCTION public.invalidate_match_review() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog, public AS $function$
 BEGIN
   IF NEW.game_code = 'fconline' AND OLD.game_code = 'fconline' THEN
     IF ROW(NEW.game_creation, NEW.game_creation_precision, NEW.game_duration, NEW.winning_team,
-           NEW.blue_team_id, NEW.red_team_id, NEW.collected_via, NEW.mode_key, NEW.scope)
+           NEW.blue_team_id, NEW.red_team_id, NEW.collected_via, NEW.mode_key)
        IS DISTINCT FROM ROW(OLD.game_creation, OLD.game_creation_precision, OLD.game_duration, OLD.winning_team,
-           OLD.blue_team_id, OLD.red_team_id, OLD.collected_via, OLD.mode_key, OLD.scope) THEN
+           OLD.blue_team_id, OLD.red_team_id, OLD.collected_via, OLD.mode_key) THEN
       NEW.review_completed_at := NULL;
       NEW.review_version := OLD.review_version + 1;
     END IF;
@@ -335,11 +336,11 @@ BEGIN
     END IF;
   ELSIF ROW(NEW.game_code, NEW.game_creation, NEW.game_creation_precision, NEW.game_duration,
          NEW.winning_team, NEW.series_id, NEW.series_game_no, NEW.set_role, NEW.set_label,
-         NEW.blue_team_id, NEW.red_team_id, NEW.visibility, NEW.collected_via, NEW.scope, NEW.source_url)
+         NEW.blue_team_id, NEW.red_team_id, NEW.visibility, NEW.collected_via, NEW.source_url)
      IS DISTINCT FROM
      ROW(OLD.game_code, OLD.game_creation, OLD.game_creation_precision, OLD.game_duration,
          OLD.winning_team, OLD.series_id, OLD.series_game_no, OLD.set_role, OLD.set_label,
-         OLD.blue_team_id, OLD.red_team_id, OLD.visibility, OLD.collected_via, OLD.scope, OLD.source_url) THEN
+         OLD.blue_team_id, OLD.red_team_id, OLD.visibility, OLD.collected_via, OLD.source_url) THEN
     NEW.review_completed_at := NULL;
     NEW.review_version := OLD.review_version + 1;
   END IF;
