@@ -1,5 +1,5 @@
 {
-  "//": "솔랭 도전 목록 — 편집 데이터. 계정은 puuid 로 적는다(Riot ID 는 바뀐다). 계정이 숨겨지면 공개 조회가 거르므로 화면에서 빠진다.",
+  "//": "솔랭 도전 — 화면 꾸밈과 도전 계정만. 누구·언제·어느 큐는 core 지명(owner module:solo_challenge/<slug>)이 정본이다(docs/COLLECTION-DESIGNATION-PLAN.md). puuid 는 그 사람의 계정 중 이 도전에 쓰는 계정이다(Riot ID 는 바뀐다).",
   "challenges": [
     {
       "slug": "ttgyo-duo",
@@ -8,7 +8,6 @@
       "goal": {
         "tier": "MASTER"
       },
-      "since": "2026-08-21",
       "members": [
         {
           "streamer": "seokwngud",

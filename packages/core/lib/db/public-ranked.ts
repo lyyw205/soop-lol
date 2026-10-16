@@ -49,8 +49,12 @@ export interface PublicRankedGame {
 }
 
 /** 이 계정들의 랭크 판(기본 솔로랭크 420) — 시각 오름차순. 같은 판에 둘이 있으면 두 행이다. */
-export async function listPublicRankedGames(puuids: string[], since: Date, queueIds: number[] = [420]): Promise<PublicRankedGame[]> {
-  if (!puuids.length) return [];
+export async function listPublicRankedGames(
+  puuids: string[],
+  range: { since: Date; until?: Date | null; queueIds: number[] },
+): Promise<PublicRankedGame[]> {
+  if (!puuids.length || !range.queueIds.length) return [];
+  const { since, until = null, queueIds } = range;
   const rows = await db()<(Omit<PublicRankedGame, "challenges"> & { challenges: Record<string, unknown> | null })[]>`
     SELECT g.match_id, g.puuid, g.streamer_id, g.queue_id, g.played_at AS game_creation, g.game_duration, g.ended_in_surrender,
            g.side AS team_id, g.team_position, g.champion_id, g.champion_name, g.outcome,
@@ -58,6 +62,7 @@ export async function listPublicRankedGames(puuids: string[], since: Date, queue
            coalesce(g.items, '{}') AS items, g.summoner1_id, g.summoner2_id, g.keystone_id, g.sub_style_id
       FROM core_public.personal_game g
      WHERE g.puuid = ANY(${puuids}) AND g.queue_id = ANY(${queueIds}) AND g.played_at >= ${since}
+       AND (${until}::timestamptz IS NULL OR g.played_at < ${until})
      ORDER BY g.played_at, g.match_id, g.puuid`;
   return rows.map(({ challenges, ...r }) => ({
     ...r,

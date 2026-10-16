@@ -20,9 +20,15 @@ export interface ChallengeDef {
   /** Optional poster; keep the main subject in the right 55% of the image. */
   heroImage?: string;
   goal: { tier: string; division?: string };
+  /** 지명(core)에서 온다 — KST 시작일. 파일에 적지 않는다. */
   since: string;
+  /** 지명의 끝(KST 날짜, 그날 0시 전까지). 열려 있으면 null. */
+  until: string | null;
   members: ChallengeMember[];
 }
+
+/** data/challenges.json 의 한 도전 — 화면 꾸밈과 도전 계정만. 기간·사람 범위는 지명이 정한다. */
+export type ChallengeFileDef = Omit<ChallengeDef, "since" | "until">;
 
 export interface MemberLine {
   member: ChallengeMember;
@@ -35,7 +41,7 @@ export interface MemberLine {
 }
 
 export interface Line {
-  /** CS·피해량은 상세 칸 — 지명 계정(collection_target)의 판만 채워진다. 없으면 null(0 으로 채우지 않는다). */
+  /** CS·피해량은 상세 칸 — 지명 범위(collection_scope) 계정의 판만 채워진다. 없으면 null(0 으로 채우지 않는다). */
   kills: number; deaths: number; assists: number; cs: number | null; damage: number | null;
   champId: number; champName: string; position: string | null;
   kp: number; damageShare: number; soloKills: number; csLead: number;

@@ -75,7 +75,7 @@ export default async function SoloChallengePage({ params, searchParams }: Props)
   const tab = requestedTab === "flow" ? "now" : tabIds.includes(requestedTab) ? requestedTab : "now";
   const tabHref = (id: string) => challengeHref(v.def.slug, { tab: id, ...(f !== "all" ? { f } : {}) });
   // Calendar days in KST; the start date is D+0.
-  const challengeDays = Math.max(0, Math.round((Date.parse(kstDateString(new Date()) + "T00:00:00Z") - Date.parse(v.def.since + "T00:00:00Z")) / 86_400_000));
+  const challengeDays = Math.max(0, Math.round((Date.parse([kstDateString(new Date()), v.def.until].filter((d): d is string => !!d).sort()[0] + "T00:00:00Z") - Date.parse(v.def.since + "T00:00:00Z")) / 86_400_000));
   const winRate = v.record.games ? (affinity({wins: v.record.wins, losses: v.record.games - v.record.wins}) * 100).toFixed(1) : "—";
   const visibleGames = [...v.games].reverse().filter((g) => keep(g, f));
   return (

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { buildChallenge, gameTags, progressAt, type ChallengeDef } from "./model.ts";
 
 const def: ChallengeDef = {
-  slug: "t", title: "t", summary: "", goal: { tier: "MASTER" }, since: "2026-09-01",
+  slug: "t", title: "t", summary: "", goal: { tier: "MASTER" }, since: "2026-09-01", until: null,
   members: [
     { streamer: "a", name: "가", role: "탑", color: "orange", puuid: "pa" },
     { streamer: "b", name: "나", role: "미드", color: "blue", puuid: "pb" },
