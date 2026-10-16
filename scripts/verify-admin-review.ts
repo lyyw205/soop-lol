@@ -48,7 +48,7 @@ try {
   assert.equal((await SS.getFcoSession(session.id))?.id, session.id);
   assert.equal((await SS.getFcoSession(encodeURIComponent(session.id)))?.id, session.id, 'encoded match IDs are accepted');
   assert.equal(await SS.getFcoSession('meet~1000000000~99'), null, 'bad session does not open a nearby session');
-  const meta = { slug: 'admin-cup', name: '검수 대회', kind: 'tournament' as const, source_url: 'https://example.test/notice' };
+  const meta = { slug: 'admin-cup', name: '검수 대회', format: 'tournament' as const, source_url: 'https://example.test/notice' };
   await C.applyFcoMatchContexts(ids.map(provider_match_id => ({ provider_match_id, conclusion: 'event', event: meta })));
   const [event] = await C.listFcoEventOptions();
   const ws = (await C.getFcoReviewWorkspace({ eventId: event.id }))[0];
@@ -80,7 +80,7 @@ try {
   assert.equal(await people.setCandidateState(candidate.id, 'ignored', 'pending'), true);
   assert.equal(await people.setCandidateState(candidate.id, 'rejected', 'pending'), false, 'stale candidate state is rejected');
   assert.equal(await schedule.getScheduleForAdmin('not-a-uuid'), null);
-  const input = { game_code: 'lol' as const, title: '샘플 테스트', planned_kind: 'ck' as const, sponsor: null, description: null, admin_note: null, status: 'scheduled' as const, event_id: null, visibility: 'public' as const,
+  const input = { game_code: 'lol' as const, title: '샘플 테스트', planned_format: 'ck' as const, sponsor: null, description: null, admin_note: null, status: 'scheduled' as const, event_id: null, visibility: 'public' as const,
     slots: [{ label: null, on_date: '2026-10-04', starts_at: null, ends_at: null, channel_id: null }], participants: [], sources: [{ url: 'https://example.test/schedule', title: null, posted_at: null }] };
   const saved = await schedule.saveScheduleEntry(input);
   await schedule.saveScheduleEntry({ ...input, title: '샘플 오타 수정' }, { ...saved, recordHistory: false });

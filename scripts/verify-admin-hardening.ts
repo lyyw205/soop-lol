@@ -10,6 +10,7 @@ const C = await import('../packages/core/lib/games/fconline/context.ts');
 const B = await import('../packages/core/lib/games/fconline/match-units.ts');
 const S = await import('../packages/core/lib/games/fconline/screen.ts');
 const people = await import('../packages/core/lib/db/streamers.ts');
+const cls = await import('../packages/core/lib/db/classification.ts');
 const player = (ouid: string, nickname: string, matchResult: "승" | "무" | "패", goalTotal: number) => ({ ouid, nickname, matchDetail: { matchResult }, shoot: { goalTotal } });
 try {
   await applyAll(s => pg.database.exec(s), join(import.meta.dirname, '..'));
@@ -55,9 +56,11 @@ try {
   const [owner] = await sql`SELECT id FROM streamer WHERE slug='hard-a'`;
   await people.linkAccount({ candidate_id: candidate.id, streamer_id: owner.id, puuid: 'candidate-hard', confidence: 'verified', evidence: { source: 'manual', note: 'checked' } });
   assert.equal((await sql`SELECT game_name FROM riot_account WHERE puuid='candidate-hard'`)[0].game_name, '최신 이름', 'candidate sighting never overwrites the latest account name');
-  assert.equal((await people.linkAccount({ edit: true, streamer_id: owner.id, puuid: 'candidate-hard', confidence: 'verified', evidence: { source: 'manual', note: 'edited' } })).backfillQueued, false);
+  // ★ 계정 연결은 수집 대상을 늘리지 않는다(0089 — 지명 수집만). 편집도 지명(collection_target)을 만들지 않는다.
+  await people.linkAccount({ edit: true, streamer_id: owner.id, puuid: 'candidate-hard', confidence: 'verified', evidence: { source: 'manual', note: 'edited' } });
+  assert.equal((await sql`SELECT count(*)::int n FROM collection_target WHERE puuid='candidate-hard'`)[0].n, 0, 'account link never queues collection');
   // A merged screen with a retained event decision must not block the canonical event.
-  const event = { slug: 'hard-cup', name: 'hard cup', kind: 'tournament' as const, source_url: 'https://example.test/cup' };
+  const event = { slug: 'hard-cup', name: 'hard cup', format: 'tournament' as const, source_url: 'https://example.test/cup' };
   await S.saveFcoScreenMatch({ vodTitleNo: 998877, atSec: 10, endedAt: '2026-09-01T01:00:00Z', sides: [{ nickname: 'A', score: 3, streamerSlug: 'hard-a', basis: 'manual' }, { nickname: 'B', score: 1, streamerSlug: 'hard-b', basis: 'manual' }] });
   const screen = 'fcs:998877@10';
   await C.applyFcoMatchContexts([id, screen].map(provider_match_id => ({ provider_match_id, conclusion: 'event', event })));
@@ -73,11 +76,13 @@ try {
   // Exercise the context triggers separately: none may clear a value completion.
   await sql`INSERT INTO match_series(id, game_code, event_id) VALUES ('hard-series', 'fconline', ${ev.id})`;
   const contextChanges: [string, () => Promise<unknown>][] = [
-    ['match context', () => sql`UPDATE match SET series_id='hard-series', series_game_no=1, event_id=NULL WHERE match_id=${id}`],
+    // 판을 시리즈에 두는 길은 classification.ts 하나다(0089) — 판에는 행사 칸이 없다.
+    ['match context', () => sql.begin((tx) => cls.placeSetInTx(tx, { match_id: id, game_no: 1, actor: 'admin',
+      series: { id: 'hard-series', game_code: 'fconline', event_id: ev.id } }))],
     ['series context', () => sql`UPDATE match_series SET round_label='결승' WHERE id='hard-series'`],
     ['event metadata', () => C.updateFcoEvent(ev.id, { name: '수정 대회' })],
-    ['decision', () => sql`INSERT INTO fco_event_match_decision(event_id,match_id,decision,note,created_by) VALUES (${ev.id},${id},'include','재확인','admin')`],
-    ['context record', () => sql`UPDATE fco_match_context SET note=note || ' 수정' WHERE match_id=${id}`],
+    // 옛 포함·제외 결정 표·맥락 표는 없다 — 행사의 진행 방식(분류) 변경이 그 판들의 맥락 확인을 푼다(version_admin_event).
+    ['event format', () => sql.begin((tx) => cls.updateEventInTx(tx, 'hard-cup', { format: 'ck' }))],
   ];
   for (const [name, change] of contextChanges) {
     await C.approveFcoEvent(ev.id, await snapshot());

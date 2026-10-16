@@ -13,6 +13,7 @@ import { applyAll } from './lib/migrations.ts';
 import { db, closeDb } from '../packages/core/lib/db/client.ts';
 import { countOverviewSeries, listOverviewSeries, getOverviewSeriesSets, listOverviewWorkList } from '../packages/core/lib/db/match-overview.ts';
 import { countUnidentifiedNames, listUnidentifiedParticipants, listEventLeads, upsertEventLead } from '../packages/core/lib/db/ck.ts';
+import * as cls from '../packages/core/lib/db/classification.ts';
 
 const root = join(import.meta.dirname, '..'), pg = await disposablePglite();
 process.env.DATABASE_URL = pg.url;
@@ -24,23 +25,27 @@ const scratch = await mkdtemp(join(tmpdir(), 'soop-lol-collections-'));
 try {
   await applyAll(sql => pg.database.exec(sql), root, { includeModules: true });
   const sql = db();
-  const [event] = await sql`INSERT INTO event (slug, name, kind) VALUES ('mixed-modes', '혼합 경기 검증', 'ck') RETURNING id`;
-  await sql`INSERT INTO match_series (id, game_code, event_id) VALUES ('mixed-modes', 'lol', ${event.id})`;
+  // 판은 행사·시리즈 안에만 둔다(0089) — 시리즈·행사는 분류 쓰기 단일 출처로 만든다.
+  const event = { id: await sql.begin((tx) => cls.ensureEventInTx(tx, { game_code: 'lol', slug: 'mixed-modes', name: '혼합 경기 검증', format: 'ck' })) as string };
+  await sql.begin((tx) => cls.ensureSeriesInTx(tx, { id: 'mixed-modes', game_code: 'lol', event_id: event.id }));
+  // 맵(match.map)은 모드·큐에서 정해지는 생성 칼럼이다. 수집 경로는 분류와 무관하다(API 판도 내전 세트면 같은 목록).
   const cases = [
-    ['rift', 'CLASSIC', 'manual', 0], ['aram', 'ARAM', 'manual', 0],
-    ['legacy', 'CUSTOM', 'manual', 0], ['unknown', null, 'manual', 0],
-    ['urf', 'URF', 'manual', 0], ['mayhem', 'KIWI', 'public_queue', 2400],
+    ['rift', 'CLASSIC', 'vod', 0], ['aram', 'ARAM', 'vod', 0],
+    ['legacy', 'CUSTOM', 'vod', 0], ['unknown', null, 'vod', 0],
+    ['urf', 'URF', 'vod', 0], ['mayhem', 'KIWI', 'api', 2400],
   ] as const;
   const lead = await upsertEventLead({ source: 'vod_title', source_key: 'vod:collection-test',
     channel_id: 'collection-test', url: 'https://example.test/mixed', title: '혼합 방송', observed_at: new Date() });
   for (const [index, [id, mode, source, queue]] of cases.entries()) {
-    await sql`INSERT INTO match (match_id, riot_game_id, platform_id, game_code, queue_id, mode_key, game_mode, source, origin, game_creation, series_id, series_game_no, source_url)
-      VALUES (${id}, ${index + 1}, 'KR', 'lol', ${queue}, ${String(queue)}, ${mode}, ${source}, 'admin', '2026-10-09T01:00:00Z', 'mixed-modes', ${index + 1}, 'https://example.test/mixed')`;
+    await sql`INSERT INTO match (match_id, riot_game_id, platform_id, game_code, queue_id, mode_key, game_mode, collected_via, scope, game_creation, source_url)
+      VALUES (${id}, ${index + 1}, 'KR', 'lol', ${queue}, ${String(queue)}, ${mode}, ${source}, 'personal', '2026-10-09T01:00:00Z', 'https://example.test/mixed')`;
+    await sql.begin((tx) => cls.placeSetInTx(tx, { match_id: id, game_no: index + 1, actor: 'admin', series: { id: 'mixed-modes', game_code: 'lol', event_id: event.id } }));
     await sql`INSERT INTO match_participant (match_id, participant_id, team_id, observed_name, champion_id, outcome)
       VALUES (${id}, 1, 100, '공통이름', 103, 'unknown')`;
   }
   for (const collection of ['rift', 'aram'] as const) {
-    const ids = collection === 'rift' ? ['legacy', 'rift', 'unknown'] : ['aram'];
+    // ★ 0089: 검수 목록은 내전 세트(scope='versus') 전부다 — API 로 받은 칼바람 내전 판(mayhem)도 목록에 든다.
+    const ids = collection === 'rift' ? ['legacy', 'rift', 'unknown'] : ['aram', 'mayhem'];
     const opts = { collection, unreviewed: true, queue: 'priority' as const };
     assert.equal(await countOverviewSeries(opts), 1);
     assert.equal(await countOverviewSeries({ ...opts, q: collection === 'rift' ? 'aram' : 'rift' }), 0, 'search cannot match another collection in the same series');
@@ -51,18 +56,18 @@ try {
     assert.equal((await listOverviewSeries({ ...opts, limit: 1, offset: 1 })).length, 0);
     assert.equal(await countUnidentifiedNames('', collection), 1);
     const people = await listUnidentifiedParticipants(50, 0, '공통', collection);
-    assert.deepEqual(people[0].targets.map(t => t.match_id).sort(), collection === 'aram' ? ['aram', 'mayhem'] : ids, 'same name selects only seats in this collection, including Mayhem');
+    assert.deepEqual(people[0].targets.map(t => t.match_id).sort(), ids, 'same name selects only seats in this collection, including Mayhem');
     const leads = await listEventLeads({ collection, channel_id: 'collection-test', with_matches: true });
     assert.equal(leads[0].id, lead);
     assert.equal(leads[0].match_count, collection === 'aram' ? 2 : 3);
     // 검수 화면의 작업 목록(이전·다음·완료 후 이동)도 목록과 같은 범위다 — 다른 모음의 경기가 섞이지 않는다.
     assert.deepEqual((await listOverviewWorkList(opts)).map(w => w.match_id).sort(), ids);
   }
-  await sql`UPDATE match SET review_completed_at = now() WHERE match_id = 'aram'`;
+  await sql`UPDATE match SET review_completed_at = now() WHERE match_id IN ('aram', 'mayhem')`;
   assert.equal(await countOverviewSeries({ collection: 'aram', unreviewed: true }), 0);
   assert.equal(await countOverviewSeries({ collection: 'rift', unreviewed: true }), 1, 'ARAM completion does not complete the Rift portion');
   assert.deepEqual(await listOverviewWorkList({ collection: 'aram', unreviewed: true, queue: 'priority' }), []);
-  await sql`UPDATE match SET review_completed_at = NULL WHERE match_id = 'aram'`;
+  await sql`UPDATE match SET review_completed_at = NULL WHERE match_id IN ('aram', 'mayhem')`;
   console.log('LoL collection DB checks passed: mixed series, counts, search, pagination, participants, channels, queues, completion.');
   if (process.argv.includes('--browser')) {
     // Release the only PGlite connection before the Next process connects.
@@ -87,7 +92,7 @@ try {
     const page = await context.newPage(), errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.setDefaultTimeout(20_000);
-    for (const [path, label, count] of [['/admin/ck', '협곡', 3], ['/admin/aram', '칼바람', 1]] as const) {
+    for (const [path, label, count] of [['/admin/ck', '협곡', 3], ['/admin/aram', '칼바람', 2]] as const) {
       await page.goto(base + path + '?queue=all&q=혼합');
       await page.getByRole('heading', { name: `${label} 경기 검수`, exact: true }).waitFor();
       assert.equal(await page.locator('.admin-navigation [aria-current=page]').innerText(), `${label} 경기`);
