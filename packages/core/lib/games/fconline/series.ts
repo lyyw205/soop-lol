@@ -1,5 +1,6 @@
 /**
- * FC 시리즈(다전제) 파생 — **승패를 저장하지 않는다.** 세트가 원본이고 여기서 계산한다.
+ * FC 시리즈(다전제) **표시** — 스코어("2 : 1")·우세·확정 여부. 승패를 저장하지 않는다. 세트가 원본이고 여기서 계산한다.
+ * ★ 기록 집계(세트·시리즈 승·무·패)는 metrics/tally.ts 하나다. 이 파일의 leader 는 화면 문구용이다.
  * (CLAUDE.md 원칙 5 «파생은 언제나 재계산 가능», 원칙 6 «계산식은 core 단일 출처»)
  *
  * ★ LoL 공식을 그대로 못 쓰는 이유
@@ -23,6 +24,8 @@ export interface FcoSeriesParticipantLike {
 }
 
 export interface FcoSeriesSetLike {
+  /** 경기 id — 한 판짜리 시리즈(`set:<경기 id>`, classification.ts)를 단판으로 알아보는 데 쓴다. */
+  id?: string;
   series_id: string | null;
   series_game_no: number | null;
   best_of?: number | null;
@@ -87,12 +90,6 @@ export function fcoSeriesStanding(setsInput: FcoSeriesSetLike[]): FcoSeriesStand
   };
 }
 
-/** 한 사람 기준의 시리즈 결과. 기록 집계는 이 값을 쓴다. */
-export function fcoSeriesResultFor(standing: FcoSeriesStanding, sideKey: string): "win" | "loss" | "draw" {
-  if (standing.leader_key === null) return "draw";
-  return standing.leader_key === sideKey ? "win" : "loss";
-}
-
 /** `2 : 1` 처럼 읽히는 시리즈 스코어. 무승부 세트가 있으면 뒤에 붙인다. */
 export function fcoSeriesScore(standing: FcoSeriesStanding): string {
   const score = standing.sides.map((s) => s.set_wins).join(" : ");
@@ -103,15 +100,19 @@ export type FcoSeriesBlock<T> =
   | { kind: "single"; game: T }
   | { kind: "series"; series_id: string; sets: T[]; standing: FcoSeriesStanding };
 
+/** 한 판짜리 시리즈 — 행사 없이 들어왔거나 묶지 않은 판의 그릇(`set:<경기 id>`). 화면에서는 단판이다. */
+export const isSingleSet = (game: FcoSeriesSetLike) => !game.series_id || (game.id != null && game.series_id === `set:${game.id}`);
+
 /**
- * 경기 목록을 시리즈 블록으로 접는다. 시리즈에 속하지 않은 경기는 단판 그대로 둔다.
+ * 경기 목록을 시리즈 블록으로 접는다. 한 판짜리 시리즈·시리즈 밖 경기는 단판 그대로 둔다.
  * 입력 순서를 유지한다 — 시리즈는 **첫 세트가 있던 자리**에 놓인다.
+ * ★ 표시용 접기다. 기록(승·무·패)은 tally.ts 가 센다 — 여기의 leader 를 기록으로 쓰지 않는다.
  */
 export function groupFcoSeries<T extends FcoSeriesSetLike>(games: T[]): FcoSeriesBlock<T>[] {
   const blocks: FcoSeriesBlock<T>[] = [];
   const index = new Map<string, number>();
   for (const game of games) {
-    if (!game.series_id) { blocks.push({ kind: "single", game }); continue; }
+    if (!game.series_id || isSingleSet(game)) { blocks.push({ kind: "single", game }); continue; }
     const at = index.get(game.series_id);
     if (at == null) {
       index.set(game.series_id, blocks.length);

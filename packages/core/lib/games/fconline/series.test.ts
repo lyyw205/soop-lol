@@ -25,3 +25,13 @@ test("스트리머가 없으면 예전처럼 ouid 로 묶는다", () => {
   assert.deepEqual(st.sides.map((s) => s.key).sort(), ["p", "q"]);
   assert.equal(st.leader_key, null);
 });
+
+test("한 판짜리 시리즈(set:<경기 id>)는 단판으로 접는다 — 자동 묶음의 판이 다전제로 보이지 않는다", async () => {
+  const { groupFcoSeries } = await import("./series.ts");
+  const blocks = groupFcoSeries([
+    { id: "fco:1", series_id: "set:fco:1", series_game_no: 1, participants: [] },
+    { id: "fco:2", series_id: "s-real", series_game_no: 1, participants: [] },
+    { id: "fco:3", series_id: "s-real", series_game_no: 2, participants: [] },
+  ]);
+  assert.deepEqual(blocks.map((b) => b.kind), ["single", "series"]);
+});
