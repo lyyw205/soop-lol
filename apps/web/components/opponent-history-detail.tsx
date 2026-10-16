@@ -1,4 +1,5 @@
 "use client";
+import { PendingBadge } from "../../../packages/ui/pending-badge";
 import { useState, useRef, type ReactNode } from "react";
 import { loadOpponentHistory } from "./opponent-history-action";
 import { kstDateString } from "@soop-lol/core/lib/time";
@@ -31,6 +32,7 @@ export function OpponentHistoryDetail({slug, otherId, map, format, from, to, lan
           <time dateTime={kstDateString(new Date(m.played_at))}>{kstDateString(new Date(m.played_at)).replaceAll("-", ".")}</time>
           <span className="opponent-history-event">{m.event_name}</span><strong>{m.record.win} : {m.record.loss}{extra && <small> {extra}</small>}</strong>
           <small>{m.format === "land" ? `랜드 ${sets}판` : formatBadge(m.best_of,sets,m.standalone)}</small>
+          {m.pending && <PendingBadge />}
           <span data-result={m.result}>{OUTCOME_LABEL[m.result]}</span>
         </li>;
       })}</ul>{data.truncated && <p>최근 200개 기록을 표시합니다. 요약은 선택한 기간 전체 기준입니다.</p>}</>}

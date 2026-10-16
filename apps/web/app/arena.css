@@ -750,3 +750,11 @@
 /* 프로필 오른쪽 칸의 커뮤니티 패널(ProfileSidebar). 일정 패널과 같은 칸에 쌓인다. */
 .record-sidebar > .arena-panel + .arena-panel { margin-top: 14px; }
 .profile-talk p { color: var(--text-secondary, #a6b2c4); font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+
+/* 확인 전(회원 제보, 0093) · 제보하기 — 세트 보기 도구줄 */
+.match-details-tools { display: flex; align-items: center; gap: 10px; flex: none; }
+.match-details-report { color: var(--text-muted, #8190a5); font-size: var(--type-micro); text-decoration: underline; text-underline-offset: 2px; }
+.match-details-report:hover { color: var(--text, #e5e9f0); }
+.match-details-pending-dot { display: inline-block; width: 6px; height: 6px; margin-left: 4px; border-radius: 50%; background: var(--warning, #f5b84d); vertical-align: middle; }
+.pending-badge { display: inline-flex; align-items: center; padding: 1px 6px; border: 1px solid var(--warning, #f5b84d); border-radius: 999px;
+  color: var(--warning, #f5b84d); font-size: var(--type-micro); font-weight: 600; line-height: 1.4; white-space: nowrap; }

@@ -72,6 +72,10 @@ export const loginStartHref = (provider: string, next?: string): string => withQ
 export const loginCallbackPath = (provider: string): string => `/auth/${encodeURIComponent(provider)}/callback`;
 /** 내 정보(닉네임·로그아웃·탈퇴). setup 이면 처음 가입 마무리 화면. */
 export const meHref = (query?: HrefQuery): string => withQuery("/me", query);
+/** 경기 고치기 제보(로그인 필수) — 세트마다의 "제보하기"가 여기로 온다(docs/USER-SUBMISSION-PLAN.md). */
+export const submitMatchHref = (matchId: string): string => `/submit/match/${encodeURIComponent(matchId)}`;
+/** 내 제보 — 보낸 제보와 상태. */
+export const mySubmissionsHref = (): string => "/submissions";
 export const termsHref = (): string => "/terms";
 export const privacyHref = (): string => "/privacy";
 export const policyHref = (): string => "/policy";

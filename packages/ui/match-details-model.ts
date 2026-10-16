@@ -4,6 +4,8 @@ export interface MatchDetailSet {
   matchId: string;
   label: string;
   players: PublicRosterEntry[];
+  /** 확인 전(회원 제보가 바꾸고 운영자가 아직 안 본 판, 0093) — 표시만 한다. 점수에서 빼는 일은 core(tally·counted)가 이미 했다. */
+  pending?: boolean;
 }
 
 const POSITIONS = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];

@@ -10,15 +10,16 @@ import { SetupNotice } from "@/components/admin/SetupNotice";
 import { Card } from "@/components/ui";
 import { hasRiotKey } from "@/lib/riot";
 import { listFcoReviewPriorities } from "@soop-lol/core/lib/db/review-priority";
+import { countOpenSubmissions } from "@soop-lol/core/lib/db/submission";
 export const dynamic = "force-dynamic";
 export default async function AdminDashboard() {
   try {
-    const [counts, lol, unknown, sessions, units, schedule, priorities, generalLol, aram, aramUnknown, generalAram] = await Promise.all([
+    const [counts, lol, unknown, sessions, units, schedule, priorities, generalLol, aram, aramUnknown, generalAram, submissions] = await Promise.all([
       adminCounts(), countOverviewSeries({ collection: 'rift', unreviewed: true, queue: 'priority' }), countUnidentifiedNames('', 'rift'),
       listFcoSessions(), getFcoReviewWorkspace({ onlyEvents: true }), listScheduleForAdmin(), listFcoReviewPriorities(),
       countOverviewSeries({ collection: 'rift', unreviewed: true, queue: 'general' }),
       countOverviewSeries({ collection: 'aram', unreviewed: true, queue: 'priority' }), countUnidentifiedNames('', 'aram'),
-      countOverviewSeries({ collection: 'aram', unreviewed: true, queue: 'general' }),
+      countOverviewSeries({ collection: 'aram', unreviewed: true, queue: 'general' }), countOpenSubmissions(),
     ]);
     const events = units.filter(u => u.kind === "event");
     const fcIds = new Set([...sessions.flatMap(s => s.match_ids), ...events.flatMap(u => u.matches.filter(m => m.decision === 'include').map(m => m.match_id))]);
@@ -27,6 +28,7 @@ export default async function AdminDashboard() {
     const context = events.filter(u => !u.confirmed).length + sessions.filter(s => s.kind === "meet" && s.context_completed < s.total).length;
     const overdue = schedule.filter(r => ["upcoming", "in_progress"].includes(r.state) && r.period && r.period.to < kstDateString(new Date())).length;
     const tasks = [
+      ["회원 제보 확인", `${submissions}건`, "/admin/submissions"],
       ["협곡 우선 검수", `${lol}시리즈`, "/admin/ck?queue=priority"], ["협곡 참가자 연결", `${unknown}이름`, "/admin/ck/unknown"],
       ["칼바람 우선 검수", `${aram}시리즈`, "/admin/aram?queue=priority"], ["칼바람 참가자 연결", `${aramUnknown}이름`, "/admin/aram/unknown"],
       ["FC 우선 검수", `${fcValues}경기`, "/admin/fco?view=priority"], ["FC 대회·분류 판단", `${context}묶음`, "/admin/fco?view=context"],

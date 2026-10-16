@@ -3,6 +3,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { RecordOverviewCard, RecordTimeline, RecordTimelineRow, RecordTimelineYear } from "../../../packages/ui/record-structure";
 import type { PublicRosterEntry } from "@soop-lol/core/lib/contract";
 import { MatchDetails } from "../../../packages/ui/match-details";
+import { PendingBadge } from "../../../packages/ui/pending-badge";
 import { LOL_FORMAT_CHOICES, LinkedRecordFilters, MapTabs } from "../../../packages/ui/record-filters";
 import { RecordPair } from "../../../packages/ui/record-pair";
 import { RecordPeriodFilters } from "./record-period-filters";
@@ -161,10 +162,11 @@ export function PersonalMatchHistory({ matches, rosters, streamerId, streamerNam
                 {/* 순서는 세 화면 공통 — 스코어 → 형식 → 승패. 승패가 늘 끝에 와야
                     줄을 훑을 때 눈이 같은 자리에서 결과를 찾는다. */}
                 <small>{land ? `랜드 ${sets}판` : formatBadge(m.best_of, sets, mainIds.length === 1 && isStandaloneSet(mainIds[0], m.series_id))}</small>
+                {m.pending && <PendingBadge />}
                 <span className="personal-match-result">{resultLabel}</span>
                 <span className="personal-match-expand" aria-hidden="true" />
               </summary>
-              <MatchDetails sets={m.sets.map((s)=>({matchId:s.match_id,label:setLabel({standalone:isStandaloneSet(s.match_id,m.series_id),best_of:m.best_of,set_order_known:m.set_order_known,series_game_no:s.series_game_no,set_role:s.set_role,set_label:s.set_label,land}),players:byMatch.get(s.match_id) ?? []}))}
+              <MatchDetails sets={m.sets.map((s)=>({matchId:s.match_id,label:setLabel({standalone:isStandaloneSet(s.match_id,m.series_id),best_of:m.best_of,set_order_known:m.set_order_known,series_game_no:s.series_game_no,set_role:s.set_role,set_label:s.set_label,land}),players:byMatch.get(s.match_id) ?? [],pending:s.pending}))}
                 streamerId={streamerId} />
             </details>
         </RecordTimelineRow>

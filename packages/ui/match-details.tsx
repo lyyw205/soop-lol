@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { MatchOutcome, PublicRosterEntry } from "@soop-lol/core/lib/contract";
-import { championById, championIconPath, POSITION_LABEL, profileHref } from "@soop-lol/core/lib/contract/client";
+import { championById, championIconPath, POSITION_LABEL, profileHref, submitMatchHref } from "@soop-lol/core/lib/contract/client";
+import { PendingBadge } from "./pending-badge.tsx";
 import {
   participantKey, participantKda, teamPlayers, type MatchDetailSet,
 } from "./match-details-model.ts";
@@ -36,11 +37,17 @@ export function MatchDetails({ sets, streamerId, highlightedStreamerIds = [] }: 
                 onClick={() => setSelectedId(set.matchId)}>
                 {set.label}
                 {me && <span data-outcome={me.outcome}>{OUTCOME_LABEL[me.outcome]}</span>}
+                {set.pending && <span className="match-details-pending-dot" aria-label="확인 전" />}
               </button>
             );
           })}
         </div>
-        <span className="match-details-stat-label">K / D / A</span>
+        <span className="match-details-tools">
+          {selected.pending && <PendingBadge />}
+          {/* 틀렸거나 빠진 값 — 로그인한 회원이 제보한다. 주소는 core site-paths 한 곳. */}
+          <Link className="match-details-report" href={submitMatchHref(selected.matchId)} prefetch={false}>제보하기</Link>
+          <span className="match-details-stat-label">K / D / A</span>
+        </span>
       </div>
       <div className="match-details-teams">
         {[100, 200].map((teamId) => {

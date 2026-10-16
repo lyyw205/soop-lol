@@ -247,6 +247,7 @@ export function TournamentDetailView({
                   matchId: current.id,
                   label: current.label,
                   players: current.players,
+                  pending: current.pending,
                 },
               ]}
               streamerId=""

@@ -45,3 +45,26 @@
   .member-card, .legal-doc { margin-top: 12px; padding: 20px 16px; }
   .header-account { margin-left: 10px; padding: 5px 9px; }
 }
+
+/* 회원 제보(0093) — 경기 고치기 폼 · 열린 제보 · 내 제보 */
+.submission-page .member-card { max-width: 760px; }
+.submission-form { display: grid; gap: 14px; }
+.submission-form label { display: grid; gap: 6px; }
+.submission-form select, .submission-form input, .submission-form textarea {
+  min-width: 0; padding: 6px 8px; border: 1px solid var(--line, #2a3342); border-radius: 8px; background: var(--surface-2, #0f141c); color: inherit; }
+.submission-team { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line, #2a3342); border-radius: 10px; }
+.submission-team legend { padding: 0 6px; font-weight: 700; }
+.submission-slot { display: grid; grid-template-columns: 22px minmax(120px, 1.4fr) minmax(110px, 1fr) minmax(80px, .7fr) repeat(3, 52px) auto; gap: 6px; align-items: center; }
+.submission-slot[data-removed] { opacity: .45; }
+.submission-slot-no { color: var(--text-muted, #8190a5); text-align: right; }
+.submission-slot-person { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted, #8190a5); }
+.submission-remove { display: flex !important; grid-auto-flow: column; align-items: center; gap: 4px; color: var(--text-muted, #8190a5); white-space: nowrap; }
+.submission-add { justify-self: start; color: var(--text-muted, #8190a5); }
+.submission-open { display: grid; gap: 12px; list-style: none; padding: 0; }
+.submission-open > li { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line, #2a3342); border-radius: 10px; }
+.submission-open ul { margin: 0; padding-left: 18px; }
+.submission-state { color: var(--warning, #f5b84d); font-weight: 600; }
+.submission-support { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 640px) {
+  .submission-slot { grid-template-columns: 22px 1fr 1fr; }
+}

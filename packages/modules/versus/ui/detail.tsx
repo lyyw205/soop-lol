@@ -21,6 +21,7 @@
 import { useRecordScope } from "../../../ui/use-record-scope.ts";
 import Link from "next/link";
 import { MatchDetails } from "../../../ui/match-details.tsx";
+import { PendingBadge } from "../../../ui/pending-badge.tsx";
 import { RecordContentPanel, RecordOverviewCard } from "../../../ui/record-structure.tsx";
 import { LOL_FORMAT_CHOICES, MapTabs, RecordFilters } from "../../../ui/record-filters.tsx";
 import { RecordDateRange } from "../../../ui/record-date-range.tsx";
@@ -35,7 +36,7 @@ import { formatBadge, isRepeatedDate, OUTCOME_LABEL } from "../../../ui/match-ro
 import {
   resolveRecordPeriod, recordPeriodLabel, withinRecordDay, type RecordPeriod, type PublicRosterEntry, type PublicPairSet,
   type FormatFilter, type Outcome, type SeriesGroup, formatChipLabel, formatLabel, isFormat, kstDateString, mapTabLabel, scopeFormat,
-  setLabel, isStandaloneSet, profileHref as contractProfileHref, tally, foldSeries, pairResult, selectPairs,
+  setLabel, isStandaloneSet, profileHref as contractProfileHref, tally, counted, foldSeries, pairResult, selectPairs,
 } from "@soop-lol/core/lib/contract/client";
 import { versusHref } from "./paths.ts";
 
@@ -127,7 +128,8 @@ export function VersusDetail({ x, y, sets, rosters, options }: Props) {
    * 최근 5시리즈 — 스포츠 중계의 '폼 가이드'. **오래된 → 최근** 순으로 왼쪽부터 놓는다.
    * ★ 표시 정렬(sort)을 타지 않는다. 그래서 여기만 따로 접는다.
    */
-  const recentForm = useMemo(() => foldMatches(sel).slice(0, 5).reverse(), [sel]);
+  // 확인 전 세트만 있는 시리즈는 폼에 넣지 않는다 — 아직 센 결과가 없다.
+  const recentForm = useMemo(() => foldMatches(sel).filter((g) => g.sets.some(counted)).slice(0, 5).reverse(), [sel]);
 
   const rosterByMatch = useMemo(() => {
     const by = new Map<string, RosterEntry[]>();
@@ -388,6 +390,7 @@ function MatchRow({
             <span className="tabular ml-auto flex-none rounded border border-ink-700 px-1.5 py-px text-[length:var(--type-micro)] text-ink-400">
               {land ? `랜드 ${m.sets.length}판` : formatBadge(head.best_of, m.sets.length, m.sets.length === 1 && isStandaloneSet(head.match_id, m.series_id))}
             </span>
+            {m.pending && <PendingBadge />}
             <span className="flex-none text-[length:var(--type-micro)] text-ink-300">{OUTCOME_LABEL[m.result]}</span>
             {/* ▸/▾ 는 Pretendard 서브셋에 글리프가 없어 안 그려진다 — +/− 를 쓴다 */}
             <span className="inline-flex h-[18px] w-[18px] flex-none self-center items-center justify-center rounded-[5px] border border-ink-700 text-[length:var(--type-micro)] leading-none text-ink-400">
@@ -396,7 +399,7 @@ function MatchRow({
           </button>
 
           {open && <MatchDetails
-            sets={m.sets.map((s)=>({matchId:s.match_id,label:setLabel({standalone:isStandaloneSet(s.match_id,s.series_id),best_of:s.best_of,set_order_known:s.set_order_known,series_game_no:s.series_game_no,land}),players:roster.get(s.match_id) ?? []}))}
+            sets={m.sets.map((s)=>({matchId:s.match_id,label:setLabel({standalone:isStandaloneSet(s.match_id,s.series_id),best_of:s.best_of,set_order_known:s.set_order_known,series_game_no:s.series_game_no,land}),players:roster.get(s.match_id) ?? [],pending:s.pending}))}
             streamerId={streamerId} highlightedStreamerIds={[x.streamer_id,y.streamer_id]} />}
         </div>
       </div>
