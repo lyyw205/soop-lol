@@ -113,7 +113,7 @@ try {
   check("★★ 판단 메모는 이력(review_change)으로 쌓이고 현재 판단은 최신 하나다",
     fm1!.history.length === 2 && fm1!.history[0].note === "다른 POV 확인 필요" && fm1!.status === "unresolved");
   check("판단 메모는 분류가 아니다 — 판은 여전히 자동 묶음에 있다", (await placeOf("fm1")).auto_bucket === true);
-  const noteRows = await sql<{ n: number }[]>`SELECT count(*)::int n FROM review_change WHERE match_id = 'fco:fm1' AND entity = 'classification' AND field = 'fco_match_context'`;
+  const noteRows = await sql<{ n: number }[]>`SELECT count(*)::int n FROM review_change WHERE match_id = 'fco:fm1' AND entity = 'classification' AND field = 'context_note'`;
   check("메모는 entity 'classification' 이력이다", noteRows[0].n === 2);
 
   console.log("\n▸ 근거 역할 (0036) — 결과 화면");

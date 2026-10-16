@@ -19,11 +19,11 @@ import { kstDateString } from "../../time.ts";
 type Tx = postgres.TransactionSql;
 
 /**
- * 판단 메모가 남는 자리 — review_change(entity 'classification', 이 field). 0089 가 옛 fco_match_context 의 메모를 같은 field 로
- * 옮겼다(after = {judgment, note}). 새 메모도 같은 field 에 쌓아 이력이 한 줄로 읽힌다.
- * ★ 메모는 분류가 아니다 — "아직 행사를 못 정했고 이것이 남은 질문이다"일 뿐이다. 옛 casual 메모도 여기 있지만 친선으로 읽지 않는다(§10 결정 4).
+ * 판단 메모가 남는 자리 — review_change(entity 'classification', 이 field, after = {judgment, note, by}). 이력이다(지우지 않는다).
+ * ★ 메모는 분류가 아니다 — "아직 행사를 못 정했고 이것이 남은 질문이다"일 뿐이다. 옛 casual 메모도 이 이력으로 옮겨지지만 친선으로 읽지 않는다(§10 결정 4).
+ * ⚠ 0089 이관은 옛 판단 표의 메모를 옛 표 이름을 딴 field 로 옮긴다 — 같은 이력으로 읽히도록 이관 쪽 field 를 이 값으로 맞춰야 한다(본 세션 요청).
  */
-export const FCO_CONTEXT_NOTE_FIELD = "fco_match_context";
+export const FCO_CONTEXT_NOTE_FIELD = "context_note";
 
 /** 맥락 상태 — 실제 행사에 있다 > 판단 메모가 있다 > 아무것도 없다. */
 export type FcoContextStatus = "event" | "unresolved" | "uninvestigated";

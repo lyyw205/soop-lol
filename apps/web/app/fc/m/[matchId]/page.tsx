@@ -2,7 +2,7 @@ import { formatLabel } from "@soop-lol/core/lib/metrics/format";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FCO_MODE_LABEL, getFcoGame, listFcoPeople } from "@soop-lol/core/lib/db/fconline";
-import { fcDate } from "../../../../../../packages/ui/fc/fco-records";
+import { fcDate, fcoEventLabel } from "../../../../../../packages/ui/fc/fco-records";
 import { fcTournamentHref } from "@/lib/module-links";
 import { FcoPasses } from "@/components/fco-passes";
 import { FcoCompare } from "@/components/fco-compare";
@@ -35,7 +35,7 @@ export default async function FcMatchDetail({ params }: { params: Promise<{ matc
     {/* 스코어보드가 같은 내용을 크게 보여주므로 제목은 화면에서 감추고 문서 구조로만 남긴다. */}
     <h1 className="sr-only">{headline}</h1>
 
-    <FcoScoreboard sides={sides} date={fcDate(game.played_at)} mode={modeLabel} event={game.event_name} />
+    <FcoScoreboard sides={sides} date={fcDate(game.played_at)} mode={modeLabel} event={fcoEventLabel(game)} />
 
     {game.event_slug && fcTournamentHref(game.event_slug) && <p className="fc-match-event-link">
       <Link className="fc-card-link" href={fcTournamentHref(game.event_slug)!}>{(game.format && formatLabel(game.format)) ?? "행사"} 기록으로 이동 →</Link>
