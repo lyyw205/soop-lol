@@ -17,7 +17,8 @@ import postgres from "postgres";
 import { FORMATS_BY_GAME } from "../packages/core/lib/metrics/format.ts";
 import { mirror, pairSetOutcome, tally, type Outcome } from "../packages/core/lib/metrics/tally.ts";
 import { disposablePostgres } from "./lib/disposable-postgres.ts";
-import { applyAll } from "./lib/migrations.ts";
+import { applyAll, loadMigrations } from "./lib/migrations.ts";
+import { runCutover } from "./cutover-0089.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const DRAFT = readFileSync(join(ROOT, "db/migrations/0089_classification_skeleton.sql"), "utf8");
@@ -73,104 +74,26 @@ try {
   await dst.unsafe(`SELECT setval(pg_get_serial_sequence('review_change', 'id'), (SELECT max(id) FROM review_change))`);
   await dst.unsafe("ANALYZE");
 
-  // ── 이관 전 기준 ───────────────────────────────────────────────────────
-  const scalar = async (sql: string) => (await dst.unsafe(sql))[0]!;
-  const before = {
-    ids: new Set((await dst.unsafe(`SELECT match_id FROM match`)).map((r) => r.match_id as string)),
-    deleted: new Set((await dst.unsafe(`SELECT match_id FROM match m WHERE source = 'public_queue' AND match_id NOT IN (
-        SELECT p.match_id FROM match_participant p JOIN match mm ON mm.match_id = p.match_id
-         WHERE p.puuid IN ('${DUO.join("','")}') AND mm.queue_id = 420 AND mm.game_creation >= '2026-08-21 00:00+09')`)).map((r) => r.match_id as string)),
-    parts: await scalar(`SELECT md5(string_agg(row(match_id, participant_id, puuid, streamer_id, observed_name, team_id, side_no, team_position,
-        individual_position, champion_id, champion_name, champ_level, kills, deaths, assists, outcome)::text, '|' ORDER BY match_id, participant_id)) AS h
-        FROM match_participant WHERE match_id IN (SELECT match_id FROM match WHERE source <> 'public_queue') OR match_id IN (${pqKeepRange})`),
-    state: await scalar(`SELECT md5(string_agg(row(match_id, set_role, set_label, visibility, review_completed_at, review_version, reviewed_at,
-        context_review_completed_at, context_review_version)::text, '|' ORDER BY match_id)) AS h FROM match WHERE source <> 'public_queue'`),
-    series: await scalar(`SELECT md5(string_agg(match_id || '=' || series_id || '#' || series_game_no, '|' ORDER BY match_id)) AS h FROM match WHERE series_id IS NOT NULL`),
-    changes: await scalar(`SELECT count(*)::int AS n, md5(string_agg(row(id, match_id, entity, entity_key, field, before, after, actor)::text, '|' ORDER BY id)) AS h FROM review_change`),
-    excludes: await dst.unsafe(`SELECT event_id::text, match_id FROM (SELECT DISTINCT ON (event_id, match_id) * FROM fco_event_match_decision
-        ORDER BY event_id, match_id, created_at DESC, (created_by = 'admin') DESC) d WHERE decision = 'exclude' ORDER BY 1, 2`),
-    kinds: await dst.unsafe(`SELECT game_code, kind, count(*)::int AS n FROM event GROUP BY 1, 2 ORDER BY 1, 2`),
-  };
-  log(`기준: 경기 ${before.ids.size} · 삭제 예정 ${before.deleted.size} · 옛 행사 종류 ${JSON.stringify(before.kinds)}`);
-
-  // ── 초안 적용 ─────────────────────────────────────────────────────────
-  const tDraft = Date.now();
-  await dst.unsafe(`BEGIN;\n${DRAFT}\nCOMMIT;`);
-  log(`초안 적용 ${((Date.now() - tDraft) / 1000).toFixed(1)}초`);
+  // ── 전환 — 실제 전환 도구(scripts/cutover-0089.ts)의 runCutover 를 그대로 쓴다(같은 잠금·기준·대조·장부) ──
+  await dst.unsafe(`CREATE TABLE IF NOT EXISTS schema_migration (version text PRIMARY KEY, name text NOT NULL, checksum text,
+                      applied_at timestamptz NOT NULL DEFAULT now())`);
+  for (const m of loadMigrations(ROOT).filter((x) => x.version < "0089")) {
+    await dst`INSERT INTO schema_migration (version, name, checksum) VALUES (${m.version}, ${m.name}, ${m.checksum}) ON CONFLICT DO NOTHING`;
+  }
+  const preview = await runCutover(dst, { apply: false, log });
+  log(`미리보기: ${preview.committed ? "커밋됨(?!)" : "되돌림"} · 대조 실패 ${preview.failures.length}`);
+  if (preview.committed || (await dst`SELECT count(*)::int AS n FROM schema_migration WHERE version = '0089'`)[0]!.n !== 0) {
+    failed++; console.error("  ✗ 미리보기가 흔적을 남겼다");
+  }
+  const result = await runCutover(dst, { apply: true, log });
+  console.log("\n대조:");
+  for (const f of result.failures) { failed++; console.error(`  ✗ ${f}`); }
+  if (!result.failures.length) console.log("  ✓ 전부 통과");
+  for (const i of result.info) console.log(`  ${i}`);
+  if (!result.committed) { failed++; console.error("  ✗ 커밋되지 않았다"); }
   await dst.unsafe("ANALYZE");
 
-  console.log("\n대조:");
-  await check("남은 경기 ID = 전 − 삭제 목록", async () => {
-    const ids = new Set((await dst.unsafe(`SELECT match_id FROM match`)).map((r) => r.match_id as string));
-    const expected = [...before.ids].filter((i) => !before.deleted.has(i));
-    assert.equal(ids.size, expected.length);
-    for (const i of expected) assert.ok(ids.has(i), `없어졌다: ${i}`);
-  });
-  await check("참가자 기본 칸 값 그대로", async () => {
-    const h = await scalar(`SELECT md5(string_agg(row(match_id, participant_id, puuid, streamer_id, observed_name, team_id, side_no, team_position,
-        individual_position, champion_id, champion_name, champ_level, kills, deaths, assists, outcome)::text, '|' ORDER BY match_id, participant_id)) AS h FROM match_participant`);
-    assert.equal(h.h, before.parts.h);
-  });
-  await check("보너스·숨김·검수 완료·버전·잠금·FC 맥락 확인 그대로", async () => {
-    const h = await scalar(`SELECT md5(string_agg(row(match_id, set_role, set_label, visibility, review_completed_at, review_version, reviewed_at,
-        context_review_completed_at, context_review_version)::text, '|' ORDER BY match_id)) AS h FROM match WHERE scope = 'versus' OR game_code = 'fconline'`);
-    assert.equal(h.h, before.state.h);
-  });
-  await check("기존 시리즈 키·세트 번호 그대로", async () => {
-    const h = await scalar(`SELECT md5(string_agg(match_id || '=' || series_id || '#' || series_game_no, '|' ORDER BY match_id)) AS h FROM match
-        WHERE series_id IS NOT NULL AND series_id NOT LIKE 'set:%'`);
-    assert.equal(h.h, before.series.h);
-  });
-  await check("옛 review_change 한 줄도 그대로", async () => {
-    const h = await scalar(`SELECT count(*)::int AS n, md5(string_agg(row(id, match_id, entity, entity_key, field, before, after, actor)::text, '|' ORDER BY id)) AS h
-        FROM review_change WHERE entity <> 'classification'`);
-    assert.deepEqual(h, before.changes);
-  });
-  await check("제외 표 = 옛 결정 표의 최신 exclude", async () => {
-    assert.deepEqual(await dst.unsafe(`SELECT event_id::text, match_id FROM event_exclusion ORDER BY 1, 2`), before.excludes);
-  });
-
-  console.log("\n옮겨 담은 결과(§6 표와 대조):");
-  for (const r of await dst.unsafe(`SELECT m.game_code, m.scope, m.collected_via, coalesce(e.format, '-') AS format, coalesce(e.auto_bucket, false) AS bucket,
-      (m.series_id LIKE 'set:%') AS new_set, m.visibility, count(*)::int AS n
-      FROM match m LEFT JOIN match_series ms ON ms.id = m.series_id LEFT JOIN event e ON e.id = ms.event_id
-     GROUP BY 1, 2, 3, 4, 5, 6, 7 ORDER BY 1, 2, 3, 4, 5, 6, 7`)) console.log(`  ${JSON.stringify(r)}`);
-  for (const r of await dst.unsafe(`SELECT game_code, format, auto_bucket, count(*)::int AS events FROM event GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`)) console.log(`  행사 ${JSON.stringify(r)}`);
-
-  // ── 공개 뷰: 대칭·칩 합 ──────────────────────────────────────────────────
-  console.log("\n공개 뷰:");
-  const vs = await dst.unsafe(`SELECT game_code, streamer_id::text, series_id, outcome, format, map FROM core_public.versus_set`) as unknown as
-    { game_code: string; streamer_id: string; series_id: string; outcome: Outcome; format: string; map: string | null }[];
-  console.log(`  versus_set ${vs.length}행 (롤 ${vs.filter((r) => r.game_code === "lol").length} · FC ${vs.filter((r) => r.game_code === "fconline").length})`);
-  await check("FC 판이 공개 세트에 있다", () => assert.ok(vs.some((r) => r.game_code === "fconline")));
-  await check("모든 사람·맵 탭에서 전체 = 진행 방식 칩 합(세트·시리즈)", () => {
-    const groups = new Map<string, typeof vs>();
-    for (const r of vs) { const k = `${r.game_code}|${r.streamer_id}|${r.map}`; const g = groups.get(k); if (g) g.push(r); else groups.set(k, [r]); }
-    for (const [k, rows] of groups) {
-      const game = rows[0]!.game_code as keyof typeof FORMATS_BY_GAME;
-      const all = tally(rows);
-      const sum = { sets: { win: 0, draw: 0, loss: 0, unknown: 0 }, series: { win: 0, draw: 0, loss: 0, unknown: 0 } };
-      for (const f of FORMATS_BY_GAME[game]) {
-        const t = tally(rows.filter((r) => r.format === f));
-        for (const p of ["sets", "series"] as const) for (const o of ["win", "draw", "loss", "unknown"] as const) sum[p][o] += t[p][o];
-      }
-      assert.deepEqual(sum, all, k);
-    }
-  });
-  const pairs = await dst.unsafe(`SELECT a_streamer_id::text AS a, b_streamer_id::text AS b, series_id, a_outcome, b_outcome FROM core_public.versus_pair_set WHERE relation = 'opponent'`) as unknown as
-    { a: string; b: string; series_id: string; a_outcome: Outcome; b_outcome: Outcome }[];
-  await check(`상대전적 대칭(상대편 짝 ${pairs.length}행)`, () => {
-    const by = new Map<string, { series_id: string; outcome: Outcome }[]>();
-    for (const p of pairs) { const k = `${p.a}|${p.b}`; const v = { series_id: p.series_id, outcome: pairSetOutcome(p.a_outcome, p.b_outcome) }; const g = by.get(k); if (g) g.push(v); else by.set(k, [v]); }
-    for (const [k, rows] of by) {
-      const [a, b] = k.split("|");
-      const ab = tally(rows), ba = tally(by.get(`${b}|${a}`) ?? []);
-      assert.deepEqual(ab.sets, mirror(ba.sets), k); assert.deepEqual(ab.series, mirror(ba.series), k);
-    }
-  });
-  const contradictions = pairs.filter((p) => pairSetOutcome(p.a_outcome, p.b_outcome) === "unknown" && p.a_outcome !== "unknown" && p.b_outcome !== "unknown");
-  console.log(`  상대편 결과 모순(정합성 목록 후보): ${contradictions.length / 2}쌍`);
-
+  const scalar = async (text: string) => (await dst.unsafe(text))[0]!;
   // ── 속도 ────────────────────────────────────────────────────────────────
   console.log(`\n속도(운영 복사본 · PostgreSQL ${(await scalar("SHOW server_version")).server_version} · 5회 중앙값, 기준 ${BUDGET_MS}ms):`);
   const top = await dst.unsafe(`SELECT streamer_id::text AS s, count(*)::int AS n FROM core_public.versus_set WHERE game_code = 'lol' GROUP BY 1 ORDER BY 2 DESC LIMIT 1`);
