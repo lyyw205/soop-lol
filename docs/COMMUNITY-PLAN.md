@@ -545,6 +545,6 @@ ARCHITECTURE 의 core 정의("사실의 저장과 수집·**검수**")에도 신
 - **가입을 열기 전에 미리보기 샘플을 지운다** — 개발 서버가 운영 DB 를 보므로 샘플도 운영 DB 에 있다(2026-10-08: 샘플 회원 6 · 공지 1 · 글 10 · 댓글 13 · 추천 19).
   `node --env-file=apps/web/.env.local scripts/community-samples.ts --remove` — 샘플 회원이 만든 것과 그걸 가리키는 신고·운영 기록·제재까지 지운다(메모리 DB 리허설로 범위 확인)
 - 카카오·구글 앱 등록과 `KAKAO_CLIENT_ID` 등 환경변수 · `SITE_ORIGIN`
-- 정기 작업 타이머 설치 — **가입을 열 때** 한다(공개 전에는 정리할 글·회원이 없다). `scripts/systemd/install.sh` 목록에 `soop-community` 는 들어가 있다
+- 정기 작업 타이머 설치 — **가입을 열 때** 한다(공개 전에는 정리할 글·회원이 없다). `scripts/systemd/install.sh --bundle community`(2026-10-16 기본 묶음에서 뺐다 — 인자 없이 돌려도 가입 전에는 설치되지 않는다. 등록부 `ops/jobs/community-housekeep.json`)
 - 약관·처리방침·운영정책 법률 검토와 사이트 이름(§9·§10)
 - 3단계(편성 일정·대회 앵커 · 로비 새 글 · 검색)

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { entryState, ENTRY_STATE_LABEL, kstClock, kstDateString, profileHref, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL, slotTimeLabel, type PublicScheduleEntry, type PublicScheduleSlot } from "@soop-lol/core/lib/contract/schedule";
-import { scheduleEntryHref } from "./paths.ts";
 export type RoleHref = (role: string, params?: Record<string, string>) => string | null;
 const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
 export const weekday = (date: string) => { const [y, m, d] = date.split("-").map(Number); return WEEKDAY[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]; };
@@ -77,7 +76,7 @@ export function EntryBody({ entry, result, sourcesByTime = false }: { entry: Pub
 }
 
 /** 펼쳐 보는 일정 하나(목록). */
-export function EntryDetail({ id, entry, when, result }: { id: string; entry: PublicScheduleEntry; when: string; result: string | null }) {
+export function EntryDetail({ id, entry, when, result, detailHref }: { id: string; entry: PublicScheduleEntry; when: string; result: string | null; detailHref: string }) {
   const state = entryState(entry.status);
   return (
     <details id={id} className="sched-entry" data-state={state}>
@@ -88,7 +87,7 @@ export function EntryDetail({ id, entry, when, result }: { id: string; entry: Pu
       </summary>
       <div className="sched-body">
         <EntryBody entry={entry} result={result} />
-        <p><Link data-schedule-id={entry.schedule_id} href={scheduleEntryHref(entry.schedule_id)}>옆 패널에서 상세 보기 →</Link></p>
+        <p><Link data-schedule-id={entry.schedule_id} href={detailHref}>옆 패널에서 상세 보기 →</Link></p>
       </div>
     </details>
   );

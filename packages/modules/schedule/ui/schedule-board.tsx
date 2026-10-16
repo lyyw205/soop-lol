@@ -1,193 +1,213 @@
 "use client";
-import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { addDays, daysBetween, entryState, ENTRY_STATE_LABEL, kstClock, kstDayStart, SCHEDULE_GAME_LABEL, SCHEDULE_GAMES, SCHEDULE_KIND_LABEL, slotTimeLabel, type PublicScheduleEntry, type ScheduleGame } from "@soop-lol/core/lib/contract/schedule";
-import { loadScheduleWindow } from "../server/load-window.ts";
-import { cardsByDay, timelineLanes, majorRows, DAY_WIDTH, EXTEND_DAYS, WINDOW_DAYS, WINDOW_LEAD_DAYS, windowDays, mergeScheduleEntries, isMultiDay } from "./layout.ts";
-import { Badges, EntryBody, EntryDetail, Chips, timeOf, md, weekday, resultLink } from "./content.tsx";
-import { scheduleEntryHref, scheduleHref } from "./paths.ts";
-import { ScheduleDatePicker } from "./date-picker.tsx";
-import { ScheduleExplorer, TimelineViewport } from "./schedule-explorer.tsx";
 
-export function ScheduleBoard({ initialEntries, initialFrom, today, renderedAt, game: initialGame, streamer: initialStreamer, resultRoutes }: {
-  initialEntries: PublicScheduleEntry[]; initialFrom: string; today: string; renderedAt: string;
-  game: ScheduleGame | null; streamer: string | null;
-  resultRoutes: Record<string, string | null>;
+import Link from "next/link";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { daysBetween, kstClock, kstDayStart, SCHEDULE_GAME_LABEL, SCHEDULE_GAMES,
+  type NavigationSite, type PublicScheduleEntry, type ScheduleGame } from "@soop-lol/core/lib/contract/schedule";
+import { loadScheduleWindow } from "../server/load-window.ts";
+import { agendaCards, agendaEntries, agendaRange, featuredCard, type ScheduleKindFilter } from "./agenda.ts";
+import { HeadlineMatch, ScheduleRow, shortDate, type SchedulePerson } from "./agenda-cards.tsx";
+import { Chips, weekday, resultLink } from "./content.tsx";
+import { windowDays } from "./layout.ts";
+import { scheduleEntryHref, scheduleHref } from "./paths.ts";
+import { adjacentMonth } from "./calendar.ts";
+import { ScheduleDialog } from "./schedule-dialog.tsx";
+
+export function ScheduleBoard({ initialEntries, initialDate, today, renderedAt, game: initialGame, streamer: initialStreamer,
+  initialKind, initialSearch, people, resultRoutes, site }: {
+  initialEntries: PublicScheduleEntry[]; initialDate: string; today: string; renderedAt: string;
+  game: ScheduleGame | null; streamer: string | null; initialKind: ScheduleKindFilter; initialSearch: string;
+  people: SchedulePerson[]; resultRoutes: Record<string, string | null>; site: NavigationSite;
 }) {
   const [entries, setEntries] = useState(initialEntries);
   const [filters, setFilters] = useState({ game: initialGame, streamer: initialStreamer });
-  const { game, streamer } = filters;
-  const [range, setRange] = useState({ from: initialFrom, to: addDays(initialFrom, WINDOW_DAYS - 1) });
-  const { from, to } = range;
-  const [focus, setFocus] = useState({ date: addDays(initialFrom, WINDOW_LEAD_DAYS), request: 0 });
+  const [date, setDate] = useState(initialDate);
+  const [kind, setKind] = useState(initialKind);
+  const [search, setSearch] = useState(initialSearch);
   const [loading, setLoading] = useState(false);
-  const busy = useRef(false);
   const [error, setError] = useState("");
-  const now = new Date(renderedAt);
-  const days = windowDays(from, daysBetween(from, to) + 1);
-  const { bars, laneCount } = timelineLanes(entries, from, days.length, 2);
-  // 아래 목록: 여러 날 행사는 행사 단위로, 하루 일정은 날짜 칸에. 규모를 사람이 고르지 않고 칸 날짜로 가른다.
-  const majors = majorRows(entries.filter(isMultiDay), from, days.length);
-  const minorCards = cardsByDay(entries.filter((e) => !isMultiDay(e)), days);
+  const [selected, setSelected] = useState<string | null>(null);
+  const busy = useRef(false);
+  const agenda = useRef<HTMLDivElement>(null);
+  const calendar = useRef<HTMLElement>(null);
+  const agendaPanel = useRef<HTMLElement>(null);
+  const [scrollRequest, setScrollRequest] = useState(0);
+  const trigger = useRef<HTMLElement | null>(null);
+  const { game, streamer } = filters;
+  const range = agendaRange(date);
+  const month = date.slice(0, 7);
+  const days = windowDays(range.from, daysBetween(range.from, range.to) + 1);
+  const visible = agendaEntries(entries, kind, search);
+  const cards = agendaCards(visible, range.from, range.to);
+  const agendaDays = days.filter((day) => day === date || cards.some((card) => card.slot.on_date === day));
+  const feature = featuredCard(agendaCards(entries, range.from, range.to), today);
+  const monthlyCount = cards.filter((card) => card.slot.on_date.startsWith(month)).length;
+  const current = { site, date, game: game ?? undefined, s: streamer ?? undefined, kind: kind ?? undefined, q: search || undefined };
+  const href = (patch: Partial<typeof current>) => scheduleHref({ ...current, ...patch });
+  const detailHref = (entry: PublicScheduleEntry) => scheduleEntryHref(entry.schedule_id, current);
   const roleHref = (role: string, params?: Record<string, string>) => resultRoutes[role]?.replace("schedule-result-slug", encodeURIComponent(params?.slug ?? "")) ?? null;
 
-  async function navigate(direction: "previous" | "next" | "date", date = focus.date) {
+  async function changeView(nextDate: string, nextFilters = filters) {
     if (busy.current) return;
-    if (direction === "date" && !kstDayStart(date)) { setError("이동할 날짜를 선택해 주세요."); return; }
-    if (direction === "date" && date >= from && date <= to) {
-      setFocus((v) => ({ date, request: v.request + 1 }));
-      return;
+    if (!kstDayStart(nextDate)) { setError("이동할 날짜를 선택해 주세요."); return; }
+    const nextRange = agendaRange(nextDate);
+    if (nextRange.from === range.from && nextFilters.game === game && nextFilters.streamer === streamer) {
+      setDate(nextDate); setScrollRequest((value) => value + 1); setSelected(null); setError(""); return;
     }
     busy.current = true; setLoading(true); setError("");
-    const start = direction === "previous" ? addDays(from, -EXTEND_DAYS) : direction === "next" ? addDays(to, 1) : addDays(date, -WINDOW_LEAD_DAYS);
-    const end = addDays(start, direction === "date" ? WINDOW_DAYS - 1 : EXTEND_DAYS - 1);
     try {
-      const added = await loadScheduleWindow({ from: start, to: end, game, streamer });
-      setEntries((old) => direction === "date" ? added : mergeScheduleEntries(old, added));
-      setRange(direction === "date" ? { from: start, to: end } : { from: direction === "previous" ? start : from, to: direction === "next" ? end : to });
-      if (direction === "date") {
-        setFocus((v) => ({ date, request: v.request + 1 }));
-      }
-    } catch { setError("일정을 불러오지 못했습니다. 기존 일정은 유지됩니다. 다시 시도해 주세요."); }
+      const loaded = await loadScheduleWindow({ ...nextRange, ...nextFilters });
+      setEntries(loaded); setFilters(nextFilters); setDate(nextDate); setScrollRequest((value) => value + 1); setSelected(null);
+    } catch { setError("일정을 불러오지 못했습니다. 다시 시도해 주세요."); }
     finally { busy.current = false; setLoading(false); }
   }
-  async function changeFilters(next: typeof filters) {
-    if (busy.current) return;
-    busy.current = true; setLoading(true); setError("");
-    try {
-      let filtered: PublicScheduleEntry[] = [];
-      for (let start = from; start <= to; start = addDays(start, WINDOW_DAYS)) {
-        const end = addDays(start, WINDOW_DAYS - 1);
-        filtered = mergeScheduleEntries(filtered, await loadScheduleWindow({ from: start, to: end < to ? end : to, ...next }));
-      }
-      setEntries(filtered); setFilters(next);
-    } catch { setError("필터를 적용하지 못했습니다. 기존 일정은 유지됩니다. 다시 시도해 주세요."); }
-    finally { busy.current = false; setLoading(false); }
-  }
-
-  // 지금 보고 있는 필터를 유지한 채 하나만 바꾼 주소.
-  const current = { date: focus.date, game: game ?? undefined, s: streamer ?? undefined };
-  const href = (patch: Partial<typeof current>) => scheduleHref({ ...current, ...patch });
-
-  const people = new Map<string, string>();
-  for (const e of entries) for (const p of e.participants) people.set(p.slug, p.display_name);
-  if (streamer && !people.has(streamer)) people.set(streamer, streamer);
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    for (const [key, value] of Object.entries({ game, s: streamer })) {
+    for (const [key, value] of Object.entries({ site, game, s: streamer, kind, q: search || null, date: date === today ? null : date })) {
       if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
     }
-    // 기본 URL은 매번 오늘로 열린다. 직접 선택한 날짜만 주소에 보존한다.
     url.searchParams.delete("from");
-    if (focus.date === today) url.searchParams.delete("date");
-    else url.searchParams.set("date", focus.date);
     window.history.replaceState(null, "", url);
-  }, [game, streamer, focus.date, today]);
+  }, [site, game, streamer, kind, search, date, today]);
 
-  const resultHref = (e: PublicScheduleEntry) => resultLink(e, roleHref);
+  useEffect(() => {
+    const node = calendar.current;
+    if (!node) return;
+    const syncHeight = () => agendaPanel.current?.style.setProperty("--calendar-height", `${node.getBoundingClientRect().height}px`);
+    syncHeight();
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
-  return (
-    <div className="sched" style={{ ["--day-width" as string]: `${DAY_WIDTH}px`, ["--initial-center" as string]: `${(WINDOW_LEAD_DAYS + 0.5) * DAY_WIDTH}px` }}>
-      <header className="sched-heading">
-        <div><h1>편성표</h1><p>스트리머가 공지한 대회와 CK 일정을 모았습니다.</p></div>
-        <span className="sched-updated">{md(today)} {kstClock(now)} 기준 · 한국 시간</span>
-      </header>
+  useEffect(() => {
+    const viewport = agenda.current;
+    if (!viewport) return;
+    let frame = 0;
+    const stop = () => cancelAnimationFrame(frame);
+    const center = (smooth: boolean) => {
+      stop();
+      viewport.style.setProperty("--agenda-half-height", `${viewport.clientHeight / 2}px`);
+      const target = viewport.querySelector<HTMLElement>(`[data-agenda-date="${date}"]`);
+      if (!target) return;
+      const top = target.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop;
+      const destination = Math.max(0, Math.min(viewport.scrollHeight - viewport.clientHeight,
+        top - viewport.clientHeight / 2 + Math.min(target.offsetHeight, viewport.clientHeight * .7) / 2));
+      const start = viewport.scrollTop;
+      const distance = destination - start;
+      if (!smooth || Math.abs(distance) < 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        viewport.scrollTop = destination;
+        return;
+      }
+      const duration = Math.min(950, 560 + Math.sqrt(Math.abs(distance)) * 8);
+      const startedAt = performance.now();
+      const tick = (now: number) => {
+        const progress = Math.min(1, (now - startedAt) / duration);
+        // Quintic smoothstep: both velocity and acceleration settle at either end.
+        const eased = progress ** 3 * (progress * (progress * 6 - 15) + 10);
+        viewport.scrollTop = start + distance * eased;
+        if (progress < 1) frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
+    };
+    center(scrollRequest > 0);
+    let height = viewport.clientHeight;
+    const observer = new ResizeObserver(() => {
+      if (viewport.clientHeight !== height) { height = viewport.clientHeight; center(false); }
+    });
+    observer.observe(viewport);
+    const inputs = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const input of inputs) viewport.addEventListener(input, stop, { passive: true });
+    return () => {
+      stop(); observer.disconnect();
+      for (const input of inputs) viewport.removeEventListener(input, stop);
+    };
+  }, [date, entries, kind, search, scrollRequest]);
 
-      <div className="sched-toolbar">
-        <nav className="sched-week" aria-label="날짜 이동">
-          <ScheduleDatePicker value={focus.date} today={today} disabled={loading} onSelect={(date) => { void navigate("date", date); }} />
-          <button type="button" disabled={loading} onClick={() => navigate("date", today)}>오늘</button>
-          {loading && <span className="sched-load-status" role="status">일정을 불러오는 중…</span>}
-        </nav>
-        <nav className="sched-filters" aria-label="필터">
-          <Chips label="게임" items={[[undefined, "전체"], ...SCHEDULE_GAMES.map((g) => [g, SCHEDULE_GAME_LABEL[g]] as const)]} active={current.game} to={(v) => href({ game: v })} onSelect={(v) => { void changeFilters({ ...filters, game: v ?? null }); }} />
-          <form className="sched-person" action={scheduleHref()} onSubmit={(event) => { event.preventDefault(); const slug = new FormData(event.currentTarget).get("s"); void changeFilters({ ...filters, streamer: typeof slug === "string" && slug ? slug : null }); }}>
-            <input type="hidden" name="date" value={current.date} />
-            {game && <input type="hidden" name="game" value={game} />}
-            <label>스트리머 <select name="s" key={streamer ?? "all"} defaultValue={streamer ?? ""}>
-              <option value="">전체</option>
-              {[...people].sort((a, b) => a[1].localeCompare(b[1], "ko")).map(([slug, name]) => <option key={slug} value={slug}>{name}</option>)}
+  function select(event: MouseEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = (event.target as HTMLElement).closest<HTMLElement>("[data-schedule-id]");
+    const id = link?.dataset.scheduleId;
+    if (!id || !entries.some((entry) => entry.schedule_id === id)) return;
+    event.preventDefault(); trigger.current = link; setSelected(id);
+  }
+
+  const theme = site === "lol" ? "lol" : "fconline";
+  const gameLabel = site === "platform" ? "SOOP" : site === "lol" ? "LEAGUE OF LEGENDS" : "FC ONLINE";
+  return <div className="sched sched-agenda" data-theme={theme}>
+    <div onClickCapture={select}>
+      <section className="sched-hero">
+        <div className="sched-stadium" aria-hidden="true" /><div className="sched-light-sweep" aria-hidden="true" />
+        <div className="sched-container sched-hero-inner">
+          <div className="sched-hero-title"><div className="sched-eyebrow"><i />{gameLabel} / SCHEDULE</div>
+            <h1>편성표</h1><div className="sched-masthead" aria-hidden="true">MATCH<span>DAY.</span></div><p>대회부터 CK까지.</p>
+            <span className="sched-hero-edition">{month.replace("-", " / ")}</span>
+          </div>
+          {feature ? <HeadlineMatch card={feature} people={people} href={detailHref(feature.entry)} />
+            : <div className="sched-headline sched-headline-empty"><span className="sched-eyebrow">{gameLabel}</span><span className="sched-empty-date">{shortDate(date)}</span><h2>등록된 일정이 없습니다.</h2><p>다른 날짜나 필터를 선택해 보세요.</p></div>}
+        </div>
+      </section>
+
+      <div className="sched-container sched-content">
+        <div className="sched-filters">
+          <Chips label="게임" items={[[undefined, "전체"], ...SCHEDULE_GAMES.map((g) => [g, SCHEDULE_GAME_LABEL[g]] as const)]}
+            active={current.game} to={(value) => href({ game: value })} onSelect={(value) => { void changeView(date, { ...filters, game: value ?? null }); }} />
+          <span className="sched-filter-divider" />
+          <Chips label="일정 유형" items={[[undefined, "전체 일정"], ["tournament", "대회"], ["ck", "CK"]] as const}
+            active={kind ?? undefined} to={(value) => href({ kind: value })} onSelect={(value) => { setKind(value ?? null); setSelected(null); }} />
+          <div className="sched-search-tools"><label className="sched-person"><span>스트리머</span>
+            <select aria-label="스트리머 필터" value={streamer ?? ""} disabled={loading} onChange={(event) => { void changeView(date, { ...filters, streamer: event.target.value || null }); }}>
+              <option value="">전체</option>{streamer && !people.some((p) => p.slug === streamer) && <option value={streamer}>{streamer}</option>}
+              {people.map((person) => <option key={person.slug} value={person.slug}>{person.display_name}</option>)}
             </select></label>
-            <button type="submit" disabled={loading}>적용</button>
-          </form>
-        </nav>
+            <label className="sched-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="10" cy="10" r="6.5" /><path d="m15 15 5 5" /></svg>
+              <input aria-label="일정·참가자 검색" type="search" maxLength={100} placeholder="일정 · 참가자 검색" value={search}
+                onChange={(event) => { setSearch(event.target.value); setSelected(null); }} /></label>
+          </div>
+        </div>
+        <div className="sched-feedback" aria-live="polite">{loading && <span>일정을 불러오는 중…</span>}{error && <p role="alert">{error}</p>}</div>
+
+        <div className="sched-main-grid" aria-busy={loading}>
+          <section ref={calendar} className="sched-month-panel" aria-label="월간 캘린더">
+            <div className="sched-month-heading"><div><h2>{month.slice(0, 4)}년 {Number(month.slice(5))}월</h2><span>이번 달 일정 {monthlyCount}개</span></div>
+              <nav aria-label="월 이동"><button type="button" disabled={loading} aria-label="이전 달" onClick={() => void changeView(`${adjacentMonth(month, -1)}-01`)}>‹</button>
+                <button type="button" disabled={loading} onClick={() => void changeView(today)}>오늘</button>
+                <button type="button" disabled={loading} aria-label="다음 달" onClick={() => void changeView(`${adjacentMonth(month, 1)}-01`)}>›</button></nav>
+            </div>
+            <a className="sched-calendar-skip" href="#schedule-day">선택한 날짜 일정으로 이동</a>
+            <div className="sched-month-weekdays" aria-hidden="true">{["월", "화", "수", "목", "금", "토", "일"].map((day) => <span key={day}>{day}</span>)}</div>
+            <nav className="sched-month-days" aria-label="월간 날짜 선택">{days.map((day) => {
+              const matches = cards.filter((card) => card.slot.on_date === day);
+              return <Link key={day} href={href({ date: day })} aria-current={day === date ? "date" : undefined}
+                data-outside={!day.startsWith(month)} data-today={day === today} data-past={day < today} aria-disabled={loading}
+                aria-label={`${Number(day.slice(5, 7))}월 ${Number(day.slice(-2))}일 ${weekday(day)}요일${day === today ? ", 오늘" : ""}, 일정 ${matches.length}개`}
+                onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); void changeView(day); }}>
+                <span className="sched-month-day-number"><b>{Number(day.slice(-2))}</b>{day === today && <small>오늘</small>}</span>
+                <span className="sched-month-dots" aria-hidden="true">{matches.map((card, i) => <i key={i} />)}</span>
+              </Link>;
+            })}</nav>
+            <p className="sched-month-hint">점 하나당 일정 1개 · 날짜를 선택하면 목록이 이동합니다.</p>
+          </section>
+          <section ref={agendaPanel} id="schedule-day" className="sched-day-panel" tabIndex={-1} aria-label="날짜순 전체 일정">
+            <div className="sched-section-heading"><h2>전체 일정</h2><span>{cards.length}개 · 날짜순</span></div>
+            <div className="sched-agenda-scroll" ref={agenda} tabIndex={0} role="region" aria-label="전체 일정 목록, 위아래로 스크롤">
+              {agendaDays.map((day) => {
+                const matches = cards.filter((card) => card.slot.on_date === day);
+                return <section key={day} className="sched-agenda-day" data-agenda-date={day} data-selected={day === date} aria-label={`${shortDate(day)} 일정`}>
+                  <div className="sched-agenda-day-heading"><h3>{shortDate(day)} <small>{weekday(day)}요일{day === today && " · 오늘"}</small></h3><span>{matches.length}개</span></div>
+                  {matches.length ? <div className="sched-agenda-rows">{matches.map((card, i) => <ScheduleRow key={`${card.entry.schedule_id}-${i}`} card={card} people={people} href={detailHref(card.entry)} />)}</div>
+                    : <p className="sched-agenda-no-events">이날 등록된 일정이 없습니다.</p>}
+                </section>;
+              })}
+            </div>
+            <span className="sched-scroll-status" role="status">{shortDate(date)} 일정 위치로 이동</span>
+          </section>
+        </div>
+        <div className="sched-footnote"><span>공지 기준 · 한국 시간</span><span>{shortDate(today)} {kstClock(new Date(renderedAt))} 확인</span></div>
       </div>
-
-      {error && <p className="sched-load-error" role="alert">{error}</p>}
-      <ScheduleExplorer from={from} focusDate={focus.date} focusRequest={focus.request} panels={entries.map((entry) => ({
-        id: entry.schedule_id, title: entry.title,
-        content: <><div className="sched-panel-badges"><Badges entry={entry} state={entryState(entry.status)} /></div>
-          <div className="sched-body"><EntryBody entry={entry} result={resultHref(entry)} sourcesByTime />
-            <p><Link href={scheduleEntryHref(entry.schedule_id)}>고유 페이지 · 변경 이력 보기 ↗</Link></p>
-          </div></>,
-      }))} timeline={
-        <section className="sched-timeline" aria-label="경기 편성표">
-          <div className="sched-timeline-heading">
-            <h2>{from.slice(0, 4)}년 {md(from)} — {md(to)} <span>일정 {entries.length}개</span></h2>
-            <div className="sched-legend"><span><i className="sched-legend-bar" />행사 기간</span><span><i className="sched-legend-dot" />공지된 경기일</span></div>
-          </div>
-          <div className="sched-status-legend" aria-label="막대 색상별 상태">
-            {Object.entries(ENTRY_STATE_LABEL).map(([state, label]) => <span key={state} data-state={state}><i aria-hidden="true" />{label}</span>)}
-          </div>
-          <TimelineViewport days={days.length} loading={loading} onExpand={(direction) => { void navigate(direction); }}>
-            <div className="sched-gantt" style={{ ["--days" as string]: days.length }}>
-              <div className="sched-row sched-head">
-                {days.map((d) => <div key={d} data-date={d} className={d === today ? "is-today" : undefined} data-weekend={weekday(d) === "토" || weekday(d) === "일"}>
-                  <small>{d === today ? "오늘" : weekday(d)}</small><b>{md(d)}</b>
-                </div>)}
-              </div>
-                  <div className="sched-tracks" style={{ gridTemplateRows: `repeat(${laneCount}, minmax(88px, auto))` }}>
-                    {days.map((d, i) => <div key={d} className={`sched-grid-day${d === today ? " is-today" : ""}`}
-                      style={{ gridColumn: i + 1, gridRow: "1 / -1" }} aria-hidden="true" />)}
-                    {bars.length === 0 && <p className="sched-track-empty">이 기간에 공지된 일정이 없습니다</p>}
-                    {bars.map(({ entry, period, span, displaySpan, liveCols, lane }) => {
-                      const state = entryState(entry.status);
-                      const dates = period.from === period.to ? md(period.from) : `${md(period.from)} – ${md(period.to)}`;
-                      const singleSlot = entry.slots.length === 1 ? entry.slots[0] : null;
-                      const when = singleSlot ? `${dates} · ${slotTimeLabel(timeOf(singleSlot))}` : dates;
-                      return <a key={entry.schedule_id} href={scheduleEntryHref(entry.schedule_id)} className="sched-event" data-state={state} data-schedule-id={entry.schedule_id}
-                        aria-label={`${SCHEDULE_GAME_LABEL[entry.game_code]} · ${entry.title} · ${when} · ${ENTRY_STATE_LABEL[state]}`} title={ENTRY_STATE_LABEL[state]}
-                        style={{ gridColumn: `${displaySpan.start} / ${displaySpan.end + 1}`, gridRow: lane + 1,
-                          gridTemplateColumns: `repeat(${displaySpan.end - displaySpan.start + 1}, minmax(0, 1fr))` }}>
-                        <span className="sched-event-copy"><span className="sched-event-meta">{SCHEDULE_KIND_LABEL[entry.planned_kind]} · {when}</span>
-                          <span className="sched-event-title">{entry.title}</span></span>
-                        <span className="sched-period" data-cut-start={span.cutStart} data-cut-end={span.cutEnd}
-                          style={{ gridColumn: `${span.start - displaySpan.start + 1} / ${span.end - displaySpan.start + 2}`,
-                            gridTemplateColumns: `repeat(${span.end - span.start + 1}, minmax(0, 1fr))` }} aria-hidden="true">
-                          <span className="sched-period-game">{entry.game_code === "lol" ? "LOL" : "FC"}</span>
-                          {liveCols.map((c) => <i key={c} style={{ gridColumn: c - span.start + 1 }} />)}
-                        </span>
-                      </a>;
-                    })}
-                  </div>
-            </div>
-          </TimelineViewport>
-          <div className="sched-timeline-footer"><span>일정을 누르면 옆 패널에서 상세를 볼 수 있습니다.</span><span>상태는 관리자가 확인해 반영합니다.</span></div>
-        </section>
-      }>
-        {majors.length > 0 && <section className="sched-list" aria-label="여러 날 행사">
-          <h2>여러 날 행사</h2>
-          {majors.map(({ entry, period }) => <EntryDetail key={entry.schedule_id} id={`m-${entry.schedule_id}`} entry={entry}
-            when={period.from === period.to ? md(period.from) : `${md(period.from)} ~ ${md(period.to)}`} result={resultHref(entry)} />)}
-        </section>}
-
-        {entries.length > 0 && <section className="sched-list" aria-label="날짜별 일정">
-          <h2>날짜별 일정</h2>
-          {days.filter((d) => minorCards.get(d)!.length > 0 || majors.some((m) => m.entry.slots.some((s) => s.on_date === d))).map((d) => (
-            <div key={d} className="sched-day">
-              <h3 className={d === today ? "is-today" : undefined}>{md(d)} ({weekday(d)}){d === today && " · 오늘"}</h3>
-              {majors.flatMap((m) => m.entry.slots.filter((s) => s.on_date === d).map((s) => (
-                <a key={`${m.entry.schedule_id}-${s.on_date}-${s.starts_at}`} className="sched-major-line" data-schedule-id={m.entry.schedule_id} href={`#m-${m.entry.schedule_id}`}>
-                  <b>{slotTimeLabel(timeOf(s))}</b> {m.entry.title}{s.label && ` · ${s.label}`}
-                </a>
-              )))}
-              {minorCards.get(d)!.map(({ entry, slot }) => <EntryDetail key={`${entry.schedule_id}-${slot.on_date}-${slot.starts_at}`}
-                id={`c-${entry.schedule_id}-${d}`} entry={entry} when={slotTimeLabel(timeOf(slot))} result={resultHref(entry)} />)}
-            </div>
-          ))}
-        </section>}
-      </ScheduleExplorer>
     </div>
-  );
+    <ScheduleDialog entries={entries} selected={selected} detailHref={detailHref}
+      resultHref={(entry) => resultLink(entry, roleHref)} onClose={() => { setSelected(null); trigger.current?.focus({ preventScroll: true }); }} />
+  </div>;
 }

@@ -19,7 +19,7 @@ export * from "./community-client.ts";
 // ── 공개 읽기 ────────────────────────────────────────────────────────
 export {
   COMMUNITY_PAGE_SIZE, NOTICE_BAND_SIZE,
-  getPublicCommunityPost, listPublicCommunityComments, listPublicCommunityPosts, listPublicNotices,
+  getPublicCommunityPost, getPublicCommunityNeighbors, listPublicCommunityComments, listPublicCommunityPosts, listPublicNotices,
 } from "../db/community-public.ts";
 export type { CommunityListQuery } from "../db/community-public.ts";
 
@@ -45,3 +45,4 @@ export const deleteCommunityComment = async (commentId: number) => writes.delete
 export const voteCommunityPost = async (postId: number) => writes.votePost(await readSessionToken(), postId);
 export const reportCommunityContent = async (kind: "post" | "comment", targetId: number, reason: ReportReason, detail: string | null) =>
   writes.reportContent(await readSessionToken(), kind, targetId, reason, detail);
+export { publicProfileLinks } from "../db/profile-links.ts";

@@ -81,6 +81,9 @@ export async function verifyCommunityDb(check: Check, expectReject: ExpectReject
   check("공지 띠 — 모든 게임 공지는 모든 게임 필터에, 게임 공지는 그 게임에",
     (await noticeIds("lol")).join() === [nLol.id, nAll.id].join() && (await noticeIds("fconline")).join() === String(nAll.id)
       && (await noticeIds("etc")).join() === String(nAll.id));
+  check("게임별 공지 탭과 공지 띠는 공통 공지를 같은 범위로 보여 준다",
+    ids((await list({game:"lol",topic:"notice"})).posts).join() === [nLol.id,nAll.id].join()
+      && ids((await list({game:"fconline",topic:"notice"})).posts).join() === String(nAll.id));
   check("공지는 목록에 섞이지 않는다", !ids((await list()).posts).includes(nAll.id));
   const [noticeRow] = await sql<{ author_id: string | null }[]>`SELECT author_id FROM community_post WHERE id = ${nAll.id}`;
   await expectReject("DB 도 회원이 쓴 공지를 막는다('작성자 없음 = 공지' 짝)",

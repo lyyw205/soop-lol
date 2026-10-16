@@ -5,12 +5,12 @@
  * ★ 필터는 전부 인자로 받아 서버에서 거른다(화면은 URL 에 둔다 — 공유한 주소가 같은 화면을 연다).
  * ★ 기간은 **겹치면 포함**: 일정의 칸 날짜 범위가 [from, to] 와 겹치면 일정 전체(모든 칸)를 돌려준다.
  *   조회 시작 전에 시작한 대회도 나온다.
- * ★ 결과 링크는 **열리는 상세가 있을 때만** — 대회 목록 함수가 실제로 돌려주는 대회일 때만 result 를 채운다.
+ * ★ 결과 링크는 **열리는 상세가 있을 때만** — 공개 상세 조건을 충족할 때만 result 를 채운다.
  *   상세 화면과 같은 조건을 따로 적지 않으려는 것이다(롤 대회 상세는 kind='tournament' 만 연다 — CK 로 링크하면 404).
  */
 
 import { db } from "./client.ts";
-import { listFcoEvents } from "./fconline.ts";
+import { listFcoDetailEvents } from "./fconline.ts";
 import { listPublicTournamentEvents } from "./public-tournaments.ts";
 import { kstDateString } from "../time.ts";
 import {
@@ -145,14 +145,14 @@ async function hydrate(entries: EntryRow[]): Promise<PublicScheduleEntry[]> {
 /** 목록·상세가 같은 칸을 읽는다(조각 — 연결은 부를 때 얻는다). */
 const entryColumns = () => db()`e.schedule_id, e.game_code, e.title, e.planned_kind, e.sponsor, e.description, e.status, e.origin, e.event_id`;
 
-/** 결과 상세가 실제로 열리는 event 만 — 각 게임의 대회 목록 함수가 돌려주는 것. */
+/** 결과 상세가 실제로 열리는 event 만 — 각 게임의 공개 상세 적격 집합. */
 async function resultPages(linked: { game_code: ScheduleGame; event_id: string | null }[]) {
   const out = new Map<string, NonNullable<PublicScheduleEntry["result"]>>();
   if (linked.some((e) => e.game_code === "lol")) {
     for (const t of await listPublicTournamentEvents()) if (t.slug) out.set(t.event_id, { page: "lol_tournament", slug: t.slug });
   }
   if (linked.some((e) => e.game_code === "fconline")) {
-    for (const t of await listFcoEvents()) out.set(t.id, { page: "fc_event", slug: t.slug });
+    for (const t of await listFcoDetailEvents(linked.flatMap(e => e.game_code === "fconline" && e.event_id ? [e.event_id] : []))) out.set(t.id, { page: "fc_event", slug: t.slug });
   }
   return out;
 }

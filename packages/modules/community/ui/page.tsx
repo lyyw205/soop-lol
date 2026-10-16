@@ -6,6 +6,7 @@
  * ★ 자기 표가 없다 — core 계약(contract/community)만 읽고 쓴다. 판단은 core 접근자 하나가 한다.
  */
 
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 
@@ -16,7 +17,7 @@ import {
 
 import { ComposeForm, type ComposeInitial, type StreamerChoice } from "./compose.tsx";
 import { CommunityList } from "./list.tsx";
-import { communityHref, communityPostHref } from "./paths.ts";
+import { communityHref, communityPostHref, communityQuery } from "./paths.ts";
 import { PostDetail } from "./post.tsx";
 import "./community.css";
 
@@ -44,9 +45,10 @@ async function streamerChoices(): Promise<StreamerChoice[]> {
 
 /** 글쓰기 — 로그인·닉네임이 없으면 거기로 보낸다. 들어온 문맥(게임·스트리머)을 기본값으로 채운다. */
 async function Compose({ searchParams }: { searchParams: Props["searchParams"] }) {
+  const browse = communityQuery(searchParams);
   const game = parseGameFilter(one(searchParams.game));
   const slugs = [one(searchParams.s)].filter((s): s is string => !!s && /^[\w.-]{1,64}$/.test(s));
-  const here = communityHref({ write: 1, game: game && game !== "etc" ? game : undefined, s: one(searchParams.s) });
+  const here = communityHref({ ...browse, write: 1, game: game && game !== "etc" ? game : undefined });
   const me = await currentMember();
   if (!me) redirect(loginHref(here));
   if (!me.nickname) redirect(meHref({ setup: 1, next: here }));
@@ -58,17 +60,17 @@ async function Compose({ searchParams }: { searchParams: Props["searchParams"] }
   const initial: ComposeInitial = {
     id: null, version: null, game: game === "lol" || game === "fconline" ? game : null, topic: "free", title: "", body: "", tags,
   };
-  const back = communityHref({ game: game ?? undefined, s: one(searchParams.s) });
+  const back = communityHref(browse);
   return <div className="cm cm-compose-page">
-    <div className="cm-heading"><div><h1>글쓰기</h1><p>스트리머를 태그하면 그 사람 프로필의 &lsquo;이 스트리머 이야기&rsquo; 에 모입니다.</p></div></div>
-    <ComposeForm initial={initial} streamers={await streamerChoices()} cancelHref={back} />
+    <div className="cm-heading"><div><h1>글쓰기</h1><p>게임을 고르고 자유롭게 이야기를 남겨 주세요.</p></div><Link href={back} className="cm-secondary">목록으로</Link></div>
+    <ComposeForm initial={initial} streamers={await streamerChoices()} cancelHref={back} browse={browse} />
   </div>;
 }
 
 /** 고치기 — 작성자만, 공개 글만(숨긴 글은 공개 뷰에 없어 404 다 — 고쳐서 다시 공개되지 않는다). */
-async function Edit({ id }: { id: number }) {
+async function Edit({ id, browse }: { id: number; browse: ReturnType<typeof communityQuery> }) {
   const me = await currentMember();
-  if (!me) redirect(loginHref(communityPostHref(id, { edit: 1 })));
+  if (!me) redirect(loginHref(communityPostHref(id, { ...browse, edit: 1 })));
   const post = await loadPost(id);
   if (!post || post.author_id !== me.member_id) notFound();
   const initial: ComposeInitial = {
@@ -76,8 +78,8 @@ async function Edit({ id }: { id: number }) {
     title: post.title, body: post.body, tags: post.streamers.map((s) => ({ slug: s.slug, display_name: s.display_name })),
   };
   return <div className="cm cm-compose-page">
-    <div className="cm-heading"><div><h1>글 고치기</h1><p>고친 뒤에는 &lsquo;수정됨&rsquo; 이 표시됩니다.</p></div></div>
-    <ComposeForm initial={initial} streamers={await streamerChoices()} cancelHref={communityPostHref(id)} />
+    <div className="cm-heading"><div><h1>글 수정</h1><p>저장하면 글에 수정됨이 표시됩니다.</p></div><Link href={communityPostHref(id, browse)} className="cm-secondary">취소</Link></div>
+    <ComposeForm initial={initial} streamers={await streamerChoices()} cancelHref={communityPostHref(id, browse)} browse={browse} />
   </div>;
 }
 
@@ -85,8 +87,9 @@ export default async function CommunityPage({ params, searchParams }: Props) {
   if (params?.id !== undefined) {
     const id = parseContentId(params.id);
     if (id === null) notFound(); // 숫자가 아닌 번호 — 질의 전에 거른다(캐스트 오류로 500 을 내지 않는다)
-    if (one(searchParams.edit) === "1") return <Edit id={id} />;
-    return <PostDetail post={await loadPost(id)} />;
+    const browse = communityQuery(searchParams);
+    if (one(searchParams.edit) === "1") return <Edit id={id} browse={browse} />;
+    return <PostDetail post={await loadPost(id)} browse={browse} />;
   }
   if (one(searchParams.write) === "1") return <Compose searchParams={searchParams} />;
   return <CommunityList searchParams={searchParams} />;

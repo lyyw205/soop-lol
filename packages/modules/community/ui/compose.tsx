@@ -9,13 +9,14 @@ import Link from "next/link";
 import { useState } from "react";
 
 import {
-  BODY_MAX, COMMUNITY_GAME_LABEL, COMMUNITY_GAMES, COMMUNITY_TOPIC_LABEL, MEMBER_TOPICS, NO_GAME_LABEL, TAG_MAX, TITLE_MAX,
+  BODY_MAX, COMMUNITY_GAME_LABEL, COMMUNITY_GAMES, NO_GAME_LABEL, TAG_MAX, TITLE_MAX,
   type CommunityGame, type CommunityTopic,
 } from "@soop-lol/core/lib/contract/community-client";
 
 import { useKeptFormAction } from "../../../ui/use-kept-form-action.ts";
 import { savePostAction } from "../server/actions.ts";
 import { IDLE } from "./form-state.ts";
+import type { communityQuery } from "./paths.ts";
 
 export interface StreamerChoice { slug: string; display_name: string }
 
@@ -29,7 +30,7 @@ export interface ComposeInitial {
   tags: StreamerChoice[];
 }
 
-export function ComposeForm({ initial, streamers, cancelHref }: { initial: ComposeInitial; streamers: StreamerChoice[]; cancelHref: string }) {
+export function ComposeForm({ initial, streamers, cancelHref, browse }: { initial: ComposeInitial; streamers: StreamerChoice[]; cancelHref: string; browse: ReturnType<typeof communityQuery> }) {
   const { state, dispatch: action, pending, onSubmit } = useKeptFormAction(savePostAction, IDLE);
   const [tags, setTags] = useState<StreamerChoice[]>(initial.tags);
   const [query, setQuery] = useState("");
@@ -48,9 +49,11 @@ export function ComposeForm({ initial, streamers, cancelHref }: { initial: Compo
   }
 
   return <form action={action} onSubmit={onSubmit} className="cm-compose">
+    {Object.entries(browse).map(([key, value]) => value && <input key={key} type="hidden" name={`return_${key}`} value={value} />)}
     {initial.id !== null && <input type="hidden" name="id" value={initial.id} />}
     {initial.version !== null && <input type="hidden" name="version" value={initial.version} />}
     <input type="hidden" name="tags" value={tags.map((t) => t.slug).join(",")} />
+    <input type="hidden" name="topic" value={initial.topic} />
     <div className="cm-compose-row">
       <label><span>게임</span>
         <select name="game" defaultValue={initial.game ?? ""}>
@@ -58,28 +61,25 @@ export function ComposeForm({ initial, streamers, cancelHref }: { initial: Compo
           <option value="">{NO_GAME_LABEL}(게임 무관)</option>
         </select>
       </label>
-      <label><span>말머리</span>
-        <select name="topic" defaultValue={initial.topic}>
-          {MEMBER_TOPICS.map((t) => <option key={t} value={t}>{COMMUNITY_TOPIC_LABEL[t]}</option>)}
-        </select>
-      </label>
+
     </div>
     <label className="cm-compose-field"><span>제목</span>
       <input name="title" required maxLength={TITLE_MAX} defaultValue={initial.title} />
     </label>
-    <label className="cm-compose-field"><span>본문 <small className="tabular">{body.length.toLocaleString()} / {BODY_MAX.toLocaleString()}</small></span>
+    <label className="cm-compose-field"><span className="cm-field-heading">본문 <small className="tabular">{body.length.toLocaleString()} / {BODY_MAX.toLocaleString()}</small></span>
       <textarea name="body" required maxLength={BODY_MAX} rows={12} value={body} onChange={(e) => setBody(e.target.value)}
-        placeholder="일반 텍스트로 씁니다. http(s) 주소는 링크가 됩니다." />
+        placeholder="내용을 입력해 주세요." />
     </label>
     <div className="cm-compose-field">
-      <span>스트리머 태그 <small>{tags.length}/{TAG_MAX} · 프로필의 &lsquo;이 스트리머 이야기&rsquo; 에 모입니다</small></span>
+      <label htmlFor="cm-streamer-tag" className="cm-tag-label">스트리머 태그 <small>선택 · {tags.length}/{TAG_MAX}</small></label>
+      <p id="cm-tag-help" className="cm-field-help">태그한 스트리머의 프로필에도 이 글이 표시됩니다.</p>
       {tags.length > 0 && <ul className="cm-tags">
         {tags.map((t) => <li key={t.slug}>{t.display_name}
           <button type="button" onClick={() => setTags(tags.filter((x) => x.slug !== t.slug))} aria-label={`${t.display_name} 태그 빼기`}>×</button></li>)}
       </ul>}
       <div className="cm-tag-input">
-        <input list="cm-streamer-options" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="스트리머 이름"
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }} aria-label="태그할 스트리머" />
+        <input id="cm-streamer-tag" list="cm-streamer-options" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="스트리머 이름"
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }} aria-describedby="cm-tag-help" />
         <button type="button" onClick={addTag}>추가</button>
       </div>
       <datalist id="cm-streamer-options">{streamers.map((s) => <option key={s.slug} value={`${s.display_name} (${s.slug})`} />)}</datalist>
@@ -87,8 +87,8 @@ export function ComposeForm({ initial, streamers, cancelHref }: { initial: Compo
     </div>
     {state.message && <p className={state.ok ? "cm-ok" : "cm-error"} role="alert">{state.message}</p>}
     <div className="cm-compose-foot">
-      <Link href={cancelHref} className="cm-link-button">취소</Link>
-      <button type="submit" className="cm-write" disabled={pending}>{initial.id === null ? "올리기" : "고친 내용 저장"}</button>
+      <Link href={cancelHref} className="cm-secondary">취소</Link>
+      <button type="submit" className="cm-write" disabled={pending}>{pending ? "저장 중…" : initial.id === null ? "등록" : "수정 완료"}</button>
     </div>
   </form>;
 }

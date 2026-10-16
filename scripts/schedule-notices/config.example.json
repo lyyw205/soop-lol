@@ -1,0 +1,15 @@
+{
+  "pollMinutes": 30,
+  "lookbackDays": 7,
+  "maxPages": 4,
+  "maxRequests": 12,
+  "batchSize": 5,
+  "maxImages": 8,
+  "model": "sonnet",
+  "channels": [
+    { "id": "phonics1", "name": "김민교", "bbsNo": "62868323" },
+    { "id": "lshooooo", "name": "이상호", "bbsNo": "12565236" },
+    { "id": "joey1114", "name": "저라뎃", "bbsNo": "49568463" },
+    { "id": "townboy", "name": "스맵", "bbsNo": "76988470" }
+  ]
+}

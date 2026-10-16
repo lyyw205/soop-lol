@@ -4,8 +4,8 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { addDays } from "@soop-lol/core/lib/contract/schedule";
 import { adjacentMonth, calendarDays } from "./calendar.ts";
 
-export function ScheduleDatePicker({ value, today, disabled, onSelect }: {
-  value: string; today: string; disabled: boolean; onSelect: (date: string) => void;
+export function ScheduleDatePicker({ value, today, disabled, onSelect, label }: {
+  value: string; today: string; disabled: boolean; onSelect: (date: string) => void; label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(value.slice(0, 7));
@@ -51,8 +51,8 @@ export function ScheduleDatePicker({ value, today, disabled, onSelect }: {
   return <div className="sched-calendar" ref={root}
     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }}
     onKeyDown={(event) => { if (event.key === "Escape" && open) { event.stopPropagation(); setOpen(false); trigger.current?.focus(); } }}>
-    <button ref={trigger} type="button" disabled={disabled} aria-expanded={open} aria-controls={popupId} aria-haspopup="dialog"
-      onClick={() => { if (!open) { setMonth(value.slice(0, 7)); setFocused(value); } setOpen(!open); }}>{value.replaceAll("-", ".")} ▾</button>
+    <button ref={trigger} type="button" disabled={disabled} aria-label="달력에서 날짜 선택" aria-expanded={open} aria-controls={popupId} aria-haspopup="dialog"
+      onClick={() => { if (!open) { setMonth(value.slice(0, 7)); setFocused(value); } setOpen(!open); }}>{label ?? value.replaceAll("-", ".")} <span aria-hidden="true">▾</span></button>
     {open && <div className="sched-calendar-popup" id={popupId} role="dialog" aria-label="이동할 날짜 선택">
       <div className="sched-calendar-month">
         <button type="button" aria-label="이전 달" onClick={() => setMonth(adjacentMonth(month, -1))}>‹</button>

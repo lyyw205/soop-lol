@@ -72,6 +72,9 @@ export function decodeCursor(value: string | null | undefined): { at: Date; id: 
   return Number.isNaN(at.getTime()) ? null : { at, id: Number(m[2]) };
 }
 
+/** 공통 공지는 모든 게임의 공지 띠와 공지 목록에 동일하게 포함한다. */
+const noticeGameCondition = (game: GameFilter) => db()`(p.game_code IS NULL OR ${game}::text IS NULL OR p.game_code = ${game})`;
+
 /** 목록. 필터에 맞는 글을 최신순으로 limit 개, 다음 쪽 커서와 함께. */
 export async function listPublicCommunityPosts(q: CommunityListQuery): Promise<{ posts: PublicCommunityPostRow[]; next: string | null }> {
   const limit = Math.min(Math.max(q.limit ?? COMMUNITY_PAGE_SIZE, 1), 100);
@@ -83,7 +86,7 @@ export async function listPublicCommunityPosts(q: CommunityListQuery): Promise<{
            p.like_count, p.comment_count, p.created_at, p.edited_at
       FROM core_public.community_post p
      WHERE (${q.topic}::text IS NULL AND p.topic <> 'notice' OR p.topic = ${q.topic})
-       AND (${q.game}::text IS NULL OR (${q.game} = 'etc' AND p.game_code IS NULL) OR p.game_code = ${q.game})
+       AND ${q.topic === 'notice' ? noticeGameCondition(q.game) : db()`(${q.game}::text IS NULL OR (${q.game} = 'etc' AND p.game_code IS NULL) OR p.game_code = ${q.game})`}
        AND (${author}::uuid IS NULL OR p.author_id = ${author}::uuid)
        AND (${q.streamer}::text IS NULL OR EXISTS (
              SELECT 1 FROM core_public.community_post_streamer ps JOIN core_public.streamer s ON s.streamer_id = ps.streamer_id
@@ -104,7 +107,7 @@ export async function listPublicNotices(game: GameFilter, limit = NOTICE_BAND_SI
     SELECT p.post_id::int AS post_id, p.game_code, p.topic, p.title, p.author_id, p.author_nickname,
            p.like_count, p.comment_count, p.created_at, p.edited_at
       FROM core_public.community_post p
-     WHERE p.topic = 'notice' AND (p.game_code IS NULL OR ${game}::text IS NULL OR p.game_code = ${game})
+     WHERE p.topic = 'notice' AND ${noticeGameCondition(game)}
      ORDER BY p.created_at DESC, p.post_id DESC
      LIMIT ${limit}`;
 }
@@ -131,4 +134,33 @@ export async function listPublicCommunityComments(postId: number): Promise<Publi
       FROM core_public.community_comment c
      WHERE c.post_id = ${postId}
      ORDER BY COALESCE(c.parent_id, c.comment_id), c.parent_id NULLS FIRST, c.comment_id`;
+}
+
+/** 현재 목록 조건에서 바로 위(더 최신)·아래(더 오래된) 글. 공개 뷰와 DB 원본 시각으로 비교한다. */
+export async function getPublicCommunityNeighbors(postId: number, q: Pick<CommunityListQuery, "game" | "streamer" | "author">): Promise<{
+  previous: { post_id: number; title: string } | null;
+  next: { post_id: number; title: string } | null;
+}> {
+  const author = isUuid(q.author) ? q.author : null;
+  if (q.author && !author) return { previous: null, next: null };
+  const filter = db()`
+    (CASE WHEN anchor.topic = 'notice' THEN p.topic = 'notice' ELSE p.topic <> 'notice' END)
+    AND (CASE WHEN anchor.topic = 'notice' THEN ${noticeGameCondition(q.game)}
+      ELSE (${q.game}::text IS NULL OR (${q.game} = 'etc' AND p.game_code IS NULL) OR p.game_code = ${q.game}) END)
+    AND (${author}::uuid IS NULL OR p.author_id = ${author}::uuid)
+    AND (${q.streamer}::text IS NULL OR EXISTS (
+      SELECT 1 FROM core_public.community_post_streamer ps JOIN core_public.streamer s ON s.streamer_id = ps.streamer_id
+      WHERE ps.post_id = p.post_id AND s.slug = ${q.streamer}))`;
+  const rows = await db()<{ direction: "previous" | "next"; post_id: number; title: string }[]>`
+    WITH anchor AS (SELECT post_id, created_at, topic FROM core_public.community_post WHERE post_id = ${postId})
+    (SELECT 'previous' AS direction, p.post_id::int AS post_id, p.title
+     FROM core_public.community_post p CROSS JOIN anchor
+     WHERE ${filter} AND (p.created_at, p.post_id) > (anchor.created_at, anchor.post_id)
+     ORDER BY p.created_at ASC, p.post_id ASC LIMIT 1)
+    UNION ALL
+    (SELECT 'next' AS direction, p.post_id::int AS post_id, p.title
+     FROM core_public.community_post p CROSS JOIN anchor
+     WHERE ${filter} AND (p.created_at, p.post_id) < (anchor.created_at, anchor.post_id)
+     ORDER BY p.created_at DESC, p.post_id DESC LIMIT 1)`;
+  return { previous: rows.find((r) => r.direction === "previous") ?? null, next: rows.find((r) => r.direction === "next") ?? null };
 }

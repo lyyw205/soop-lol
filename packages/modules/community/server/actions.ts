@@ -18,7 +18,7 @@ import {
 } from "@soop-lol/core/lib/contract/community";
 
 import type { FormResult } from "../ui/form-state.ts";
-import { communityHref, communityPostHref } from "../ui/paths.ts";
+import { communityHref, communityPostHref, communityReturnQuery } from "../ui/paths.ts";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "");
 
@@ -60,7 +60,7 @@ export async function savePostAction(_prev: FormResult, form: FormData): Promise
     ? (await createCommunityPost(input)).id
     : (await editCommunityPost(id, input, text(form, "version")), id));
   if (!r.ok) return r;
-  redirect(communityPostHref(r.value));
+  redirect(communityPostHref(r.value, communityReturnQuery(form)));
 }
 
 export async function deletePostAction(_prev: FormResult, form: FormData): Promise<FormResult> {
@@ -68,7 +68,7 @@ export async function deletePostAction(_prev: FormResult, form: FormData): Promi
   if (id === null) return { ok: false, message: "지울 글을 확인해 주세요." };
   const r = await guarded(() => deleteCommunityPost(id));
   if (!r.ok) return r;
-  redirect(communityHref());
+  redirect(communityHref(communityReturnQuery(form)));
 }
 
 export async function commentAction(_prev: FormResult, form: FormData): Promise<FormResult> {

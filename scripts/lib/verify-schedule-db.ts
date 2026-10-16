@@ -118,6 +118,13 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
     JSON.stringify(majorRow?.slots.map((s) => s.channel_id)));
   check("FC 대회 목록에 있는 event 와 연결된 완료 일정은 결과 링크를 갖는다",
     majorRow?.result?.page === "fc_event" && majorRow.result.slug === "sched-fc", JSON.stringify(majorRow?.result));
+  const fco = await import("../../packages/core/lib/db/fconline.ts");
+  await sql`UPDATE event SET kind = 'ck' WHERE id = ${fcEv.id}`;
+  const fcCkSchedule = (await pub.listPublicSchedule({from:"2026-10-01",to:"2026-10-07"})).find(e=>e.schedule_id === major.id);
+  check("FC CK는 대회 목록에서 빠져도 상세와 편성표 결과 링크가 남는다",
+    !(await fco.listFcoEvents()).some(e=>e.id===fcEv.id) && (await fco.getFcoEvent("sched-fc"))?.kind === "ck"
+      && fcCkSchedule?.result?.page === "fc_event");
+  await sql`UPDATE event SET kind = 'tournament' WHERE id = ${fcEv.id}`;
   const ckRow = win.find((e) => e.schedule_id === saved.id);
   check("★ 롤 CK event 와 연결돼도 결과 링크가 없다 — 롤 대회 상세는 kind='tournament' 만 연다(404 방지)",
     ckRow !== undefined && ckRow.result === null, JSON.stringify(ckRow?.result));

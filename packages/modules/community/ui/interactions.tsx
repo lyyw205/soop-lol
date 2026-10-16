@@ -13,6 +13,7 @@ import { COMMENT_MAX, REPORT_DETAIL_MAX, REPORT_REASON_LABEL, REPORT_REASONS } f
 import { useKeptFormAction } from "../../../ui/use-kept-form-action.ts";
 import { commentAction, deleteCommentAction, deletePostAction, editCommentAction, reportAction, voteAction } from "../server/actions.ts";
 import { IDLE, type FormResult } from "./form-state.ts";
+import type { communityQuery } from "./paths.ts";
 
 function Message({ state }: { state: FormResult }) {
   if (!state.message) return null;
@@ -53,9 +54,10 @@ export function ReportForm({ kind, targetId }: { kind: "post" | "comment"; targe
   </details>;
 }
 
-export function DeletePostForm({ postId }: { postId: number }) {
+export function DeletePostForm({ postId, browse }: { postId: number; browse: ReturnType<typeof communityQuery> }) {
   const { state, dispatch: action, pending, onSubmit } = useKeptFormAction(deletePostAction, IDLE, { confirm: "이 글을 지울까요? 지운 글은 되살릴 수 없습니다." });
   return <form action={action} onSubmit={onSubmit} className="cm-inline">
+    {Object.entries(browse).map(([key, value]) => value && <input key={key} type="hidden" name={`return_${key}`} value={value} />)}
     <input type="hidden" name="id" value={postId} />
     <button type="submit" className="cm-link-button" disabled={pending}>지우기</button>
     <Message state={state} />

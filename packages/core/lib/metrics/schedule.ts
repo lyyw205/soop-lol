@@ -1,5 +1,6 @@
 /** 편성표 상태는 관리자 지정값, 날짜·시각은 별도 표시 정보다. */
 
+import { EVENT_KIND_LABEL } from "./event.ts";
 import { fromKstInputValue, KST_OFFSET_MS, kstDateString } from "../time.ts";
 
 export type ScheduleStatus = "scheduled" | "in_progress" | "cancelled" | "postponed" | "held";
@@ -12,7 +13,7 @@ export const SCHEDULE_KINDS: readonly SchedulePlannedKind[] = ["tournament", "sh
 export const SCHEDULE_STATUSES: readonly ScheduleStatus[] = ["scheduled", "in_progress", "cancelled", "postponed", "held"];
 export const SCHEDULE_ROLES: readonly ScheduleRole[] = ["host", "player", "caster"];
 
-export const SCHEDULE_KIND_LABEL: Record<SchedulePlannedKind, string> = { tournament: "대회", showmatch: "이벤트전", ck: "CK", other: "기타" };
+export const SCHEDULE_KIND_LABEL: Record<SchedulePlannedKind, string> = EVENT_KIND_LABEL;
 export const SCHEDULE_ROLE_LABEL: Record<ScheduleRole, string> = { host: "주최", player: "선수", caster: "해설" };
 export const SCHEDULE_GAME_LABEL: Record<ScheduleGame, string> = { lol: "LOL", fconline: "FC 온라인" };
 

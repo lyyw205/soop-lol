@@ -15,6 +15,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 
 import { chromium, type Page } from "playwright";
+import { SESSION_COOKIE } from "@soop-lol/core/lib/auth/session";
 
 import { freePort } from "./lib/disposable-postgres.ts";
 
@@ -175,17 +176,17 @@ try {
   await u1.getByRole("link", { name: "글쓰기" }).first().click();
   await u1.waitForURL(/\/login\?next=/, { timeout: 120_000, waitUntil: "commit" });
   await signUp(u1, "검증회원일");
-  await u1.waitForURL(/\/community\?write=1/, { timeout: 120_000, waitUntil: "commit" });
+  await u1.waitForURL(url => url.pathname === "/community" && url.searchParams.get("write") === "1", { timeout: 120_000, waitUntil: "commit" });
   await settled(u1);
   check("가입을 마치면 원래 가려던 글쓰기로 돌아온다", u1.url().includes("write=1"), u1.url());
   check("롤 목록에서 들어온 글쓰기는 게임 기본값이 LOL", await u1.locator('select[name="game"]').inputValue() === "lol");
   await u1.locator('input[name="title"]').fill("브라우저 검증 글");
   await u1.locator('textarea[name="body"]').fill("본문입니다. https://example.com/x 링크 <script>alert(1)</script>");
-  await u1.getByLabel("태그할 스트리머").fill("샘플 스트리머 A (sample_a)");
+  await u1.getByLabel(/^스트리머 태그/).fill("샘플 스트리머 A (sample_a)");
   await u1.getByRole("button", { name: "추가" }).click();
   await u1.locator(".cm-tags li", { hasText: "샘플 스트리머 A" }).waitFor({ timeout: 30_000 });
-  await u1.getByRole("button", { name: "올리기" }).click();
-  await u1.waitForURL(/\/community\/\d+$/, { timeout: 120_000, waitUntil: "commit" });
+  await u1.getByRole("button", { name: "등록", exact: true }).click();
+  await u1.waitForURL(url => /^\/community\/\d+$/.test(url.pathname), { timeout: 120_000, waitUntil: "commit" });
   const postPath = new URL(u1.url()).pathname;
   await settled(u1);
   check("올리면 글 상세로 간다", await u1.getByRole("heading", { level: 1, name: "브라우저 검증 글" }).count() === 1, postPath);
@@ -203,13 +204,13 @@ try {
   await settled(u1);
   await u1.locator('input[name="title"]').fill("기타 검증 글");
   await u1.locator('textarea[name="body"]').fill("게임과 무관한 글");
-  await u1.getByRole("button", { name: "올리기" }).click();
+  await u1.getByRole("button", { name: "등록", exact: true }).click();
   await u1.getByText(/1분에 1개/).waitFor({ timeout: 60_000 });
   check("★ 1분 안의 두 번째 글은 쓰기 한도에 걸리고, 입력값은 그대로 남는다",
     await u1.locator('input[name="title"]').inputValue() === "기타 검증 글");
   await u1.waitForTimeout(61_000);
-  await u1.getByRole("button", { name: "올리기" }).click();
-  await u1.waitForURL(/\/community\/\d+$/, { timeout: 120_000, waitUntil: "commit" });
+  await u1.getByRole("button", { name: "등록", exact: true }).click();
+  await u1.waitForURL(url => /^\/community\/\d+$/.test(url.pathname), { timeout: 120_000, waitUntil: "commit" });
   const etcPath = new URL(u1.url()).pathname;
   check("1분 뒤에는 같은 입력으로 올라간다", etcPath !== postPath, etcPath);
 
@@ -236,14 +237,15 @@ try {
   const u2 = await newUser();
   await go(u2, `/login?next=${encodeURIComponent(postPath)}`);
   await signUp(u2, "검증회원이");
-  await u2.waitForURL(new RegExp(`${postPath}$`), { timeout: 120_000, waitUntil: "commit" });
+  await u2.waitForURL(url => url.pathname === postPath, { timeout: 120_000, waitUntil: "commit" });
   await settled(u2);
   await u2.getByRole("button", { name: /^추천 0$/ }).click();
   await u2.getByRole("button", { name: /^추천 1$/ }).waitFor({ timeout: 60_000 });
   check("추천하면 1 이 되고 다시 누를 수 없다", await u2.getByRole("button", { name: /^추천 1$/ }).isDisabled());
-  await u2.locator(".cm-article-actions .cm-report summary").click();
-  await u2.locator(".cm-article-actions select[name=reason]").selectOption("defamation");
-  await u2.locator(".cm-article-actions").getByRole("button", { name: "신고하기" }).click();
+  const postReport = u2.locator(".cm-post-footer .cm-report");
+  await postReport.locator("summary").click();
+  await postReport.getByRole("combobox", { name: "신고 사유" }).selectOption("defamation");
+  await postReport.getByRole("button", { name: "신고하기" }).click();
   await u2.getByText("신고했습니다. 운영자가 확인합니다.").waitFor({ timeout: 60_000 });
   check("신고를 받는다", true);
   await u2.locator(".cm-comment", { hasText: "첫 댓글" }).getByRole("button", { name: "답글" }).click();
@@ -290,9 +292,15 @@ try {
   console.log("\n▸ 로그아웃·탈퇴");
   await go(u1, "/me");
   await settled(u1);
+  const oldSession = (await u1.context().cookies()).find(cookie => cookie.name === SESSION_COOKIE);
+  if (!oldSession) throw new Error("로그아웃 시험 전 세션 쿠키가 없습니다");
   await u1.getByRole("button", { name: "로그아웃" }).click();
   await u1.waitForURL(`${base}/`, { timeout: 60_000, waitUntil: "commit" });
-  check("로그아웃하면 머리말이 다시 '로그인'", await u1.locator(".header-account", { hasText: "로그인" }).count() === 1);
+  // 로비는 게임 선택 화면이라 회원 머리말이 없다. 실제 세션 폐기를 검사한다.
+  check("로그아웃하면 세션 쿠키가 지워진다", !(await u1.context().cookies()).some(cookie => cookie.name === SESSION_COOKIE));
+  const replay = await u1.request.get(`${base}/me`, { headers: { Cookie: `${SESSION_COOKIE}=${oldSession.value}` }, maxRedirects: 0 });
+  check("로그아웃 전 토큰을 다시 보내도 내 정보에 접근할 수 없다",
+    replay.status() === 307 && new URL(replay.headers().location, base).pathname === "/login");
   await go(u2, "/me");
   await settled(u2);
   await u2.locator('input[name="confirm"]').fill("탈퇴");

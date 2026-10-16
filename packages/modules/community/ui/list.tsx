@@ -1,14 +1,16 @@
 import Link from "next/link";
+import { ArrowRight, PenLine } from "lucide-react";
+import "./list.css";
 import type { ReactNode } from "react";
 
 import { getPublicStreamer } from "@soop-lol/core/lib/contract";
 import {
-  COMMUNITY_GAME_LABEL, COMMUNITY_TOPIC_LABEL, MEMBER_TOPICS, NO_GAME_LABEL,
-  currentMember, listPublicCommunityPosts, listPublicNotices, loginHref, meHref, parseGameFilter, parseTopicFilter, profileHref,
-  type CommunityTopic, type GameFilter, type PublicCommunityPostRow,
+  COMMUNITY_GAME_LABEL, NO_GAME_LABEL,
+  publicProfileLinks, currentMember, listPublicCommunityPosts, listPublicNotices, loginHref, meHref, parseGameFilter,
+  type GameFilter, type PublicCommunityPostRow,
 } from "@soop-lol/core/lib/contract/community";
 
-import { communityHref, communityPostHref } from "./paths.ts";
+import { communityHref, communityPostHref, communityQuery } from "./paths.ts";
 import { authorLabel, shortWhen } from "./text.tsx";
 
 type Params = Record<string, string | string[] | undefined>;
@@ -21,34 +23,28 @@ const GAME_CHIPS: { value: GameFilter; label: string }[] = [
   { value: "lol", label: COMMUNITY_GAME_LABEL.lol }, { value: "fconline", label: COMMUNITY_GAME_LABEL.fconline },
   { value: "etc", label: NO_GAME_LABEL },
 ];
-const TOPIC_CHIPS: { value: CommunityTopic | null; label: string }[] = [
-  { value: null, label: "전체" }, ...MEMBER_TOPICS.map((t) => ({ value: t, label: COMMUNITY_TOPIC_LABEL[t] })),
-  { value: "notice", label: COMMUNITY_TOPIC_LABEL.notice },
-];
 
-function Row({ post }: { post: PublicCommunityPostRow }) {
+function Row({ post, query }: { post: PublicCommunityPostRow; query: Record<string, string | undefined> }) {
   return <li className="cm-row">
-    <Link href={communityPostHref(post.post_id)} className="cm-row-main">
-      <span className="cm-topic">{COMMUNITY_TOPIC_LABEL[post.topic]}</span>
-      {post.game_code && <span className="cm-game">{COMMUNITY_GAME_LABEL[post.game_code]}</span>}
-      <strong>{post.title}</strong>
-      {post.comment_count > 0 && <span className="cm-count" aria-label={`댓글 ${post.comment_count}개`}>[{post.comment_count}]</span>}
+    <span className="cm-post-number" aria-label={`글 번호 ${post.post_id}`}>{post.post_id}</span>
+    <Link href={communityPostHref(post.post_id, query)} className="cm-row-main">
+      {post.game_code && <span className="cm-post-game">{COMMUNITY_GAME_LABEL[post.game_code]}</span>}
+      <span className="cm-post-title">{post.title}</span>
+      {post.comment_count > 0 && <span className="cm-post-comments" aria-label={`댓글 ${post.comment_count}개`}>[{post.comment_count}]</span>}
     </Link>
-    <span className="cm-row-meta">
-      <span>{authorLabel(post.author_id, post.author_nickname)}</span>
-      <span className="tabular">{shortWhen(post.created_at)}</span>
-      <span className="tabular" aria-label={`추천 ${post.like_count}`}>추천 {post.like_count}</span>
-    </span>
+    <span className="cm-post-author">{authorLabel(post.author_id, post.author_nickname)}</span>
+    <time className="cm-post-date" dateTime={new Date(post.created_at).toISOString()}>{shortWhen(post.created_at)}</time>
+    <span className="cm-post-likes" aria-label={`추천 ${post.like_count}개`}><span>추천 </span>{post.like_count}</span>
   </li>;
 }
 
 /**
- * 목록 — 게임 칩(전체·LOL·FC·기타) × 말머리 칩, 그 아래 공지 띠, 그 아래 글. 필터는 전부 주소다(공유한 주소가 같은 화면).
+ * 목록 — 게임 탭(전체·LOL·FC·기타), 그 아래 공지 띠, 그 아래 글. 필터는 전부 주소다(공유한 주소가 같은 화면).
  * ★ ?game=lol 에 기타 글을 섞지 않는다(편성표와 같은 뜻). ★ ?s= 로 들어오면 그 사람 이야기만, 비었으면 "첫 글 쓰기".
  */
 export async function CommunityList({ searchParams }: { searchParams: Params }) {
+  const context = communityQuery(searchParams);
   const game = parseGameFilter(one(searchParams.game));
-  const topic = parseTopicFilter(one(searchParams.topic));
   const s = slug(one(searchParams.s));
   const author = one(searchParams.author) ?? null;
   const cursor = one(searchParams.cursor) ?? null;
@@ -56,54 +52,60 @@ export async function CommunityList({ searchParams }: { searchParams: Params }) 
   // 질의는 순서대로 — 화면 하나의 동시 질의를 늘리지 않는다(PLAN §M4-1).
   const person = s ? await getPublicStreamer(s) : null;
   const missing = s !== null && !person;
-  const notices = !missing && topic === null && !s && !author && !cursor ? await listPublicNotices(game) : [];
-  const { posts, next } = missing ? { posts: [], next: null } : await listPublicCommunityPosts({ game, topic, streamer: s, author, cursor });
+  const notices = !missing && !s && !author && !cursor ? await listPublicNotices(game) : [];
+  const { posts, next } = missing ? { posts: [], next: null } : await listPublicCommunityPosts({ game, topic: null, streamer: s, author, cursor });
   const me = await currentMember();
 
   type Query = Record<string, string | undefined>;
-  const filters: Query = { game: game ?? undefined, topic: topic ?? undefined, s: s ?? undefined, author: author ?? undefined };
+  const filters: Query = { site: context.site, game: game ?? undefined, s: s ?? undefined, author: author ?? undefined };
   const href = (changes: Query) => communityHref({ ...filters, cursor: undefined, ...changes });
-  const writeTarget = communityHref({ write: 1, game: game && game !== "etc" ? game : undefined, s: s ?? undefined });
+  const writeTarget = communityHref({ ...filters, write: 1, game: game && game !== "etc" ? game : undefined });
   const writeHref = !me ? loginHref(writeTarget) : me.nickname ? writeTarget : meHref({ setup: 1, next: writeTarget });
-  const site = game === "fconline" ? "fconline" : "lol";
+  const profileLinks = await publicProfileLinks(person ? [person.slug] : [], game, context.site);
 
   let title = "커뮤니티";
-  let lead: ReactNode = "스트리머 이야기를 게임별로 나눠 봅니다. 읽기는 누구나, 글쓰기는 로그인한 회원만 할 수 있습니다.";
+  let lead: ReactNode = "게임과 스트리머 이야기를 자유롭게 나눠 보세요.";
   if (missing) {
     title = "찾을 수 없는 스트리머";
-    lead = <Link href={communityHref()}>커뮤니티 전체 글 보기</Link>;
+    lead = <Link href={href({ s: undefined })}>커뮤니티 전체 글 보기</Link>;
   } else if (person) {
     title = `${person.display_name} 이야기`;
-    lead = <><Link href={profileHref(site, person.slug)}>프로필 보기</Link> · <Link href={href({ s: undefined })}>전체 글</Link></>;
+    lead = <><Link href={profileLinks.get(person.slug)!}>프로필 보기</Link> · <Link href={href({ s: undefined })}>전체 글</Link></>;
   } else if (author) {
     title = posts[0] ? `${authorLabel(posts[0].author_id, posts[0].author_nickname)}의 글` : "회원의 글";
     lead = <Link href={href({ author: undefined })}>전체 글</Link>;
   }
 
-  return <div className="cm">
-    <div className="cm-heading">
+  return <div className="cm cm-board">
+    <header className="cm-heading">
       <div><h1>{title}</h1><p>{lead}</p></div>
-      <Link href={writeHref} className="cm-write">글쓰기</Link>
-    </div>
-    <div className="cm-toolbar">
-      <nav className="cm-chips" aria-label="게임">
+      <Link href={writeHref} className="cm-write"><PenLine size={17} aria-hidden="true" />글쓰기</Link>
+    </header>
+    <div className="cm-browse-layout">
+    <div className="cm-toolbar" aria-label="게시글 필터">
+      <div className="cm-game-filter">
+      <nav className="cm-game-tabs" aria-label="게임">
         {GAME_CHIPS.map((c) => <Link key={c.label} href={href({ game: c.value ?? undefined })} aria-current={game === c.value ? "true" : undefined}>{c.label}</Link>)}
       </nav>
-      <nav className="cm-chips" aria-label="말머리">
-        {TOPIC_CHIPS.map((c) => <Link key={c.label} href={href({ topic: c.value ?? undefined })} aria-current={topic === c.value ? "true" : undefined}>{c.label}</Link>)}
-      </nav>
+      </div>
+
     </div>
+    <section className="cm-feed" aria-label="게시글 목록">
+    <div className="cm-list-columns" aria-hidden="true"><span>번호</span><span>제목</span><span>글쓴이</span><span>작성일</span><span>추천</span></div>
     {notices.length > 0 && <ul className="cm-notices" aria-label="공지">
       {notices.map((n) => <li key={n.post_id}>
         <span className="cm-topic cm-topic-notice">공지</span>
         {n.game_code && <span className="cm-game">{COMMUNITY_GAME_LABEL[n.game_code]}</span>}
-        <Link href={communityPostHref(n.post_id)}>{n.title}</Link>
+        <Link href={communityPostHref(n.post_id, filters)}>{n.title}</Link>
         <span className="cm-row-meta tabular">{shortWhen(n.created_at)}</span>
       </li>)}
     </ul>}
     {posts.length === 0
-      ? <div className="cm-empty"><p>아직 글이 없습니다.</p>{!missing && <Link href={writeHref} className="cm-write">첫 글 쓰기</Link>}</div>
-      : <ol className="cm-list">{posts.map((p) => <Row key={p.post_id} post={p} />)}</ol>}
-    {next && <p className="cm-more"><Link href={href({ cursor: next })}>다음 글 더 보기</Link></p>}
+      ? <div className="cm-empty"><h3>{missing ? "스트리머를 찾을 수 없어요" : "아직 이야기가 없어요"}</h3><p>{missing ? "상단의 전체 글 보기에서 다른 이야기를 둘러보세요." : "이 주제의 첫 이야기를 남겨 보세요."}</p>{!missing && <Link href={writeHref} className="cm-write">첫 글 쓰기</Link>}</div>
+      : <ol className="cm-list">{posts.map((p) => <Row key={p.post_id} post={p} query={{ ...filters, cursor: cursor ?? undefined }} />)}</ol>}
+    {next && <p className="cm-more"><Link href={href({ cursor: next })}>다음 글 더 보기<ArrowRight size={16} aria-hidden="true" /></Link></p>}
+    </section>
+
+    </div>
   </div>;
 }
