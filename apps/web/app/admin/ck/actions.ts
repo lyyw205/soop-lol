@@ -86,7 +86,8 @@ export async function saveMatchMetaAction(_prev: CkActionState, form: FormData):
       set_order_known: values.set_order_known === "true",
     });
     const submitted = Object.fromEntries(META_FORM_FIELDS.map(k => [k, text(form, k)]));
-    // 메타의 빈 텍스트/숫자 입력은 유지, '-'는 비우기. 대회 셀렉트의 빈 값은 연결 해제다.
+    // 메타의 빈 텍스트/숫자 입력은 유지, '-'는 비우기(시리즈 키를 비우면 그 판 하나짜리 시리즈로 둔다).
+    // 행사는 비울 수 없다 — 판은 반드시 행사 안에 있다(0089). 빈 값은 저장 단계(applyMatchReview)가 거부한다.
     for (const k of META_FORM_FIELDS) if (k !== "event_id" && submitted[k] === "") submitted[k] = base[k];
     const next = normalize(submitted);
     if (next.winning_team !== null && ![100,200].includes(Number(next.winning_team))) return fail("승자는 1팀 또는 2팀이어야 합니다.");
@@ -226,7 +227,7 @@ export async function setReviewCompletedAction(_prev: ActionState, form: FormDat
 
 // ── 시리즈 묶기 (경기 화면의 시리즈 칸) ─────────────────────────────
 
-/** 시리즈 미지정 경기를 기존 시리즈에 넣거나, 다른 미지정 경기와 새 시리즈로 묶는다. 규칙은 assignMatchSeries 한 곳. */
+/** 묶지 않은 판(한 판짜리 시리즈)을 기존 시리즈에 넣거나, 다른 묶지 않은 판과 새 시리즈로 묶는다. 규칙은 assignMatchSeries 한 곳. */
 export async function assignSeriesAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   await requireAdmin();
   try {

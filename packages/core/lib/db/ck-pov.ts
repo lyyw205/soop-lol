@@ -13,8 +13,6 @@ import { isDeepStrictEqual } from "node:util";
 import type postgres from "postgres";
 
 import { db } from "./client.ts";
-import { affectedStreamers } from "./ck.ts";
-import { recomputeChampionStatsInTx, rederiveEncountersInTx } from "./ingest.ts";
 import { resolveChampion } from "./participant.ts";
 import {
   autoFillVerdict, loadReviewLockInTx, matchCell, participantCell, recordAutoChangesInTx, type AutoChange,
@@ -66,7 +64,7 @@ interface StoredMatchRow extends StoredMatch {
   game_creation_precision: "datetime" | "date";
 }
 
-/** 비교에 쓸 경기 값. 사람은 계정 주인을 먼저 본다(조우 파생·champion_stat 과 같은 순서). */
+/** 비교에 쓸 경기 값. 사람은 계정 주인을 먼저 본다(공개 집계 뷰 core_public.lol_versus_set 과 같은 순서). */
 export async function loadStoredMatchInTx(tx: Tx | postgres.Sql, matchId: string, lock = false): Promise<StoredMatchRow | null> {
   const rows = await tx<Omit<StoredMatchRow, "participants">[]>`
     SELECT match_id, winning_team, game_duration, series_id, series_game_no,
@@ -82,13 +80,18 @@ export async function loadStoredMatchInTx(tx: Tx | postgres.Sql, matchId: string
   return { ...rows[0], participants };
 }
 
-/** 방송 주인이 이 경기 또는 같은 시리즈·같은 대회의 어느 경기에 참가했나(계정 주인을 먼저 본다). */
+/**
+ * 방송 주인이 이 경기 또는 같은 시리즈·같은 행사의 어느 경기에 참가했나(계정 주인을 먼저 본다).
+ * 행사는 시리즈 경유 한 길이다. 자동 미분류 묶음(토너먼트 코드 날짜 묶음 등)은 "같은 행사" 가 아니라 그릇이라 넓히지 않는다.
+ */
 async function ownerInGroupInTx(tx: Tx, matchId: string, owner: string): Promise<boolean> {
   const [row] = await tx`
     SELECT 1 FROM match m
+      LEFT JOIN match_series ms ON ms.id = m.series_id
+      LEFT JOIN event e ON e.id = ms.event_id AND NOT e.auto_bucket
       JOIN match x ON x.match_id = m.match_id
                    OR (m.series_id IS NOT NULL AND x.series_id = m.series_id)
-                   OR (m.event_id IS NOT NULL AND x.event_id = m.event_id)
+                   OR (e.id IS NOT NULL AND x.series_id IN (SELECT xs.id FROM match_series xs WHERE xs.event_id = e.id))
       JOIN match_participant p ON p.match_id = x.match_id
       LEFT JOIN streamer_account sa ON sa.puuid = p.puuid AND sa.active_to IS NULL
      WHERE m.match_id = ${matchId} AND COALESCE(sa.streamer_id, p.streamer_id) = ${owner}::uuid
@@ -200,7 +203,6 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
   let kept = 0;
   const cmp = comparePov(stored, observed);
   if (role === "added" && !locked) {
-    const before = await affectedStreamers(tx, input.match_id);
     const auto: AutoChange[] = [];
     for (const f of fillPlan(cmp)) {
       const target = POV_FILL_COLUMNS[f.field];
@@ -247,12 +249,8 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
         }
       }
     }
+    // 공개 집계는 원본의 뷰다(0089) — 채운 칸이 곧 반영된다.
     await recordAutoChangesInTx(tx, auto);
-    if (filled.length) {
-      await rederiveEncountersInTx(tx, input.match_id);
-      const after = await affectedStreamers(tx, input.match_id);
-      await recomputeChampionStatsInTx(tx, [...new Set([...before, ...after])]);
-    }
   }
 
   // 이 VOD 의 사진만, 사람이 고치지 않은 것만 잇는다.

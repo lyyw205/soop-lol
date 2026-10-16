@@ -5,8 +5,9 @@ import { kstDateString } from "@soop-lol/core/lib/time";
 
 import { listScheduleForAdmin } from "@soop-lol/core/lib/db/schedule";
 import {
-  ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL,
+  ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL,
 } from "@soop-lol/core/lib/metrics/schedule";
+import { formatChipLabel } from "@soop-lol/core/lib/metrics/format";
 
 import { SetupNotice } from "@/components/admin/SetupNotice";
 import { Card, EmptyState, Tag } from "@/components/ui";
@@ -52,7 +53,7 @@ export default async function AdminSchedulePage({ searchParams }: { searchParams
               </span>
               <Link href={adminHref(`/admin/schedule/${r.id}`, { from: href })} className="font-medium hover:underline">{r.title}</Link>
               <Tag>{SCHEDULE_GAME_LABEL[r.game_code]}</Tag>
-              <Tag>{SCHEDULE_KIND_LABEL[r.planned_kind]}</Tag>
+              <Tag>{formatChipLabel(r.planned_format)}</Tag>
               <Tag tone={((r.state === "upcoming" || r.state === "in_progress") && r.period !== null && r.period.to < kstDateString(new Date())) ? "warn" : r.state === "held" || r.state === "in_progress" ? "accent" : "neutral"}>{ENTRY_STATE_LABEL[r.state]}</Tag>
               {r.visibility === "hidden" && <Tag tone="warn">숨김</Tag>}
               {r.visibility === "public" && r.source_count === 0 && <Tag tone="warn">출처 없음 — 공개 안 됨</Tag>}

@@ -2,7 +2,7 @@
   {
     "slug": "meljang-2026-geng",
     "name": "2026 LoL 멸망전 with Gen.G",
-    "kind": "tournament",
+    "format": "tournament",
     "organizer": "SOOP",
     "starts_at": "2026-07-19",
     "ends_at": "2026-08-01",

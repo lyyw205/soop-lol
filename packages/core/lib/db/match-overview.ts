@@ -6,14 +6,19 @@
  *
  * ★ 목록과 상세를 나눈다. 대회만 500 시리즈·9천 참가 자리라 한 번에 그리면 무겁다 —
  *   목록은 세트 요약만, 참가자는 펼친 시리즈만 읽는다.
- * ★ 분류는 event.kind 하나다(검수큐와 같다). 대회가 안 붙은 경기는 'other' 로 모은다.
- * ★ 공개 큐(API) 경기는 뺀다 — 검수큐·CLI 로 입력한 경기만 대상이다.
+ * ★ 분류는 행사의 진행 방식(event.format) 하나다(검수큐와 같다). 판은 반드시 시리즈·행사 안에 있으므로(0089)
+ *   "행사 없음" 묶음이 없다 — 모르는 것은 진행 방식 unclassified(분류 전) 하나로 보인다.
+ * ★ 내전 세트(scope='versus')만 대상이다 — 개인 기록 판(솔랭 도전 등)은 검수 대상이 아니다.
+ * ★ 검수 대기는 세 갈래다: 우선(값 확인이 급한 공개 경기) · 일반(나머지 공개 미검수) · **분류 대기**(자동 미분류 묶음 —
+ *   토너먼트 코드 날짜 묶음 등). 묶음의 판은 사람이 값을 확인할 길이 없고(값은 API 가 준 사실이다) 할 일은 시리즈를
+ *   실제 행사로 옮기는 것뿐이라, 우선 검수 숫자에 섞이면 영원히 줄지 않는다.
+ * ★ 숨긴 경기는 공개 집계에 없으므로 검수 대기 수에 넣지 않는다(목록에는 시리즈의 한 세트로 보인다).
  */
 
 import { db } from "./client.ts";
 import { REVIEW_PROGRESS_JOIN } from "./review-progress.ts";
 import { LOL_PRIORITY_REASONS } from "./review-priority.ts";
-import type { LeadEventKind } from "./ck.ts";
+import type { Format } from "../metrics/format.ts";
 import { lolReviewScope, type LoLReviewCollection } from "./lol-review-scope.ts";
 
 export interface OverviewSetSummary {
@@ -29,49 +34,58 @@ export interface OverviewSetSummary {
 }
 
 export interface OverviewSeriesRow {
-  /** 시리즈가 없는 단판은 경기 ID 가 곧 키다. */
+  /** 시리즈 키. 묶이지 않은 판은 한 판짜리 시리즈(`set:<match_id>`)다. */
   key: string;
-  kind: LeadEventKind;
-  event_name: string | null;
-  event_id: string | null;
+  format: Format;
+  /** 자동 미분류 묶음 소속 — "분류 대기". 사람은 시리즈를 실제 행사로 옮겨 분류한다. */
+  auto_bucket: boolean;
+  event_name: string;
+  event_id: string;
   round_label: string | null;
   best_of: number | null;
   set_order_known: boolean;
-  /** 시리즈로 묶었나. false 면 키가 경기 ID 인 "시리즈 미지정" 한 경기다 — 단판과 다르다(set-label.ts). */
+  /** 여러 판을 묶은 시리즈인가. false 면 한 판짜리 시리즈(`set:<match_id>`) — "시리즈 미지정" 한 경기다(set-label.ts). */
   has_series: boolean;
   first_played: Date;
   game_creation_precision: "datetime" | "date";
   sets: OverviewSetSummary[];
 }
 
+// 행사는 시리즈 경유 한 길이다. 내전 세트는 모두 시리즈·행사가 있으므로 안쪽 조인이다.
 const SERIES_EVENT_JOIN = `
-  LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-  LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id)`;
+  JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+  JOIN event e ON e.id = ms.event_id`;
+
+/** 검수 대기의 갈래. classify = 자동 미분류 묶음(분류 대기). */
+export type OverviewQueue = "priority" | "general" | "classify";
 
 export interface OverviewOptions {
   collection?: LoLReviewCollection;
-  kind?: LeadEventKind; unreviewed?: boolean; limit?: number; offset?: number; q?: string; event?: string; focus?: string; queue?: "priority" | "general";
+  format?: Format; unreviewed?: boolean; limit?: number; offset?: number; q?: string; event?: string; focus?: string; queue?: OverviewQueue;
 }
 function overviewWhere(opts: OverviewOptions) {
   const sql = db();
-  return sql`m.game_code = 'lol' AND m.source <> 'public_queue'
+  return sql`m.game_code = 'lol' AND m.scope = 'versus'
     AND ${lolReviewScope(opts.collection)}
-    AND (${opts.kind ?? null}::text IS NULL OR COALESCE(e.kind, 'other') = ${opts.kind ?? null})
-    AND (${opts.event ?? null}::text IS NULL OR e.slug = ${opts.event ?? null}
-      OR (${opts.event ?? null} = 'unlinked' AND COALESCE(ms.event_id, m.event_id) IS NULL))`;
+    AND (${opts.format ?? null}::text IS NULL OR e.format = ${opts.format ?? null})
+    AND (${opts.event ?? null}::text IS NULL OR e.slug = ${opts.event ?? null})`;
 }
+/** 검수 대기인 세트 — 공개 경기의 미완료만. 숨긴 경기는 집계에 없으므로 대기가 아니다. */
+const PENDING = `m.review_completed_at IS NULL AND m.visibility = 'public'`;
 function overviewHaving(opts: OverviewOptions) {
   const sql = db(), q = opts.q?.trim();
-  return sql`(${opts.unreviewed ?? false} = false OR bool_or(m.review_completed_at IS NULL))
-    AND (${opts.queue ?? null}::text IS NULL OR bool_or(m.review_completed_at IS NULL
-      AND CASE WHEN ${opts.queue ?? null} = 'priority' THEN cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) > 0
-        ELSE cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) = 0 END))
+  return sql`(${opts.unreviewed ?? false} = false OR bool_or(${sql.unsafe(PENDING)}))
+    AND (${opts.queue ?? null}::text IS NULL
+      OR (${opts.queue ?? null} = 'classify' AND bool_or(e.auto_bucket))
+      OR (${opts.queue ?? null} <> 'classify' AND NOT bool_or(e.auto_bucket) AND bool_or(${sql.unsafe(PENDING)}
+        AND CASE WHEN ${opts.queue ?? null} = 'priority' THEN cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) > 0
+          ELSE cardinality(${sql.unsafe(LOL_PRIORITY_REASONS)}) = 0 END)))
     AND (${q || null}::text IS NULL OR bool_or(concat_ws(' ', e.name, ms.round_label, m.match_id, m.series_id) ILIKE ${'%' + (q ?? '') + '%'}
       -- ★ 경기마다 도는 EXISTS(상관 서브쿼리)가 아니라 한 번만 계산하는 IN 이다. 검색어가 있으면 목록·개수·검수 화면의
       --   작업 목록이 모두 이 조건을 타는데, EXISTS 는 경기 수만큼 참가자 검색을 되풀이해 한 번에 1.2~1.9초가 걸렸다(2026-10-12 실측).
       --   검색 범위는 이 목록이 다루는 경기(공개 큐 제외)로 좁힌다 — 참가자 30만 자리 중 2.6만 자리만 훑는다.
       OR m.match_id IN (SELECT mp.match_id FROM match_participant mp
-          JOIN match mm ON mm.match_id = mp.match_id AND mm.game_code = 'lol' AND mm.source <> 'public_queue'
+          JOIN match mm ON mm.match_id = mp.match_id AND mm.game_code = 'lol' AND mm.scope = 'versus'
           LEFT JOIN streamer person ON person.id = mp.streamer_id
         WHERE concat_ws(' ', person.display_name, mp.observed_name) ILIKE ${'%' + (q ?? '') + '%'})))
     AND CASE ${opts.focus ?? ''} WHEN 'position' THEN bool_or(rp.position_count < 10)
@@ -81,8 +95,8 @@ function overviewHaving(opts: OverviewOptions) {
 export async function countOverviewSeries(opts: OverviewOptions = {}): Promise<number> {
   const sql = db();
   const [row] = await sql`SELECT count(*)::int AS n FROM (
-    SELECT COALESCE(m.series_id, m.match_id) FROM match m ${sql.unsafe(SERIES_EVENT_JOIN)} ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
-    WHERE ${overviewWhere(opts)} GROUP BY COALESCE(m.series_id, m.match_id) HAVING ${overviewHaving(opts)}
+    SELECT m.series_id FROM match m ${sql.unsafe(SERIES_EVENT_JOIN)} ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
+    WHERE ${overviewWhere(opts)} GROUP BY m.series_id HAVING ${overviewHaving(opts)}
   ) counted`;
   return row.n;
 }
@@ -92,8 +106,8 @@ export async function countOverviewSeries(opts: OverviewOptions = {}): Promise<n
  * ★ 목록(`listOverviewSeries`)과 검수 작업 목록(`listOverviewMatchIds`)이 **이 조각을 같이 쓴다.**
  *   검수 화면의 이전·다음·완료 후 이동이 목록에 보이는 순서와 어긋나지 않게 하려는 것이다(2026-10-11).
  */
-const GROUP_ORDER_COLUMNS = `COALESCE(m.series_id, m.match_id) AS key,
-           COALESCE(min(e.id::text), COALESCE(m.series_id, m.match_id)) AS group_key,
+const GROUP_ORDER_COLUMNS = `m.series_id AS key,
+           min(e.id::text) AS group_key,
            min(e.starts_at) AS event_start,
            min((m.game_creation AT TIME ZONE 'Asia/Seoul')::date) AS played_day,
            min(m.game_creation) FILTER (WHERE m.game_creation_precision = 'datetime') AS played_at,
@@ -106,14 +120,15 @@ const SET_ORDER = `m.series_game_no NULLS LAST, m.game_creation, m.match_id`;
 export async function listOverviewSeries(opts: OverviewOptions = {}): Promise<OverviewSeriesRow[]> {
   const sql = db();
   return sql<OverviewSeriesRow[]>`
-    SELECT key, kind, event_id, event_name, round_label, best_of, set_order_known, has_series, first_played, game_creation_precision, sets
+    SELECT key, format, auto_bucket, event_id, event_name, round_label, best_of, set_order_known, has_series, first_played, game_creation_precision, sets
       FROM (
     SELECT ${sql.unsafe(GROUP_ORDER_COLUMNS)},
            min(e.id::text) AS event_id,
-           COALESCE(min(e.kind), 'other') AS kind, min(e.name) AS event_name,
+           min(e.format) AS format, bool_or(e.auto_bucket) AS auto_bucket, min(e.name) AS event_name,
            min(ms.round_label) AS round_label, min(ms.best_of) AS best_of,
            COALESCE(bool_or(ms.set_order_known), false) AS set_order_known,
-           bool_or(m.series_id IS NOT NULL) AS has_series,
+           -- 한 판짜리 시리즈의 키는 'set:<match_id>' 다(classification.singleSetSeriesId · 0089).
+           bool_or(m.series_id <> 'set:' || m.match_id) AS has_series,
            CASE WHEN bool_and(m.game_creation_precision = 'datetime') THEN 'datetime' ELSE 'date' END AS game_creation_precision,
            json_agg(json_build_object(
              'match_id', m.match_id, 'series_game_no', m.series_game_no, 'winning_team', m.winning_team,
@@ -128,7 +143,7 @@ export async function listOverviewSeries(opts: OverviewOptions = {}): Promise<Ov
       LEFT JOIN event_team bt ON bt.id = m.blue_team_id
       LEFT JOIN event_team rt ON rt.id = m.red_team_id
      WHERE ${overviewWhere(opts)}
-     GROUP BY COALESCE(m.series_id, m.match_id) HAVING ${overviewHaving(opts)}
+     GROUP BY m.series_id HAVING ${overviewHaving(opts)}
       ) s
      ORDER BY ${sql.unsafe(GROUP_ORDER)}
      LIMIT ${opts.limit ?? 1000} OFFSET ${opts.offset ?? 0}
@@ -151,7 +166,7 @@ export async function listOverviewWorkList(opts: OverviewOptions = {}): Promise<
                ORDER BY ${sql.unsafe(SET_ORDER)}) AS items
         FROM match m ${sql.unsafe(SERIES_EVENT_JOIN)} ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
        WHERE ${overviewWhere(opts)}
-       GROUP BY COALESCE(m.series_id, m.match_id) HAVING ${overviewHaving(opts)}
+       GROUP BY m.series_id HAVING ${overviewHaving(opts)}
     ) s
     ORDER BY ${sql.unsafe(GROUP_ORDER)}`;
   return rows.flatMap((r) => r.items);
@@ -216,9 +231,9 @@ export async function getOverviewSeriesSets(key: string, collection?: LoLReviewC
       FROM match m
       LEFT JOIN event_team bt ON bt.id = m.blue_team_id
       LEFT JOIN event_team rt ON rt.id = m.red_team_id
-     WHERE m.game_code = 'lol' AND m.source <> 'public_queue'
+     WHERE m.game_code = 'lol' AND m.scope = 'versus'
        AND ${lolReviewScope(collection)}
-       AND COALESCE(m.series_id, m.match_id) = ${key}
+       AND m.series_id = ${key}
      ORDER BY m.series_game_no NULLS LAST, m.game_creation
   `;
 }

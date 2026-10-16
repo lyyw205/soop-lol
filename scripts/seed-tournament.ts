@@ -17,7 +17,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
-import { rederiveEncounters } from "@soop-lol/core/lib/db/ingest";
+// 행사 찾기·고치기는 분류 쓰기 단일 출처(classification.ts)다.
+import { ensureEventInTx, updateEventInTx } from "@soop-lol/core/lib/db/classification";
 import {
   listEventGames,
   mainPuuidsBySlug,
@@ -27,9 +28,8 @@ import {
   saveEventTeams,
   saveTournamentGame,
   streamerIdsBySlug,
-  ensureEventInTx,
-  updateEventInTx,
 } from "@soop-lol/core/lib/db/tournaments";
+import { allowedFormat, FORMATS_BY_GAME, isFormat, type Format } from "@soop-lol/core/lib/metrics/format";
 import { championByName } from "@soop-lol/core/lib/riot/champions";
 import { POSITIONS } from "@soop-lol/core/lib/riot/types";
 import { placementRank } from "@soop-lol/core/lib/metrics/placement";
@@ -110,7 +110,7 @@ interface SeedGame {
    * ★ 이 경기의 승패를 확정한 **결과 화면** 지점. VOD 시각(`1:05:00`)이나
    *   프레임 파일명(`lshooooo_203787373_f1_10500.jpg`).
    *
-   *   `kind: "ck"` 대회(=방송을 읽어 넣는 내전)에는 **필수**다.
+   *   `format` 이 ck·land·scrim 인 행사(=방송을 읽어 넣는 내전)에는 **필수**다.
    *   채팅 `!공지` 만 믿었다가 실제로 승자가 뒤집혔다 — 2026-08-08 시그니처CK
    *   2부 3세트에서 공지 두 개가 27초 사이로 서로 다른 승자를 말했고, 먼저 온
    *   오기를 채택해 사이트에 잘못 올라갔다. 공지는 **어디를 볼지 알려주는 단서**고,
@@ -123,7 +123,11 @@ interface SeedGame {
 interface SeedTournament {
   slug: string;
   name: string;
-  kind?: "ck" | "land" | "scrim" | "tournament" | "showmatch" | "other";
+  /**
+   * 진행 방식(event.format) — core metrics/format.ts 의 롤 어휘. 기본값이 없다(모르면 "unclassified").
+   * ★ 옛 `kind` 는 받지 않는다(변환하지 않는다): other → unclassified, showmatch → concept 으로 파일을 고쳐 적는다.
+   */
+  format?: Format;
   organizer?: string;
   starts_at?: string;
   ends_at?: string;
@@ -199,7 +203,13 @@ function validate(list: SeedTournament[]): string[] {
     else if (!/^[a-z0-9][a-z0-9-]*$/.test(t.slug)) errors.push(`${at}: slug 는 소문자·숫자·하이픈만`);
     if (!t.name) errors.push(`${at}: name 이 없다`);
     // ★ 분류에 기본값이 없다(0035). 빠뜨리면 예전엔 조용히 "내전" 이 됐다.
-    if (!t.kind) errors.push(`${at}: kind 가 없다 — ck·scrim·tournament·showmatch·other 중 하나를 적는다`);
+    if ("kind" in t) {
+      errors.push(`${at}: kind 는 없어졌다 — format 으로 적는다(옛 other → unclassified, showmatch → concept). 보상 여부는 분류 기준이 아니다`);
+    }
+    if (!t.format) errors.push(`${at}: format 이 없다 — ${FORMATS_BY_GAME.lol.join("·")} 중 하나를 적는다(모르면 unclassified)`);
+    else if (!(isFormat(t.format) && allowedFormat("lol", t.format))) {
+      errors.push(`${at}: format '${t.format}' 은 롤 진행 방식이 아니다 — ${FORMATS_BY_GAME.lol.join("·")}`);
+    }
     // ★ 이 검사가 이 스크립트의 존재 이유다.
     if (!t.source_url) errors.push(`${at}: source_url 이 없다 — 근거 없는 대회 기록은 만들지 않는다`);
     if (!t.teams || Object.keys(t.teams).length === 0) errors.push(`${at}: teams 가 비었다`);
@@ -240,7 +250,7 @@ function validate(list: SeedTournament[]): string[] {
     // ★ 로스터가 빈 팀은 오류가 아니다. 그 팀이 대회에 나온 건 사실인데 선수를
     //   한 명도 우리 스트리머로 매핑하지 못한 것뿐이다(옛 닉네임이라 해석 실패 등).
     //   경기는 그대로 넣는다 — 상대 팀 안에서 '같은 팀' 조우는 여전히 성립하고,
-    //   나중에 그 팀 선수의 계정이 붙으면 재파생으로 상대전적이 되살아난다(§11-5).
+    //   나중에 그 팀 선수가 등록·연결되면 상대전적이 곧바로 살아난다(공개 집계는 원본의 뷰다 — 0089).
     // 로스터를 한 명도 못 붙인 대회도 넣는다. 경기가 있었던 건 사실이고,
     // 나중에 명단을 알게 되면 다시 돌려 조우를 살릴 수 있다(§11-5).
     // 다만 화면에 아무것도 안 나오므로 눈에 띄게 알린다.
@@ -301,8 +311,8 @@ function validate(list: SeedTournament[]): string[] {
       if (!g.winner) errors.push(`${gat}: winner 가 없다`);
       // ★ 결과 화면 확인은 선택이 아니라 **마지막 필수 관문**이다.
       //   내전 승패의 정본은 방송의 LoL 최종 결과 화면뿐이다.
-      //   (주최측이 발표하는 대회 kind='tournament' 는 발표문이 원천이라 해당 없다)
-      if ((t.kind === "ck" || t.kind === "land" || t.kind === "scrim") && !g.result_evidence?.trim()) {
+      //   (주최측이 발표하는 대회 format='tournament' 는 발표문이 원천이라 해당 없다)
+      if ((t.format === "ck" || t.format === "land" || t.format === "scrim") && !g.result_evidence?.trim()) {
         errors.push(`${gat}: result_evidence 가 없다 — 내전·스크림은 결과 화면을 확인해야 넣는다`
           + ` (예: "1:05:00" · 프레임 파일명). 채팅 공지는 단서일 뿐이다`);
       }
@@ -364,7 +374,6 @@ if (errors.length > 0) {
 for (const w of warnings) console.warn(`  ⚠ ${w}`);
 
 let games = 0;
-let encounters = 0;
 /** 검수된 경기라 시드가 손대지 않은 것. 시드와 판독이 어긋난 자리다 (0020). */
 let skipped = 0;
 const missing = new Set<string>();
@@ -422,14 +431,15 @@ try {
 
     // ★ 시드는 이 대회의 **주인**이다 — 없으면 만들고, 있으면 파일 값으로 고친다.
     //   파일에 안 적은 칸은 그대로 둔다(생략 = 유지). 경기를 붙이기만 하는 조사 반영은
-    //   ensureEvent 로만 대회를 만나므로 여기서 고친 값을 덮지 못한다.
+    //   ensureEventInTx 로만 행사를 만나므로 여기서 고친 값을 덮지 못한다.
     const fields = {
-      name: t.name, kind: t.kind, organizer: t.organizer,
+      name: t.name, format: t.format, organizer: t.organizer,
       starts_at: t.starts_at, ends_at: t.ends_at, source_url: t.source_url,
     };
     const eventId = await db().begin(async (tx) => {
-      const [have] = await tx`SELECT 1 FROM event WHERE slug = ${t.slug}`;
-      return have ? updateEventInTx(tx, t.slug, fields) : ensureEventInTx(tx, { slug: t.slug, ...fields });
+      const [have] = await tx<{ game_code: string }[]>`SELECT game_code FROM event WHERE slug = ${t.slug}`;
+      if (have && have.game_code !== "lol") throw new Error(`${t.slug} 는 ${have.game_code} 행사다 — 롤 대회 시드로 고치지 않는다.`);
+      return have ? updateEventInTx(tx, t.slug, fields) : ensureEventInTx(tx, { game_code: "lol", slug: t.slug, ...fields });
     }) as string;
 
     // 팀 명단을 대회 단위로 저장한다. 계정이 없는 스트리머도 팀 명단에는 들어간다 —
@@ -560,15 +570,12 @@ try {
     const pruned = await pruneEventMatches(eventId, matchIds);
     if (pruned > 0) console.log(`  이번 시드에 없는 낡은 경기 ${pruned}건을 지웠다`);
 
-    // 조우 파생. 공개 큐와 같은 경로를 쓴다 — 대회를 위한 별도 계보를 만들지 않는다.
-    if (matchIds.length > 0) {
-      encounters += await rederiveEncounters(matchIds);
-    }
+    // 공개 집계(상대전적·챔피언)는 원본의 뷰라(0089) 다시 만들 파생이 없다 — 저장이 곧 반영이다.
     const saved = await listEventGames(t.slug);
     console.log(`  → 대회에 저장된 경기 ${saved.length}건`);
   }
 
-  console.log(`\n경기 ${games}건 · 조우 ${encounters}쌍`
+  console.log(`\n경기 ${games}건`
     + `${skipped > 0 ? ` · 검수돼 건드리지 않은 경기 ${skipped}건` : ""}`
     + `${dryRun ? "  (dry-run — 쓰지 않았다)" : ""}`);
   // ★ 미등록은 **경고가 아니라 실패**다.

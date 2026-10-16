@@ -99,7 +99,7 @@ export function vodWork(raw: ScanRaw | undefined, apiSeconds: number | null, key
   // 예전 기록은 5~15분이었다. 이 대체 규칙은 requested 가 없던 예전 기록과의 호환용이라 지우지 않는다).
   const requested = mergeRanges(scan?.requested?.length ? scan.requested : (scan?.sampled ?? []));
   const failed = coveredSeconds(scan?.failed ?? []);
-  // 미해결 후보(raw.candidates)는 롤 조사의 것이다. FC 조사는 미해결을 경기 맥락(fco_match_context)에 남긴다.
+  // 미해결 후보(raw.candidates)는 롤 조사의 것이다. FC 조사의 판단은 행사의 진행 방식과 판단 이력(review_change)에 남는다(0089).
   const candidates = key === 'scan' ? activeCandidates(raw) : [];
   const unresolved = candidates.filter(c => c.conclusion === 'unresolved').length;
   const settled = candidates.filter(c => c.conclusion === 'not_target'

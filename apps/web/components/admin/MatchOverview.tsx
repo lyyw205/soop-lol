@@ -19,7 +19,8 @@ import { loadOverviewSetsAction, toggleOverviewReviewAction } from "@/app/admin/
 import { adminHref } from "@/lib/admin-navigation";
 import { EventMatchRow } from "./EventMatchRow";
 import { ReviewProgressHeaders } from "./ReviewProgress";
-import { EVENT_KIND_LABEL } from "@/lib/admin-labels";
+import { eventFormatLabel } from "@/lib/admin-labels";
+import type { Format } from "@soop-lol/core/lib/metrics/format";
 
 type Side = 100 | 200;
 const sideName = (set: { blue_team: string | null; red_team: string | null }, side: Side) =>
@@ -112,12 +113,13 @@ export function MatchOverview({ series, mode = "compare", returnTo = "/admin/ove
     update(setErrors, key, res.ok ? undefined : res.message);
   };
 
-  // 목록은 이미 대회 단위로 붙어서 온다(listOverviewSeries 의 정렬). 이어지는 같은 대회를 한 묶음으로.
-  const groups: { id: string; name: string | null; kind: string; series: OverviewSeriesRow[] }[] = [];
+  // 목록은 이미 행사 단위로 붙어서 온다(listOverviewSeries 의 정렬). 이어지는 같은 행사를 한 묶음으로.
+  //   판은 반드시 행사 안에 있다(0089) — "행사 미연결" 묶음이 없다. 모르는 형식은 "분류 전", 자동 묶음은 "분류 대기".
+  const groups: { id: string; name: string; format: Format; auto_bucket: boolean; series: OverviewSeriesRow[] }[] = [];
   for (const s of series) {
-    const last = groups.find(g => g.id === (s.event_id ?? "unlinked"));
-    if (last && last.id === (s.event_id ?? "unlinked")) last.series.push(s);
-    else groups.push({ id: s.event_id ?? "unlinked", name: s.event_name, kind: s.kind, series: [s] });
+    const last = groups.find(g => g.id === s.event_id);
+    if (last) last.series.push(s);
+    else groups.push({ id: s.event_id, name: s.event_name, format: s.format, auto_bucket: s.auto_bucket, series: [s] });
   }
   // 접기 상태의 키는 대회 이름이다(g.id 는 목록 위치를 포함해 새로고침마다 안 바뀐다는 보장이 없다).
   const foldKey = (g: { id: string }) => g.id;
@@ -143,8 +145,8 @@ export function MatchOverview({ series, mode = "compare", returnTo = "/admin/ove
       return <section key={g.id} className="overview-group" data-folded={folded || undefined}>
         <button type="button" className="overview-event" aria-expanded={!folded} onClick={() => toggleGroup(g)}>
           {folded ? <ChevronRight size={16} aria-hidden /> : <ChevronDown size={16} aria-hidden />}
-          <span className="overview-event-kind">{EVENT_KIND_LABEL[g.kind] ?? g.kind}</span>
-          <span className="overview-event-name">{g.name ?? "대회 미연결"}</span>
+          <span className="overview-event-kind">{eventFormatLabel(g.format, g.auto_bucket)}</span>
+          <span className="overview-event-name">{g.name}</span>
           {/* 묶지 않은 경기는 시리즈로 세지 않는다 — "시리즈 7 · 세트 7" 은 시리즈가 7개라는 뜻이 아니었다. */}
           <span className="overview-event-meta">시리즈 {g.series.filter(s => s.has_series).length}
             {g.series.some(s => !s.has_series) && <> · 시리즈 미지정 {g.series.filter(s => !s.has_series).length}경기</>} · 세트 {setCount}</span>
@@ -157,7 +159,7 @@ export function MatchOverview({ series, mode = "compare", returnTo = "/admin/ove
             return <span key={key} className={complete === setCount ? 'text-win' : 'text-amber-300'}>{label} {complete}/{setCount}경기</span>;
           })}
         </div>
-        {!folded && <ul aria-label={`${g.name ?? "대회 미연결"} 경기`}>
+        {!folded && <ul aria-label={`${g.name} 경기`}>
           {g.series.map(s => <SeriesItem key={s.key} s={s} mode={mode} returnTo={returnTo} focus={focus} isOpen={open.has(s.key)} onToggle={() => toggle(s.key)}
             sets={sets.get(s.key)} error={errors.get(s.key)} loading={loading && loadingKey === s.key}
             chosen={chosen} choose={choose}

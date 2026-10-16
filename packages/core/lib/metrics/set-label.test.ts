@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isStandaloneSet, setLabel } from "./set-label.ts";
+import { isStandaloneSet, isUnbundledSet, setLabel, SINGLE_SET_SERIES_PREFIX } from "./set-label.ts";
+import { singleSetSeriesId } from "../db/classification.ts";
 
 const base = { standalone: false, best_of: null, set_order_known: false, series_game_no: 2 };
 
@@ -27,4 +28,12 @@ test("시리즈 미지정: 묶지 않은 수기 경기는 단판이라고 부르
   assert.equal(setLabel({ ...base, standalone: true, unassigned: false }), "단판", "넘기지 않으면 예전대로(공개 큐 단독 경기)");
   assert.equal(setLabel({ ...base, standalone: true, best_of: 1 }), "단판", "단판으로 확인한 경기(경기 ID 키 시리즈 + best_of=1)");
   assert.equal(setLabel({ ...base, unassigned: true, set_role: "bonus" }), "보너스", "보너스 판 이름이 먼저");
+});
+
+test("묶이지 않은 판은 한 판짜리 시리즈(set:<경기>)에 있다 — 쓰기 단일 출처와 같은 키", () => {
+  assert.equal(SINGLE_SET_SERIES_PREFIX + "KR_1", singleSetSeriesId("KR_1"));
+  assert.equal(isStandaloneSet("vod:1:g1", singleSetSeriesId("vod:1:g1")), true);
+  assert.equal(isUnbundledSet("vod:1:g1", singleSetSeriesId("vod:1:g1")), true);
+  assert.equal(isUnbundledSet("m:g03s1", "m:g03s1"), false, "시드의 단판 시리즈(경기 ID 키)는 정한 시리즈다");
+  assert.equal(isUnbundledSet("vod:1:g2", singleSetSeriesId("vod:1:g1")), false);
 });

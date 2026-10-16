@@ -11,15 +11,17 @@ import { applyAll } from './lib/migrations.ts';
 import { db,closeDb } from '../packages/core/lib/db/client.ts';
 import * as ck from '../packages/core/lib/db/ck.ts';
 import { verifyCkDuplicatesDb } from './lib/verify-ck-duplicates.ts';
+import { lolEvent } from './lib/verify-ck-fixtures.ts';
 const pg=await disposablePostgres();
 process.env.DATABASE_URL=pg.url; process.env.DATABASE_POOL_MAX='3';
 const other=postgres(pg.url,{max:1});
 try {
   await applyAll(s=>other.unsafe(s),new URL('..',import.meta.url).pathname);
   await verifyCkDuplicatesDb();
+  const event = await lolEvent('verify-concurrency');
   // 서로 다른 신규 ID는 같은 행을 잠그지 못한다. 자정 양쪽의 실제 두 트랜잭션으로 재현한다.
   const duplicateInput = (id: string, at: string): ck.CkMatchInput => ({
-    match_id: id, played_at: new Date(at), played_at_precision: 'datetime', duration: 1500, winning_team: 100,
+    match_id: id, event_id: event, played_at: new Date(at), played_at_precision: 'datetime', duration: 1500, winning_team: 100,
     participants: Array.from({length: 10}, (_, i) => ({participant_id:i+1, team_id:i<5?100:200,
       observed_name:`동시 저장 ${i}`, champion_id:i+1, kills:i, deaths:i+1, assists:i+2})),
   });
@@ -46,7 +48,7 @@ try {
   await first; await secondRejected;
   assert.equal((await db()`SELECT 1 FROM match WHERE match_id LIKE 'duplicate-concurrent:%'`).length,1);
   console.log('Concurrent duplicate saves: advisory lock wait across KST midnight, recheck after commit, rejected insert rolled back');
-  await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:'concurrent',played_at:new Date(),winning_team:100,result_evidence:'initial',participants:[{participant_id:1,team_id:100,observed_name:'A',kills:5}]});
+  await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:'concurrent',event_id:event,played_at:new Date(),winning_team:100,result_evidence:'initial',participants:[{participant_id:1,team_id:100,observed_name:'A',kills:5}]});
   // Hold a real row lock; release only after the competing UPDATE is observed waiting.
   let release!:()=>void, locked!:()=>void;
   const gate=new Promise<void>(r=>release=r), ready=new Promise<void>(r=>locked=r);

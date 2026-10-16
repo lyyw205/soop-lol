@@ -10,7 +10,8 @@
  *      대신 검수 어드민이 **사후에 고칠 수 있어야** 한다 — 그게 규칙을 느슨하게 한 대가다.
  *   2. **사람이 만진 것은 자동 수집이 덮지 않는다** (`match.reviewed_at`).
  *   3. **제외는 삭제가 아니다** (`match.visibility='hidden'`). 복구와 재생성 방지가 공짜다.
- *   4. **원본 수정과 파생 갱신은 한 트랜잭션이다.** 중간에 실패하면 승패가 어긋난 채 남는다.
+ *   4. **경기는 반드시 행사·시리즈 안에 둔다**(0089). 진행 방식은 세트 → 시리즈 → 행사 한 길로만 찾는다 —
+ *      행사 없이 들어온 판을 조용히 "기타" 로 두지 않고 거부한다. 파생 표가 없으므로 고친 값이 곧 공개 집계다.
  */
 
 import type { ScanKey } from "../metrics/ck-vod-status.ts";
@@ -20,10 +21,12 @@ import type postgres from "postgres";
 import { db } from "./client.ts";
 import { lolReviewScope, type LoLReviewCollection } from "./lol-review-scope.ts";
 import { blindOverlap, duplicateParticipantCounts, isDuplicateGame, withinDuplicateWindow, type DuplicateParticipant } from "../metrics/ck-duplicate.ts";
-import { recomputeChampionStatsInTx, rederiveEncountersInTx } from "./ingest.ts";
+import type { Format } from "../metrics/format.ts";
+// 판을 행사·시리즈에 두는 쓰기는 classification.ts 한 곳이다(제외 확인·게임 대조가 거기 있다).
+import { moveSeriesInTx, placeSetInTx, placeSingleSetInTx, singleSetSeriesId } from "./classification.ts";
 // 참가자 불변식(챔피언 이름↔ID · 계정↔사람)은 나무위키 시드 경로와 **같은 것**을 쓴다.
 import { assertIdentityAgrees, resolveChampion } from "./participant.ts";
-import { ensureMatchSeries, validateBestOf } from "./series.ts";
+import { validateBestOf } from "./series.ts";
 import type { MatchOutcome } from "./types.ts";
 // 「어디까지 봤나」 는 조사 도구와 저장 경로가 같은 계산을 써야 한다.
 import { mergeRanges, subtractRanges } from "../metrics/ranges.ts";
@@ -41,12 +44,11 @@ type Tx = postgres.TransactionSql;
 // ── event_lead — VOD 스캔 단서 ──────────────────────────────────────
 
 export type EventLeadSource = "vod_title" | "board_post" | "chat_notice" | "live_title" | "official_hub" | "manual";
-/**
- * 단서가 이어진 경기들의 분류 = 그 경기가 속한 **event.kind** (대회가 없는 경기는 other).
+/*
+ * 단서가 이어진 경기들의 분류 = 그 경기의 시리즈가 속한 **행사의 진행 방식(event.format)**.
  * ★ 단서에는 분류 칸이 없다(0035). 예전 event_lead.kind 는 "시트가 경기 화면을 감지" ·
- *   "조사자의 추정" · "검수 탭 기준" 을 한 칸에 겹쳐 담아 event.kind 와 따로 놀았다.
+ *   "조사자의 추정" · "검수 탭 기준" 을 한 칸에 겹쳐 담아 행사 분류와 따로 놀았다.
  */
-export type LeadEventKind = "ck" | "land" | "scrim" | "tournament" | "showmatch" | "other";
 export type EventLeadState = "new" | "confirmed" | "rejected" | "ignored";
 
 /** 시간 구간 [시작초, 끝초]. VOD **전체** 시간축이다 (분할 파일 로컬 시각이 아니다). */
@@ -154,8 +156,8 @@ export interface EventLeadListRow extends EventLeadRow, ReviewProgress {
   completed_count: number;
   /** 근거가 붙은 경기 수. */
   match_count: number;
-  /** 이어진 경기들이 속한 대회의 분류(중복 없음). 비었으면 아직 경기에 안 이어진 단서다. */
-  event_kinds: LeadEventKind[];
+  /** 이어진 경기들이 속한 행사의 진행 방식(중복 없음). 비었으면 아직 경기에 안 이어진 단서다. */
+  event_formats: Format[];
 }
 
 export interface EventLeadInput {
@@ -459,8 +461,8 @@ export async function listEventLeads(opts: {
   from?: Date;
   to?: Date;
   state?: EventLeadState;
-  /** 이어진 경기의 대회 분류로 거른다. "unlinked" 는 경기에 아직 안 이어진 단서. */
-  event_kind?: LeadEventKind | "unlinked";
+  /** 이어진 경기의 행사 진행 방식으로 거른다. "unlinked" 는 경기에 아직 안 이어진 단서. */
+  event_format?: Format | "unlinked";
   channel_id?: string;
   limit?: number;
   with_matches?: boolean;
@@ -472,7 +474,7 @@ export async function listEventLeads(opts: {
            linked.n::int                                             AS match_count,
            linked.completed::int AS completed_count,
            linked.participant_count, linked.position_count, linked.linked_count, linked.champion_count, linked.kda_count,
-           linked.kinds                                              AS event_kinds
+           linked.formats                                            AS event_formats
       FROM event_lead el
       -- ★ 이 VOD 에서 나온 경기는 lead_match 뷰 하나가 정한다(0035). 예전엔 세 갈래
       --   (근거 프레임·후보·출처 URL) 규칙이 여기 두 벌, 상세 화면에 한 벌 복사돼 있었다.
@@ -485,21 +487,22 @@ export async function listEventLeads(opts: {
                COALESCE(sum(rp.linked_count), 0)::int AS linked_count,
                COALESCE(sum(rp.champion_count), 0)::int AS champion_count,
                COALESCE(sum(rp.kda_count), 0)::int AS kda_count,
-               COALESCE(array_agg(DISTINCT COALESCE(e.kind, 'other')), '{}') AS kinds
+               -- 진행 방식은 세트 → 시리즈 → 행사 한 길이다. 개인 기록 판(시리즈 밖)은 분류가 없어 빠진다.
+               COALESCE(array_agg(DISTINCT e.format) FILTER (WHERE e.format IS NOT NULL), '{}') AS formats
           FROM lead_match lm
           JOIN match m ON m.match_id = lm.match_id AND m.game_code = 'lol'
           ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
           LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-          LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id)
+          LEFT JOIN event e ON e.id = ms.event_id
          WHERE lm.lead_id = el.id
            AND ${lolReviewScope(opts.collection)}
       ) linked
      WHERE (${opts.from ?? null}::timestamptz IS NULL OR el.observed_at >= ${opts.from ?? null})
        AND (${opts.to ?? null}::timestamptz IS NULL OR el.observed_at < ${opts.to ?? null})
        AND (${opts.state ?? null}::text IS NULL OR el.state = ${opts.state ?? null})
-       AND (${opts.event_kind ?? null}::text IS NULL
-            OR (${opts.event_kind ?? null} = 'unlinked' AND linked.n = 0)
-            OR ${opts.event_kind ?? null} = ANY(linked.kinds))
+       AND (${opts.event_format ?? null}::text IS NULL
+            OR (${opts.event_format ?? null} = 'unlinked' AND linked.n = 0)
+            OR ${opts.event_format ?? null} = ANY(linked.formats))
        AND (${opts.channel_id ?? null}::text IS NULL OR el.channel_id = ${opts.channel_id ?? null})
        AND (${opts.with_matches ?? false} = false OR linked.n > 0)
        AND (${opts.unreviewed ?? false} = false OR linked.completed < linked.n)
@@ -667,7 +670,13 @@ export async function relinkEvidenceFrame(frameId: string, matchId: string | nul
 
 // ── match / match_participant ───────────────────────────────────────
 
-/** 미연결 근거에서 관리자가 누락 경기를 복구한다. 빈 로스터는 기존 검수로 채운다. */
+/**
+ * 미연결 근거에서 관리자가 누락 경기를 복구한다. 빈 로스터는 기존 검수로 채운다.
+ *
+ * ★ 경기는 행사·시리즈 없이 만들지 않는다(0089). 기존 시리즈에 넣으면 그 시리즈의 행사를 따르고(행사를 같이
+ *   골랐으면 같아야 한다), 시리즈 없이 행사만 고르면 그 행사의 한 판짜리 시리즈가 된다. 둘 다 없으면 거부한다 —
+ *   조용히 미분류 그릇에 넣으면 사람이 고른 적 없는 분류가 생긴다.
+ */
 export async function createMatchFromEvidence(input: {
   frame_id: string; played_at: Date; series_id: string | null; series_game_no: number | null;
   event_id: string | null; winning_team: 100 | 200 | null;
@@ -677,6 +686,7 @@ export async function createMatchFromEvidence(input: {
   if (input.series_id ? !Number.isInteger(input.series_game_no) || input.series_game_no! < 1 : input.series_game_no !== null) {
     throw new Error("시리즈와 1 이상의 세트 번호를 함께 지정해 주세요.");
   }
+  if (!input.series_id && !input.event_id) throw new Error("행사(또는 기존 시리즈)를 골라 주세요 — 행사 없는 경기는 만들지 않습니다.");
   return db().begin(async tx => {
     const [frame] = await tx<{ lead_id: string; match_id: string | null }[]>`
       SELECT lead_id, match_id FROM match_evidence_frame WHERE id = ${input.frame_id}::uuid FOR UPDATE`;
@@ -687,32 +697,42 @@ export async function createMatchFromEvidence(input: {
       if (frame.match_id === matchId) return { match_id: matchId, existing: false };
       throw new Error("이미 다른 경기에 연결된 프레임입니다. 새로고침해 주세요.");
     }
+    let eventId = input.event_id;
     if (input.series_id) {
-      const [series] = await tx<{ game_code: string }[]>`
-        SELECT game_code FROM match_series WHERE id = ${input.series_id} FOR UPDATE`;
+      const [series] = await tx<{ game_code: string; event_id: string }[]>`
+        SELECT game_code, event_id FROM match_series WHERE id = ${input.series_id} FOR UPDATE`;
       if (!series || series.game_code !== "lol") throw new Error("LoL 시리즈를 선택해 주세요.");
+      if (eventId && eventId !== series.event_id) throw new Error("고른 행사와 시리즈의 행사가 다릅니다 — 시리즈는 행사 하나에 속합니다.");
+      eventId = series.event_id;
       const [existing] = await tx<{ match_id: string }[]>`
         SELECT match_id FROM match WHERE series_id = ${input.series_id} AND series_game_no = ${input.series_game_no}`;
       if (existing) return { match_id: existing.match_id, existing: true };
     }
-    // 빈 경기에는 파생할 참가자 통계가 없다. 추가 후 갱신은 applyMatchReview가 맡는다.
+    // ★ 판을 시리즈에 두는 길은 placeSetInTx 하나다 — 그래서 먼저 시리즈 밖(personal)으로 만들고 곧바로 둔다.
+    //   같은 트랜잭션이라 시리즈 밖 상태는 밖에서 보이지 않는다.
     await tx`
       INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, game_creation,
-        game_creation_precision, winning_team, source, origin, event_id, series_id, series_game_no, reviewed_at)
+        game_creation_precision, winning_team, collected_via, scope, reviewed_at)
       VALUES (${matchId}, 'lol', 0, '0', 'CUSTOM', ${input.played_at}, 'date', ${input.winning_team},
-        'manual', 'admin', ${input.series_id ? null : input.event_id}::uuid,
-        ${input.series_id}, ${input.series_game_no}, now())`;
+        'manual', 'personal', now())`;
+    if (input.series_id) {
+      await placeSetInTx(tx, { match_id: matchId, game_no: input.series_game_no!, actor: "admin",
+        series: { id: input.series_id, game_code: "lol", event_id: eventId! } });
+    } else {
+      await placeSingleSetInTx(tx, { match_id: matchId, game_code: "lol", event_id: eventId!, actor: "admin" });
+    }
     await tx`UPDATE match_evidence_frame SET match_id = ${matchId}, reviewed_at = now()
       WHERE id = ${input.frame_id}::uuid`;
     await recordReviewChanges(tx, [
-      { match_id: matchId, lead_id: frame.lead_id, entity: "match", entity_key: matchId, field: "created", before: null, after: { origin: "admin", series_id: input.series_id, series_game_no: input.series_game_no } },
+      { match_id: matchId, lead_id: frame.lead_id, entity: "match", entity_key: matchId, field: "created", before: null, after: { collected_via: "manual", event_id: eventId, series_id: input.series_id, series_game_no: input.series_game_no } },
       { match_id: matchId, lead_id: frame.lead_id, entity: "frame", entity_key: input.frame_id, field: "match_id", before: null, after: matchId },
     ]);
     return { match_id: matchId, existing: false };
   }) as Promise<{ match_id: string; existing: boolean }>;
 }
 
-export type MatchOrigin = "wiki_seed" | "vod_scan" | "admin";
+/** 어떻게 알았나(0089). 분류 판정에 쓰지 않는다 — 진행 방식은 행사에만 있다. */
+export type CollectedVia = "api" | "vod" | "manual";
 export type MatchVisibility = "public" | "hidden";
 
 export interface CkMatchParticipantInput {
@@ -740,7 +760,12 @@ export interface CkMatchInput {
   match_id: string;
   /** 실제 화면으로 확인한 규칙. 생략은 구형 제출 호환(CUSTOM), 칼바람은 반드시 ARAM. */
   game_mode?: 'CLASSIC' | 'ARAM';
-  event_id?: string | null;
+  /**
+   * 이 판이 속한 행사(event.id). **필수다** — 행사 없는 판은 저장하지 않는다(0089). 형식을 모르면 행사의
+   * 진행 방식을 unclassified 로 만든다(ck:merge 의 event.format). 이미 있는 시리즈에 붙일 때만 비울 수 있고,
+   * 그때는 그 시리즈의 행사를 따른다(지어내지 않는다 — 시리즈가 이미 정한 사실이다).
+   */
+  event_id: string | null;
   played_at: Date;
   /**
    * `played_at` 의 **시각까지** 확인했나. 기본값이 없다(0035) — VOD 에서 찾았다고 시각이
@@ -749,12 +774,13 @@ export interface CkMatchInput {
   played_at_precision: "datetime" | "date";
   /**
    * 이 세트가 속한 시리즈의 **세트 순서**를 확인했나. true 만 반영된다 — "모름" 은 기존의
-   * 확인된 값을 내리지 않는다(ensureMatchSeries).
+   * 확인된 값을 내리지 않는다(classification.ensureSeriesInTx).
    */
   set_order_known?: boolean;
   duration?: number | null;
   source_url?: string | null;
   result_evidence?: string | null;
+  /** 여러 판을 묶은 시리즈. 비우면 그 행사의 한 판짜리 시리즈(`set:<match_id>`)가 된다. */
   series_id?: string | null;
   series_game_no?: number | null;
   /**
@@ -770,8 +796,6 @@ export interface CkMatchInput {
   red_team_id?: string | null;
   winning_team: 100 | 200;
   participants: CkMatchParticipantInput[];
-  /** 기본 `vod_scan`. 어드민이 미연결 프레임에서 직접 만들면 `admin`. */
-  origin?: MatchOrigin;
   /**
    * 이 판단의 근거가 된 프레임 id. **명시한 것만** 잇는다.
    * ⚠ 예전엔 "그 lead 의 미배정 프레임 전부"를 붙였는데, VOD 하나에 경기가 여럿이라
@@ -795,11 +819,20 @@ export interface MatchRow extends ReviewProgress {
   game_creation: Date;
   game_duration: number | null;
   winning_team: 100 | 200 | null;
-  source: string;
-  origin: MatchOrigin | null;
+  /** 어떻게 알았나 — 관리 화면의 출처 라벨(admin-labels). */
+  collected_via: CollectedVia;
+  /** versus = 시리즈 안 내전 세트, personal = 시리즈 밖 개인 기록(솔랭 도전 등). */
+  scope: "versus" | "personal";
+  /** 롤 맵(match 생성 칼럼): rift·aram·unsupported. 검수 협곡/칼바람 구분이 이것 하나를 본다. */
+  map: "rift" | "aram" | "unsupported" | null;
   visibility: MatchVisibility;
   reviewed_at: Date | null;
+  /** 시리즈의 행사(세트 → 시리즈 → 행사 한 길). 개인 기록 판은 null. */
   event_id: string | null;
+  /** 그 행사의 진행 방식. 미분류는 'unclassified'. */
+  event_format: Format | null;
+  /** 그 행사가 자동 미분류 묶음인가(토너먼트 코드 날짜 묶음 등) — 사람은 시리즈를 실제 행사로 옮겨 분류한다. */
+  event_auto_bucket: boolean;
   source_url: string | null;
   result_evidence: string | null;
   series_id: string | null;
@@ -812,6 +845,7 @@ export interface MatchRow extends ReviewProgress {
   game_creation_precision: "datetime" | "date";
   /** 세트 순서를 출처에서 확인했나. false 면 "N세트" 로 단정하지 않는다. 시리즈 없으면 false. */
   set_order_known: boolean;
+  set_role: "main" | "bonus";
 }
 
 export interface MatchParticipantRow {
@@ -846,14 +880,17 @@ export interface MatchDetail {
 }
 
 const MATCH_COLUMNS = `m.match_id, m.game_code, m.queue_id, m.game_mode, m.game_creation, m.game_duration, m.winning_team,
-  m.source, m.origin, m.visibility, m.reviewed_at, m.review_completed_at, m.review_version,
-  rp.participant_count, rp.position_count, rp.linked_count, rp.champion_count, rp.kda_count, COALESCE(ms.event_id, m.event_id) AS event_id,
+  m.collected_via, m.scope, m.map, m.visibility, m.reviewed_at, m.review_completed_at, m.review_version, m.set_role,
+  rp.participant_count, rp.position_count, rp.linked_count, rp.champion_count, rp.kda_count,
+  ms.event_id, ev.format AS event_format, COALESCE(ev.auto_bucket, false) AS event_auto_bucket,
   m.source_url,
   -- 최종 결과 근거의 정본은 review_record 하나다(0040 에서 match.result_evidence 제거).
   (SELECT rr.body FROM review_record rr WHERE rr.match_id = m.match_id AND rr.type = 'final_evidence') AS result_evidence,
   m.series_id, m.series_game_no, ms.best_of, ms.best_of_evidence,
   m.blue_team_id, m.red_team_id, m.game_creation_precision, COALESCE(ms.set_order_known, false) AS set_order_known`;
-const MATCH_SERIES_JOIN = `LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code ${REVIEW_PROGRESS_JOIN}`;
+// 진행 방식을 찾는 길은 세트 → 시리즈 → 행사 하나다(COALESCE 두 길 없음). 개인 기록 판은 시리즈가 없어 LEFT JOIN.
+const MATCH_SERIES_JOIN = `LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+  LEFT JOIN event ev ON ev.id = ms.event_id ${REVIEW_PROGRESS_JOIN}`;
 
 /** 관리자 화면 표시용 Riot ID. 이름을 모르면(조회 전·404) null. MatchParticipantRow.riot_id 참고. */
 const RIOT_ID_COLUMN = `(SELECT ra.game_name || COALESCE('#' || ra.tag_line, '') FROM riot_account ra
@@ -875,15 +912,19 @@ export async function upsertMatchFromScan(g: CkMatchInput): Promise<boolean> {
   return db().begin((tx) => upsertMatchFromScanInTx(tx, g)) as Promise<boolean>;
 }
 
-/** 근거를 확인한 운영 정정. 모드·공개 집계·수정 이력을 한 트랜잭션으로 갱신한다. */
+/**
+ * 근거를 확인한 운영 정정. 모드와 수정 이력을 한 트랜잭션으로 갱신한다.
+ * 맵(협곡/칼바람)은 모드에서 정해지는 생성 칼럼이라 따라 바뀌고, 공개 집계는 뷰라 다시 만들 것이 없다.
+ */
 export async function correctMatchMode(input: {
   match_id: string; expected_mode: string | null; game_mode: 'CLASSIC' | 'ARAM'; evidence_frame: string; reason: string;
 }): Promise<void> {
   if (!['CLASSIC', 'ARAM'].includes(input.game_mode) || !input.reason.trim()) throw new Error('확인한 모드와 근거 사유가 필요하다');
   await db().begin(async tx => {
-    const [current] = await tx<{ game_mode: string | null; map_id: number | null; game_code: string; source: string }[]>`
-      SELECT game_mode,map_id,game_code,source FROM match WHERE match_id=${input.match_id} FOR UPDATE`;
-    if (!current || current.game_code !== 'lol' || current.source !== 'manual') throw new Error('수기 LoL 경기를 찾지 못했다');
+    const [current] = await tx<{ game_mode: string | null; map_id: number | null; game_code: string; collected_via: CollectedVia }[]>`
+      SELECT game_mode,map_id,game_code,collected_via FROM match WHERE match_id=${input.match_id} FOR UPDATE`;
+    // API 경기의 모드는 Riot 이 준 사실이다 — 사람이 화면으로 고치는 것은 영상 판독·수기 경기뿐이다.
+    if (!current || current.game_code !== 'lol' || current.collected_via === 'api') throw new Error('영상 판독·수기 LoL 경기를 찾지 못했다');
     if (current.game_mode !== input.expected_mode) throw new Error('조회 이후 모드가 변경됐다. 다시 확인할 것');
     const [frame] = await tx<{ lead_id: string }[]>`
       SELECT lead_id FROM match_evidence_frame WHERE match_id=${input.match_id}
@@ -899,8 +940,6 @@ export async function correctMatchMode(input: {
       {match_id:input.match_id,lead_id:frame.lead_id,entity:'match',entity_key:input.match_id,field:'mode_evidence',before:null,
         after:{frame:input.evidence_frame,reason:input.reason}},
     ]);
-    await rederiveEncountersInTx(tx,input.match_id);
-    await recomputeChampionStatsInTx(tx,await affectedStreamers(tx,input.match_id));
   });
 }
 
@@ -944,7 +983,7 @@ async function assertNotDuplicateGameInTx(tx: Tx, g: CkMatchInput): Promise<void
            ) ORDER BY p.participant_id) AS participants
       FROM match m JOIN match_participant p ON p.match_id = m.match_id
       LEFT JOIN streamer_account sa ON sa.puuid = p.puuid AND sa.active_to IS NULL
-     WHERE m.game_code = 'lol' AND m.source = 'manual' AND m.visibility = 'public'
+     WHERE m.game_code = 'lol' AND m.collected_via <> 'api' AND m.visibility = 'public'
        AND m.match_id <> ${g.match_id} AND NOT (m.match_id = ANY(${g.distinct_from ?? []}::text[]))
        AND (${g.duration ?? null}::int IS NULL OR m.game_duration IS NULL
             OR abs(m.game_duration - ${g.duration ?? null}::int) <= 2)
@@ -994,44 +1033,47 @@ export async function upsertMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<
 async function writeMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<boolean> {
   if (g.game_mode !== undefined && !['CLASSIC', 'ARAM'].includes(g.game_mode)) throw new Error('game_mode 는 CLASSIC 또는 ARAM');
   if (g.set_role === "bonus" && !g.series_id) throw new Error('보너스 판은 앞 본게임의 series_id 에 붙여야 한다(0079)');
+  if (g.series_id ? !Number.isInteger(g.series_game_no) || g.series_game_no! < 1 : g.series_game_no != null) {
+    throw new Error(`${g.match_id}: series_id 와 1 이상의 series_game_no 는 함께 적는다(시리즈 없이 세트 번호만 쓰지 않는다)`);
+  }
   await lockCkMatchWritesInTx(tx);
   // ★ `FOR UPDATE` 로 그 행을 잠근다. 없으면 검수 저장과 자동 수집이 **동시에** 돌 때
   //   READ COMMITTED 에서 둘 다 `reviewed_at IS NULL` 을 보고 통과해, 사람이 고친 값이
   //   덮인다. 잠그면 자동 수집이 검수 커밋을 기다렸다가 보고 물러난다.
-  const reviewed = await tx<{ reviewed_at: Date | null }[]>`
-    SELECT reviewed_at FROM match WHERE match_id = ${g.match_id} FOR UPDATE
+  const reviewed = await tx<{ reviewed_at: Date | null; collected_via: CollectedVia; game_code: string; event_id: string | null }[]>`
+    SELECT m.reviewed_at, m.collected_via, m.game_code, ms.event_id
+      FROM match m LEFT JOIN match_series ms ON ms.id = m.series_id
+     WHERE m.match_id = ${g.match_id} FOR UPDATE OF m
   `;
   if (reviewed[0]?.reviewed_at != null) return false;
+  // 이 길은 영상 판독(collected_via=vod)만 쓴다. API·수기 경기를 같은 ID 로 덮으면 "어떻게 알았나" 가 거짓이 된다.
+  if (reviewed[0] && (reviewed[0].game_code !== "lol" || reviewed[0].collected_via !== "vod")) {
+    throw new Error(`${g.match_id}: 이미 있는 ${reviewed[0].game_code} 경기(수집 경로 ${reviewed[0].collected_via})다 — 영상 판독으로 덮지 않는다. 시점을 더하려면 pov 로 낸다.`);
+  }
+
+  // ★ 행사 없는 판은 받지 않는다(0089). 행사를 생략할 수 있는 것은 이미 정해진 사실을 따를 때뿐이다 —
+  //   이미 있는 시리즈에 붙이면 그 시리즈의 행사, 이미 있는 판을 다시 내면 그 판의 지금 행사.
+  const [series] = g.series_id ? await tx<{ event_id: string; game_code: string }[]>`
+    SELECT event_id, game_code FROM match_series WHERE id = ${g.series_id}` : [];
+  if (series && series.game_code !== "lol") throw new Error(`${g.match_id}: 시리즈 ${g.series_id} 는 ${series.game_code} 시리즈다.`);
+  if (series && g.event_id && series.event_id !== g.event_id) {
+    throw new Error(`${g.match_id}: 시리즈 ${g.series_id} 는 이미 다른 행사에 속한다 — 시리즈는 행사 하나에 속한다. 행사를 옮기는 것은 검수 화면에서 한다.`);
+  }
+  const eventId = g.event_id ?? series?.event_id ?? reviewed[0]?.event_id ?? null;
+  if (!eventId) {
+    throw new Error(`${g.match_id}: 행사가 없다 — 판은 반드시 행사 안에 둔다. 형식을 모르면 event.format 을 "unclassified" 로 행사를 만들어 붙인다.`);
+  }
   if (reviewed.length === 0) await assertNotDuplicateGameInTx(tx, g);
 
-  // ★ **지우기 전에** 옛 명단을 잡는다. 아래에서 참가자를 DELETE 후 재INSERT 하므로,
-  //   이 줄이 없으면 `affectedStreamers` 가 새 명단만 본다. 재판독으로 A 자리를 B 로
-  //   바꾸면 A 에게서 빼야 하는데 A 가 범위에 없어 **A 의 챔피언 통계에 유령 경기가
-  //   남는다**(재현: A 의 143 통계가 교체 뒤에도 그대로 남았다).
-  //   `applyMatchReview` 는 같은 이유로 `before` 를 잡고 있었고, 이 경로만 빠져 있었다.
-  const before = await affectedStreamers(tx, g.match_id);
-
-  if (g.series_id) await ensureMatchSeries(tx, {
-    id: g.series_id,
-    game_code: "lol",
-    event_id: g.event_id,
-    best_of: g.best_of,
-    best_of_evidence: g.best_of_evidence,
-    set_order_known: g.set_order_known,
-  });
-  const matchEventId = g.series_id ? null : (g.event_id ?? null);
-
+  // ★ 분류 칸(series·scope·set_role)은 이 INSERT 가 아니라 아래 placeSetInTx 가 정한다 — 판을 시리즈에 두는 길은 하나다.
+  //   새 판은 시리즈 밖(personal)·본게임으로 잠깐 만들고, 같은 트랜잭션에서 곧바로 시리즈에 둔다.
   await tx`
     INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, game_creation, game_duration,
-                       winning_team, source, origin, event_id, source_url,
-                       series_id, series_game_no, blue_team_id, red_team_id, game_creation_precision,
-                       set_role, set_label)
+                       winning_team, collected_via, scope, source_url,
+                       blue_team_id, red_team_id, game_creation_precision)
     VALUES (${g.match_id}, 'lol', 0, '0', ${g.game_mode ?? 'CUSTOM'}, ${g.game_mode === 'ARAM' ? 12 : g.game_mode === 'CLASSIC' ? 11 : null}, ${g.played_at}, ${g.duration ?? null},
-            ${g.winning_team}, 'manual', ${g.origin ?? "vod_scan"}, ${matchEventId},
-            ${g.source_url ?? null},
-            ${g.series_id ?? null}, ${g.series_game_no ?? null},
-            ${g.blue_team_id ?? null}, ${g.red_team_id ?? null}, ${g.played_at_precision},
-            ${g.set_role ?? "main"}, ${g.set_role === "bonus" ? (g.set_label?.trim() || null) : null})
+            ${g.winning_team}, 'vod', 'personal', ${g.source_url ?? null},
+            ${g.blue_team_id ?? null}, ${g.red_team_id ?? null}, ${g.played_at_precision})
     ON CONFLICT (match_id) DO UPDATE SET
       game_mode       = CASE WHEN ${g.game_mode ?? null}::text IS NULL THEN match.game_mode ELSE EXCLUDED.game_mode END,
       map_id          = COALESCE(EXCLUDED.map_id, match.map_id),
@@ -1040,15 +1082,27 @@ async function writeMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<boolean>
       game_creation_precision = EXCLUDED.game_creation_precision,
       game_duration   = EXCLUDED.game_duration,
       winning_team    = EXCLUDED.winning_team,
-      event_id        = EXCLUDED.event_id,
       source_url      = EXCLUDED.source_url,
-      series_id       = EXCLUDED.series_id,
-      series_game_no  = EXCLUDED.series_game_no,
-      set_role        = EXCLUDED.set_role,
-      set_label       = EXCLUDED.set_label,
       blue_team_id    = EXCLUDED.blue_team_id,
       red_team_id     = EXCLUDED.red_team_id
   `;
+  // 자동 경로(actor auto) — 사람이 그 행사에서 뺀 판이면 여기서 거부된다(event_exclusion).
+  if (g.series_id) {
+    await placeSetInTx(tx, { match_id: g.match_id, game_no: g.series_game_no!, actor: "auto", series: {
+      id: g.series_id, game_code: "lol", event_id: eventId,
+      best_of: g.best_of, best_of_evidence: g.best_of_evidence, set_order_known: g.set_order_known,
+    } });
+  } else {
+    // 같은 판을 다른 행사로 다시 낸 재판독(검수 전) — 한 판짜리 시리즈째 옮긴다. 시리즈 키를 새로 만들지 않는다.
+    const single = singleSetSeriesId(g.match_id);
+    const [own] = await tx<{ event_id: string }[]>`SELECT event_id FROM match_series WHERE id = ${single}`;
+    if (own && own.event_id !== eventId) await moveSeriesInTx(tx, { series_id: single, event_id: eventId, actor: "auto" });
+    await placeSingleSetInTx(tx, { match_id: g.match_id, game_code: "lol", event_id: eventId, actor: "auto" });
+  }
+  // 보너스는 시리즈 안에서만 성립한다(match_bonus_in_series) — 시리즈에 둔 뒤에 정한다.
+  await tx`UPDATE match SET set_role = ${g.set_role ?? "main"},
+                            set_label = ${g.set_role === "bonus" ? (g.set_label?.trim() || null) : null}
+            WHERE match_id = ${g.match_id}`;
   // 중복 차단을 "다른 판" 으로 넘긴 판단은 이력에 남긴다 — 나중에 같은 판으로 밝혀지면 여기서 찾는다.
   if (reviewed.length === 0 && g.distinct_from?.length) await recordReviewChanges(tx, [
     { match_id: g.match_id, entity: "match", entity_key: g.match_id, field: "distinct_from", before: null, after: g.distinct_from },
@@ -1087,11 +1141,7 @@ async function writeMatchFromScanInTx(tx: Tx, g: CkMatchInput): Promise<boolean>
        WHERE id = ANY(${g.evidence_frame_ids}::uuid[]) AND reviewed_at IS NULL
     `;
   }
-
-  // 원본과 파생을 **한 트랜잭션**으로 묶는다. 갈라지면 승패가 어긋난 채 남는다.
-  await rederiveEncountersInTx(tx, g.match_id);
-  const after = await affectedStreamers(tx, g.match_id);
-  await recomputeChampionStatsInTx(tx, [...new Set([...before, ...after])]);
+  // 공개 집계는 원본에서 바로 계산되는 뷰다(파생 표 폐지, 0089) — 다시 만들 것이 없다.
   return true;
 }
 
@@ -1121,34 +1171,17 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
   return { match: matches[0], participants, evidence_frames };
 }
 
-/**
- * 이 경기가 통계에 영향을 주는 스트리머들.
- *
- * ★ **고치기 전과 후를 모두 모아야 한다.** 참가자의 사람을 A → B 로 바꾸면 A 에게서
- *   빼고 B 에게 넣어야 하는데, 나중 것만 보면 A 의 통계에 유령 경기가 남는다.
- * ★ puuid 매핑이 `streamer_id` 보다 **먼저** 온다 — `transform.ts` 의 식별 순서와 같아야
- *   하고, `champion_stat` 재계산 SQL 의 COALESCE 순서와도 같아야 한다.
- */
-export async function affectedStreamers(tx: Tx, matchId: string): Promise<string[]> {
-  const rows = await tx<{ streamer_id: string }[]>`
-    SELECT DISTINCT COALESCE(sa.streamer_id, mp.streamer_id) AS streamer_id
-      FROM match_participant mp
-      LEFT JOIN streamer_account sa ON sa.puuid = mp.puuid AND sa.active_to IS NULL
-     WHERE mp.match_id = ${matchId}
-       AND COALESCE(sa.streamer_id, mp.streamer_id) IS NOT NULL
-  `;
-  return rows.map((r) => r.streamer_id);
-}
-
 export interface MatchMetaValues {
   winning_team: 100 | 200;
+  /** null 이면 시리즈에서 빼서 그 행사의 한 판짜리 시리즈(`set:<match_id>`)로 둔다 — 판은 시리즈 밖에 없다. */
   series_id: string | null;
   series_game_no: number | null;
   best_of: number | null;
   best_of_evidence: string | null;
   blue_team_id: string | null;
   red_team_id: string | null;
-  event_id: string | null;
+  /** 시리즈의 행사. 판에는 행사 칸이 없다 — 바꾸면 시리즈를 옮긴다(classification.moveSeriesInTx). 비울 수 없다. */
+  event_id: string;
   game_creation: Date;
   game_duration: number | null;
 }
@@ -1174,7 +1207,7 @@ export interface ParticipantPatch {
 
 // ── 관리자 수정 이력 (0042) ─────────────────────────────────────────
 
-export type ReviewChangeEntity = "match" | "series" | "participant" | "frame";
+export type ReviewChangeEntity = "match" | "series" | "participant" | "frame" | "classification";
 export interface ReviewChangeInput {
   match_id?: string | null;
   lead_id?: string | null;
@@ -1244,10 +1277,10 @@ export async function listReviewChanges(scope: { match_id?: string; lead_id?: st
  * 들어간다** — 마이그레이션 0015 가 막으려던 바로 그 사고다.
  *
  * 한 트랜잭션에서 이 순서로 한다:
- *   ① 매치 메타 · 공개 여부  ② 참가자 추가·수정·삭제  ③ `outcome` 을 승리 팀에 맞춰 재계산
- *   ④ `reviewed_at` 기록 (이후 자동 수집이 이 행을 덮지 않는다). 무엇을 바꿨는지는 review_change 에
- *      칸 주소(review-lock.ts)로 남긴다 — 자동 판독은 그 칸만 피해서 나머지 **빈** 칸을 채운다.
- *   ⑤ 조우 재파생  ⑥ 영향받은 스트리머의 챔피언 통계 재계산
+ *   ① 분류(시리즈·행사 — classification.ts, actor admin) · 매치 메타 · 공개 여부  ② 참가자 추가·수정·삭제
+ *   ③ `outcome` 을 승리 팀에 맞춰 재계산  ④ `reviewed_at` 기록 (이후 자동 수집이 이 행을 덮지 않는다).
+ *      무엇을 바꿨는지는 review_change 에 칸 주소(review-lock.ts)로 남긴다 — 자동 판독은 그 칸만 피해서 나머지 **빈** 칸을 채운다.
+ * 공개 집계는 원본의 뷰라(0089 — 파생 표 폐지) 따로 다시 만들 것이 없다.
  */
 export async function applyMatchReview(matchId: string, patch: MatchReviewPatch): Promise<MatchDetail | null> {
   return db().begin(tx => applyMatchReviewInTx(tx, matchId, patch)) as Promise<MatchDetail | null>;
@@ -1279,39 +1312,53 @@ export async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: Match
       && (meta.best_of != null || meta.best_of_evidence != null)) {
     throw new Error("best_of와 그 근거는 시리즈가 있는 경기에만 적을 수 있습니다.");
   }
-  if (finalMeta.series_id != null
-      && (Object.hasOwn(meta, "series_id") || Object.hasOwn(meta, "event_id") || seriesFormatChanged)) {
-    const sameSeries = finalMeta.series_id === exists[0].series_id;
+  // ── 분류: 판을 어느 시리즈에, 그 시리즈를 어느 행사에 ──────────────────────
+  // ★ 판에는 행사 칸이 없다 — 행사는 시리즈에만 있다(0089). 시리즈 키를 비우면 그 행사의 한 판짜리 시리즈로 둔다.
+  const classificationChanged = Object.hasOwn(meta, "series_id") || Object.hasOwn(meta, "series_game_no") || Object.hasOwn(meta, "event_id");
+  if (classificationChanged || seriesFormatChanged || orderChanged) {
+    if (exists[0].scope !== "versus" || !exists[0].event_id) throw new Error("개인 기록 판(시리즈 밖)은 시리즈·행사를 정하지 않습니다.");
+  }
+  if (Object.hasOwn(meta, "event_id") && !meta.event_id) throw new Error("행사는 비울 수 없습니다 — 판은 반드시 행사 안에 있습니다(모르면 분류 전 행사).");
+  if (classificationChanged) {
+    const eventId = String(finalMeta.event_id);
+    const target = finalMeta.series_id ?? singleSetSeriesId(matchId);
+    const gameNo = finalMeta.series_id == null ? 1 : Number(finalMeta.series_game_no);
+    if (target === exists[0].series_id && eventId !== exists[0].event_id) {
+      // 같은 시리즈의 행사를 바꾼다 = 시리즈를 옮긴다. 다른 세트까지 말없이 따라가면 안 되므로 이 판 하나짜리일 때만 받는다.
+      const [others] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM match WHERE series_id = ${target} AND match_id <> ${matchId}`;
+      if (others.n > 0) {
+        throw new Error(`이 판은 ${others.n + 1}세트짜리 시리즈 ${target} 의 한 세트입니다 — 행사를 바꾸면 다른 세트도 함께 옮겨집니다. `
+          + "시리즈 키를 비워 이 판만 빼낸 뒤 행사를 고르거나, 그 행사의 시리즈로 옮기세요.");
+      }
+      await moveSeriesInTx(tx, { series_id: target, event_id: eventId, actor: "admin" });
+    }
+    await placeSetInTx(tx, { match_id: matchId, game_no: gameNo, actor: "admin", series: {
+      id: target, game_code: "lol", event_id: eventId,
+      ...(target === exists[0].series_id ? {} : { best_of: finalMeta.best_of, best_of_evidence: finalMeta.best_of_evidence }),
+    } });
+  }
+  const seriesId = finalMeta.series_id ?? singleSetSeriesId(matchId);
+  if (seriesFormatChanged) {
     validateBestOf(finalMeta.best_of, finalMeta.best_of_evidence);
-    await ensureMatchSeries(tx, {
-      id: finalMeta.series_id,
-      game_code: "lol",
-      event_id: finalMeta.event_id,
-      best_of: sameSeries ? undefined : finalMeta.best_of,
-      best_of_evidence: sameSeries ? undefined : finalMeta.best_of_evidence,
-    });
-    if (sameSeries && seriesFormatChanged) {
+    if (seriesId === exists[0].series_id || !classificationChanged) {
       await tx`
         UPDATE match_series
            SET best_of = ${finalMeta.best_of},
                best_of_evidence = ${finalMeta.best_of == null ? null : finalMeta.best_of_evidence?.trim() || null},
                updated_at = now()
-         WHERE id = ${finalMeta.series_id} AND game_code = 'lol'
+         WHERE id = ${seriesId} AND game_code = 'lol'
       `;
     }
-    if (Object.hasOwn(meta, "series_id") || Object.hasOwn(meta, "event_id")) {
-      // 시리즈의 event는 match_series 한 곳만 소유한다. 세트 행에는 복제하지 않는다.
-      meta.event_id = null;
-    }
-  } else if (finalMeta.series_id == null && exists[0].series_id != null && !Object.hasOwn(meta, "event_id")) {
-    // 시리즈에서 단판으로 풀 때 기존 유효 event를 잃지 않는다.
-    meta.event_id = exists[0].event_id;
   }
-  // ★ 사람이 고치는 길이라 "확인됨 → 모름" 으로 내리는 것도 받는다(ensureMatchSeries 는 자동 경로라 안 내린다).
+  // 분류 칸은 match 컬럼이 아니다 — 위의 classification.ts 가 이미 썼다.
+  delete meta.series_id;
+  delete meta.series_game_no;
+  delete meta.event_id;
+  // ★ 사람이 고치는 길이라 "확인됨 → 모름" 으로 내리는 것도 받는다(ensureSeriesInTx 는 자동 경로라 안 내린다).
   if (orderChanged) {
     await tx`
       UPDATE match_series SET set_order_known = ${Boolean(meta.set_order_known)}, updated_at = now()
-       WHERE id = ${finalMeta.series_id} AND game_code = 'lol'
+       WHERE id = ${seriesId} AND game_code = 'lol'
     `;
   }
   // 이 셋은 match 컬럼이 아니라 match_series에 위에서 반영한다.
@@ -1324,14 +1371,12 @@ export async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: Match
     const series = SERIES_FIELDS.has(field);
     history.push({
       match_id: matchId,
-      ...(series ? { entity: "series" as const, entity_key: String(finalMeta.series_id), field } : matchCell(matchId, field)),
+      ...(series ? { entity: "series" as const, entity_key: seriesId, field } : matchCell(matchId, field)),
       before: (exists[0] as unknown as Record<string, unknown>)[field], after,
     });
   }
   if (meta.visibility) history.push({ match_id: matchId, ...matchCell(matchId, "visibility"), before: exists[0].visibility, after: meta.visibility });
-  let changed = Object.keys(meta).length > 0 || seriesFormatChanged || orderChanged;
-  // 고치기 전과 후 명단을 합쳐 파생 통계를 정리한다.
-  const before = await affectedStreamers(tx, matchId);
+  let changed = Object.keys(meta).length > 0 || classificationChanged || seriesFormatChanged || orderChanged;
 
   // ── 부분 수정: 바뀐 칸만, 그리고 그 칸이 아직 내가 본 값일 때만 ──
   for (const p of patch.participants?.patch ?? []) {
@@ -1422,11 +1467,6 @@ export async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: Match
        WHERE m.match_id = mp.match_id AND mp.match_id = ${matchId}
          AND m.game_code = 'lol'
     `;
-
-    await rederiveEncountersInTx(tx, matchId);
-
-    const after = await affectedStreamers(tx, matchId);
-    await recomputeChampionStatsInTx(tx, [...new Set([...before, ...after])]);
   }
 
   const matches = await tx<MatchRow[]>`
@@ -1447,8 +1487,8 @@ export async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: Match
 /**
  * 경기를 공개에서 빼거나 되살린다 — 「기본 공개, 뺄 것만 제외」의 '제외'.
  *
- * `applyMatchReview` 를 거치므로 **챔피언 통계까지 같이 갱신된다.** 그게 중요한 이유는
- * `champion_stat` 이 뷰가 아니라 테이블이라, 뷰 필터만으로는 숨긴 경기가 통계에 남는다.
+ * `applyMatchReview` 를 거치므로 수정 이력·검수 보호가 같이 따라온다. 공개 집계는 공개 경기만 고르는 뷰라
+ * (core_public.versus_set) 숨기는 즉시 모든 집계에서 빠진다.
  */
 export async function setMatchVisibility(matchId: string, visibility: MatchVisibility): Promise<MatchDetail | null> {
   return applyMatchReview(matchId, { visibility });
@@ -1549,7 +1589,6 @@ export async function linkParticipantsInTx(
   const lock = (await loadReviewLockInTx(tx, matchId))!;
   if (lock.mode === "match") return { status: "reviewed" };
 
-  const before = await affectedStreamers(tx, matchId);
   const missing: number[] = [];
   const kept: number[] = [];
   const auto: AutoChange[] = [];
@@ -1617,17 +1656,22 @@ export async function linkParticipantsInTx(
   }
   // 자동 식별이 바꾼 칸은 actor=auto 로 남긴다 — 사람 기록과 섞이면 다음 판독이 그 칸을 "사람 것" 으로 본다.
   await recordAutoChangesInTx(tx, auto);
-
-  if (linked > 0) {
-    // 사람이 바뀌면 조우의 주인도 바뀐다. 옛 사람과 새 사람 **둘 다** 다시 계산한다.
-    await rederiveEncountersInTx(tx, matchId);
-    const after = await affectedStreamers(tx, matchId);
-    await recomputeChampionStatsInTx(tx, [...new Set([...before, ...after])]);
-  }
   return { status: "ok", linked, missing, kept };
 }
 
 // ── 검수 화면이 한 번에 받는 것 ──────────────────────────────────────
+
+/** 검수 화면의 행사 고르기 한 줄. */
+export interface ReviewEventChoice { id: string; slug: string | null; name: string; format: Format; auto_bucket: boolean }
+
+/** 사람이 고를 행사(자동 묶음 제외) + 지금 보는 경기들이 들어 있는 묶음(이름 표시용). */
+async function reviewEventChoices(currentEventIds: readonly (string | null)[]): Promise<ReviewEventChoice[]> {
+  const ids = currentEventIds.filter((id): id is string => id != null);
+  return db()<ReviewEventChoice[]>`
+    SELECT id, slug, name, format, auto_bucket FROM event
+     WHERE game_code = 'lol' AND (NOT auto_bucket OR id = ANY(${ids}::uuid[]))
+     ORDER BY auto_bucket, starts_at DESC NULLS LAST, created_at DESC`;
+}
 
 export interface LeadWorkspace {
   lead: EventLeadRow;
@@ -1646,11 +1690,11 @@ export interface LeadWorkspace {
   /** 참가자에 사람을 붙일 때 고를 목록. 표시용 이름과 slug 만 준다. */
   streamers: { id: string; slug: string; display_name: string }[];
   /**
-   * 경기를 붙일 대회 목록.
-   * ★ 분류(`ck`/`tournament`)는 **대회에서 나온다**(`lol_match_category`). 검수에서 만든
-   *   경기에 대회를 못 붙이면 내전인데 '기타' 로 들어가고, 상대전적 필터에서 사라진다.
+   * 경기를 붙일 행사 목록.
+   * ★ 분류(진행 방식)는 **행사에서만 나온다**(세트 → 시리즈 → 행사). 자동 미분류 묶음은 사람이 고르는 행사가
+   *   아니라 빠진다 — 지금 이 화면의 경기가 들어 있는 묶음만 이름을 보이려고 남긴다.
    */
-  events: { id: string; slug: string | null; name: string; kind: string }[];
+  events: ReviewEventChoice[];
 }
 
 /**
@@ -1702,10 +1746,7 @@ export async function getLeadWorkspace(leadId: string, opts: { records?: boolean
       `,
     ];
 
-  const events = await sql<{ id: string; slug: string | null; name: string; kind: string }[]>`
-    SELECT id, slug, name, kind FROM event WHERE game_code = 'lol'
-     ORDER BY starts_at DESC NULLS LAST, created_at DESC
-  `;
+  const events = await reviewEventChoices(matchRows.map((m) => m.event_id));
 
   const framesByMatch = new Map<string, EvidenceFrameRow[]>();
   for (const f of frames) {
@@ -1966,7 +2007,7 @@ export async function findMatchesAround(opts: {
   game_duration: number | null;
   winning_team: 100 | 200 | null;
   visibility: MatchVisibility;
-  origin: MatchOrigin | null;
+  collected_via: CollectedVia;
   reviewed_at: Date | null;
   event_name: string | null;
   series_id: string | null;
@@ -1996,7 +2037,7 @@ export async function findMatchesAround(opts: {
   const to = opts.range ? opts.range.to : new Date(opts.at.getTime() + w * 60_000);
   return sql`
     SELECT m.match_id, m.game_creation, m.game_creation_precision, m.game_duration,
-           m.winning_team, m.visibility, m.origin, m.reviewed_at,
+           m.winning_team, m.visibility, m.collected_via, m.reviewed_at,
            ev.name AS event_name, m.series_id, m.series_game_no,
            COALESCE(ms.set_order_known, false) AS set_order_known,
            COUNT(*) FILTER (
@@ -2030,7 +2071,7 @@ export async function findMatchesAround(opts: {
            ))[1] AS owner_champion
       FROM match m
       LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-      LEFT JOIN event ev ON ev.id = COALESCE(ms.event_id, m.event_id)
+      LEFT JOIN event ev ON ev.id = ms.event_id
       LEFT JOIN match_participant mp ON mp.match_id = m.match_id
       LEFT JOIN streamer_account sa ON sa.puuid = mp.puuid AND sa.active_to IS NULL
       LEFT JOIN streamer s ON s.id = COALESCE(sa.streamer_id, mp.streamer_id)
@@ -2049,10 +2090,11 @@ export async function findMatchesAround(opts: {
                                AND rr.type = 'question'
          WHERE c ->> 'match_id' = m.match_id
       ) questions ON true
-     WHERE m.source = 'manual'
+     -- 화면으로 아는 내전(영상 판독·수기)만. API 경기는 같은 판을 시점으로 다시 만들 일이 없다.
+     WHERE m.game_code = 'lol' AND m.collected_via <> 'api'
        AND m.game_creation BETWEEN ${from}::timestamptz AND ${to}::timestamptz
      GROUP BY m.match_id, m.game_creation, m.game_creation_precision, m.game_duration,
-              m.winning_team, m.visibility, m.origin, m.reviewed_at,
+              m.winning_team, m.visibility, m.collected_via, m.reviewed_at,
               ev.name, m.series_id, m.series_game_no, ms.set_order_known, evidence.frame_count, evidence.result_count,
               questions.items
      ORDER BY overlap DESC, m.game_creation
@@ -2069,7 +2111,6 @@ export async function getMatchReviewWorkspace(matchId: string) {
     SELECT lead_id AS id FROM lead_match WHERE match_id = ${matchId} ORDER BY lead_id LIMIT 1`;
   const streamers = await sql<{ id: string; slug: string; display_name: string }[]>`
     SELECT id, slug, display_name FROM streamer ORDER BY display_name`;
-  const events = await sql<{ id: string; slug: string | null; name: string; kind: string }[]>`
-    SELECT id, slug, name, kind FROM event WHERE game_code = 'lol' ORDER BY starts_at DESC NULLS LAST`;
+  const events = await reviewEventChoices([detail.match.event_id]);
   return { detail, leadId: lead?.id, streamers, events };
 }

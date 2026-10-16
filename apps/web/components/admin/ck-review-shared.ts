@@ -1,7 +1,8 @@
 /**
  * CK 검수 화면들(경기 검수·VOD 찾기)이 같이 쓰는 모양과 작은 도우미. 화면 코드(JSX)는 없다.
  */
-import { setLabel } from "@soop-lol/core/lib/metrics/set-label";
+import { isStandaloneSet, isUnbundledSet, setLabel } from "@soop-lol/core/lib/metrics/set-label";
+import type { Format } from "@soop-lol/core/lib/metrics/format";
 
 export interface ReviewFrame {
   id: string;
@@ -42,9 +43,13 @@ export interface ReviewMatch {
   linked_count: number;
   champion_count: number;
   kda_count: number;
-  origin: string | null;
-  source: string | null;
+  /** 어떻게 알았나 — api·vod·manual(관리 라벨은 admin-labels.collectedViaLabel). */
+  collected_via: "api" | "vod" | "manual";
+  map: "rift" | "aram" | "unsupported" | null;
+  /** 시리즈의 행사(판에는 행사 칸이 없다). 개인 기록 판만 null. */
   event_id: string | null;
+  event_format: Format | null;
+  event_auto_bucket: boolean;
   series_id: string | null;
   series_game_no: number | null;
   best_of: number | null;
@@ -63,13 +68,8 @@ export interface ReviewStreamer {
   display_name: string;
 }
 
-/** 경기를 붙일 대회. 분류(내전/대회)가 여기서 나온다. */
-export interface ReviewEvent {
-  id: string;
-  slug: string | null;
-  name: string;
-  kind: string;
-}
+/** 경기를 둘 행사. 분류(진행 방식)는 여기서만 나온다. 자동 묶음은 사람이 고르는 행사가 아니다(지금 소속일 때만 보인다). */
+export type { ReviewEventChoice as ReviewEvent } from "@soop-lol/core/lib/db/ck";
 
 export interface PovDiffRowView {
   participant_id: number | null;
@@ -104,8 +104,9 @@ export const compactKst = (value: string, precision: string = "datetime") =>
   !value ? "—" : precision === "date" ? value.slice(0, 10) : value.replace("T", " ");
 
 /** 세트 이름은 core 의 setLabel 하나로 낸다 — 화면마다 규칙이 다르면 같은 판이 다르게 불린다. */
-export const matchSetLabel = (m: { series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null }) =>
-  setLabel({ standalone: !m.series_id, unassigned: !m.series_id, best_of: m.best_of, set_order_known: m.set_order_known, series_game_no: m.series_game_no });
+export const matchSetLabel = (m: { match_id: string; series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null }) =>
+  setLabel({ standalone: isStandaloneSet(m.match_id, m.series_id), unassigned: isUnbundledSet(m.match_id, m.series_id),
+    best_of: m.best_of, set_order_known: m.set_order_known, series_game_no: m.series_game_no });
 export const durationLabel = (sec: number | null) => sec == null
   ? "—"
   : `${Math.floor(sec / 60)}분${sec % 60 ? ` ${sec % 60}초` : ""}`;

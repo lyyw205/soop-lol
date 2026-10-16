@@ -21,7 +21,8 @@ export interface ScheduleFormPayload {
   typo: boolean;
   game_code: string;
   title: string;
-  planned_kind: string;
+  /** 예정 진행 방식(schedule_entry.planned_format, 0089) — 행사와 같은 어휘(format.ts). */
+  planned_format: string;
   sponsor: string;
   description: string;
   admin_note: string;
@@ -61,7 +62,7 @@ async function toInput(p: ScheduleFormPayload): Promise<{ input: ScheduleInput }
   return {
     input: {
       game_code: p.game_code as ScheduleInput["game_code"], title: p.title,
-      planned_kind: p.planned_kind as ScheduleInput["planned_kind"], sponsor: blank(p.sponsor), description: blank(p.description),
+      planned_format: p.planned_format as ScheduleInput["planned_format"], sponsor: blank(p.sponsor), description: blank(p.description),
       admin_note: blank(p.admin_note), status: p.status as ScheduleInput["status"], event_id: blank(p.event_id),
       visibility: p.visibility === "hidden" ? "hidden" : "public", slots,
       participants: people.map((x) => ({ streamer_id: ids.get(x.slug.trim())!, role: x.role as ScheduleInput["participants"][number]["role"], team: blank(x.team) })),

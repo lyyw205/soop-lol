@@ -21,6 +21,8 @@ import { useActionState, useEffect, useMemo, useState } from "react";
 
 import { relinkFrameAction, createMatchFromFrameAction } from "@/app/admin/ck/actions";
 import { IDLE, type ActionState } from "@/lib/action-state";
+import { eventFormatLabel } from "@/lib/admin-labels";
+import { isUnbundledSet } from "@soop-lol/core/lib/metrics/set-label";
 
 import { framesForSelection, resolveSelection, timelineSpan, type Picked } from "./ck-selection";
 import { projectReviewQueue, chronologicalReviewQueue, activeQueueIndex, UNPLACED, type ProjectedMatch } from "./ck-review-queue";
@@ -261,21 +263,23 @@ function CreateMatchFromFrame({ frame, matches, events, onCreated }: {
     if (result.matchId) onCreated(result.matchId);
     return result;
   }, IDLE);
-  const series = [...new Map(matches.filter(m => m.series_id).map(m => [m.series_id!, m])).values()];
+  // 묶인 시리즈만 고른다 — 한 판짜리 시리즈(`set:<경기>`)는 그 판 하나의 자리다.
+  const series = [...new Map(matches.filter(m => m.series_id && !isUnbundledSet(m.match_id, m.series_id)).map(m => [m.series_id!, m])).values()];
   const reference = matches.find(m => m.series_id === seriesId);
   return <details className="ck-review-panel mb-3 p-3 text-xs">
     <summary className="cursor-pointer text-accent-400">이 프레임으로 새 경기 만들기</summary>
     <form action={action} className="mt-3 grid gap-3">
       <input type="hidden" name="frame_id" value={frame.id} />
       <label>시리즈<select name="series_id" value={seriesId} onChange={e => setSeriesId(e.target.value)} className={inputClass}>
-        <option value="">시리즈 없이 생성</option>
+        <option value="">시리즈 없이(한 판으로) 생성</option>
         {series.map(m => <option key={m.series_id} value={m.series_id!}>
-          {events.find(e => e.id === m.event_id)?.name ?? "대회 미지정"} · {m.series_id}
+          {events.find(e => e.id === m.event_id)?.name ?? "행사 미상"} · {m.series_id}
         </option>)}
       </select></label>
       {seriesId ? <label>세트 번호<input name="series_game_no" type="number" min="1" step="1" required className={inputClass} placeholder="예: 3" /></label>
-        : <label>대회<select name="event_id" className={inputClass}><option value="">연결 없음</option>
-          {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+        // ★ 행사는 필수다(0089) — 판은 행사 없이 만들지 않는다. 형식을 모르면 "분류 전" 행사를 고른다. 자동 묶음은 고르지 않는다.
+        : <label>행사<select name="event_id" required className={inputClass}><option value="">행사를 고르세요</option>
+          {events.filter(e => !e.auto_bucket).map(e => <option key={e.id} value={e.id}>{e.name} · {eventFormatLabel(e.format)}</option>)}
         </select></label>}
       <label>경기 날짜 (한국 시간)<input key={seriesId} name="played_on" type="date" required
         defaultValue={reference?.game_creation.slice(0, 10) ?? ""} className={inputClass} /></label>

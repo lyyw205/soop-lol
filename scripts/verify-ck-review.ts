@@ -10,6 +10,7 @@ import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { applyAll } from './lib/migrations.ts';
 import * as ck from '../packages/core/lib/db/ck.ts';
 import { closeDb } from '../packages/core/lib/db/client.ts';
+import { lolEvent } from './lib/verify-ck-fixtures.ts';
 
 const pg = await PGlite.create({extensions:{pg_trgm,pgcrypto}});
 const server = new PGLiteSocketServer({db:pg,host:'127.0.0.1',port:55443});
@@ -19,12 +20,17 @@ process.env.DATABASE_POOL_MAX='1';
 try {
   await applyAll(sql=>pg.exec(sql),new URL('..',import.meta.url).pathname);
   // 미연결 프레임 → 누락 세트 생성 → 기존 로스터 저장. 운영 DB를 쓰지 않는다.
+  const event = await lolEvent('verify-ck-review', 'ck', '검수 시험 CK');
   const manualLead = await ck.upsertEventLead({ source: 'manual', source_key: 'manual:create-test', title: 'manual', observed_at: new Date() });
   const manualFrames = await ck.recordEvidenceFrames(manualLead, [
     { frame_path: 'manual-result.jpg', at_sec: 300, kind: 'result' },
     { frame_path: 'manual-other.jpg', at_sec: 301, kind: 'result' },
   ]);
-  await ck.upsertMatchFromScan({ played_at_precision: 'date', match_id: 'manual:series:1',
+  // ★ 판은 행사 없이 저장되지 않는다(0089) — 행사 없는 영상 판독은 조용히 기타로 가지 않고 거부된다.
+  await assert.rejects(() => ck.upsertMatchFromScan({ played_at_precision: 'date', match_id: 'manual:no-event', event_id: null,
+    played_at: new Date('2026-09-20T00:00:00Z'), winning_team: 100, participants: [] }), /행사가 없다/);
+  assert.equal(await ck.getMatchDetail('manual:no-event'), null, '거부된 판은 흔적도 없다');
+  await ck.upsertMatchFromScan({ played_at_precision: 'date', match_id: 'manual:series:1', event_id: event,
     played_at: new Date('2026-09-20T00:00:00Z'), winning_team: 100, series_id: 'manual:series', series_game_no: 1, participants: [] });
   const manualInput = { frame_id: manualFrames[0].id, played_at: new Date('2026-09-20T00:00:00Z'),
     series_id: 'manual:series', series_game_no: 3, event_id: null, winning_team: null };
@@ -32,7 +38,9 @@ try {
   assert.equal(created.existing, false);
   assert.deepEqual(await ck.createMatchFromEvidence(manualInput), created, '응답 유실 재시도는 같은 경기');
   let manualDetail = (await ck.getMatchDetail(created.match_id))!;
-  assert.equal(manualDetail.match.origin, 'admin');
+  assert.equal(manualDetail.match.collected_via, 'manual', '검수 화면에서 만든 경기는 수기');
+  assert.equal(manualDetail.match.event_id, event, '시리즈의 행사를 따른다');
+  assert.equal(manualDetail.match.series_id, 'manual:series');
   assert.ok(manualDetail.match.reviewed_at);
   assert.equal(manualDetail.match.review_completed_at, null);
   assert.equal(manualDetail.match.winning_team, null);
@@ -45,18 +53,25 @@ try {
   await assert.rejects(() => ck.createMatchFromEvidence({ ...manualInput, frame_id: manualFrames[1].id, series_id: 'missing' }), /시리즈/);
   await assert.rejects(() => ck.createMatchFromEvidence({ ...manualInput, frame_id: manualFrames[1].id, series_game_no: 0 }), /세트/);
   await assert.rejects(() => ck.createMatchFromEvidence({ ...manualInput, frame_id: manualFrames[1].id,
-    series_id: null, series_game_no: null, event_id: '00000000-0000-0000-0000-000000000001' }), /foreign key/);
+    series_id: null, series_game_no: null, event_id: null }), /행사/, '행사도 시리즈도 없으면 만들지 않는다');
+  await assert.rejects(() => ck.createMatchFromEvidence({ ...manualInput, frame_id: manualFrames[1].id,
+    series_id: null, series_game_no: null, event_id: '00000000-0000-0000-0000-000000000001' }), /foreign key|event/);
   assert.equal(await ck.getMatchDetail(`admin:frame:${manualFrames[1].id}`), null, '실패하면 빈 경기조차 남기지 않는다');
   await ck.applyMatchReview(created.match_id, { match: { changes: { game_duration: 1500 }, expect: { game_duration: null } } });
   assert.equal((await ck.getMatchDetail(created.match_id))!.match.winning_team, null, '승패 미상이어도 나머지 정보 편집 가능');
   await ck.applyMatchReview(created.match_id, { participants: { add: [{ participant_id: 1, team_id: 100, observed_name: '직접 입력', champion_name: 'Ahri', kills: 3 }] } });
   manualDetail = (await ck.getMatchDetail(created.match_id))!;
   assert.equal(manualDetail.participants[0].kills, 3);
-  assert.equal(await ck.upsertMatchFromScan({ played_at_precision: 'date', match_id: created.match_id,
+  assert.equal(await ck.upsertMatchFromScan({ played_at_precision: 'date', match_id: created.match_id, event_id: event,
     played_at: manualInput.played_at, winning_team: 200, participants: [] }), false, '자동 조사는 수동 생성 경기를 덮지 않는다');
+  // 행사만 고르면 그 행사의 한 판짜리 시리즈(set:<경기>)가 된다.
+  const single = await ck.createMatchFromEvidence({ ...manualInput, frame_id: manualFrames[1].id, series_id: null, series_game_no: null, event_id: event });
+  const singleDetail = (await ck.getMatchDetail(single.match_id))!;
+  assert.deepEqual([singleDetail.match.series_id, singleDetail.match.series_game_no, singleDetail.match.scope, singleDetail.match.event_id],
+    [`set:${single.match_id}`, 1, 'versus', event]);
   await ck.recordEvidenceFrames(manualLead, [{ frame_path: 'manual-result.jpg', match_id: 'manual:series:1' }]);
   assert.equal((await ck.getMatchDetail(created.match_id))!.evidence_frames.length, 1, '수동 프레임 연결도 보존');
-  await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:'review:1',played_at:new Date('2026-09-20T00:00:00Z'),winning_team:100,
+  await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:'review:1',event_id:event,played_at:new Date('2026-09-20T00:00:00Z'),winning_team:100,
     result_evidence:'original',participants:[{participant_id:1,team_id:100,observed_name:'A',champion_id:268,kills:5,deaths:1,assists:3}]});
   await ck.applyMatchReview('review:1',{match:{changes:{winning_team:200},expect:{winning_team:100}}});
   // 최종 결과 근거는 조사(ck:merge)가 남기고 review_record 가 정본이다. 사람 검수는 근거 문장을 고치지 않는다.
