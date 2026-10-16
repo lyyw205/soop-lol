@@ -1,0 +1,12 @@
+/* 기록 부품(RecordPair) — 세트·시리즈 두 줄. 색은 기존 토큰만 쓴다(arena.css / record-theme.css). */
+.record-pair { display: grid; gap: 4px; margin: 0; font-variant-numeric: tabular-nums; }
+.record-pair-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.record-pair-row dt { flex: none; min-width: 3.2em; font-size: var(--type-micro); color: var(--text-secondary, #a6b2c4); }
+.record-pair-row dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0; font-size: var(--type-dense); color: var(--text-primary, #e4ebf3); }
+.record-pair-part b { font-weight: 700; margin-right: 1px; }
+.record-pair-part[data-part="unknown"] { color: var(--text-muted, #8a99ab); }
+.record-pair-total { font-size: var(--type-micro); color: var(--text-muted, #8a99ab); }
+.record-pair[data-compact] .record-pair-row dd { font-size: var(--type-meta); }
+.record-pair[data-compact] .record-pair-row dt { font-size: var(--type-micro); }
+/* 사이드바 "자주 만난 매치업" 줄 — 두 사람 아래 한 줄 전체. */
+.arena-pair-record { grid-column: 1 / -1; justify-self: center; }

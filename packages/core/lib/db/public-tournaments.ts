@@ -4,15 +4,17 @@
  * ★ 여기는 행을 그대로 돌려준다. 대회 분류(멸망전/이벤트)·날짜 표시·시리즈 점수 같은
  *   **해석은 대회 모듈(packages/modules/tournaments)의 것**이다 — core 는 사실과 공개 정책만.
  *   모듈은 계약(core/lib/contract)을 거쳐 이 함수들을 부른다.
+ * ★ 대회 = 진행 방식(event.format) 'tournament' 인 롤 행사. 경기는 행사 상세의 "한 경기 보기" 경로인
+ *   core_public.match_detail(시리즈 경유 한 길, 보너스 포함)에서 읽는다. 옛 tournament_match·match 뷰는 없다.
  */
-import { TOURNAMENT_KIND } from "../metrics/event.ts";
+import type { Format } from "../metrics/format.ts";
 import { db } from "./client.ts";
 
 export interface PublicTournamentEventRow {
   event_id: string;
   slug: string;
   name: string;
-  kind: string;
+  format: Format;
   organizer: string | null;
   source_url: string | null;
   starts_at: Date | null;
@@ -74,7 +76,7 @@ export interface PublicTournamentFactRow {
 
 export interface PublicTournamentMatchRow {
   match_id: string;
-  series_id: string | null;
+  series_id: string;
   series_game_no: number | null;
   game_creation: Date;
   game_creation_precision: "date" | "datetime";
@@ -90,13 +92,14 @@ export interface PublicTournamentMatchRow {
   source_url: string | null;
 }
 
-/** 공개 경기나 참가자가 하나라도 있는 **롤** 대회(kind='tournament'). 최근 것부터. */
+/** 공개 경기나 참가자가 하나라도 있는 **롤** 대회(format='tournament'). 최근 것부터. */
 export async function listPublicTournamentEvents(): Promise<PublicTournamentEventRow[]> {
   return db()<PublicTournamentEventRow[]>`
     WITH games AS (
-      SELECT event_id, min(game_creation) AS first_match, max(game_creation) AS last_match,
-             count(*)::int AS set_count, count(DISTINCT COALESCE(series_id,match_id))::int AS series_count
-        FROM core_public.match WHERE event_id IS NOT NULL GROUP BY event_id
+      -- 본게임만 센다 — 보너스 판은 목록 숫자에 들어가지 않는다(펼친 경기 보기에만).
+      SELECT event_id, min(played_at) AS first_match, max(played_at) AS last_match,
+             count(DISTINCT match_id)::int AS set_count, count(DISTINCT series_id)::int AS series_count
+        FROM core_public.match_detail WHERE format = 'tournament' AND set_role = 'main' GROUP BY event_id
     ), teams AS (
       SELECT event_id,count(*)::int AS team_count,
              max(name) FILTER (WHERE placement_rank=1) AS winner,
@@ -106,21 +109,17 @@ export async function listPublicTournamentEvents(): Promise<PublicTournamentEven
         FROM (
           SELECT event_id,streamer_id FROM core_public.event_team_member
           UNION
-          -- ★ 대회 경기 번호를 먼저 배열로 뽑아 그 경기만 인덱스로 찾는다. 경기 뷰의 event_id 는 계산값이라
-          --   그냥 조인하면 플래너가 참가자 30만 행(1GB)을 통째로 훑었다(12초, 2026-10-07). 0075 참고.
-          SELECT m.event_id,sm.streamer_id FROM core_public.streamer_match sm
-            JOIN core_public.match m ON m.match_id=sm.match_id
-           WHERE sm.match_id = ANY(ARRAY(SELECT match_id FROM core_public.match WHERE event_id IS NOT NULL))
+          SELECT event_id,streamer_id FROM core_public.lol_versus_set WHERE format = 'tournament'
         ) ids JOIN core_public.streamer s ON s.streamer_id=ids.streamer_id GROUP BY ids.event_id
     )
-    SELECT e.event_id,e.slug,e.name,e.kind,e.organizer,e.source_url,e.starts_at,e.ends_at,e.effective_starts_at,e.effective_ends_at,
+    SELECT e.event_id,e.slug,e.name,e.format,e.organizer,e.source_url,e.starts_at,e.ends_at,e.effective_starts_at,e.effective_ends_at,
            g.first_match,g.last_match,COALESCE(t.team_count,0)::int AS team_count,
            COALESCE(g.series_count,0)::int AS series_count,COALESCE(g.set_count,0)::int AS set_count,
            t.winner,COALESCE(t.names,ARRAY[]::text[])||COALESCE(p.names,ARRAY[]::text[]) AS search_names
       FROM core_public.event_dates e LEFT JOIN games g ON g.event_id=e.event_id
       LEFT JOIN teams t ON t.event_id=e.event_id LEFT JOIN people p ON p.event_id=e.event_id
      -- ★ 롤 대회만. FC 대회도 참가 단위를 가진다(0061·0062) — 게임을 안 걸면 FC 대회가 섞인다.
-     WHERE e.game_code = 'lol' AND e.kind = ${TOURNAMENT_KIND} AND (g.event_id IS NOT NULL OR p.event_id IS NOT NULL)
+     WHERE e.game_code = 'lol' AND e.format = 'tournament' AND (g.event_id IS NOT NULL OR p.event_id IS NOT NULL)
      ORDER BY e.effective_starts_at DESC NULLS LAST,e.slug
   `;
 }
@@ -145,14 +144,17 @@ export async function getPublicTournamentFacts(eventId: string): Promise<{
         FROM core_public.event_team_member tm JOIN core_public.streamer s ON s.streamer_id=tm.streamer_id
         LEFT JOIN LATERAL (SELECT channel_id FROM core_public.streamer_channel WHERE streamer_id=s.streamer_id AND platform='soop' ORDER BY is_primary DESC LIMIT 1) ch ON true
        WHERE tm.event_id=${eventId}::uuid ORDER BY s.display_name`,
+    // ★ match_detail 은 참가자 한 줄씩이라 경기 칸만 DISTINCT 로 접는다. 대회 화면은 본게임만 그린다.
+    // ⚠ best_of·set_order_known·round_label(시리즈 칸)은 match_detail 에 있어야 한다 — 본 세션 요청(보고서).
     sql<PublicTournamentMatchRow[]>`
-      SELECT m.match_id,m.series_id,m.series_game_no,m.game_creation,m.game_creation_precision,m.game_duration,
+      SELECT DISTINCT m.match_id,m.series_id,m.series_game_no,m.played_at AS game_creation,m.game_creation_precision,m.game_duration,
              m.winning_team,m.blue_team_id,m.red_team_id,b.name AS blue_name,r.name AS red_name,
              m.best_of,m.set_order_known,m.round_label,m.source_url
-        FROM core_public.tournament_match m
+        FROM core_public.match_detail m
         LEFT JOIN core_public.event_team b ON b.event_team_id=m.blue_team_id
         LEFT JOIN core_public.event_team r ON r.event_team_id=m.red_team_id
-       WHERE m.event_id=${eventId}::uuid ORDER BY m.game_creation,m.series_id,m.series_game_no,m.match_id`,
+       WHERE m.event_id=${eventId}::uuid AND m.set_role='main'
+       ORDER BY game_creation,m.series_id,m.series_game_no,m.match_id`,
     sql<PublicTournamentLinkRow[]>`
       SELECT label,url FROM core_public.event_link WHERE event_id=${eventId}::uuid ORDER BY sort,label`,
     sql<PublicTournamentFactRow[]>`

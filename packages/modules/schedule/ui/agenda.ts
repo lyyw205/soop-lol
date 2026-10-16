@@ -1,9 +1,13 @@
-import { addDays, entryPeriod, type PublicScheduleEntry } from "@soop-lol/core/lib/contract/schedule";
+import { addDays, entryPeriod, isFormat, type Format, type PublicScheduleEntry } from "@soop-lol/core/lib/contract/schedule";
 import { compareCards, type DayCard } from "./layout.ts";
 
-export type ScheduleKindFilter = "tournament" | "ck" | "showmatch" | "other" | null;
+/**
+ * 일정 유형 필터 = 예정 분류(planned_format) 하나. 주소의 `kind` 칸 이름은 공유된 링크가 계속 열리게 그대로 둔다.
+ * 값은 진행 방식 어휘(metrics/format.ts)만 — 옛 값(showmatch·other)이나 모르는 값은 필터 없음으로 읽는다.
+ */
+export type ScheduleKindFilter = Format | null;
 export const parseKind = (value: string | undefined): ScheduleKindFilter =>
-  value === "tournament" || value === "ck" || value === "showmatch" || value === "other" ? value : null;
+  value && isFormat(value) ? value : null;
 
 /** 월요일~일요일을 표시한다. 시각·서버 시간대에 영향을 받지 않는 KST 날짜 계산. */
 export function weekStart(date: string): string {
@@ -22,7 +26,7 @@ export function agendaRange(date: string) {
 
 export function agendaEntries(entries: PublicScheduleEntry[], kind: ScheduleKindFilter, query: string) {
   const q = query.trim().replace(/\s+/g, "").toLocaleLowerCase("ko");
-  return entries.filter((entry) => (!kind || entry.planned_kind === kind) && (!q ||
+  return entries.filter((entry) => (!kind || entry.planned_format === kind) && (!q ||
     [entry.title, ...entry.participants.map((p) => p.display_name), ...entry.slots.map((s) => s.label ?? "")]
       .join(" ").replace(/\s+/g, "").toLocaleLowerCase("ko").includes(q)));
 }
@@ -45,7 +49,7 @@ export function featuredCard(cards: DayCard[], date: string): DayCard | undefine
 }
 
 export function tournamentEntries(entries: PublicScheduleEntry[], date: string) {
-  return entries.filter((entry) => entry.planned_kind === "tournament" && entry.slots.length > 0)
+  return entries.filter((entry) => entry.planned_format === "tournament" && entry.slots.length > 0)
     .sort((a, b) => {
       const pa = entryPeriod(a.slots)!; const pb = entryPeriod(b.slots)!;
       const pastA = pa.to < date; const pastB = pb.to < date;

@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyTeamStage, eventKindLabel, isTitle, isRunnerUp, listedInTournaments } from "./event.ts";
+import { classifyTeamStage, isTitle, isRunnerUp, listedInTournaments } from "./event.ts";
 
-test("행사 목록과 우승은 종류로 판정하고 CK를 대회로 세지 않는다", () => {
-  assert.equal(eventKindLabel("ck"), "CK");
-  assert.equal(listedInTournaments("ck"), false);
-  assert.equal(isTitle({ kind: "tournament", placement_rank: 1 }), true);
-  assert.equal(isTitle({ kind: "ck", placement_rank: 1 }), false);
-  assert.equal(isRunnerUp({ kind: "tournament", placement_rank: 2 }), true);
+test("행사 목록과 우승은 진행 방식으로 판정하고 CK·컨셉·미분류를 대회로 세지 않는다", () => {
+  assert.equal(listedInTournaments("tournament"), true);
+  for (const format of ["ck", "concept", "land", "unclassified"]) assert.equal(listedInTournaments(format), false, format);
+  assert.equal(isTitle({ format: "tournament", placement_rank: 1 }), true);
+  assert.equal(isTitle({ format: "ck", placement_rank: 1 }), false);
+  assert.equal(isTitle({ format: "concept", placement_rank: 1 }), false, "옛 showmatch(이벤트전)는 concept — 우승으로 세지 않는다");
+  assert.equal(isRunnerUp({ format: "tournament", placement_rank: 2 }), true);
 });
 test("참가 단계는 개별 팀의 근거로만 판정한다", () => {
   assert.equal(classifyTeamStage({ rank: null, placement: null }), "unknown");

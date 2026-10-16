@@ -12,6 +12,9 @@
  *   한 번 더 막지만, 파일 단위로 먼저 걸러야 "어디가 틀렸는지"를 알 수 있다.
  *   부계정 오노출은 실제 분쟁이 된다.
  *
+ * ★ 계정을 붙여도 경기 기록 수집 대상이 되지 않는다 — 수집은 collection_target 에 지명한 것만이다
+ *   (docs/CLASSIFICATION-REDESIGN-PLAN.md §4). 붙인 계정은 랭크 점수(Engine A)만 매일 쌓인다.
+ *
  * 같은 파일을 다시 돌려도 안전하다(멱등). slug 가 이미 있으면 갱신한다.
  */
 
@@ -19,7 +22,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { closeDb } from "@soop-lol/core/lib/db/client";
-import { ensureBackfillCursor } from "@soop-lol/core/lib/db/ingest";
 import {
   createStreamer,
   getStreamer,
@@ -234,8 +236,6 @@ try {
         confidence: a.confidence ?? "unverified",
         evidence: a.evidence,
       });
-      // linkAccount 가 이미 넣지만, 옛 행이 있을 때를 대비해 한 번 더 보장한다.
-      await ensureBackfillCursor(puuid);
       linked++;
       console.log(`        연결  ${shown}  [${a.confidence ?? "unverified"}]`);
     }

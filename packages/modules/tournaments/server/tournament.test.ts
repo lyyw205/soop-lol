@@ -67,7 +67,8 @@ test("one collected set of a BO3 is not relabelled as a standalone match", () =>
   const [s] = tournamentSeries([row()], []);
   assert.equal(s.sets[0].label, "세트");
   assert.equal(
-    tournamentSeries([row({ series_id: null })], [])[0].sets[0].label,
+    // 시드는 단판을 경기 ID 와 같은 이름의 시리즈로 넣는다(0035) — 시리즈 밖 판은 이제 없다(0089).
+    tournamentSeries([row({ series_id: "s1" })], [])[0].sets[0].label,
     "단판",
   );
   assert.equal(
@@ -116,9 +117,9 @@ test("player aggregation excludes incomplete KDA and unlinked names; champions r
   assert.equal(stats.champions[0].picks, 3);
 });
 test("all-star and invitation events share the event tab without changing stored kind", () => {
-  assert.equal(tournamentCategory("meljang-2026-geng", "tournament"), "meljang");
-  assert.equal(tournamentCategory("meljang-2024-allstar", "tournament"), "event");
-  assert.equal(tournamentCategory("junggangye-2026-viper", "tournament"), "event");
+  assert.equal(tournamentCategory("meljang-2026-geng"), "meljang");
+  assert.equal(tournamentCategory("meljang-2024-allstar"), "event");
+  assert.equal(tournamentCategory("junggangye-2026-viper"), "event");
 });
 
 /* ── 기록실: 맞라인 대결 · 명기록 ─────────────────────────────────────── */

@@ -1,15 +1,14 @@
 import { placementRank } from "./placement.ts";
+import type { Format } from "./format.ts";
 
-/** 행사 종류와 수상 판정. 수집 경로나 화면 탭 이름으로 행사 종류를 추측하지 않는다. */
-export const TOURNAMENT_KIND = "tournament";
-export const EVENT_KIND_LABEL: Record<string, string> = {
-  ck: "CK", land: "랜드", tournament: "대회", showmatch: "이벤트전", scrim: "스크림", other: "기타",
-};
-export const eventKindLabel = (kind: string | null | undefined) => EVENT_KIND_LABEL[kind ?? ""] ?? "기타";
-export const listedInTournaments = (kind: string) => kind === TOURNAMENT_KIND;
-export interface EventPlacement { kind: string; placement_rank: number | null }
-export const isTitle = (row: EventPlacement) => listedInTournaments(row.kind) && row.placement_rank === 1;
-export const isRunnerUp = (row: EventPlacement) => listedInTournaments(row.kind) && row.placement_rank === 2;
+/**
+ * 대회 목록·수상 판정. 행사의 진행 방식(event.format)으로만 가른다 — 수집 경로나 화면 탭 이름으로 추측하지 않는다.
+ * ★ 진행 방식의 이름표는 format.ts(formatLabel·formatChipLabel) 한 곳이다. 옛 EVENT_KIND_LABEL·eventKindLabel 은 지웠다.
+ */
+export const listedInTournaments = (format: Format | string) => format === "tournament";
+export interface EventPlacement { format: Format | string; placement_rank: number | null }
+export const isTitle = (row: EventPlacement) => listedInTournaments(row.format) && row.placement_rank === 1;
+export const isRunnerUp = (row: EventPlacement) => listedInTournaments(row.format) && row.placement_rank === 2;
 
 export type TeamStage = "finals" | "qualifiers" | "unknown";
 export const TEAM_STAGE_LABEL: Record<TeamStage, string> = { finals: "본선", qualifiers: "예선", unknown: "미확인" };

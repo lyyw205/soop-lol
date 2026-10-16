@@ -6,7 +6,7 @@ import type { PublicScheduleEntry } from "@soop-lol/core/lib/contract";
 import { barSpan, cardsByDay, timelineLanes, majorRows, windowDays, mergeScheduleEntries, expandedScrollLeft, centeredScrollLeft, WINDOW_LEAD_DAYS, WINDOW_DAYS, DAY_WIDTH } from "./layout.ts";
 
 const entry = (title: string, slots: [string, string | null][]): PublicScheduleEntry => ({
-  schedule_id: title, game_code: "lol", title, planned_kind: "tournament", sponsor: null, description: null,
+  schedule_id: title, game_code: "lol", title, planned_format: "tournament", sponsor: null, description: null,
   status: "scheduled", origin: "manual", participants: [], sources: [], result: null, slots_changed_at: null,
   slots: slots.map(([on_date, hhmm]) => ({
     label: null, on_date, ends_at: null, channel_id: null, starts_at: hhmm ? new Date(`${on_date}T${hhmm}:00+09:00`) : null,

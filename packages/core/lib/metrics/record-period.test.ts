@@ -85,3 +85,13 @@ test('연말 다전제와 표시 상한: 날짜로 세트를 잘라내지 않는
   assert.equal(page.rows.length,2);
   assert.equal(page.truncated,true);
 });
+
+test("시리즈 시작일(KST 달력 날짜)은 다시 계산하지 않고 그대로 비교한다", async () => {
+  const { withinRecordDay } = await import("./record-period.ts");
+  const period = { key: "custom", from: "2026-09-20", to: "2026-09-20" };
+  assert.equal(withinRecordDay("2026-09-20", period), true);
+  assert.equal(withinRecordDay("2026-09-19", period), false);
+  assert.equal(withinRecordDay("2026-09-21", period), false);
+  assert.equal(withinRecordDay("2026-09-20", { key: "custom", error: "x" }), false);
+  assert.equal(withinRecordDay("1999-01-01", { key: "all" }), true);
+});

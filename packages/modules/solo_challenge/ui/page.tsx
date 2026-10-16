@@ -308,8 +308,8 @@ function ChampTable({ view, i, rows }: { view: ChallengeView; i: number; rows: C
                 <td className="sc-num">{c.games}</td>
                 <td className="sc-num"><div className="sc-rate"><b className={c.shrunk >= 0.5 ? "sc-w" : "sc-l"}>{pct(c.shrunk)}</b><span className="sc-faint">{c.wins}승 {c.losses}패</span><span className="sc-rate-track"><span style={{ width: pct(c.shrunk) }} /></span></div></td>
                 <td className="sc-num"><b>{c.kda.toFixed(2)}</b> <span className="sc-table-sub sc-faint">{(c.kills / c.games).toFixed(1)}/{(c.deaths / c.games).toFixed(1)}/{(c.assists / c.games).toFixed(1)}</span></td>
-                <td className="sc-num">{c.csPerMin.toFixed(1)}/분</td>
-                <td className="sc-num">{Math.round(c.dmgPerMin).toLocaleString("ko-KR")}</td>
+                <td className="sc-num">{c.csPerMin == null ? "—" : `${c.csPerMin.toFixed(1)}/분`}</td>
+                <td className="sc-num">{c.dmgPerMin == null ? "—" : Math.round(c.dmgPerMin).toLocaleString("ko-KR")}</td>
               </tr>
             );
           })}

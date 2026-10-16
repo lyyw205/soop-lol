@@ -448,6 +448,39 @@ for (const rel of DATE_TIMELINES) {
     src.includes("isRepeatedDate") ? "" : "같은 날이 이어져도 날짜를 매 줄 반복한다");
 }
 
+// ── 옛 분류 체계가 되살아나지 않는지 (0089 · docs/CLASSIFICATION-REDESIGN-PLAN.md §7·§12) ──
+//
+// 분류를 찾는 길은 세트 → 시리즈 → 행사(format) 하나다. 옛 분류(lol_match_category·저장된 category·event.kind·match.event_id·
+// source/origin)와 파생 표·옛 공개 뷰는 지웠다. 이름이 코드에 다시 나타나면 두 번째 길이 생긴 것이다 — 그때 막는다.
+// ★ 마이그레이션(옛 것을 옮겨 담은 기록)과 이관 시험(옛 구조에 경우를 넣는 곳)은 옛 이름을 쓰는 것이 일이라 뺀다.
+console.log("\n  [옛 분류 체계 금지]");
+{
+  const before = failures;
+  const EXEMPT = new Set(["scripts/verify-modules.ts", "scripts/verify-skeleton.ts", "scripts/skeleton-rehearsal.ts"]);
+  const FORBIDDEN: [RegExp, string][] = [
+    [/\blol_match_category\b/, "분류 함수는 없다 — event.format + match.map"],
+    [/\bstreamer_encounter\b|\bchampion_stat\b/, "파생 표는 없다 — core_public.versus_set·versus_pair_set 에서 센다"],
+    [/\bingest_cursor\b/, "전원 백필 커서는 없다 — collection_target"],
+    [/\bfco_match_context\b|\bfco_event_match_decision\b/, "FC 판단은 행사 소속·event_exclusion 이다"],
+    [/\bplanned_kind\b/, "일정 예정 분류는 planned_format"],
+    [/core_public\.(match|match_with_bonus|aram_match|aram_encounter|streamer_match|match_participant|match_lineup|tournament_match|lol_match_all_modes|lol_encounter_all_modes|aram_champion_stat|lol_champion_stat_all_modes|champion_stat|streamer_encounter)\b/,
+      "옛 공개 뷰 — versus_set·versus_pair_set·personal_game·match_detail"],
+    [/COALESCE\(\s*ms\.event_id\s*,\s*m\.event_id\s*\)/i, "행사는 시리즈 경유 한 길이다"],
+    [/\bmetrics\/category(\.ts)?\b|\bmetrics\/match-tally(\.ts)?\b/, "분류는 metrics/format.ts, 세기는 metrics/tally.ts"],
+  ];
+  const files = [
+    ...walk(join(ROOT, "apps"), /\.(ts|tsx|mts|mjs)$/), ...walk(join(ROOT, "packages"), /\.(ts|tsx|mts|mjs)$/),
+    ...walk(join(ROOT, "scripts"), /\.(ts|mts|mjs|sh|py)$/),
+  ].map(toRel).filter((f) => !EXEMPT.has(f));
+  for (const file of files) {
+    const lines = readFileSync(join(ROOT, file), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      for (const [re, why] of FORBIDDEN) if (re.test(line)) check(`${file}:${i + 1}: ${re.exec(line)![0]}`, false, why);
+    });
+  }
+  check(`옛 분류 체계 이름이 코드에 없다 (${files.length}개 파일)`, failures === before);
+}
+
 // 화면의 독자 계산과 글자 크기가 다시 늘어나는지 검사한다.
 console.log("\n  [사이트 공통 규칙]");
 for (const file of [...sourcesIn("packages"), ...sourcesIn("apps", "web")]) {

@@ -6,7 +6,6 @@
  */
 
 import { db } from "./client.ts";
-import { rederiveAccountInTx } from "./ingest.ts";
 import type {
   AccountEvidence,
   CareerEventRow,
@@ -24,6 +23,7 @@ import type {
 export interface StreamerListItem extends StreamerRow {
   account_count: number;
   verified_count: number;
+  /** 공개 내전 세트 수(본게임, 롤+FC) — 공개 화면이 세는 것과 같은 고르기(core_public.versus_set). 숨긴 사람은 0. */
   match_count: number;
   /** 대표 채널 (없을 수 있다 — 채널은 1:N 이고 필수가 아니다) */
   platform: Platform | null;
@@ -65,11 +65,13 @@ export async function listStreamers(opts: StreamerListOptions = {}): Promise<Str
            coalesce(cc.n, 0)::int                                    AS channel_count
       FROM streamer s
       LEFT JOIN streamer_account sa ON sa.streamer_id = s.id
-      LEFT JOIN LATERAL (
-             SELECT count(*) AS match_count
-               FROM match_participant mp
-              WHERE mp.puuid IN (SELECT puuid FROM streamer_account WHERE streamer_id = s.id)
-           ) m ON true
+      -- ★ 공개 세트를 고르는 곳은 core_public.versus_set 하나다(계획 §5.1). 여기서 참가자 표를 따로 세면
+      --   "누구로 확인됐나" 규칙을 또 하나 만들게 된다 — 옛 질의는 계정 자리만 세서 계정 없이 사람으로 확인된 자리를
+      --   빠뜨렸다(VOD 판독만 있는 252명이 0). 뷰를 한 번 훑어 사람별로 접는다(사람마다 뷰를 다시 훑지 않게).
+      LEFT JOIN (
+             SELECT streamer_id, count(DISTINCT match_id) AS match_count
+               FROM core_public.versus_set GROUP BY streamer_id
+           ) m ON m.streamer_id = s.id
       LEFT JOIN LATERAL (
              SELECT platform, channel_id, channel_url
                FROM streamer_channel
@@ -320,7 +322,7 @@ export interface LinkAccountInput {
  *   "근거 없이 붙일 수 있는 경로를 코드에 아예 두지 않기" 위해서다.
  *   관리자 UI 가 실수로 빈 값을 보내도 여기서 걸린다.
  */
-export async function linkAccount(input: LinkAccountInput): Promise<{ backfillQueued: boolean }> {
+export async function linkAccount(input: LinkAccountInput): Promise<void> {
   const hasEvidence = Boolean(input.evidence?.url || input.evidence?.note);
   if (!hasEvidence) {
     throw new Error("계정 매핑에는 근거(URL 또는 메모)가 필요하다. docs/PLAN.md §11-2");
@@ -339,9 +341,6 @@ export async function linkAccount(input: LinkAccountInput): Promise<{ backfillQu
       const [link] = await tx`SELECT puuid FROM streamer_account WHERE streamer_id = ${input.streamer_id}::uuid AND puuid = ${input.puuid} FOR UPDATE`;
       if (!link) throw new Error("계정 연결이 삭제되었습니다. 목록을 새로 불러오세요.");
     }
-    // 이 puuid 의 지금 주인 — 연결이 옮겨 가면 예전 주인의 통계도 다시 만들어야 한다.
-    const prevOwners = await tx<{ streamer_id: string }[]>`
-      SELECT streamer_id FROM streamer_account WHERE puuid = ${input.puuid} AND active_to IS NULL`;
     if (input.is_main) {
       await tx`UPDATE streamer_account SET is_main = false WHERE streamer_id = ${input.streamer_id}::uuid`;
     }
@@ -356,18 +355,11 @@ export async function linkAccount(input: LinkAccountInput): Promise<{ backfillQu
         confidence = EXCLUDED.confidence,
         updated_at = now()
     `;
-    // 백필 대상으로 큐에 올린다. 이미 있으면 건드리지 않는다.
-    const queued = input.edit ? [] : await tx`
-      INSERT INTO ingest_cursor (puuid) VALUES (${input.puuid})
-      ON CONFLICT (puuid) DO NOTHING RETURNING puuid
-    `;
     await tx`UPDATE account_candidate SET state = 'approved' WHERE puuid = ${input.puuid} AND state <> 'approved'`;
-    // ★ 연결이 바뀌면 이미 저장된 경기의 조우·챔피언 통계도 같은 트랜잭션에서 다시 만든다(ingest.rederiveAccountInTx).
-    //   라벨·본계 표시만 고치는 편집(edit)은 주인이 그대로라 건너뛴다.
-    if (!input.edit) {
-      await rederiveAccountInTx(tx, input.puuid, [input.streamer_id, ...prevOwners.map((r) => r.streamer_id)]);
-    }
-    return { backfillQueued: queued.length > 0 };
+    // ★ 연결은 수집 대상을 만들지 않는다(docs/CLASSIFICATION-REDESIGN-PLAN.md §4). 경기 기록 수집은 사람이
+    //   collection_target(계정·큐·기간)에 지명한 것만이다 — 옛 구조는 여기서 백필 대기열에 자동 등록해
+    //   하루 2.7만 판(89% 일반인)을 쌓았다. 랭크 점수는 연결된 계정 전원을 매일 본다(Engine A).
+    // ★ 다시 만들 파생 표도 없다 — 공개 뷰가 연결을 질의 시점에 읽어 과거 판의 자리가 그 자리에서 이 사람으로 보인다.
   });
 }
 
@@ -402,8 +394,6 @@ export async function unlinkAccount(streamerId: string, puuid: string): Promise<
     if (rows.length) await tx`UPDATE account_candidate SET state = 'pending'
       WHERE puuid = ${puuid} AND state = 'approved'
         AND NOT EXISTS (SELECT 1 FROM streamer_account sa WHERE sa.puuid = ${puuid} AND sa.active_to IS NULL)`;
-    // 떼어 낸 계정의 경기에서 이 사람의 조우·챔피언 통계를 같은 트랜잭션에서 걷어 낸다(linkAccount 와 짝).
-    if (rows.length) await rederiveAccountInTx(tx, puuid, [streamerId]);
     return rows.length > 0;
   });
 }
@@ -546,10 +536,10 @@ export interface AdminCounts {
   accounts: number;
   verified_accounts: number;
   matches: number;
-  encounters: number;
   rank_snapshots: number;
   pending_candidates: number;
-  backfill_pending: number;
+  /** 백필이 아직 끝나지 않은 지명 수집(collection_target) 수. 계정 수가 아니다 — 한 계정에 큐·기간별 지명이 여럿일 수 있다. */
+  collection_pending: number;
 }
 
 export async function adminCounts(): Promise<AdminCounts> {
@@ -559,10 +549,9 @@ export async function adminCounts(): Promise<AdminCounts> {
            (SELECT count(*) FROM streamer_account)::int                                  AS accounts,
            (SELECT count(*) FROM streamer_account WHERE confidence = 'verified')::int    AS verified_accounts,
            (SELECT count(*) FROM match)::int                                             AS matches,
-           (SELECT count(*) FROM streamer_encounter)::int                                AS encounters,
            (SELECT count(*) FROM rank_snapshot)::int                                     AS rank_snapshots,
            (SELECT count(*) FROM account_candidate WHERE state = 'pending')::int         AS pending_candidates,
-           (SELECT count(*) FROM ingest_cursor WHERE backfill_state <> 'done')::int      AS backfill_pending
+           (SELECT count(*) FROM collection_target WHERE state <> 'done')::int           AS collection_pending
   `;
   return rows[0];
 }

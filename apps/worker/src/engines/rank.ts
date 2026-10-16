@@ -3,13 +3,16 @@
  *
  * 과거 티어는 Riot API 에 없다. 오늘 안 쌓으면 그날은 영원히 구멍이고,
  * 나중에 어떤 방법으로도 메울 수 없다. 그래서 한 계정이 실패해도 나머지는 계속 간다.
+ *
+ * ★ 대상은 **연결된 활성 계정 전원**이다 — 경기 기록의 지명 수집(collection_target)과 무관하다
+ *   (docs/CLASSIFICATION-REDESIGN-PLAN.md §4, 사용자 결정 12: 랭크 점수만 전원 매일).
  */
 
 import {
-  listIngestTargets,
+  listRankTargets,
   saveProfile,
   saveRankSnapshot,
-  type IngestTarget,
+  type RankTarget,
 } from "@soop-lol/core/lib/db/ingest";
 import { kstDateString } from "@soop-lol/core/lib/time";
 
@@ -20,7 +23,7 @@ import type { EngineResult } from "../job.ts";
 const SCOPE = "engineA";
 
 export async function runRankEngine(ctx: WorkerContext, now = new Date()): Promise<EngineResult> {
-  const targets = await listIngestTargets();
+  const targets = await listRankTargets();
   const snapshotDate = kstDateString(now);
   let ok = 0;
   let failed = 0;
@@ -58,7 +61,7 @@ export async function runRankEngine(ctx: WorkerContext, now = new Date()): Promi
  * 닉네임·레벨 갱신. 랭크와 같은 크론에 얹는다 — 둘 다 하루 1회면 충분하고,
  * 별도 스케줄을 하나 더 만들면 그만큼 더 틀어질 곳이 생긴다.
  */
-async function refreshProfileIfStale(ctx: WorkerContext, t: IngestTarget, now: Date): Promise<void> {
+async function refreshProfileIfStale(ctx: WorkerContext, t: RankTarget, now: Date): Promise<void> {
   const age = now.getTime() - (t.last_profile_synced_at?.getTime() ?? 0);
   if (age < ctx.cfg.profileMaxAgeMs) return;
 

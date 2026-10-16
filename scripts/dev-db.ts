@@ -118,11 +118,19 @@ async function seedCkReview(): Promise<void> {
   let matchId: string | null = null;
   if (resultFrame) {
     matchId = `dev-ck:${vod.title_no}:g1`;
+    // 모든 내전 판은 행사·시리즈 안에 있다(0089). 개발 시드는 진행 방식을 모르는 판 — 미분류 행사.
+    const ev = await db.query<{ id: string }>(
+      `INSERT INTO event (slug, name, format, game_code) VALUES ($1, '개발 시드 내전', 'unclassified', 'lol')
+       ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug RETURNING id`,
+      [`dev-ck-${vod.title_no}`],
+    );
+    await db.query(`INSERT INTO match_series (id, game_code, event_id) VALUES ($1, 'lol', $2) ON CONFLICT DO NOTHING`,
+      [`dev-ck:${vod.title_no}`, ev.rows[0]!.id]);
     await db.query(
       `INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, game_creation, game_duration,
-                          winning_team, source, origin, source_url)
-       VALUES ($1, 'lol', 0, '0', 'CUSTOM', $2, 1800, 100, 'manual', 'vod_scan', $3)`,
-      [matchId, vod.ended_at ?? new Date().toISOString(), vod.vod_url ?? null],
+                          winning_team, collected_via, scope, series_id, series_game_no, source_url)
+       VALUES ($1, 'lol', 0, '0', 'CUSTOM', $2, 1800, 100, 'vod', 'versus', $3, 1, $4)`,
+      [matchId, vod.ended_at ?? new Date().toISOString(), `dev-ck:${vod.title_no}`, vod.vod_url ?? null],
     );
     await db.query(
       `INSERT INTO review_record (match_id, type, body, created_by)
@@ -256,28 +264,7 @@ interface DevManifest { date: string; sessions?: { vods?: DevVod[] }[] }
 const server = new PGLiteSocketServer({ db, port: PORT, host: "127.0.0.1" });
 await server.start();
 
-/**
- * 파생 테이블은 **core 의 진짜 함수로** 만든다.
- *
- * ★ 조우·챔피언 통계를 시드 SQL 로 손으로 넣지 않는다 — 파생 규칙이 두 벌이 되고,
- *   개발 화면이 실제와 다른 값을 보여주게 된다(원칙 5·6). 그래서 소켓이 열린 뒤에
- *   core 클라이언트로 붙어 재파생을 부르고, **곧바로 닫는다** —
- *   PGlite 는 동시 연결을 못 받으므로 개발 서버가 쓸 커넥션을 비워 둬야 한다.
- */
-if (process.env.DEV_DB_SEED !== "0") {
-  process.env.DATABASE_URL = `postgres://postgres@127.0.0.1:${PORT}/postgres`;
-  process.env.DATABASE_POOL_MAX = "1";
-  const { closeDb } = await import("../packages/core/lib/db/client.ts");
-  const { rederiveEncounters, recomputeChampionStats } = await import("../packages/core/lib/db/ingest.ts");
-  const ids = (await db.query<{ match_id: string }>(`SELECT match_id FROM match`)).rows
-    .map((r) => r.match_id);
-  if (ids.length > 0) {
-    const pairs = await rederiveEncounters(ids);
-    const stats = await recomputeChampionStats();
-    console.log(`파생: 조우 ${pairs}쌍 · 챔피언 통계 ${stats}행`);
-  }
-  await closeDb();
-}
+// 조우·챔피언 통계는 저장된 파생 표가 아니라 공개 뷰가 원본에서 바로 센다(0089) — 시드 뒤에 다시 만들 것이 없다.
 
 console.log(`임시 Postgres 준비됨 (메모리, 끄면 사라짐)`);
 console.log(`apps/web/.env.local 에 아래 두 줄을 넣고 npm run dev:`);

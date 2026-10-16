@@ -33,7 +33,7 @@
 .sched ::selection { background: var(--sched-accent); color: var(--text-on-accent, #092114); }
 .sched [data-kind="tournament"] { --sched-tone: var(--sched-accent); }
 .sched [data-kind="ck"] { --sched-tone: var(--accent-primary, #8cbaff); }
-.sched [data-kind="showmatch"], .sched [data-kind="other"] { --sched-tone: var(--status-warning, #edc085); }
+.sched [data-kind="concept"], .sched [data-kind="unclassified"] { --sched-tone: var(--status-warning, #edc085); }
 .sched-container { max-width: 1280px; padding-inline: 36px; margin-inline: auto; }
 .sched-eyebrow { display: flex; align-items: center; gap: 9px; font-size: 9px; font-weight: 600; letter-spacing: 1.7px; }
 .sched-eyebrow > i { width: 5px; height: 5px; background: var(--sched-accent); box-shadow: 0 0 15px var(--sched-glow); }

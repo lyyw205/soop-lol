@@ -1,6 +1,11 @@
 /**
  * 공개 솔로랭크 조회 — 솔랭 도전(모듈)처럼 **정해진 계정들의 랭크 판**을 읽는 쪽이 쓴다.
  *
+ * ★ 개인 기록(scope='personal', 지명 수집한 공개 큐 판)의 공개 경로 `core_public.personal_game` 만 읽는다 —
+ *   내전 집계(versus_set)와 섞이지 않는다(계획 §3.5·§5.4).
+ * ★ 상세 지표(CS·피해량·시야·아이템·룬·challenges)는 **지명한 계정의 행만** 채워진다(lol_participant_detail).
+ *   같은 판의 나머지 9명은 기본 칸(챔피언·KDA·결과)뿐이다 — 그래서 상세 칸은 null 일 수 있고, 0 으로 채우지 않는다.
+ *
  * ★ `core_public` 뷰만 읽는다. 숨긴 계정·숨긴 사람·숨긴 경기는 뷰가 거르므로, 도전 설정에 계정이
  *   적혀 있어도 그 계정이 숨겨지면 판도 랭크도 나오지 않는다(삭제 요청 경로가 모듈에서도 산다).
  * ★ Riot challenges 는 키 120여 개를 통째로 내보내지 않는다 — 화면이 쓰는 키만(허용 목록).
@@ -30,11 +35,12 @@ export interface PublicRankedGame {
   kills: number;
   deaths: number;
   assists: number;
-  cs: number;
-  damage_to_champions: number;
-  vision_score: number;
+  /** 상세 — 지명 계정의 행만. 없으면 null(0 이 아니다). */
+  cs: number | null;
+  damage_to_champions: number | null;
+  vision_score: number | null;
   challenges: Partial<Record<RankedChallengeKey, number>>;
-  /** 아이템 7칸(마지막은 장신구) · 소환사 주문 · 핵심 룬 · 보조 계열(0069) */
+  /** 아이템 7칸(마지막은 장신구) · 소환사 주문 · 핵심 룬 · 보조 계열(0069). 상세가 없으면 빈 배열. */
   items: number[];
   summoner1_id: number | null;
   summoner2_id: number | null;
@@ -46,14 +52,13 @@ export interface PublicRankedGame {
 export async function listPublicRankedGames(puuids: string[], since: Date, queueIds: number[] = [420]): Promise<PublicRankedGame[]> {
   if (!puuids.length) return [];
   const rows = await db()<(Omit<PublicRankedGame, "challenges"> & { challenges: Record<string, unknown> | null })[]>`
-    SELECT p.match_id, p.puuid, p.streamer_id, m.queue_id, m.game_creation, m.game_duration, m.ended_in_surrender,
-           p.team_id, p.team_position, p.champion_id, p.champion_name, p.outcome,
-           p.kills, p.deaths, p.assists, p.cs, p.damage_to_champions, p.vision_score, p.challenges,
-           coalesce(p.items, '{}') AS items, p.summoner1_id, p.summoner2_id, p.keystone_id, p.sub_style_id
-      FROM core_public.match_participant p
-      JOIN core_public.match m ON m.match_id = p.match_id
-     WHERE p.puuid = ANY(${puuids}) AND m.queue_id = ANY(${queueIds}) AND m.game_creation >= ${since}
-     ORDER BY m.game_creation, p.match_id, p.puuid`;
+    SELECT g.match_id, g.puuid, g.streamer_id, g.queue_id, g.played_at AS game_creation, g.game_duration, g.ended_in_surrender,
+           g.side AS team_id, g.team_position, g.champion_id, g.champion_name, g.outcome,
+           g.kills, g.deaths, g.assists, g.cs, g.damage_to_champions, g.vision_score, g.challenges,
+           coalesce(g.items, '{}') AS items, g.summoner1_id, g.summoner2_id, g.keystone_id, g.sub_style_id
+      FROM core_public.personal_game g
+     WHERE g.puuid = ANY(${puuids}) AND g.queue_id = ANY(${queueIds}) AND g.played_at >= ${since}
+     ORDER BY g.played_at, g.match_id, g.puuid`;
   return rows.map(({ challenges, ...r }) => ({
     ...r,
     challenges: Object.fromEntries(RANKED_CHALLENGE_KEYS
@@ -90,29 +95,30 @@ export async function listPublicCoPlayers(matchIds: string[], excludeStreamerIds
 }[]> {
   if (!matchIds.length) return [];
   return db()`
-    SELECT p.match_id, s.streamer_id, s.slug, s.display_name, p.team_id, p.champion_name, p.outcome
-      FROM core_public.match_participant p
-      JOIN core_public.streamer s ON s.streamer_id = p.streamer_id
-     WHERE p.match_id = ANY(${matchIds}) AND NOT (p.streamer_id = ANY(${excludeStreamerIds}::uuid[]))`;
+    SELECT g.match_id, s.streamer_id, s.slug, s.display_name, g.side AS team_id, g.champion_name, g.outcome
+      FROM core_public.personal_game g
+      JOIN core_public.streamer s ON s.streamer_id = g.streamer_id
+     WHERE g.match_id = ANY(${matchIds}) AND NOT (g.streamer_id = ANY(${excludeStreamerIds}::uuid[]))`;
 }
 
+/**
+ * 판의 한 자리 — 기본 칸(챔피언·KDA·결과)만. ★ CS·피해량·골드는 없다: 나머지 참가자는 상세를 저장하지 않는다(계획 §3.6).
+ */
 export interface PublicLineupSlot {
   match_id: string; participant_id: number; team_id: number; team_position: string | null;
-  champion_id: number; outcome: string; kills: number; deaths: number; assists: number; cs: number;
-  damage_to_champions: number; gold_earned: number;
+  champion_id: number; outcome: string; kills: number; deaths: number; assists: number;
   /** 공개 스트리머 자리만 — 나머지(일반인·숨긴 사람)는 익명 */
   streamer_id: string | null; slug: string | null; display_name: string | null;
 }
 
-/** 판마다 양 팀 10자리 — 신원 없이 챔피언·KDA, 공개 스트리머 자리에만 이름(0069 core_public.match_lineup). */
+/** 판마다 양 팀 10자리 — 신원 없이 챔피언·KDA, 공개 스트리머 자리에만 이름(core_public.personal_game). */
 export async function listPublicLineups(matchIds: string[]): Promise<PublicLineupSlot[]> {
   if (!matchIds.length) return [];
   return db()<PublicLineupSlot[]>`
-    SELECT l.match_id, l.participant_id, l.team_id, l.team_position, l.champion_id, l.outcome,
-           l.kills, l.deaths, l.assists, l.cs, l.damage_to_champions, l.gold_earned,
-           l.streamer_id, s.slug, s.display_name
-      FROM core_public.match_lineup l
-      LEFT JOIN core_public.streamer s ON s.streamer_id = l.streamer_id
-     WHERE l.match_id = ANY(${matchIds})
-     ORDER BY l.match_id, l.team_id, l.participant_id`;
+    SELECT g.match_id, g.slot AS participant_id, g.side AS team_id, g.team_position, g.champion_id, g.outcome,
+           g.kills, g.deaths, g.assists, g.streamer_id, s.slug, s.display_name
+      FROM core_public.personal_game g
+      LEFT JOIN core_public.streamer s ON s.streamer_id = g.streamer_id
+     WHERE g.match_id = ANY(${matchIds})
+     ORDER BY g.match_id, g.side, g.slot`;
 }

@@ -45,6 +45,8 @@ export interface FakeRiot {
   fetchImpl: typeof fetch;
   /** 엔드포인트별 호출 수. "낭비 없이 부르는가"를 숫자로 확인한다. */
   calls: Record<string, number>;
+  /** match-v5 목록을 물은 계정·큐 — "지명한 것만 묻는가"를 확인한다. */
+  matchIdsAsked: { puuid: string; queue: number | null }[];
 }
 
 const HEADERS = {
@@ -127,7 +129,7 @@ function matchDto(m: FakeMatch) {
         teamPosition: m.queueId === 450 ? "" : p.position,
         individualPosition: m.queueId === 450 ? "Invalid" : p.position,
         lane: p.position,
-        role: "SOLO",
+        role: "SOLO", // 저장하지 않는 칸 — Riot 은 주지만 수집이 버린다(계획 §3.6)
         championId: p.championId,
         championName: `Champ${p.championId}`,
         champLevel: 16,
@@ -154,6 +156,7 @@ function matchDto(m: FakeMatch) {
 export function createFakeRiot(opts: FakeRiotOptions): FakeRiot {
   const byId = new Map(opts.matches.map((m) => [m.matchId, m]));
   const calls: Record<string, number> = {};
+  const matchIdsAsked: FakeRiot["matchIdsAsked"] = [];
   const bump = (k: string) => { calls[k] = (calls[k] ?? 0) + 1; };
 
   const fetchImpl: typeof fetch = async (input) => {
@@ -196,9 +199,13 @@ export function createFakeRiot(opts: FakeRiotOptions): FakeRiot {
       const startTime = Number(url.searchParams.get("startTime") ?? 0);
       const endTime = Number(url.searchParams.get("endTime") ?? Number.MAX_SAFE_INTEGER);
       const count = Number(url.searchParams.get("count") ?? 20);
+      // Riot 처럼 queue 를 주면 그 큐만 — 지명 수집이 큐를 실제로 넘기는지 여기서 드러난다.
+      const queue = url.searchParams.has("queue") ? Number(url.searchParams.get("queue")) : null;
+      matchIdsAsked.push({ puuid, queue });
       const ids = (opts.history[puuid] ?? []).filter((id) => {
         const m = byId.get(id);
         if (!m) return false;
+        if (queue !== null && m.queueId !== queue) return false;
         const sec = Math.floor(m.gameCreation / 1000); // ★ 초 단위. ms 로 오면 여기서 다 걸러진다.
         return sec >= startTime && sec <= endTime;
       });
@@ -215,5 +222,5 @@ export function createFakeRiot(opts: FakeRiotOptions): FakeRiot {
     throw new Error(`가짜 Riot 이 모르는 경로: ${path}`);
   };
 
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, matchIdsAsked };
 }

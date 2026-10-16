@@ -5,7 +5,8 @@ export async function publicProfileLinks(slugs: string[], game: string | null, s
   if (!slugs.length) return new Map();
   const rows = await db()<{slug: string; lol: boolean; fconline: boolean}[]>`
     SELECT s.slug,
-      EXISTS(SELECT 1 FROM core_public.streamer_match m WHERE m.streamer_id = s.streamer_id) AS lol,
+      -- 롤 기록 = 공개 내전 세트가 있나(공개 집계와 같은 고르기). 지명 개인 기록만 있는 사람은 롤 프로필 대상이 아니다.
+      EXISTS(SELECT 1 FROM core_public.lol_versus_set v WHERE v.streamer_id = s.streamer_id) AS lol,
       EXISTS(SELECT 1 FROM streamer_fco_account a WHERE a.streamer_id = s.streamer_id AND a.visibility = 'public') AS fconline
     FROM core_public.streamer s WHERE s.slug = ANY(${slugs})`;
   return new Map(rows.map(r => {

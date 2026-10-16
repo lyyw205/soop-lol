@@ -11,9 +11,9 @@ export type Visibility = "public" | "hidden";
 export type StreamerStatus = "active" | "inactive" | "retired";
 export type VodAvailability = "unknown" | "usually_available" | "usually_unavailable";
 export type Confidence = "verified" | "likely" | "unverified";
-// MatchSource·MatchOutcome 의 정의는 ingest/transform.ts 에 있다(출처·승패 판정의 소유자).
-// 여기선 재수출만.
-export type { MatchOutcome, MatchSource } from "../ingest/transform.ts";
+// MatchOutcome 의 정의는 ingest/transform.ts 에 있다(승패 판정의 소유자). 여기선 재수출만.
+// ★ MatchSource(source·origin)는 재수출하지 않는다 — 수집 경로는 match.collected_via 하나이고 분류에 쓰지 않는다(0089).
+export type { MatchOutcome } from "../ingest/transform.ts";
 
 export interface StreamerRow {
   id: string;

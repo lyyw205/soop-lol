@@ -234,6 +234,7 @@ export class RiotClient {
    * 매치 ID 목록.
    * ★ 커스텀 게임은 여기 **절대 안 나온다** (docs/RESEARCH.md §3-1).
    * ★ 2년 지나 삭제된 경기의 ID 가 섞여 나올 수 있다 → 상세 조회에서 404 는 정상.
+   * ★ 지명 수집은 queue·startTime·endTime 으로 **그 지명의 범위만** 묻는다 — 범위 밖 판은 받지도 않는다.
    */
   async matchIds(
     puuid: string,
@@ -269,16 +270,6 @@ export class RiotClient {
       route: this.regional,
       path: `/lol/match/v5/matches/${matchId}`,
       methodId: "match-v5.match",
-      allow404: true,
-    });
-  }
-
-  /** 타임라인은 경기당 1~5MB다. **조우 경기에만** 부른다 (docs/PLAN.md §5 Engine D). */
-  matchTimeline(matchId: string): Promise<unknown | null> {
-    return this.request<unknown>({
-      route: this.regional,
-      path: `/lol/match/v5/matches/${matchId}/timeline`,
-      methodId: "match-v5.timeline",
       allow404: true,
     });
   }

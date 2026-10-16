@@ -440,12 +440,12 @@ export const REGISTRY: Omit<RegistryJob, "docs" | "notes" | "remove">[] = [
   },
   {
     "id": "worker-loop",
-    "title": "상주 워커 루프(공개 경기 수집 · Riot 백필 · 집계 · 모듈 작업)",
+    "title": "상주 워커 루프(랭크 · 지명 수집 · 지명 백필 · 모듈 작업)",
     "group": "collect",
     "install": "none",
     "units": [],
     "run": "npm run worker -- loop",
-    "schedule": "상주 — A > B > D > C 우선순위 단일 루프",
+    "schedule": "상주 — A > B > C 우선순위 단일 루프",
     "record": "none",
     "office": {
       "room": "lol",
@@ -459,7 +459,6 @@ export const REGISTRY: Omit<RegistryJob, "docs" | "notes" | "remove">[] = [
     ],
     "job_run_names": [
       "engine_b_live",
-      "engine_d_derive",
       "engine_c_backfill"
     ]
   }
