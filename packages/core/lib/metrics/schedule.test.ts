@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   addDays, buildSlotTimes, daysBetween, describeChange, entryPeriod, entryState, kstDayStart, pickBroadcastChannel,
   scheduleChanges, slotSummary,
-  slotPhase, slotTimeLabel, validateScheduleInput, type ScheduleInput, type SlotTime,
+  scheduleFormatLabel, scheduleFormats, slotPhase, slotTimeLabel, validateScheduleInput, type ScheduleInput, type SlotTime,
 } from "./schedule.ts";
 
 /** KST 벽시계 → 순간. */
@@ -81,7 +81,7 @@ test("방송 채널 — 명시값 우선, 주최 한 명·채널 하나일 때�
 });
 
 const base = (): ScheduleInput => ({
-  game_code: "lol", title: "추석 CK", planned_kind: "ck", sponsor: null, description: null, admin_note: null,
+  game_code: "lol", title: "추석 CK", planned_format: "ck", sponsor: null, description: null, admin_note: null,
   status: "scheduled", event_id: null, visibility: "public",
   slots: [{ label: null, channel_id: null, ...slot("2026-10-03", "20:00", "23:00") }],
   participants: [], sources: [{ url: "https://ch.sooplive.co.kr/x/post/1", title: null, posted_at: null }],
@@ -89,6 +89,23 @@ const base = (): ScheduleInput => ({
 
 test("검증 — 통과하는 기본형", () => {
   assert.deepEqual(validateScheduleInput(base()), []);
+});
+
+test("검증 — 분류는 행사 진행 방식 어휘, 게임별 허용만(롤에 친선 없음 · FC 에 랜드 없음)", () => {
+  assert.deepEqual(validateScheduleInput({ ...base(), planned_format: "land" }), []);
+  assert.deepEqual(validateScheduleInput({ ...base(), planned_format: "unclassified" }), []);
+  assert.ok(validateScheduleInput({ ...base(), planned_format: "friendly" }).some((e) => e.includes("분류")));
+  assert.ok(validateScheduleInput({ ...base(), game_code: "fconline", planned_format: "land" }).some((e) => e.includes("분류")));
+  assert.deepEqual(validateScheduleInput({ ...base(), game_code: "fconline", planned_format: "friendly" }), []);
+  assert.ok(validateScheduleInput({ ...base(), planned_format: "showmatch" as never }).some((e) => e.includes("분류")), "옛 값은 거부");
+});
+
+test("분류 이름 — 미분류는 라벨이 없다(확인된 것만), 선택지 순서는 format.ts 칩 순서", () => {
+  assert.equal(scheduleFormatLabel("ck"), "CK");
+  assert.equal(scheduleFormatLabel("concept"), "컨셉");
+  assert.equal(scheduleFormatLabel("unclassified"), null);
+  assert.equal(scheduleFormats("fconline").at(-1), "unclassified");
+  assert.ok(!scheduleFormats("lol").includes("friendly"));
 });
 
 test("검증 — 공개인데 출처가 없으면 거부, 숨김이면 허용", () => {

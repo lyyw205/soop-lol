@@ -200,14 +200,12 @@ try {
     // slug 은 소문자·숫자·하이픈만. SOOP 채널 아이디가 대문자를 쓰는 경우가 있다.
     const slug = h.fa.userId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 
-    // ★ raw SQL 로 직접 INSERT 하지 않는다 — core 접근자를 경유한다.
-    //   전에 여기서 streamer_account 를 직접 넣었다가 linkAccount() 가 하는
-    //   **ingest_cursor 등록이 빠져서**, 이 경로로 연결된 계정이 백필 큐에
-    //   영영 안 들어가는 사고가 났다(아키텍처 감사에서 발견). 백필은 시한부라
-    //   그 구멍은 영구 손실이었다. 접근자에는 이런 부작용이 계약으로 붙어 있다.
+    // ★ raw SQL 로 직접 INSERT 하지 않는다 — core 접근자(linkAccount)를 경유한다. 근거 검증·후보 상태 정리가
+    //   접근자에 계약으로 붙어 있어서, 직접 넣으면 그게 빠진다(옛날엔 백필 대기열 등록이 빠졌다).
+    //   ★ 연결은 경기 기록 수집 대상을 만들지 않는다 — 수집은 collection_target 지명뿐이다(계획 §4).
     //
     //   한 트랜잭션이 아니게 된 것은 감수한다 — 전부 멱등 upsert 라 중간에
-    //   끊겨도 다시 돌리면 아문다. 원자성보다 부작용 누락이 훨씬 비쌌다.
+    //   끊겨도 다시 돌리면 아문다.
     let streamerId = own?.id;
     if (!streamerId) {
       const existing2 = await getStreamer(slug);
@@ -237,7 +235,7 @@ try {
       game_name: h.riotId.slice(0, hash2),
       tag_line: h.riotId.slice(hash2 + 1),
     });
-    // evidence 검증 + ingest_cursor(백필 큐) 등록까지 linkAccount 가 한다.
+    // evidence 검증·후보 승인 상태까지 linkAccount 가 한다.
     await linkAccount({
       streamer_id: streamerId,
       puuid: h.c.puuid,
@@ -250,7 +248,7 @@ try {
   }
 
   console.log(`\n스트리머 생성 ${created}명 · 계정 연결 ${linked}건 · 후보 ${misses.length}명은 그대로 둔다`);
-  console.log(`\n다음:  npm run worker -- derive     # 새 계정으로 과거 조우를 재파생한다`);
+  // ★ 재파생할 것이 없다 — 공개 뷰가 연결을 질의 시점에 읽어, 이 계정이 나온 과거 판이 그 자리에서 이 사람의 기록이 된다.
 } finally {
   await closeDb();
 }

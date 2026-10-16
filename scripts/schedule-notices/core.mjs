@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { FORMATS, allowedFormat } from '../../packages/core/lib/metrics/format.ts';
 export const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export async function readJson(path, fallback) {
   try { return JSON.parse(await readFile(path, 'utf8')); } catch (e) { if (e.code === 'ENOENT' && fallback !== undefined) return fallback; throw e; }
@@ -50,7 +51,8 @@ const array = items => ({type:'array',items});
 export const schema = object({results:array(object({
   key:str,revision:str,decision:{enum:['candidate','ignore','review']},reason:str,
   events:array(object({action:{enum:['new','update','cancel','postpone']},title:str,game:{enum:['lol','fconline',null]},
-    kind:{enum:['ck','tournament','showmatch','other',null]},date:nullable,startsAt:nullable,timeNote:str,
+    // ★ 분류는 행사 진행 방식과 같은 어휘(metrics/format.ts) — 모르면 unclassified 하나로만(null 을 두지 않는다).
+    format:{enum:[...FORMATS]},date:nullable,startsAt:nullable,timeNote:str,
     participants:array(str),relatedScheduleIds:array(str),evidence:array(str),unknowns:array(str)}))
 }))});
 export function validateSchema(value, shape, path='result') {
@@ -74,6 +76,7 @@ export function validateResult(value, posts, schedules=[]) {
       if(e.date!==null && (!/^\d{4}-\d{2}-\d{2}$/.test(e.date) || Number.isNaN(Date.parse(e.date)) || new Date(e.date).toISOString().slice(0,10)!==e.date)) throw new Error('Invalid date');
       if(e.startsAt!==null && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\+09:00$/.test(e.startsAt) || !Number.isFinite(Date.parse(e.startsAt)) || e.startsAt.slice(0,10)!==e.date)) throw new Error('Invalid KST time');
       if(e.relatedScheduleIds.some(id=>!ids.has(id))) throw new Error('Invented schedule ID');
+      if(e.game && !allowedFormat(e.game,e.format)) throw new Error('Format not allowed for game');
       if(!e.game || !e.date || e.unknowns.length) r.decision='review';
     }
   }

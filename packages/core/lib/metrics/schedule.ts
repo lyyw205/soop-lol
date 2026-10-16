@@ -1,19 +1,28 @@
 /** 편성표 상태는 관리자 지정값, 날짜·시각은 별도 표시 정보다. */
 
-import { EVENT_KIND_LABEL } from "./event.ts";
+import { allowedFormat, FORMATS_BY_GAME, formatChipLabel, formatLabel, isFormat, type Format } from "./format.ts";
 import { fromKstInputValue, KST_OFFSET_MS, kstDateString } from "../time.ts";
 
 export type ScheduleStatus = "scheduled" | "in_progress" | "cancelled" | "postponed" | "held";
-export type SchedulePlannedKind = "tournament" | "showmatch" | "ck" | "other";
 export type ScheduleRole = "host" | "player" | "caster";
 export type ScheduleGame = "lol" | "fconline";
 
 export const SCHEDULE_GAMES: readonly ScheduleGame[] = ["lol", "fconline"];
-export const SCHEDULE_KINDS: readonly SchedulePlannedKind[] = ["tournament", "showmatch", "ck", "other"];
 export const SCHEDULE_STATUSES: readonly ScheduleStatus[] = ["scheduled", "in_progress", "cancelled", "postponed", "held"];
 export const SCHEDULE_ROLES: readonly ScheduleRole[] = ["host", "player", "caster"];
 
-export const SCHEDULE_KIND_LABEL: Record<SchedulePlannedKind, string> = EVENT_KIND_LABEL;
+// ── 예정 분류(planned_format) ────────────────────────────────────────
+//
+// ★ 일정의 분류는 행사의 진행 방식(event.format)과 **같은 어휘**다 — metrics/format.ts 가 단일 출처이고 DB CHECK
+//   (schedule_entry_planned_format_check)가 같은 게임별 허용 목록을 강제한다. 일정만의 분류 목록을 따로 두지 않는다
+//   (옛 planned_kind 는 행사 kind 를 빌려 쓰다 "이벤트전·기타"가 일정에만 남았다). 모르면 unclassified — 라벨을 달지 않는다.
+
+/** 이 게임의 일정에 쓸 수 있는 분류(관리자 선택지 순서). 마지막은 언제나 unclassified. */
+export const scheduleFormats = (game: ScheduleGame): readonly Format[] => FORMATS_BY_GAME[game];
+/** 일정 카드·뱃지의 분류 이름. 미분류는 null — 확인된 것만 이름을 단다. */
+export const scheduleFormatLabel = (f: Format): string | null => formatLabel(f);
+/** 관리자 선택지 이름. 미분류도 이름이 있다("분류 전"). */
+export const scheduleFormatOptionLabel = (f: Format): string => formatChipLabel(f);
 export const SCHEDULE_ROLE_LABEL: Record<ScheduleRole, string> = { host: "주최", player: "선수", caster: "해설" };
 export const SCHEDULE_GAME_LABEL: Record<ScheduleGame, string> = { lol: "LOL", fconline: "FC 온라인" };
 
@@ -135,7 +144,7 @@ export interface ScheduleSlotInput extends SlotTime {
 export interface ScheduleInput {
   game_code: ScheduleGame;
   title: string;
-  planned_kind: SchedulePlannedKind;
+  planned_format: Format;
   sponsor: string | null;
   description: string | null;
   admin_note: string | null;
@@ -155,7 +164,9 @@ export function validateScheduleInput(input: ScheduleInput): string[] {
   const errors: string[] = [];
   if (!SCHEDULE_GAMES.includes(input.game_code)) errors.push("게임은 LOL·FC 온라인 중 하나입니다.");
   if (!input.title.trim()) errors.push("제목이 비어 있습니다.");
-  if (!SCHEDULE_KINDS.includes(input.planned_kind)) errors.push("분류가 올바르지 않습니다.");
+  if (!isFormat(input.planned_format) || !SCHEDULE_GAMES.includes(input.game_code) || !allowedFormat(input.game_code, input.planned_format)) {
+    errors.push("이 게임의 일정에 쓸 수 없는 분류입니다.");
+  }
   if (!SCHEDULE_STATUSES.includes(input.status)) errors.push("상태가 올바르지 않습니다.");
   if (input.slots.length === 0) errors.push("방송 칸이 하나 이상 있어야 합니다.");
   for (const s of input.slots) {

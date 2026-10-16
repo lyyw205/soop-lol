@@ -4,10 +4,9 @@ import { nextClubCollectionAt } from "@soop-lol/core/lib/metrics/club-state";
  *
  *   node apps/worker/src/main.ts <command>
  *
- *   rank      Engine A — 랭크 스냅샷 1회
- *   live      Engine B — 신규 매치 따라잡기 1회
- *   backfill  Engine C — 백필 한 조각 (--all 이면 대기열이 빌 때까지)
- *   derive    Engine D — 조우 재파생 (--stats 면 champion_stat 도)
+ *   rank      Engine A — 랭크 스냅샷 1회 (연결된 활성 계정 전원)
+ *   live      Engine B — 지명 수집(collection_target)의 신규 판 따라잡기 1회
+ *   backfill  Engine C — 지명 수집의 백필 한 조각 (--all 이면 대기열이 빌 때까지)
  *   fco       Engine E — FC 경기 수집 1회
  *   fco-club  Engine F — FC 공식 구단가치·스쿼드 6칸 스냅샷 1회
  *   fco-prices Engine G — 보유 카드 시세(최대 365일) 1회
@@ -27,7 +26,6 @@ import { loadConfig } from "./config.ts";
 import { createContext, isFatal, type WorkerContext } from "./context.ts";
 import { runBackfillSlice } from "./engines/backfill.ts";
 import { COMMUNITY_HOUSEKEEP_HOUR_KST, runCommunityHousekeepEngine } from "./engines/community.ts";
-import { runDeriveEngine } from "./engines/derive.ts";
 import { runFcoEngine } from "./engines/fco.ts";
 import { runFcoClubEngine, runFcoPriceEngine, runFcoRatingEngine } from "./engines/fco-club.ts";
 import { createLiveState, runLiveEngine } from "./engines/live.ts";
@@ -92,12 +90,6 @@ async function main() {
       break;
     }
 
-    case "derive":
-      await runJob(ctx, "engine_d_derive", () =>
-        runDeriveEngine(ctx, { championStats: flags.includes("--stats") }),
-      );
-      break;
-
     case "fco":
       await runJob(ctx, "engine_e_fco", () => runFcoEngine(ctx));
       break;
@@ -127,7 +119,7 @@ async function main() {
       break;
 
     default:
-      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | derive | fco | fco-club | fco-prices | fco-rating | community-housekeep | modules | loop`);
+      console.error(`알 수 없는 명령: ${command}\n  rank | live | backfill | fco | fco-club | fco-prices | fco-rating | community-housekeep | modules | loop`);
       process.exitCode = 2;
   }
 }
@@ -136,7 +128,9 @@ async function main() {
 
 /**
  * 우선순위 루프. 엔진들은 서로를 막지 않아야 하지만, **레이트리밋은 하나**다.
- * 그래서 동시에 돌리는 대신 순서를 정한다: A > B > D > C.
+ * 그래서 동시에 돌리는 대신 순서를 정한다: A > B > C.
+ * ★ 옛 Engine D(조우·챔피언 통계 재파생)는 없다 — 파생 표가 없어지고 공개 뷰가 원본에서 계산한다
+ *   (docs/CLASSIFICATION-REDESIGN-PLAN.md §10 결정 5).
  *
  * 백필(C)은 한 번에 한 조각만 하므로, 다음 A/B 차례가 오면 자연스럽게 양보한다.
  */
@@ -146,8 +140,6 @@ async function loop(ctx: WorkerContext) {
 
   let nextRank = nextKstHour(new Date(), cfg.rankHourKst).getTime();
   let nextLive = 0;
-  let nextDerive = 0;
-  let nextStats = Date.now() + cfg.championStatIntervalMs;
   // Engine E 는 넥슨 버킷을 쓰므로 Riot 예산과 경쟁하지 않지만, 로그가 섞이지 않게 순서는 지킨다.
   let nextFco = ctx.nexon ? nextKstHour(new Date(), cfg.fcoHourKst).getTime() : Infinity;
   // F(구단 스냅샷)는 시한부라 넥슨 키가 없어도 돈다. G(시세)는 F 가 남긴 보유 카드를 본다 — F 다음에.
@@ -194,13 +186,6 @@ async function loop(ctx: WorkerContext) {
         nextFcoRating = Date.now() + cfg.fcoRatingIntervalMs;
         continue;
       }
-      if (now >= nextDerive) {
-        const stats = now >= nextStats;
-        await runJob(ctx, "engine_d_derive", () => runDeriveEngine(ctx, { championStats: stats }));
-        nextDerive = Date.now() + cfg.deriveIntervalMs;
-        if (stats) nextStats = Date.now() + cfg.championStatIntervalMs;
-        continue;
-      }
       if (now >= nextCommunity) {
         await runJob(ctx, "community_housekeep", () => runCommunityHousekeepEngine());
         nextCommunity = nextKstHour(new Date(), COMMUNITY_HOUSEKEEP_HOUR_KST).getTime();
@@ -220,7 +205,7 @@ async function loop(ctx: WorkerContext) {
     } catch (e) {
       if (isFatal(e)) throw e;
       if (e instanceof DbGateBlocked) {
-        // 공개 큐 적재(B·C)만 쉰다 — 다시 부르면 같은 점검에 막혀 아래 순위 잡(FC 등)이 영영 못 돈다.
+        // 지명 수집 적재(B·C)만 쉰다 — 다시 부르면 같은 점검에 막혀 아래 순위 잡(FC 등)이 영영 못 돈다.
         log.warn(SCOPE, `${e.message} — ${DB_GATE_RETRY_MS / 60_000}분 뒤 다시 본다`);
         nextLive = Math.max(nextLive, Date.now() + DB_GATE_RETRY_MS);
         backfillPausedUntil = Date.now() + DB_GATE_RETRY_MS;
@@ -231,7 +216,7 @@ async function loop(ctx: WorkerContext) {
       continue;
     }
 
-    const deadlines = [nextRank, nextLive, nextDerive];
+    const deadlines = [nextRank, nextLive];
     if (cfg.backfillEnabled) deadlines.push(backfillPausedUntil);
     const waitMs = Math.min(cfg.idleMs, Math.max(1000, Math.min(...deadlines) - Date.now()));
     await nap(waitMs);

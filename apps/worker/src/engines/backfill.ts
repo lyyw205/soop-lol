@@ -1,8 +1,12 @@
 /**
- * Engine C — 과거 백필 (docs/PLAN.md §5).
+ * Engine C — 지명 수집의 과거 백필 (docs/CLASSIFICATION-REDESIGN-PLAN.md §4).
+ *
+ * ★ 대상은 collection_target(계정·큐·기간) 하나씩이다. 옛 ingest_cursor(연결된 계정 전원)의 검증된 로직 —
+ *   커서를 반드시 내리기, 끝(기간 시작·2년 보존 경계·빈 응답·전부 삭제된 구간) 감지, SKIP LOCKED — 는 그대로 쓰고
+ *   키만 지명 단위로 바꿨다. Riot 에는 그 지명의 큐·기간만 묻는다(matchIds 의 queue·startTime·endTime).
  *
  * **시한부 작업이다.** match-v5 보존은 2년이고 실제로는 더 짧을 수 있다.
- * 명단이 정해지면 즉시 긁어야 하고, 못 긁은 구간은 나중에 어떤 방법으로도 못 메운다.
+ * 지명을 정하면 즉시 긁어야 하고, 못 긁은 구간은 나중에 어떤 방법으로도 못 메운다.
  *
  * 우선순위는 가장 낮다. 그래서 한 번 호출에 **한 조각만** 한다 —
  * 09:00 랭크 스냅샷이나 라이브 폴링이 백필에 밀려 늦어지면 안 된다.
@@ -11,8 +15,9 @@
 import {
   claimBackfillTarget,
   filterUnknownMatchIds,
-  matchCreationTimes,
+  matchCoverage,
   saveBackfillProgress,
+  type CollectionTarget,
 } from "@soop-lol/core/lib/db/ingest";
 import { toEpochSeconds } from "@soop-lol/core/lib/time";
 
@@ -25,78 +30,85 @@ const SCOPE = "engineC";
 const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
 
 export interface BackfillSliceResult extends EngineResult {
-  /** 더 팔 계정이 없다. 스케줄러가 이걸 보고 백필을 쉰다. */
+  /** 더 팔 지명이 없다. 스케줄러가 이걸 보고 백필을 쉰다. */
   exhausted: boolean;
 }
 
 export async function runBackfillSlice(ctx: WorkerContext, now = new Date()): Promise<BackfillSliceResult> {
-  const target = await claimBackfillTarget();
-  if (!target) return { processed: 0, exhausted: true, detail: { note: "백필 대기열이 비었다" } };
+  const target = await claimBackfillTarget(undefined, now);
+  if (!target) return { processed: 0, exhausted: true, detail: { note: "백필할 지명이 없다" } };
 
-  const horizon = new Date(now.getTime() - ctx.cfg.backfillYears * YEAR_MS);
-  const before = target.backfill_before ?? now;
+  // 아래 끝: 지명 기간의 시작과 Riot 보존 경계 중 늦은 쪽. 위 끝: 커서가 없으면 기간의 끝(열린 기간이면 지금).
+  const retention = new Date(now.getTime() - ctx.cfg.backfillYears * YEAR_MS);
+  const horizon = new Date(Math.max(target.starts_at.getTime(), retention.getTime()));
+  const before = target.cursor_before
+    ?? (target.ends_at && target.ends_at < now ? target.ends_at : now);
+  const who = { target: target.label, queue: target.queue_id, purpose: target.purpose };
 
   if (before <= horizon) {
-    await saveBackfillProgress({ puuid: target.puuid, state: "done", reachedEnd: true });
-    log.info(SCOPE, "2년 경계 도달", { puuid: target.puuid.slice(0, 8) });
-    return { processed: 0, exhausted: false, detail: { puuid: target.puuid.slice(0, 8), reachedEnd: true } };
+    await saveBackfillProgress({ id: target.id, state: "done", reachedEnd: true });
+    log.info(SCOPE, "기간 시작(또는 2년 경계) 도달", who);
+    return { processed: 0, exhausted: false, detail: { ...who, reachedEnd: true } };
   }
 
   try {
-    return await slice(ctx, target.puuid, horizon, before);
+    return await slice(ctx, target, horizon, before);
   } catch (e) {
     if (isFatal(e)) {
-      // 키가 죽었다. 이건 계정 문제가 아니므로 error_count 를 올리지 않는다.
-      await saveBackfillProgress({ puuid: target.puuid, state: "pending" });
+      // 키가 죽었다. 이건 지명 문제가 아니므로 실패로 남기지 않는다.
+      await saveBackfillProgress({ id: target.id, state: "pending" });
       throw e;
     }
-    await saveBackfillProgress({ puuid: target.puuid, state: "error", error: errorMessage(e) });
-    log.error(SCOPE, "백필 슬라이스 실패", { puuid: target.puuid.slice(0, 8), error: errorMessage(e) });
-    return { processed: 0, exhausted: false, detail: { puuid: target.puuid.slice(0, 8), error: true } };
+    await saveBackfillProgress({ id: target.id, state: "error", error: errorMessage(e) });
+    log.error(SCOPE, "백필 슬라이스 실패", { ...who, error: errorMessage(e) });
+    return { processed: 0, exhausted: false, detail: { ...who, error: true } };
   }
 }
 
 async function slice(
   ctx: WorkerContext,
-  puuid: string,
+  target: CollectionTarget,
   horizon: Date,
   before: Date,
 ): Promise<BackfillSliceResult> {
-  const ids = await ctx.riot.matchIds(puuid, {
+  const who = { target: target.label, queue: target.queue_id, purpose: target.purpose };
+  const ids = await ctx.riot.matchIds(target.puuid, {
+    queue: target.queue_id,
     startTime: toEpochSeconds(horizon),
     endTime: toEpochSeconds(before),
     count: 100,
   });
 
   if (ids.length === 0) {
-    await saveBackfillProgress({ puuid, state: "done", reachedEnd: true });
-    log.info(SCOPE, "백필 완료", { puuid: puuid.slice(0, 8) });
-    return { processed: 0, exhausted: false, detail: { puuid: puuid.slice(0, 8), reachedEnd: true } };
+    await saveBackfillProgress({ id: target.id, state: "done", reachedEnd: true });
+    log.info(SCOPE, "백필 완료", who);
+    return { processed: 0, exhausted: false, detail: { ...who, reachedEnd: true } };
   }
 
   const unknown = new Set(await filterUnknownMatchIds(ids));
-  const known = await matchCreationTimes(ids.filter((id) => !unknown.has(id)));
+  const known = await matchCoverage(ids.filter((id) => !unknown.has(id)), target.puuid);
 
   // ids 는 최신순이다. **순서대로** 훑으며 커서를 내린다 —
   // 중간을 건너뛰면 그 구간은 다시 볼 방법이 없다.
   let fetched = 0;
   let ingested = 0;
   let dead = 0;
-  let encounters = 0;
+  let details = 0;
   let oldestCovered: Date | null = null;
   let stopped = false;
 
   for (const id of ids) {
     const cached = known.get(id);
-    if (cached) {
-      // 이미 가진 매치. API 를 쓰지 않고 커서만 내린다.
-      oldestCovered = cached;
+    if (cached && !cached.needs_detail) {
+      // 이미 다 갖춘 매치. API 를 쓰지 않고 커서만 내린다.
+      oldestCovered = cached.at;
       continue;
     }
-    if (!unknown.has(id)) {
+    if (!cached && !unknown.has(id)) {
       // dead_match 로 이미 걸러진 id. 시각을 모르니 커서는 그대로 둔다.
       continue;
     }
+    // 처음 보는 판, 또는 가진 판인데 이 지명 계정의 상세가 빠진 판(다른 지명으로 먼저 들어왔다) — 받아서 채운다.
     if (fetched >= ctx.cfg.backfillBatch) {
       stopped = true;
       break;
@@ -110,7 +122,7 @@ async function slice(
     }
     if (r.state === "saved") ingested++;
     if (r.state === "dead") dead++;
-    encounters += r.encounters;
+    details += r.details;
     if (r.at) oldestCovered = r.at;
   }
 
@@ -118,34 +130,33 @@ async function slice(
   // 커서를 못 내리므로 여기서 멈추지 않으면 같은 창을 영원히 다시 요청한다.
   if (!oldestCovered) {
     if (stopped) {
-      await saveBackfillProgress({ puuid, state: "pending", ingested });
+      await saveBackfillProgress({ id: target.id, state: "pending" });
     } else {
-      await saveBackfillProgress({ puuid, state: "done", reachedEnd: true, ingested });
-      log.warn(SCOPE, "구간 전체가 삭제된 경기라 백필을 종료한다", { puuid: puuid.slice(0, 8), ids: ids.length });
+      await saveBackfillProgress({ id: target.id, state: "done", reachedEnd: true });
+      log.warn(SCOPE, "구간 전체가 삭제된 경기라 백필을 종료한다", { ...who, ids: ids.length });
     }
-    return { processed: ingested, exhausted: false, detail: { puuid: puuid.slice(0, 8), dead } };
+    return { processed: ingested, exhausted: false, detail: { ...who, dead } };
   }
 
   await saveBackfillProgress({
-    puuid,
-    // 1초 물러선다. 경계 매치를 다시 받아도 filterUnknownMatchIds 가 걸러낸다.
+    id: target.id,
+    // 1초 물러선다. 경계 매치를 다시 받아도 filterUnknownMatchIds·matchCoverage 가 걸러낸다.
     before: new Date(oldestCovered.getTime() - 1000),
-    ingested,
     state: "pending",
   });
 
   log.info(SCOPE, "슬라이스", {
-    puuid: puuid.slice(0, 8),
+    ...who,
     ids: ids.length,
     new: ingested,
+    details,
     dead,
-    enc: encounters,
     until: oldestCovered.toISOString().slice(0, 10),
   });
 
   return {
     processed: ingested,
     exhausted: false,
-    detail: { puuid: puuid.slice(0, 8), ids: ids.length, dead, encounters },
+    detail: { ...who, ids: ids.length, dead, details },
   };
 }

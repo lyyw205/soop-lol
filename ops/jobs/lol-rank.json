@@ -29,7 +29,7 @@
     "docs/SETUP.md",
     "docs/PLAN.md"
   ],
-  "notes": "시한부 — 하루 안 쌓으면 그날은 영원히 구멍이다(같은 실행이 닉네임도 갱신한다).",
+  "notes": "시한부 — 하루 안 쌓으면 그날은 영원히 구멍이다(같은 실행이 닉네임도 갱신한다). 대상은 연결된 활성 계정 전원이다 — 경기 기록의 지명 수집(collection_target)과 무관하다.",
   "remove": [
     "설치돼 있으면 먼저 scripts/systemd/install.sh --disable-job lol-rank",
     "apps/worker/src/main.ts 의 명령과 운영 화면 대사(apps/web/components/admin/office/dialogue.ts)에 이름이 있으면 그 줄",

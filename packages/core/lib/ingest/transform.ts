@@ -1,15 +1,19 @@
 /**
  * Riot 응답 → DB 행. **순수 함수만** 둔다 (DB 도 네트워크도 건드리지 않는다).
  *
- * 이렇게 갈라두는 이유: 수집 파이프라인에서 가장 틀리기 쉬운 곳이
- * "매치 하나를 행으로 펴는 규칙"과 "누가 누구를 만났나 판정"인데,
+ * 이렇게 갈라두는 이유: 수집 파이프라인에서 가장 틀리기 쉬운 곳이 "매치 하나를 행으로 펴는 규칙"인데,
  * 여기가 순수하면 실제 매치 JSON 없이도 테스트로 못을 박을 수 있다.
+ *
+ * ★ 참가자는 **기본 칸**(모든 판·모든 참가자)과 **상세**(지명 계정만, lol_participant_detail)로 나눠 편다
+ *   (docs/CLASSIFICATION-REDESIGN-PLAN.md §3.6). 쓰기만 하고 읽는 곳이 없던 칸(lane·role·damage_taken·wards·
+ *   turret_kills·first_blood_kill)은 아예 뽑지 않는다 — 뽑아 두면 언젠가 다시 저장된다.
+ * ★ 조우(누가 누구를 만났나)는 여기서 계산하지 않는다. 파생 표가 없어졌고 공개 뷰(core_public.versus_pair_set)가
+ *   질의 시점에 원본에서 계산한다(계획 §10 결정 5).
  */
 
-import { isLaneMatchup, resolvePosition, totalCs } from "../metrics/matchup.ts";
+import { totalCs } from "../metrics/matchup.ts";
 import { parseMatchId } from "../riot/regions.ts";
 import {
-  SUMMONERS_RIFT_QUEUES,
   TOURNAMENT_QUEUES,
   type MatchDto,
   type MatchInfoDto,
@@ -18,43 +22,40 @@ import {
 
 // ── match / match_participant ────────────────────────────────────────
 
-/**
- * 경기의 출처. **공개 큐와 내전을 절대 섞지 않는다**(§11-7)의 축이 되는 타입이다.
- * 정의가 여기(ingest) 있는 이유: 출처 판정(classifySource)이 이 파일 소관이고,
- * db/types 에 두면 db ↔ ingest 타입 순환이 생긴다. db/types 가 재수출한다.
- */
-export type MatchSource = "public_queue" | "tournament_code" | "manual";
 export type GameCode = "lol" | "fconline";
 export type MatchOutcome = "win" | "draw" | "loss" | "unknown";
 
+/**
+ * Riot 응답에서 바로 정해지는 match 칸. 판의 범위(scope)와 시리즈 자리는 여기서 정하지 않는다 —
+ * 저장 쪽(db/ingest.ts saveMatch)이 지명·토너먼트 코드 여부를 보고 정한다.
+ */
 export interface MatchRow {
   match_id: string;
-  game_code: GameCode;
+  game_code: "lol";
   platform_id: string;
   riot_game_id: number;
   queue_id: number | null;
   mode_key: string;
   game_mode: string | null;
-  game_type: string | null;
   map_id: number | null;
   game_version: string | null;
   game_creation: Date;
-  game_start: Date | null;
-  game_end: Date | null;
   game_duration: number | null;
   winning_team: number | null;
   ended_in_surrender: boolean;
-  source: MatchSource;
   /** 토너먼트 코드. 같은 코드 = 같은 내전 세션. 공개 큐면 null. */
   tournament_code: string | null;
+  /** 어떻게 알았나 — Riot API 로 받은 판은 언제나 api. 분류 판정에 쓰지 않는다(계획 §3.3). */
+  collected_via: "api";
 }
 
+/** 기본 칸 — 모든 판의 모든 참가자. VOD 판독이 채우는 칸과 같다(계획 §3.6). */
 export interface ParticipantRow {
   match_id: string;
   /** Riot 이 준 puuid. 방송을 읽어 넣은 내전에서 계정을 모르면 null (0017). */
   puuid: string | null;
   /**
-   * 그 자리에 있던 우리 스트리머. 공개 큐는 계정 매핑에서 파생되므로 비워 두고,
+   * 그 자리에 있던 우리 스트리머. Riot 판은 계정 매핑에서 정해지므로 비워 두고,
    * 계정을 못 붙인 참가자만 여기로 식별한다. 둘 다 비면 저장이 거부된다.
    */
   streamer_id?: string | null;
@@ -63,8 +64,6 @@ export interface ParticipantRow {
   side_no: number;
   team_position: string | null;
   individual_position: string | null;
-  lane: string | null;
-  role: string | null;
   champion_id: number | null;
   champion_name: string | null;
   champ_level: number | null;
@@ -73,20 +72,20 @@ export interface ParticipantRow {
   kills: number;
   deaths: number;
   assists: number;
-  gold_earned: number | null;
+}
+
+/** 상세 — 지명 계정(collection_target)의 행만 lol_participant_detail 에 둔다. 지금 솔랭 도전만 읽는다. */
+export interface DetailRow {
+  match_id: string;
+  participant_id: number;
   cs: number;
+  gold_earned: number | null;
   damage_to_champions: number | null;
-  damage_taken: number | null;
   vision_score: number | null;
-  wards_placed: number | null;
-  wards_killed: number | null;
-  control_wards: number | null;
-  turret_kills: number | null;
-  first_blood_kill: boolean;
+  items: number[];
   summoner1_id: number | null;
   summoner2_id: number | null;
-  items: number[];
-  /** perks·challenges 는 화면이 읽는 값만(storedPerks·storedChallenges) — 일반인 줄은 저장 직전에 null(db/ingest.ts saveMatch). */
+  /** 화면이 읽는 값만(storedPerks·storedChallenges). */
   perks: StoredPerks | null;
   challenges: Record<string, number> | null;
 }
@@ -117,7 +116,7 @@ export function storedChallenges(c: Record<string, unknown> | null | undefined):
 
 /**
  * 룬은 화면이 쓰는 두 값만 — 핵심 룬과 보조 계열. 모양은 Riot 원본의 경로를 그대로 따른다:
- * 공개 뷰(0069)가 `perks #>> '{styles,0,selections,0,perk}'`·`'{styles,1,style}'` 로 읽는다.
+ * 공개 뷰(core_public.personal_game, 0089)가 `perks #>> '{styles,0,selections,0,perk}'`·`'{styles,1,style}'` 로 읽는다.
  */
 export interface StoredPerks {
   styles: [{ selections: [{ perk: number | null }] }, { style: number | null }];
@@ -144,31 +143,22 @@ export function durationSeconds(info: Pick<MatchInfoDto, "gameDuration" | "gameE
   return info.gameEndTimestamp ? info.gameDuration : Math.round(info.gameDuration / 1000);
 }
 
-const ms = (v: number | undefined | null): Date | null =>
-  typeof v === "number" && v > 0 ? new Date(v) : null;
-
 /**
- * 이 경기가 내전인가. **응답을 보고 판정한다** — 호출부가 정하게 두지 않는다.
+ * 토너먼트 코드 판인가. **응답을 보고 판정한다** — 호출부가 정하게 두지 않는다.
  *
  * 두 신호를 모두 본다:
- *   · `tournamentCode` 가 있으면 무조건 내전이다 (큐 번호가 뭐든)
+ *   · `tournamentCode` 가 있으면 무조건 토너먼트 코드 판이다 (큐 번호가 뭐든)
  *   · queueId 3130 은 토너먼트 코드 협곡방이다
- * 하나만 봐도 대부분 맞지만, 둘 다 보는 건 §11-7(공개 큐와 절대 안 섞는다)이
- * **한쪽이 비어 오는 경우까지** 버텨야 하는 규칙이라서다. 잘못 섞이면
- * 사후에 되돌리기 어렵다 — 어느 경기가 원래 내전이었는지 알 길이 없어진다.
+ * ★ 토너먼트 코드는 분류가 아니라 입력 수단이다(사용자 결정 4). 이 판정이 정하는 것은 판의 **범위**뿐이다 —
+ *   토너먼트 코드 판은 내전 세트(versus, 자동 미분류 묶음), 그 밖의 Riot 판은 지명 수집의 개인 기록(personal).
+ *   한쪽이 비어 오는 경우까지 버텨야 한다 — 내전이 개인 기록으로 들어가면 어느 판이 원래 내전이었는지 되돌릴 길이 없다.
  */
-export function classifySource(info: MatchInfoDto): MatchSource {
-  if (typeof info.tournamentCode === "string" && info.tournamentCode.length > 0) {
-    return "tournament_code";
-  }
-  return TOURNAMENT_QUEUES.includes(info.queueId) ? "tournament_code" : "public_queue";
+export function isTournamentCodeGame(info: Pick<MatchInfoDto, "tournamentCode" | "queueId">): boolean {
+  if (typeof info.tournamentCode === "string" && info.tournamentCode.length > 0) return true;
+  return TOURNAMENT_QUEUES.includes(info.queueId);
 }
 
-/**
- * `source` 를 넘기지 않으면 응답을 보고 판정한다.
- * 수기 데이터(`'manual'`)처럼 응답으로 알 수 없는 것만 호출부가 지정한다.
- */
-export function toMatchRow(dto: MatchDto, source?: MatchSource): MatchRow {
+export function toMatchRow(dto: MatchDto): MatchRow {
   const info = dto.info;
   const matchId = dto.metadata.matchId;
   // platformId 가 비어 오는 경기가 있다 — matchId 앞부분이 곧 platformId 다.
@@ -182,17 +172,14 @@ export function toMatchRow(dto: MatchDto, source?: MatchSource): MatchRow {
     queue_id: info.queueId,
     mode_key: String(info.queueId),
     game_mode: info.gameMode ?? null,
-    game_type: info.gameType ?? null,
     map_id: info.mapId ?? null,
     game_version: info.gameVersion ?? null,
     game_creation: new Date(info.gameCreation),
-    game_start: ms(info.gameStartTimestamp),
-    game_end: ms(info.gameEndTimestamp),
     game_duration: durationSeconds(info),
     winning_team: info.teams?.find((t) => t.win)?.teamId ?? null,
     ended_in_surrender: (info.participants ?? []).some((p) => p.gameEndedInSurrender === true),
-    source: source ?? classifySource(info),
     tournament_code: info.tournamentCode || null,
+    collected_via: "api",
   };
 }
 
@@ -209,8 +196,6 @@ export function toParticipantRow(matchId: string, p: ParticipantDto): Participan
     // 빈 문자열은 "판정 실패"다. NULL 로 눕혀야 SQL 에서 `IS NULL` 하나로 걸린다.
     team_position: p.teamPosition || null,
     individual_position: p.individualPosition || null,
-    lane: p.lane || null,
-    role: p.role || null,
     champion_id: p.championId,
     champion_name: p.championName ?? null,
     champ_level: int(p.champLevel),
@@ -219,21 +204,6 @@ export function toParticipantRow(matchId: string, p: ParticipantDto): Participan
     kills: p.kills ?? 0,
     deaths: p.deaths ?? 0,
     assists: p.assists ?? 0,
-    gold_earned: int(p.goldEarned),
-    cs: totalCs(p),
-    damage_to_champions: int(p.totalDamageDealtToChampions),
-    damage_taken: int(p.totalDamageTaken),
-    vision_score: int(p.visionScore),
-    wards_placed: int(p.wardsPlaced),
-    wards_killed: int(p.wardsKilled),
-    control_wards: int(p.detectorWardsPlaced),
-    turret_kills: int(p.turretKills),
-    first_blood_kill: p.firstBloodKill === true,
-    summoner1_id: int(p.summoner1Id),
-    summoner2_id: int(p.summoner2Id),
-    items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].map((i) => i ?? 0),
-    perks: storedPerks(p.perks),
-    challenges: storedChallenges(p.challenges),
   };
 }
 
@@ -241,146 +211,25 @@ export function toParticipantRows(dto: MatchDto): ParticipantRow[] {
   return (dto.info.participants ?? []).map((p) => toParticipantRow(dto.metadata.matchId, p));
 }
 
-// ── streamer_encounter — 이 프로젝트의 심장 ──────────────────────────
-
-/** 조우 판정에 필요한 최소 필드. match_participant 에서 그대로 읽어온다. */
-export interface EncounterParticipant {
-  /**
-   * Riot 계정. **방송을 읽어 넣은 내전에서는 없을 수 있다** —
-   * 그때는 `streamer_id` 로 사람을 식별한다(마이그레이션 0017).
-   */
-  puuid: string | null;
-  /** 계정을 아직 못 붙였지만 그 자리에 있던 게 확인된 우리 스트리머. */
-  streamer_id?: string | null;
-  team_id: number | null;
-  side_no: number | null;
-  team_position: string | null;
-  individual_position: string | null;
-  outcome: MatchOutcome;
-  champion_id: number | null;
-  /**
-   * ★ 못 읽었으면 NULL (0020). 공개 큐는 Riot 이 늘 주지만, 방송 결과 화면을 읽어
-   *   넣는 내전은 그래프 탭이면 승패만 읽힌다. **여기서 산술하지 말 것** —
-   *   지금은 그대로 조우로 넘기기만 한다(streamer_encounter 도 nullable 이다).
-   */
-  kills: number | null;
-  deaths: number | null;
-  assists: number | null;
-  cs: number | null;
-  gold_earned: number | null;
-  damage_to_champions: number | null;
+export function toDetailRow(matchId: string, p: ParticipantDto): DetailRow {
+  return {
+    match_id: matchId,
+    participant_id: p.participantId,
+    cs: totalCs(p),
+    gold_earned: int(p.goldEarned),
+    damage_to_champions: int(p.totalDamageDealtToChampions),
+    vision_score: int(p.visionScore),
+    items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].map((i) => i ?? 0),
+    summoner1_id: int(p.summoner1Id),
+    summoner2_id: int(p.summoner2Id),
+    perks: storedPerks(p.perks),
+    challenges: storedChallenges(p.challenges),
+  };
 }
 
-export interface EncounterMatch {
-  match_id: string;
-  game_code: GameCode;
-  queue_id: number | null;
-  mode_key: string | null;
-  source: string;
-  game_creation: Date;
-  game_duration: number | null;
-}
-
-export interface EncounterRow {
-  match_id: string;
-  streamer_a_id: string;
-  streamer_b_id: string;
-  /** 어느 계정으로 뛰었는지 되짚는 참고값. 계정을 모르면 null 이다(0017). */
-  a_puuid: string | null;
-  b_puuid: string | null;
-  relation: "opponent" | "ally";
-  a_position: string | null;
-  b_position: string | null;
-  is_lane_matchup: boolean;
-  a_outcome: MatchOutcome;
-  b_outcome: MatchOutcome;
-  a_champion_id: number | null;
-  b_champion_id: number | null;
-  /** 못 읽었으면 NULL (0020). streamer_encounter 의 컬럼도 0001 부터 nullable 이다. */
-  a_kills: number | null; a_deaths: number | null; a_assists: number | null;
-  a_cs: number | null; a_gold: number | null; a_damage: number | null;
-  b_kills: number | null; b_deaths: number | null; b_assists: number | null;
-  b_cs: number | null; b_gold: number | null; b_damage: number | null;
-  game_code: GameCode;
-  queue_id: number | null;
-  mode_key: string | null;
-  source: string;
-  game_creation: Date;
-  game_duration: number | null;
-}
-
-/**
- * 한 경기에서 스트리머 쌍을 뽑는다.
- *
- * 규칙:
- *  - 쌍은 항상 `streamer_a_id < streamer_b_id` 로 정규화한다 (스키마 CHECK 와 같은 규칙).
- *    uuid 소문자 16진 문자열 비교는 Postgres 의 uuid 바이트 비교와 순서가 같다.
- *  - 한 스트리머가 같은 경기에 계정 두 개로 잡히는 건 **매핑 사고**다.
- *    자기 자신과의 쌍은 만들지 않고, 먼저 나온 참가자만 대표로 쓴다.
- *  - `is_lane_matchup` 은 **협곡 5v5** 에서만 참일 수 있다.
- *    칼바람·아레나엔 라인이 없다 (거기서 나온 teamPosition 은 의미가 없다).
- *
- *    대회 경기(source='manual')는 큐 아이디가 0(커스텀)이라 큐 목록에 없지만,
- *    멸망전 같은 내전은 협곡 5v5 다. 그리고 여기 들어오는 포지션은 Riot 추론값이
- *    아니라 **주최측이 발표한 로스터 포지션**이라 오히려 더 단단하다.
- *    포지션이 비어 있으면 resolvePosition 이 null 을 주므로 그때는 여전히 안 센다 —
- *    "애매하면 판정하지 않는다"(§11-10)는 그대로다.
- */
-export function deriveEncounters(
-  match: EncounterMatch,
-  participants: EncounterParticipant[],
-  ownerOf: ReadonlyMap<string, string>,
-): EncounterRow[] {
-  const laneCapable = match.game_code === "lol"
-    && ((match.queue_id != null && SUMMONERS_RIFT_QUEUES.includes(match.queue_id)) || match.source === "manual");
-
-  const seen = new Map<string, EncounterParticipant>();
-  for (const p of participants) {
-    // ★ 계정이 붙어 있으면 그걸로, 아니면 사람으로 식별한다.
-    //   조우는 **사람 사이**의 사실이라 계정이 없다고 빠뜨리면 안 된다 —
-    //   실제로 이라333 이 시그니처CK 5경기에서 통째로 사라져 있었다.
-    const streamerId = (p.puuid ? ownerOf.get(p.puuid) : null) ?? p.streamer_id ?? null;
-    if (!streamerId) continue;
-    if (!seen.has(streamerId)) seen.set(streamerId, p);
-  }
-  if (seen.size < 2) return [];
-
-  const entries = [...seen.entries()].sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
-  const rows: EncounterRow[] = [];
-
-  for (let i = 0; i < entries.length; i++) {
-    for (let j = i + 1; j < entries.length; j++) {
-      const [aId, a] = entries[i];
-      const [bId, b] = entries[j];
-      rows.push({
-        match_id: match.match_id,
-        streamer_a_id: aId,
-        streamer_b_id: bId,
-        a_puuid: a.puuid,
-        b_puuid: b.puuid,
-        relation: (a.side_no ?? a.team_id) === (b.side_no ?? b.team_id) ? "ally" : "opponent",
-        a_position: resolvePosition({ teamPosition: a.team_position ?? undefined, individualPosition: a.individual_position ?? undefined }),
-        b_position: resolvePosition({ teamPosition: b.team_position ?? undefined, individualPosition: b.individual_position ?? undefined }),
-        is_lane_matchup: laneCapable && a.team_id !== null && b.team_id !== null && isLaneMatchup(
-          { teamId: a.team_id, teamPosition: a.team_position ?? undefined, individualPosition: a.individual_position ?? undefined },
-          { teamId: b.team_id, teamPosition: b.team_position ?? undefined, individualPosition: b.individual_position ?? undefined },
-        ),
-        a_outcome: a.outcome,
-        b_outcome: b.outcome,
-        a_champion_id: a.champion_id,
-        b_champion_id: b.champion_id,
-        a_kills: a.kills, a_deaths: a.deaths, a_assists: a.assists,
-        a_cs: a.cs, a_gold: a.gold_earned, a_damage: a.damage_to_champions,
-        b_kills: b.kills, b_deaths: b.deaths, b_assists: b.assists,
-        b_cs: b.cs, b_gold: b.gold_earned, b_damage: b.damage_to_champions,
-        game_code: match.game_code,
-        queue_id: match.queue_id,
-        mode_key: match.mode_key,
-        source: match.source,
-        game_creation: match.game_creation,
-        game_duration: match.game_duration,
-      });
-    }
-  }
-  return rows;
+/** 지명 계정(`puuids`)의 상세만 편다. 나머지 참가자의 상세는 만들지도 않는다(계획 §3.6 — 상세는 지명한 사람만). */
+export function toDetailRows(dto: MatchDto, puuids: ReadonlySet<string>): DetailRow[] {
+  return (dto.info.participants ?? [])
+    .filter((p) => p.puuid && puuids.has(p.puuid))
+    .map((p) => toDetailRow(dto.metadata.matchId, p));
 }

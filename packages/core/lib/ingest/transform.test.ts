@@ -3,13 +3,12 @@ import { test } from "node:test";
 
 import type { MatchDto, ParticipantDto } from "../riot/types.ts";
 import {
-  classifySource,
-  deriveEncounters,
   durationSeconds,
+  isTournamentCodeGame,
   STORED_CHALLENGE_KEYS,
+  toDetailRows,
   toMatchRow,
   toParticipantRows,
-  type EncounterParticipant,
 } from "./transform.ts";
 
 // ── 픽스처 ───────────────────────────────────────────────────────────
@@ -78,7 +77,7 @@ test("toMatchRow — 기본 매핑", () => {
   assert.equal(row.queue_id, 420);
   assert.equal(row.mode_key, "420");
   assert.equal(row.winning_team, 100);
-  assert.equal(row.source, "public_queue");
+  assert.equal(row.collected_via, "api");
   assert.equal(row.game_creation.getTime(), 1_770_000_000_000);
   assert.equal(row.game_duration, 1800);
 });
@@ -98,44 +97,46 @@ test("toMatchRow — 항복 종료를 참가자에서 집계한다", () => {
   assert.equal(row.ended_in_surrender, true);
 });
 
-// ── 내전 판정 ─────────────────────────────────────────────────────────
-// §11-7: 공개 큐와 내전은 **절대** 섞이면 안 된다. 한 번 섞이면 어느 경기가
-// 원래 내전이었는지 되돌릴 방법이 없어서, 두 신호를 각각 못 박아 둔다.
+// ── 토너먼트 코드 판정 ───────────────────────────────────────────────
+// 토너먼트 코드 판은 내전 세트(versus)로, 그 밖의 Riot 판은 개인 기록(personal)으로 간다.
+// 한 번 섞이면 어느 경기가 원래 내전이었는지 되돌릴 방법이 없어서, 두 신호를 각각 못 박아 둔다.
 
-test("classifySource — queue 3130 은 내전이다", () => {
-  assert.equal(classifySource(match({ queueId: 3130 }).info), "tournament_code");
+test("isTournamentCodeGame — queue 3130 은 토너먼트 코드 판이다", () => {
+  assert.equal(isTournamentCodeGame(match({ queueId: 3130 }).info), true);
 });
 
-test("classifySource — tournamentCode 가 있으면 큐가 뭐든 내전이다", () => {
-  assert.equal(classifySource(match({ queueId: 0, tournamentCode: "KR050c3-aa" }).info), "tournament_code");
+test("isTournamentCodeGame — tournamentCode 가 있으면 큐가 뭐든 토너먼트 코드 판이다", () => {
+  assert.equal(isTournamentCodeGame(match({ queueId: 0, tournamentCode: "KR050c3-aa" }).info), true);
 });
 
-test("classifySource — 빈 tournamentCode 는 내전 근거가 아니다", () => {
-  assert.equal(classifySource(match({ queueId: 420, tournamentCode: "" }).info), "public_queue");
+test("isTournamentCodeGame — 빈 tournamentCode 는 근거가 아니다", () => {
+  assert.equal(isTournamentCodeGame(match({ queueId: 420, tournamentCode: "" }).info), false);
 });
 
-test("classifySource — 솔랭은 공개 큐다", () => {
-  assert.equal(classifySource(match().info), "public_queue");
+test("isTournamentCodeGame — 솔랭은 아니다", () => {
+  assert.equal(isTournamentCodeGame(match().info), false);
 });
 
-test("toMatchRow — 내전이면 source 와 tournament_code 가 함께 들어간다", () => {
+test("toMatchRow — 토너먼트 코드가 저장된다", () => {
   const row = toMatchRow(match({ queueId: 3130, tournamentCode: "KR050c3-aa" }));
-  assert.equal(row.source, "tournament_code");
   assert.equal(row.tournament_code, "KR050c3-aa");
+  assert.equal(row.collected_via, "api");
 });
 
 test("toMatchRow — 공개 큐는 tournament_code 가 null 이다", () => {
   assert.equal(toMatchRow(match()).tournament_code, null);
 });
 
-test("toMatchRow — source 를 넘기면 판정보다 우선한다 (수기 데이터용)", () => {
-  const row = toMatchRow(match({ queueId: 3130 }), "manual");
-  assert.equal(row.source, "manual");
+test("toMatchRow — 버린 칸(game_type·game_start·game_end·source)을 만들지 않는다", () => {
+  const row = toMatchRow(match()) as unknown as Record<string, unknown>;
+  for (const k of ["game_type", "game_start", "game_end", "source", "has_timeline"]) assert.equal(k in row, false, k);
 });
 
-test("toParticipantRows — CS 는 미니언+정글몹 합이고 아이템은 7칸 고정", () => {
-  const rows = toParticipantRows(
-    match({}, [participant({ puuid: "p1", totalMinionsKilled: 180, neutralMinionsKilled: 22, item0: 3153 })]),
+const only = (...puuids: string[]) => new Set(puuids);
+
+test("toDetailRows — CS 는 미니언+정글몹 합이고 아이템은 7칸 고정", () => {
+  const rows = toDetailRows(
+    match({}, [participant({ puuid: "p1", totalMinionsKilled: 180, neutralMinionsKilled: 22, item0: 3153 })]), only("p1"),
   );
   assert.equal(rows.length, 1);
   assert.equal(rows[0].cs, 202);
@@ -143,14 +144,14 @@ test("toParticipantRows — CS 는 미니언+정글몹 합이고 아이템은 7�
   assert.deepEqual(rows[0].challenges, {});
 });
 
-test("toParticipantRows — challenges 는 화면이 읽는 키만 남긴다(이벤트 모드·숫자 아닌 값은 버린다)", () => {
+test("toDetailRows — challenges 는 화면이 읽는 키만 남긴다(이벤트 모드·숫자 아닌 값은 버린다)", () => {
   const challenges = { soloKills: 3, kda: 4.5, SWARM_KillEnemy: 0, abilityUses: 210, legendaryItemUsed: [3100] } as unknown as Record<string, number>;
-  const [row] = toParticipantRows(match({}, [participant({ puuid: "p1", challenges })]));
+  const [row] = toDetailRows(match({}, [participant({ puuid: "p1", challenges })]), only("p1"));
   assert.deepEqual(row.challenges, { soloKills: 3, kda: 4.5 });
   assert.ok(Object.keys(row.challenges!).every((k) => (STORED_CHALLENGE_KEYS as readonly string[]).includes(k)));
 });
 
-test("toParticipantRows — 룬은 핵심 룬과 보조 계열만, 공개 뷰(0069)가 읽는 경로 그대로", () => {
+test("toDetailRows — 룬은 핵심 룬과 보조 계열만, 공개 뷰(personal_game)가 읽는 경로 그대로", () => {
   const perks = {
     statPerks: { defense: 5011, flex: 5008, offense: 5008 },
     styles: [
@@ -158,13 +159,13 @@ test("toParticipantRows — 룬은 핵심 룬과 보조 계열만, 공개 뷰(00
       { description: "subStyle", style: 8000, selections: [{ perk: 8014, var1: 923 }] },
     ],
   };
-  const [row] = toParticipantRows(match({}, [participant({ puuid: "p1", perks })]));
+  const [row] = toDetailRows(match({}, [participant({ puuid: "p1", perks })]), only("p1"));
   assert.deepEqual(row.perks, { styles: [{ selections: [{ perk: 8112 }] }, { style: 8000 }] });
   // 뷰의 경로: perks #>> '{styles,0,selections,0,perk}' · '{styles,1,style}'
   assert.equal(row.perks?.styles[0].selections[0].perk, 8112);
   assert.equal(row.perks?.styles[1].style, 8000);
   // 둘 다 없으면 저장하지 않는다
-  assert.equal(toParticipantRows(match({}, [participant({ puuid: "p2", perks: { statPerks: { defense: 5002 } } })]))[0].perks, null);
+  assert.equal(toDetailRows(match({}, [participant({ puuid: "p2", perks: { statPerks: { defense: 5002 } } })]), only("p2"))[0].perks, null);
 });
 
 test("toParticipantRows — 빈 포지션 문자열은 NULL 로 눕힌다", () => {
@@ -173,126 +174,20 @@ test("toParticipantRows — 빈 포지션 문자열은 NULL 로 눕힌다", () =
   assert.equal(rows[0].individual_position, null);
 });
 
-// ── 조우 판정 ────────────────────────────────────────────────────────
+// ── 기본 칸 / 상세 ────────────────────────────────────────────────────
 
-const A = "11111111-1111-1111-1111-111111111111";
-const B = "22222222-2222-2222-2222-222222222222";
-const C = "33333333-3333-3333-3333-333333333333";
-
-function ep(over: Partial<EncounterParticipant> & { puuid: string }): EncounterParticipant {
-  const teamId = over.team_id ?? 100;
-  return {
-    team_id: teamId,
-    side_no: over.side_no ?? (teamId === 100 ? 1 : 2),
-    team_position: "MIDDLE",
-    individual_position: "MIDDLE",
-    outcome: "win",
-    champion_id: 157,
-    kills: 5, deaths: 2, assists: 7,
-    cs: 200, gold_earned: 12000, damage_to_champions: 25000,
-    ...over,
-  };
-}
-
-const soloq: Parameters<typeof deriveEncounters>[0] = {
-  match_id: "KR_7000000001",
-  game_code: "lol",
-  queue_id: 420,
-  mode_key: "420",
-  source: "public_queue",
-  game_creation: new Date(1_770_000_000_000),
-  game_duration: 1800,
-};
-
-test("deriveEncounters — 스트리머가 하나뿐이면 조우가 아니다", () => {
-  const rows = deriveEncounters(soloq, [ep({ puuid: "pa" })], new Map([["pa", A]]));
-  assert.equal(rows.length, 0);
+test("toDetailRows — 지명 계정의 상세만 만든다(나머지 참가자는 기본 칸만)", () => {
+  const dto = match({}, [participant({ puuid: "p1", participantId: 1 }), participant({ puuid: "p2", participantId: 2, teamId: 200 })]);
+  assert.equal(toParticipantRows(dto).length, 2, "기본 칸은 모두");
+  assert.deepEqual(toDetailRows(dto, only("p2")).map((d) => d.participant_id), [2]);
+  assert.deepEqual(toDetailRows(dto, only()), []);
 });
 
-test("deriveEncounters — 반대 팀 같은 포지션이면 맞라인", () => {
-  const rows = deriveEncounters(
-    soloq,
-    [ep({ puuid: "pa", team_id: 100, outcome: "win" }), ep({ puuid: "pb", team_id: 200, outcome: "loss" })],
-    new Map([["pa", A], ["pb", B]]),
-  );
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].relation, "opponent");
-  assert.equal(rows[0].is_lane_matchup, true);
-  assert.equal(rows[0].a_outcome, "win");
-  assert.equal(rows[0].b_outcome, "loss");
-});
-
-test("deriveEncounters — 같은 팀이면 ally 이고 맞라인은 아니다", () => {
-  const rows = deriveEncounters(
-    soloq,
-    [ep({ puuid: "pa", team_id: 100 }), ep({ puuid: "pb", team_id: 100 })],
-    new Map([["pa", A], ["pb", B]]),
-  );
-  assert.equal(rows[0].relation, "ally");
-  assert.equal(rows[0].is_lane_matchup, false);
-});
-
-test("deriveEncounters — 포지션 추론이 어긋나면 맞라인으로 세지 않는다", () => {
-  const rows = deriveEncounters(
-    soloq,
-    [
-      ep({ puuid: "pa", team_id: 100, team_position: "MIDDLE", individual_position: "TOP" }),
-      ep({ puuid: "pb", team_id: 200, team_position: "MIDDLE", individual_position: "MIDDLE" }),
-    ],
-    new Map([["pa", A], ["pb", B]]),
-  );
-  assert.equal(rows[0].is_lane_matchup, false);
-  assert.equal(rows[0].a_position, null, "판정 실패한 쪽은 포지션도 NULL 이다");
-  assert.equal(rows[0].b_position, "MIDDLE");
-});
-
-test("deriveEncounters — 칼바람엔 라인이 없다", () => {
-  const rows = deriveEncounters(
-    { ...soloq, queue_id: 450 },
-    [ep({ puuid: "pa", team_id: 100 }), ep({ puuid: "pb", team_id: 200 })],
-    new Map([["pa", A], ["pb", B]]),
-  );
-  assert.equal(rows[0].is_lane_matchup, false);
-});
-
-test("deriveEncounters — 쌍은 항상 a < b 로 정규화된다 (스키마 CHECK 와 같은 규칙)", () => {
-  const rows = deriveEncounters(
-    soloq,
-    // 큰 uuid 를 먼저 넣어도 순서가 뒤집히지 않아야 한다
-    [ep({ puuid: "pc", team_id: 200 }), ep({ puuid: "pa", team_id: 100 })],
-    new Map([["pc", C], ["pa", A]]),
-  );
-  assert.equal(rows[0].streamer_a_id, A);
-  assert.equal(rows[0].streamer_b_id, C);
-  assert.equal(rows[0].a_puuid, "pa", "스냅샷도 같이 뒤집혀야 한다");
-  assert.equal(rows[0].b_puuid, "pc");
-});
-
-test("deriveEncounters — 3명이면 쌍은 3개다", () => {
-  const rows = deriveEncounters(
-    soloq,
-    [ep({ puuid: "pa" }), ep({ puuid: "pb" }), ep({ puuid: "pc", team_id: 200 })],
-    new Map([["pa", A], ["pb", B], ["pc", C]]),
-  );
-  assert.equal(rows.length, 3);
-  assert.ok(rows.every((r) => r.streamer_a_id < r.streamer_b_id));
-});
-
-test("deriveEncounters — 한 스트리머의 계정 두 개가 같은 경기에 있어도 자기 자신과 쌍을 만들지 않는다", () => {
-  // 매핑 사고 시나리오. 이걸 막지 않으면 encounter_ordered CHECK 에서 터진다.
-  const rows = deriveEncounters(
-    soloq,
-    [ep({ puuid: "pa1" }), ep({ puuid: "pa2", team_id: 200 })],
-    new Map([["pa1", A], ["pa2", A]]),
-  );
-  assert.equal(rows.length, 0);
-});
-
-test("deriveEncounters — 매핑 안 된 puuid 는 무시한다", () => {
-  const rows = deriveEncounters(
-    soloq,
-    [ep({ puuid: "pa" }), ep({ puuid: "일반인" }), ep({ puuid: "pb", team_id: 200 })],
-    new Map([["pa", A], ["pb", B]]),
-  );
-  assert.equal(rows.length, 1);
+test("toParticipantRows — 기본 칸만 담는다(버림 칸·상세 칸이 없다)", () => {
+  const [row] = toParticipantRows(match({}, [participant({ puuid: "p1", lane: "MIDDLE", role: "SOLO", visionScore: 30 })])) as unknown as Record<string, unknown>[];
+  for (const k of ["lane", "role", "damage_taken", "wards_placed", "wards_killed", "control_wards", "turret_kills", "first_blood_kill",
+                   "cs", "gold_earned", "damage_to_champions", "vision_score", "items", "summoner1_id", "summoner2_id", "perks", "challenges"]) {
+    assert.equal(k in row, false, k);
+  }
+  assert.equal(row.outcome, "win");
 });
