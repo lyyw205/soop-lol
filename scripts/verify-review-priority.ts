@@ -51,8 +51,8 @@ try {
   const day = new Date('2026-10-05T03:00:00Z');
   await sql.begin(async (tx) => {
     const bucket = await cls.ensureAutoBucketInTx(tx, { game_code: 'lol', slug: cls.lolCodeBucketSlug(day), name: '코드 묶음', day });
-    await tx`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, collected_via, scope, game_creation, winning_team, tournament_code)
-      VALUES ('priority-code:1', 'lol', 0, '0', 'CLASSIC', 11, 'api', 'personal', ${day}, 100, 'KR-CODE-1')`;
+    await tx`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, collected_via, scope, game_creation, winning_team, tournament_code, platform_id, riot_game_id)
+      VALUES ('priority-code:1', 'lol', 0, '0', 'CLASSIC', 11, 'api', 'personal', ${day}, 100, 'KR-CODE-1', 'KR', 9101)`;
     await tx`INSERT INTO match_participant (match_id, participant_id, team_id, side_no, puuid, champion_id, outcome)
       VALUES ('priority-code:1', 1, 100, 1, 'code-puuid', 1, 'win')`;
     await cls.placeSingleSetInTx(tx, { match_id: 'priority-code:1', game_code: 'lol', event_id: bucket, actor: 'auto' });
