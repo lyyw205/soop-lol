@@ -11,16 +11,20 @@ const { countOverviewSeries, listOverviewSeries } = await import('../packages/co
 const { completeReviewBatch } = await import('../packages/core/lib/db/review-batch.ts');
 const { listFcoReviewPriorities } = await import('../packages/core/lib/db/review-priority.ts');
 const { saveFcoScreenMatch } = await import('../packages/core/lib/games/fconline/screen.ts');
+const { saveTournamentGame } = await import('../packages/core/lib/db/tournaments.ts');
+const cls = await import('../packages/core/lib/db/classification.ts');
+const { lolEvent } = await import('./lib/verify-ck-fixtures.ts');
 try {
   await applyAll(sql => pg.database.exec(sql), join(import.meta.dirname, '..'));
   const sql = db(), people = [];
   for (let i = 0; i < 10; i++) people.push(await createStreamer({ slug: 'priority-' + i, display_name: '우선 ' + i }));
-  for (const n of [1, 2]) await ck.upsertMatchFromScan({ match_id: 'priority-lol:' + n, series_id: 'priority-series', series_game_no: n,
-    played_at: new Date('2026-10-04T01:00:00Z'), played_at_precision: 'datetime', winning_team: 100, origin: 'admin', result_evidence: '검증 결과',
-    // 같은 명단·같은 KDA 로 만든 두 세트라 중복 차단에 걸린다 — 다른 판이라고 밝힌다.
-    distinct_from: n === 2 ? ['priority-lol:1'] : [],
-    participants: people.map((p, i) => ({ participant_id: i + 1, team_id: i < 5 ? 100 : 200, streamer_id: p.id,
-      team_position: ['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'][i % 5] as 'TOP', champion_id: 34, kills: 1, deaths: 1, assists: 1 })) });
+  // 수기(시드) 판 — 영상 판독이 아니라 "화면 판독" 사유가 없다. 판은 행사·시리즈 안에만 들어간다(0089).
+  const event = await lolEvent('priority-cup', 'tournament', '우선 검수 시험 대회');
+  for (const n of [1, 2]) await saveTournamentGame({ match_id: 'priority-lol:' + n, event_id: event, series_id: 'priority-series', series_game_no: n,
+    played_at: new Date('2026-10-04T01:00:00Z'), played_at_precision: 'datetime', winning_team: 100, result_evidence: '검증 결과',
+    duration: null, source_url: null,
+    participants: people.map((p, i) => ({ puuid: null, team_id: i < 5 ? 100 : 200, streamer_id: p.id,
+      position: ['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'][i % 5], champion_id: 34, kills: 1, deaths: 1, assists: 1 })) });
   assert.equal(await countOverviewSeries({ queue: 'general' }), 1);
   assert.equal(await countOverviewSeries({ queue: 'priority' }), 0);
   await sql`UPDATE match_participant SET kills = NULL WHERE match_id = 'priority-lol:2' AND participant_id = 1`;
@@ -37,11 +41,31 @@ try {
   await assert.rejects(completeReviewBatch('lol', targets), /모두 취소/);
   await ck.setMatchReviewCompleted(targets[0].id, false, targets[0].version);
   assert.ok((await listOverviewSeries({ queue: 'priority' }))[0].sets[0].priority_reasons.includes('검수 후 변경·해제'));
+  // ★ 숨긴 경기는 공개 집계에 없으므로 검수 대기 숫자에 섞이지 않는다.
+  await ck.setMatchVisibility(targets[0].id, 'hidden');
+  assert.equal(await countOverviewSeries({ queue: 'priority', unreviewed: true }), 0, '숨긴 미완료 세트만 남은 시리즈는 대기가 아니다');
+  await ck.setMatchVisibility(targets[0].id, 'public');
+  assert.equal(await countOverviewSeries({ queue: 'priority', unreviewed: true }), 1);
+  // ★ 토너먼트 코드 판(자동 미분류 묶음, API) — 사람이 값을 확인할 길이 없으니 우선·일반 검수가 아니라 "분류 대기" 다.
+  const generalBefore = await countOverviewSeries({ queue: 'general', unreviewed: true });
+  const day = new Date('2026-10-05T03:00:00Z');
+  await sql.begin(async (tx) => {
+    const bucket = await cls.ensureAutoBucketInTx(tx, { game_code: 'lol', slug: cls.lolCodeBucketSlug(day), name: '코드 묶음', day });
+    await tx`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, collected_via, scope, game_creation, winning_team, tournament_code)
+      VALUES ('priority-code:1', 'lol', 0, '0', 'CLASSIC', 11, 'api', 'personal', ${day}, 100, 'KR-CODE-1')`;
+    await tx`INSERT INTO match_participant (match_id, participant_id, team_id, side_no, puuid, champion_id, outcome)
+      VALUES ('priority-code:1', 1, 100, 1, 'code-puuid', 1, 'win')`;
+    await cls.placeSingleSetInTx(tx, { match_id: 'priority-code:1', game_code: 'lol', event_id: bucket, actor: 'auto' });
+  });
+  assert.equal(await countOverviewSeries({ queue: 'classify' }), 1, '자동 묶음 판은 분류 대기에 보인다');
+  assert.equal(await countOverviewSeries({ queue: 'priority', unreviewed: true }), 1, '필수 값이 비어도 우선 검수에 섞이지 않는다');
+  assert.equal(await countOverviewSeries({ queue: 'general', unreviewed: true }), generalBefore, '일반 검수에도 섞이지 않는다');
+  assert.equal((await listOverviewSeries({ queue: 'classify' }))[0].auto_bucket, true);
   for (const sec of [10, 700]) await saveFcoScreenMatch({ vodTitleNo: 998811, atSec: sec, endedAt: new Date('2026-10-04T02:00:00Z').toISOString(),
     sides: [{ nickname: '우선 0', score: 2, streamerSlug: people[0].slug, basis: 'manual' }, { nickname: '우선 1', score: 1, streamerSlug: people[1].slug, basis: 'manual' }] });
   const fc = ['fcs:998811@10', 'fcs:998811@700'];
   assert.ok((await listFcoReviewPriorities()).get(fc[0])!.includes('화면 판독'));
-  await sql`UPDATE match SET source = 'provider_api' WHERE match_id = ${fc[0]}`;
+  await sql`UPDATE match SET collected_via = 'api' WHERE match_id = ${fc[0]}`;
   assert.deepEqual((await listFcoReviewPriorities()).get(fc[0]), [], 'complete official values remain general and unreviewed');
   await sql`INSERT INTO fco_screen_link (screen_match_id, api_match_id, basis, decided_by) VALUES (${fc[1]}, ${fc[0]}, '{}'::jsonb, 'admin') ON CONFLICT (screen_match_id) DO NOTHING`;
   await sql`UPDATE fco_match_participant SET nickname = '이름 변경' WHERE match_id = ${fc[1]} AND side_no = 1`;
