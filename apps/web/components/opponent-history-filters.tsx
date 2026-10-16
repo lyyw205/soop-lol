@@ -29,7 +29,7 @@ export function OpponentHistoryHeading({href, period, categoryLabel, count, sort
       params.set("sort",e.currentTarget.value);params.set("tab","opponents");params.delete("page");
       startTransition(()=>router.push(`${path}?${params}`,{scroll:false}));
     }}>
-      <option value="games">경기 많은 순</option><option value="recent">최신순</option><option value="winrate">승률 높은순</option><option value="winrate_asc">승률 낮은순</option>
+      <option value="games">판수 많은 순</option><option value="recent">최신순</option><option value="winrate">승률 높은순</option><option value="winrate_asc">승률 낮은순</option>
     </select>
     </div>
   </div>;

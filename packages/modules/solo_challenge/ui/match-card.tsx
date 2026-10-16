@@ -53,9 +53,9 @@ function PlayerReport({ view, line, index, seconds, mvp }: { view: ChallengeView
       <div className="cm-player-score"><Kda line={line} /><span><b>{ratio(line)}</b> KDA</span></div>
     </div>
     <div className="cm-metrics">
-      <div><span>챔피언 피해량</span><strong>{number(line.damage)}</strong><small>팀 내 {line.damageShare}%</small><span className="cm-meter" aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, line.damageShare))}%` }} /></span></div>
+      <div><span>챔피언 피해량</span><strong>{line.damage == null ? "—" : number(line.damage)}</strong><small>팀 내 {line.damageShare}%</small><span className="cm-meter" aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, line.damageShare))}%` }} /></span></div>
       <div><span>킬 관여율</span><strong>{line.kp}<em>%</em></strong><small>{line.kills + line.assists}킬 관여</small><span className="cm-meter" aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, line.kp))}%` }} /></span></div>
-      <div><span>CS</span><strong>{line.cs}</strong><small>분당 {(line.cs / Math.max(1, seconds / 60)).toFixed(1)}</small></div>
+      <div><span>CS</span><strong>{line.cs ?? "—"}</strong><small>{line.cs == null ? "상세 없음" : `분당 ${(line.cs / Math.max(1, seconds / 60)).toFixed(1)}`}</small></div>
     </div>
     <div className="cm-loadout">
       <div className="cm-final-build"><span className="cm-label">최종 아이템</span><Items line={line} ward /></div>

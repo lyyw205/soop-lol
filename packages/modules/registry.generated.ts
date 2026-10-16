@@ -35,7 +35,7 @@ export interface RegisteredModule {
   hasUi: boolean;
 }
 
-import * as versus_server from "./versus/server/index.ts";
+
 
 export const MODULES: RegisteredModule[] = [
   {
@@ -162,14 +162,14 @@ export const MODULES: RegisteredModule[] = [
     name: "versus",
     version: "0.1.0",
     title: "상대전적",
-    description: "코어의 조우를 읽어 두 스트리머의 맞대결·같은 팀·맞라인을 계산해 보여준다.",
+    description: "코어의 공개 내전 세트를 읽어 두 스트리머의 맞대결·같은 팀·맞라인 전적(세트·시리즈)을 보여준다.",
     schema: "mod_versus",
     routes: [{"path":"/lol/versus","title":"상대전적"}],
     provides: ["versus"],
     navOrder: 10,
     site: "lol",
     jobs: [
-      { name: "recompute", everyMinutes: 60, run: () => versus_server.recompute() },
+
     ],
     hasUi: true,
   },

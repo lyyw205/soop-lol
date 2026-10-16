@@ -44,7 +44,7 @@ export function RecordTimelineYear({ year, label = "참여 경기" }: { year: st
 
 export function RecordTimelineRow({ id, dateTime, date, title, result, children }: {
   id?: string; dateTime: string; date: ReactNode; title?: string;
-  result?: "win" | "loss" | "draw" | "unknown" | "record";
+  result?: "win" | "loss" | "draw" | "unknown";
   children: ReactNode;
 }) {
   return <div id={id} className="arena-match-row personal-timeline-row" data-result={result}>

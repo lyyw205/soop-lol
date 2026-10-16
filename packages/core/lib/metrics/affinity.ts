@@ -9,6 +9,8 @@
  * 지수 계산과 정렬은 여기서 한다 (한 스트리머의 상대는 많아야 수백 명이라 문제없다).
  */
 
+import type { Counts } from "./tally.ts";
+
 /** 가상 경기 수. 4면 "4판을 5할로 이미 치렀다"고 보는 셈. */
 export const SHRINKAGE_ALPHA = 4;
 export const PRIOR_WIN_RATE = 0.5;
@@ -28,6 +30,12 @@ export interface HeadToHead {
    */
   draws?: number;
 }
+
+/**
+ * 세트·시리즈 집계(tally.ts 의 Counts) → 승률 재료. **미상은 넣지 않는다** — 진 것도 이긴 것도 아니다.
+ * 미상 수는 화면이 RecordPair 로 따로 보인다(숨기지 않는다).
+ */
+export const headToHead = (c: Counts): HeadToHead => ({ wins: c.win, draws: c.draw, losses: c.loss });
 
 /** 승부가 난 경기 수. 승률의 분모다. */
 export const games = (h: HeadToHead) => h.wins + h.losses;

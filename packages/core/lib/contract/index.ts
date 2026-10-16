@@ -24,7 +24,7 @@ import type { Position } from "../riot/types.ts";
 export type { MatchOutcome } from "../db/types.ts";
 
 // 지표 계산은 모듈도 같은 것을 써야 한다 — 두 군데서 계산하면 반드시 어긋난다.
-export { affinity, rawWinRate, games, isSmallSample, formatRecord, SMALL_SAMPLE_THRESHOLD } from "../metrics/affinity.ts";
+export { affinity, rawWinRate, games, isSmallSample, formatRecord, headToHead, SMALL_SAMPLE_THRESHOLD } from "../metrics/affinity.ts";
 export type { HeadToHead } from "../metrics/affinity.ts";
 export { lpAbsolute, lpAbsoluteToRank, formatRank, tierGridLines } from "../metrics/lp.ts";
 export { kda, formatKda } from "../metrics/matchup.ts";
@@ -45,40 +45,6 @@ export interface PublicStreamer {
   is_pro: boolean;
   team_name: string | null;
   status: string;
-}
-
-export interface PublicEncounter {
-  match_id: string;
-  streamer_a_id: string;
-  streamer_b_id: string;
-  relation: "opponent" | "ally";
-  a_position: Position | null;
-  b_position: Position | null;
-  is_lane_matchup: boolean;
-  /** 승패의 유일한 표현 (0028). boolean 승패는 은퇴했다 — 무승부를 표현하지 못한다. */
-  a_outcome: MatchOutcome;
-  b_outcome: MatchOutcome;
-  a_champion_id: number | null;
-  b_champion_id: number | null;
-  a_kills: number | null; a_deaths: number | null; a_assists: number | null;
-  b_kills: number | null; b_deaths: number | null; b_assists: number | null;
-  queue_id: number;
-  source: string;
-  /** 경기 분류 (solo/ck/tournament …). 규칙은 core 의 matchCategory 하나다. */
-  category: string;
-  /** 같은 다전제를 묶는 키. 세트와 매치를 나눠 세려면 필요하다. */
-  series_key: string;
-  series_game_no: number | null;
-  /** 확인된 승선승제 포맷. 고정 세트제·모르면 null. */
-  best_of: number | null;
-  /** 세트 순서를 출처에서 확인했나. false 면 "N세트" 로 단정하지 않는다 — 표시는 setLabel 로. */
-  set_order_known: boolean;
-  /** 'date' 면 시각은 모른다 — 표시는 kstPlayedAt 으로. */
-  game_creation_precision: "datetime" | "date";
-  /** 대회 이름. 공개 큐면 null. */
-  event_name: string | null;
-  game_creation: Date;
-  game_duration: number | null;
 }
 
 /** 선택기용 최소 목록. 이름·별칭·방송국 아이디로 찾을 수 있어야 한다. */
@@ -120,16 +86,6 @@ export interface PublicRosterEntry {
   kills: number | null; deaths: number | null; assists: number | null;
 }
 
-/** 조우가 있는 두 사람. 상대전적 첫 화면이 "많이 붙은 쌍" 을 그릴 재료다. */
-export interface PublicPair {
-  a_slug: string; a_name: string;
-  b_slug: string; b_name: string;
-  sets: number;
-  vs_sets: number;
-  lane_sets: number;
-  last_met: Date;
-}
-
 export interface PublicRankPoint {
   streamer_id: string;
   puuid: string;
@@ -158,45 +114,6 @@ export async function getPublicStreamer(slug: string): Promise<PublicStreamer | 
       FROM core_public.streamer s WHERE slug = ${slug} LIMIT 1
   `;
   return rows[0] ?? null;
-}
-
-/** 한 스트리머의 조우 전부. 상대·아군 모두 포함한다. */
-export async function listEncountersFor(streamerId: string, limit = 500): Promise<PublicEncounter[]> {
-  return db()<PublicEncounter[]>`
-    SELECT e.match_id, e.streamer_a_id, e.streamer_b_id, e.relation,
-           e.a_position, e.b_position, e.is_lane_matchup, e.a_outcome, e.b_outcome,
-           e.a_champion_id, e.b_champion_id,
-           e.a_kills, e.a_deaths, e.a_assists, e.b_kills, e.b_deaths, e.b_assists,
-           e.queue_id, e.source, e.category, e.series_key, e.series_game_no, e.best_of,
-           e.set_order_known, e.game_creation_precision,
-           e.game_creation, e.game_duration,
-           ev.name AS event_name
-      FROM core_public.streamer_encounter e
-      JOIN core_public.match m ON m.match_id = e.match_id
-      LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
-     WHERE e.streamer_a_id = ${streamerId}::uuid OR e.streamer_b_id = ${streamerId}::uuid
-     ORDER BY e.game_creation DESC LIMIT ${limit}
-  `;
-}
-
-/** 두 스트리머 사이의 조우. 쌍 정규화(a < b)는 여기서 흡수한다 — 모듈이 신경 쓸 일이 아니다. */
-export async function listEncountersBetween(x: string, y: string): Promise<PublicEncounter[]> {
-  const [a, b] = [x, y].sort();
-  return db()<PublicEncounter[]>`
-    SELECT e.match_id, e.streamer_a_id, e.streamer_b_id, e.relation,
-           e.a_position, e.b_position, e.is_lane_matchup, e.a_outcome, e.b_outcome,
-           e.a_champion_id, e.b_champion_id,
-           e.a_kills, e.a_deaths, e.a_assists, e.b_kills, e.b_deaths, e.b_assists,
-           e.queue_id, e.source, e.category, e.series_key, e.series_game_no, e.best_of,
-           e.set_order_known, e.game_creation_precision,
-           e.game_creation, e.game_duration,
-           ev.name AS event_name
-      FROM core_public.streamer_encounter e
-      JOIN core_public.match m ON m.match_id = e.match_id
-      LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
-     WHERE e.streamer_a_id = ${a}::uuid AND e.streamer_b_id = ${b}::uuid
-     ORDER BY e.game_creation DESC, e.series_game_no DESC, e.match_id
-  `;
 }
 
 /** 티어 추이. snapshot_date 오름차순 — 그래프에 그대로 꽂는다. */
@@ -235,54 +152,27 @@ export async function listPublicStreamerOptions(): Promise<PublicStreamerOption[
 }
 
 /**
- * 경기별 로스터. "그 판에 누가 있었나" 를 보여줄 때 쓴다.
+ * 경기별 로스터. "그 판에 누가 있었나" 를 보여줄 때 쓴다 — 경기·행사 상세의 **한 경기 보기**(core_public.match_detail, 보너스 포함).
  *
  * ★ 스트리머 조인이 **LEFT 다**(0022). 사람을 못 붙인 자리도 로스터에 세워야 하기
- *   때문이다 — 예전엔 여기서 한 번 더 걸러서, 뷰가 내보내도 화면엔 안 나왔다.
- *   누가 나오고 누가 빠지는지는 **뷰가 정한다**(숨긴 경기·계정·사람은 거기서 빠진다).
+ *   때문이다. 누가 나오고 누가 빠지는지는 **뷰가 정한다**(숨긴 경기·계정·사람은 거기서 빠진다).
  *   이 질의가 또 거르면 그 규칙이 두 군데로 갈라진다.
  */
 export async function listMatchRosters(matchIds: string[]): Promise<PublicRosterEntry[]> {
   if (matchIds.length === 0) return [];
   return db()<PublicRosterEntry[]>`
-    SELECT mp.match_id, mp.participant_id, mp.streamer_id, s.slug, s.display_name, mp.observed_name,
-           mp.team_id, mp.team_position, mp.individual_position, mp.champion_id, mp.champion_name, mp.outcome,
-           mp.kills, mp.deaths, mp.assists,
+    SELECT d.match_id, d.participant_id, d.streamer_id, s.slug, s.display_name, d.observed_name,
+           d.team_id, d.team_position, d.individual_position, d.champion_id, d.champion_name, d.outcome,
+           d.kills, d.deaths, d.assists,
            t.name AS team_name
-      FROM core_public.match_participant mp
-      LEFT JOIN core_public.streamer s ON s.streamer_id = mp.streamer_id
-      JOIN core_public.match_with_bonus m ON m.match_id = mp.match_id
+      FROM core_public.match_detail d
+      LEFT JOIN core_public.streamer s ON s.streamer_id = d.streamer_id
       LEFT JOIN core_public.event_team t
-             ON t.event_team_id = CASE WHEN mp.team_id = 100 THEN m.blue_team_id ELSE m.red_team_id END
-     WHERE mp.match_id = ANY(${matchIds}::text[])
+             ON t.event_team_id = CASE WHEN d.team_id = 100 THEN d.blue_team_id ELSE d.red_team_id END
+     WHERE d.match_id = ANY(${matchIds}::text[])
      -- 이름이 없는 자리는 맨 뒤로. 등록된 사람 먼저 보이는 게 읽기 편하다.
-     ORDER BY mp.match_id, mp.team_id, mp.team_position NULLS LAST,
-              s.display_name NULLS LAST, mp.observed_name
-  `;
-}
-
-/**
- * 많이 붙은 쌍. 정렬은 **맞대결 세트** 다 — 총 조우로 정렬하면 같은 팀으로만
- * 만난 쌍이 위에 올라와서, 이 사이트가 무엇을 세는 곳인지 첫 화면부터 어긋난다.
- * laneOnly이면 집계와 LIMIT 전에 맞라인 세트만 남겨 순위·횟수 모두 맞라인 기준으로 낸다.
- */
-export async function listPublicPairs(limit = 20, laneOnly = false, streamerSlug?: string): Promise<PublicPair[]> {
-  return db()<PublicPair[]>`
-    SELECT a.slug AS a_slug, a.display_name AS a_name,
-           b.slug AS b_slug, b.display_name AS b_name,
-           count(*)::int                                        AS sets,
-           count(*) FILTER (WHERE e.relation = 'opponent')::int  AS vs_sets,
-           count(*) FILTER (WHERE e.is_lane_matchup)::int        AS lane_sets,
-           max(e.game_creation)                                  AS last_met
-      FROM core_public.streamer_encounter e
-      JOIN core_public.streamer a ON a.streamer_id = e.streamer_a_id
-      JOIN core_public.streamer b ON b.streamer_id = e.streamer_b_id
-     WHERE (NOT ${laneOnly} OR (e.relation = 'opponent' AND e.is_lane_matchup))
-       AND (${streamerSlug ?? null}::text IS NULL OR a.slug = ${streamerSlug ?? null} OR b.slug = ${streamerSlug ?? null})
-     GROUP BY 1, 2, 3, 4
-    HAVING count(*) FILTER (WHERE e.relation = 'opponent') > 0
-     ORDER BY vs_sets DESC, sets DESC, a.slug, b.slug
-     LIMIT ${limit}
+     ORDER BY d.match_id, d.team_id, d.team_position NULLS LAST,
+              s.display_name NULLS LAST, d.observed_name
   `;
 }
 
@@ -303,7 +193,28 @@ export function moduleDb(schema: string) {
 }
 
 // 공개 프로필의 수상·챔피언 기록. UI 모듈도 같은 읽기 모델을 사용한다.
-export { listStreamerEvents, summarizePlacements, listChampions } from "../db/public.ts";
+export { listStreamerEvents, summarizePlacements } from "../db/public.ts";
+export type { EventRecord, PlacementSummary } from "../db/public.ts";
+export { listChampions } from "../db/personal.ts";
+export type { ChampionRecord, ChampionLine } from "../metrics/record-champions.ts";
+
+// 상대전적 — 공개 내전 세트(versus_pair_set)의 고르기와 tally 의 세기. 사이드바·상세가 같은 함수로 센다.
+export { listOpponentSummaries, listPairSetsBetween } from "../db/opponent-history.ts";
+export type { PublicPairSet, OpponentScope } from "../db/opponent-history.ts";
+export { isLanePair, pairResult, selectPairs, summarizeOpponents } from "../metrics/opponent-history.ts";
+export type { OpponentSummary, PairView } from "../metrics/opponent-history.ts";
+export { sortOpponents, OPPONENT_SORTS, DEFAULT_OPPONENT_SORT, isOpponentSort } from "../metrics/opponents.ts";
+export type { OpponentSort } from "../metrics/opponents.ts";
+export { foldSeries, pageSeries } from "../metrics/record-series.ts";
+export type { SeriesGroup, SeriesSetRow } from "../metrics/record-series.ts";
+
+// 분류(진행 방식·맵)와 세기 — 공개 집계의 단일 출처(docs/CLASSIFICATION-REDESIGN-PLAN.md §5).
+export { FORMATS, FORMATS_BY_GAME, formatChipLabel, formatLabel, isFormat, allowedFormat } from "../metrics/format.ts";
+export type { Format, GameCode } from "../metrics/format.ts";
+export { tally, seriesOutcome, pairSetOutcome, mirror, total, isPairContradiction } from "../metrics/tally.ts";
+export type { Tally, Counts, Outcome, SetRow } from "../metrics/tally.ts";
+export { MAP_TABS, DEFAULT_MAP, isMapTab, mapTabLabel, scopeFormat } from "../metrics/record-scope.ts";
+export type { MapTab, FormatFilter, VersusScope } from "../metrics/record-scope.ts";
 export { placementRank } from "../metrics/placement.ts";
 
 // FC 온라인 공개 조회. FC 는 아직 core_public 뷰가 없어 조회 안에서 공개 범위를 걸고,
@@ -336,10 +247,7 @@ export { resolveBracket, displayRank, rankText, slotDepths } from "../tournament
 export type { BracketResult, ResolvedSlot, Certainty } from "../tournament/bracket.ts";
 export { championById, championIconPath, CHAMPION_DATA_VERSION } from "../riot/champions.ts";
 
-export { MATCH_CATEGORIES, RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, isMatchCategoryFilter, expandCategory } from "../metrics/category.ts";
-export type { MatchCategoryFilter } from "../metrics/category.ts";
-
-export { RECORD_PERIODS, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod } from "../metrics/record-period.ts";
+export { RECORD_PERIODS, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod, withinRecordDay } from "../metrics/record-period.ts";
 export type { RecordPeriod } from "../metrics/record-period.ts";
 
 // 사이트 주소. core 화면 주소는 이 함수로만 만든다 — 모듈·공용 UI 에 주소 글자를 박지 않는다(verify:modules).
@@ -357,16 +265,15 @@ export {
 } from "../metrics/schedule.ts";
 export type { EntryState, ScheduleGame, SlotPhase } from "../metrics/schedule.ts";
 
-// 솔로랭크 — 정해진 계정들의 랭크 판·랭크 추이·같은 판의 다른 스트리머(솔랭 도전 모듈)
+// 솔로랭크 — 정해진 계정들의 랭크 판·랭크 추이·같은 판의 다른 스트리머(솔랭 도전 모듈). 개인 기록(personal_game) 경로다.
 export { listPublicRankedGames, listPublicAccountRanks, listPublicCoPlayers, RANKED_CHALLENGE_KEYS } from "../db/public-ranked.ts";
 export type { PublicRankedGame, PublicAccountRank, RankedChallengeKey } from "../db/public-ranked.ts";
 export { itemIconPath, itemName, spellIconPath, spellName, runeIconPath, runeName } from "../riot/build-icons.ts";
 export { listPublicLineups } from "../db/public-ranked.ts";
 export type { PublicLineupSlot } from "../db/public-ranked.ts";
 
-export { TOURNAMENT_KIND, EVENT_KIND_LABEL, eventKindLabel, listedInTournaments, isTitle, isRunnerUp, classifyTeamStage, TEAM_STAGE_LABEL } from "../metrics/event.ts";
+export { listedInTournaments, isTitle, isRunnerUp, classifyTeamStage, TEAM_STAGE_LABEL } from "../metrics/event.ts";
 
-export { matchOutcome, tallyGroup, type MatchOutcomeKind } from "../metrics/match-tally.ts";
 export { readRecordScope, writeRecordScope, type RecordScope } from "../metrics/record-scope.ts";
 export { isLaneMatchup } from "../metrics/matchup.ts";
 

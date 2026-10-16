@@ -1,120 +1,135 @@
-/** 개인 기록. 조우 수가 아니라 공개 참가 기록을 경기별로 한 번씩 센다. */
-import { readRecordCursor } from "../metrics/record-cursor.ts";
+/**
+ * 개인 기록 — 한 스트리머의 공개 내전 세트(core_public.lol_versus_set 의 본인 행)를 고른다.
+ *
+ * ★ 요약 카드·매치 히스토리·챔피언 탭·사이드바 모스트 챔피언이 **같은 고르기**(`listPersonalSets` + `versusScopeSql`)와
+ *   **같은 세기**(tally.ts)를 쓴다. 예전엔 요약이 SQL 다수결(+랜드 분기)로, 탭이 파생 표로 따로 셌다.
+ * ★ 보너스 판(범인찾기 등)은 집계에 없다 — 매치 히스토리를 펼쳤을 때만 core_public.match_detail 에서 읽어 보인다(0079).
+ */
 import { db } from "./client.ts";
-import { expandCategory, type MatchCategory, type MatchCategoryFilter } from "../metrics/category.ts";
+import { versusScopeSql } from "./public.ts";
+import { listPairSets } from "./opponent-history.ts";
+import type { Format } from "../metrics/format.ts";
+import type { Counts, Outcome } from "../metrics/tally.ts";
+import type { VersusScope } from "../metrics/record-scope.ts";
+import { foldSeries, pageSeries } from "../metrics/record-series.ts";
+import { championRecords, type ChampionRecord } from "../metrics/record-champions.ts";
+import { pairResult, selectPairs } from "../metrics/opponent-history.ts";
+export type { ChampionRecord, ChampionLine } from "../metrics/record-champions.ts";
 
-export interface PersonalMatch {
-  series_key: string;
-  category: MatchCategory;
-  event_name: string | null;
+/** 본인이 뛴 공개 본게임 세트 한 줄. */
+export interface PersonalSet {
+  match_id: string;
+  series_id: string;
+  series_game_no: number | null;
   played_at: Date;
-  sets: number;
-  set_wins: number;
+  game_creation_precision: "datetime" | "date";
+  /** KST 달력 날짜 — 기간 필터의 기준. */
+  series_started_on: string;
+  outcome: Outcome;
+  side: number;
+  position: string | null;
+  champion_id: number | null;
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
+  event_id: string;
+  event_name: string;
+  format: Format;
+  map: string;
   best_of: number | null;
-  match_ids: string[];
-  /** match_ids 와 같은 순서의 세트 번호. 순서를 모르는 시리즈에선 정렬용일 뿐이다. */
-  set_nos: (number | null)[];
-  /** 세트 순서를 출처에서 확인했나 — 세트 이름은 setLabel 이 정한다. */
   set_order_known: boolean;
-  /** match_ids 와 같은 순서. "bonus" 판은 펼쳤을 때만 보이고 sets·set_wins 에 들어가지 않는다(0079). */
-  set_roles: string[];
-  /** 방송에서 부른 보너스 판 이름. 없으면 빈 문자열. */
-  set_labels: string[];
 }
-export interface PersonalCategoryRecord {
-  category: MatchCategory;
-  matches: number;
-  wins: number;
-  draws: number;
-  losses: number;
-  sets: number;
-  set_wins: number;
+
+/** 공개 내전 세트 중 본인 행 — 맵 탭·진행 방식·기간으로 고른다. 최신순. */
+export async function listPersonalSets(streamerId: string, scope: VersusScope = {}): Promise<PersonalSet[]> {
+  const sql = db();
+  return sql<PersonalSet[]>`
+    SELECT v.match_id, v.series_id, v.series_game_no, v.played_at, v.game_creation_precision,
+           v.series_started_on::text AS series_started_on, v.outcome, v.side, v.position, v.champion_id,
+           v.kills, v.deaths, v.assists, v.event_id, e.name AS event_name, v.format, v.map, v.best_of, v.set_order_known
+      FROM core_public.lol_versus_set v
+      JOIN core_public.event e ON e.event_id = v.event_id
+     WHERE v.streamer_id = ${streamerId}::uuid AND ${versusScopeSql(sql, "v", scope)}
+     ORDER BY v.played_at DESC, v.match_id
+  `;
 }
-export interface PersonalScope {
-  category?: MatchCategoryFilter;
-  /**
-   * KST 달력 날짜(`YYYY-MM-DD`). **다전제의 첫 경기**를 기준으로 자른다 —
-   * 자정을 넘긴 3세트를 중간에서 잘라 "2세트짜리 경기" 로 만들지 않기 위해서다.
-   * 상대 전적의 `withinRecordPeriod` 와 같은 규칙이다(시리즈를 다 묶은 뒤 판정).
-   */
-  from?: string;
-  to?: string;
+
+/** 펼친 목록의 한 판. 보너스 판은 여기에만 있고 record·result 에 들어가지 않는다. */
+export interface PersonalMatchSet {
+  match_id: string;
+  series_game_no: number | null;
+  set_role: "main" | "bonus";
+  /** 방송에서 부른 보너스 판 이름. 없으면 null. */
+  set_label: string | null;
+  outcome: Outcome;
+}
+
+/** 매치 히스토리 한 줄 = 한 시리즈(본인이 뛴, 고른 세트들). */
+export interface PersonalMatch {
+  series_id: string;
+  played_at: Date;
+  event_name: string;
+  format: Format;
+  best_of: number | null;
+  set_order_known: boolean;
+  /** 본게임 세트 결과. */
+  record: Counts;
+  /** 시리즈 결과(tally 규칙). */
+  result: Outcome;
+  /** 본게임 + 보너스, 세트 번호·시각 순. */
+  sets: PersonalMatchSet[];
 }
 
 /**
- * 목록과 승률의 분모를 공유한다. 한 다전제를 LIMIT으로 중간에서 자르지 않는다.
- *
- * ★ 보너스 판(범인찾기 등)은 묶음에 **보이기만** 한다 — sets·set_wins 는 본게임만 센다(0079).
- *   그래서 경기 뷰는 보너스까지 내는 match_with_bonus 를 쓰고, 세는 곳에서 set_role 로 거른다.
- * ★ 랜드는 묶음 하나가 한 줄이지만 sets·set_wins 가 곧 그 사람의 판 단위 n승 m패다.
+ * 매치 히스토리 한 쪽. 이미 고른 세트(`listPersonalSets`)를 시리즈로 접어 자른다 — 요약 카드와 분모가 같다.
+ * 시리즈를 중간에서 자르지 않는다. 보너스 판은 보이는 시리즈의 것만 match_detail 에서 읽는다.
  */
-export function personalMatchGroups(streamerId: string, {category, from, to}: PersonalScope) {
-  const sql = db();
-  return sql`
-    SELECT series_key, category, min(event_name) AS event_name, min(game_creation) FILTER (WHERE set_role = 'main') AS played_at,
-           count(*) FILTER (WHERE set_role = 'main')::int AS sets,
-           count(*) FILTER (WHERE set_role = 'main' AND outcome = 'win')::int AS set_wins,
-           min(best_of)::int AS best_of,
-           array_agg(match_id ORDER BY game_creation, match_id) AS match_ids,
-           array_agg(series_game_no ORDER BY game_creation, match_id) AS set_nos,
-           array_agg(set_role ORDER BY game_creation, match_id) AS set_roles,
-           -- ⚠ text 배열 속 NULL 이 드라이버에서 문자열 "NULL" 로 온다(실측). 빈 문자열로 바꿔 보낸다.
-           array_agg(coalesce(set_label, '') ORDER BY game_creation, match_id) AS set_labels,
-           bool_or(set_order_known) AS set_order_known
-      FROM (
-        SELECT DISTINCT m.match_id, coalesce(m.series_id, m.match_id) AS series_key,
-               m.category, ev.name AS event_name, m.game_creation, mp.outcome, m.best_of,
-               m.series_game_no, m.set_order_known, m.set_role, m.set_label
-          -- 사람으로 찾을 땐 streamer_match 에서 출발한다 — 참가자 뷰의 streamer_id 는 계산값이라
-          -- 직접 거르면 1GB 표를 통째로 훑어 탭 하나에 20초가 들었다(0075).
-          FROM core_public.streamer_match sm
-          JOIN core_public.match_participant mp ON mp.match_id = sm.match_id AND mp.participant_id = sm.participant_id
-          JOIN core_public.match_with_bonus m ON m.match_id = mp.match_id
-          LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
-         WHERE sm.streamer_id = ${streamerId}::uuid
-           AND (${expandCategory(category)}::text[] IS NULL OR m.category = ANY(${expandCategory(category)}::text[]))
-      ) mine
-     GROUP BY series_key, category
-    -- 보너스만 남은 묶음(본게임이 다른 분류로 빠진 경우)은 줄로 세우지 않는다.
-    HAVING count(*) FILTER (WHERE set_role = 'main') > 0
-       AND (${from ?? null}::date IS NULL
-            OR (min(game_creation) FILTER (WHERE set_role = 'main') AT TIME ZONE 'Asia/Seoul')::date >= ${from ?? null}::date)
-       AND (${to ?? null}::date IS NULL
-            OR (min(game_creation) FILTER (WHERE set_role = 'main') AT TIME ZONE 'Asia/Seoul')::date <= ${to ?? null}::date)
-  `;
+export async function listPersonalMatches(streamerId: string, sets: readonly PersonalSet[], { limit = 20, cursor }: { limit?: number; cursor?: string } = {}): Promise<{ rows: PersonalMatch[]; more: boolean }> {
+  const page = pageSeries(foldSeries(sets), cursor, Math.min(100, Math.max(1, limit)));
+  const ids = page.rows.map((g) => g.series_id);
+  const bonus = ids.length ? await db()<(PersonalMatchSet & { series_id: string; played_at: Date })[]>`
+    SELECT DISTINCT ON (d.match_id) d.match_id, d.series_id, d.series_game_no, d.set_role, d.set_label, d.outcome, d.played_at
+      FROM core_public.match_detail d
+     WHERE d.series_id = ANY(${ids}) AND d.set_role = 'bonus' AND d.streamer_id = ${streamerId}::uuid
+     ORDER BY d.match_id
+  ` : [];
+  return {
+    more: page.more,
+    rows: page.rows.map((g) => {
+      const extra = bonus.filter((b) => b.series_id === g.series_id);
+      const main: (PersonalMatchSet & { at: number })[] = g.sets.map((s) => ({
+        match_id: s.match_id, series_game_no: s.series_game_no, set_role: "main", set_label: null, outcome: s.outcome,
+        at: new Date(s.played_at).getTime(),
+      }));
+      const all = [...main, ...extra.map((b) => ({
+        match_id: b.match_id, series_game_no: b.series_game_no, set_role: "bonus" as const, set_label: b.set_label, outcome: b.outcome,
+        at: new Date(b.played_at).getTime(),
+      }))].sort((a, b) => a.at - b.at || (a.series_game_no ?? 0) - (b.series_game_no ?? 0) || a.match_id.localeCompare(b.match_id));
+      return {
+        series_id: g.series_id, played_at: g.played_at, event_name: g.first.event_name, format: g.first.format,
+        best_of: g.first.best_of, set_order_known: g.first.set_order_known, record: g.record, result: g.result,
+        sets: all.map(({ match_id, series_game_no, set_role, set_label, outcome }) => ({ match_id, series_game_no, set_role, set_label, outcome })),
+      };
+    }),
+  };
 }
 
-export async function listPersonalRecords(streamerId: string, scope: PersonalScope = {}): Promise<PersonalCategoryRecord[]> {
-  return db()<PersonalCategoryRecord[]>`
-    -- ★ 랜드는 묶음 승패가 없다(팀이 매 판 바뀐다) — 경기 수·승패를 판 단위로 센다(0079).
-    SELECT category,
-           sum(CASE WHEN category = 'land' THEN sets ELSE 1 END)::int AS matches,
-           sum(CASE WHEN category = 'land' THEN set_wins ELSE (set_wins * 2 > sets)::int END)::int AS wins,
-           sum(CASE WHEN category = 'land' THEN 0 ELSE (set_wins * 2 = sets)::int END)::int AS draws,
-           sum(CASE WHEN category = 'land' THEN sets - set_wins ELSE (set_wins * 2 < sets)::int END)::int AS losses,
-           sum(sets)::int AS sets, sum(set_wins)::int AS set_wins
-      FROM (${personalMatchGroups(streamerId, scope)}) games
-     GROUP BY category ORDER BY category
-  `;
+/**
+ * 챔피언 기록 — 챔피언 탭과 사이드바 모스트 챔피언이 같이 쓴다(metrics/record-champions).
+ * 맞라인 상대는 상대전적의 맞라인과 같은 정의(같은 고르기의 versus_pair_set, isLanePair).
+ */
+export async function listChampionRecords(streamerId: string, limit = 20, scope: VersusScope = {}): Promise<ChampionRecord[]> {
+  const [mine, pairs] = await Promise.all([listPersonalSets(streamerId, scope), listPairSets(streamerId, scope)]);
+  const lane = selectPairs(pairs, "lane").map((p) => ({
+    match_id: p.match_id, series_id: p.series_id, foe_champion_id: p.b_champion_id, outcome: pairResult(p),
+  }));
+  return championRecords(mine, lane, limit);
 }
 
-export async function listPersonalMatches(streamerId: string, scope: PersonalScope & { limit?: number; cursor?: string } = {}): Promise<PersonalMatch[]> {
-  const limit = Math.min(101, Math.max(1, scope.limit ?? 21));
-  const cursor = readRecordCursor(scope.cursor);
-  return db()<PersonalMatch[]>`
-    SELECT * FROM (${personalMatchGroups(streamerId, scope)}) games
-     WHERE (${cursor?.at ?? null}::timestamptz IS NULL OR played_at < ${cursor?.at ?? null}::timestamptz
-       OR (played_at = ${cursor?.at ?? null}::timestamptz AND series_key > ${cursor?.id ?? null}))
-     ORDER BY played_at DESC, series_key
-     LIMIT ${limit}
-  `;
-}
-
-export async function listPersonalYears(streamerId: string): Promise<number[]> {
-  const rows = await db()<{ year: number }[]>`
-    SELECT DISTINCT EXTRACT(YEAR FROM m.game_creation AT TIME ZONE 'Asia/Seoul')::int AS year
-      FROM core_public.streamer_match sm JOIN core_public.match m ON m.match_id = sm.match_id
-     WHERE sm.streamer_id = ${streamerId}::uuid ORDER BY year DESC
-  `;
-  return rows.map((r) => r.year);
+/**
+ * 사이드바·프로필 카드의 "모스트 챔피언" — **챔피언 탭의 기본 보기(협곡 · 전체 진행 방식 · 전체 기간)와 같은 수**다.
+ * 칼바람은 맵이 달라 섞지 않는다(맵 탭이 따로 있다).
+ */
+export function listChampions(streamerId: string, limit = 8): Promise<ChampionRecord[]> {
+  return listChampionRecords(streamerId, limit, { map: "rift" });
 }

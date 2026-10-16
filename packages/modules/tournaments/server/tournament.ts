@@ -5,11 +5,16 @@ import { isLaneMatchup } from "@soop-lol/core/lib/contract/client";
  */
 import type { BoardModel } from "../../../ui/bracket/bracket-model.ts";
 import {
-  kstDateString, setLabel, type PublicRosterEntry, type PublicTournamentMatchRow,
+  isStandaloneSet, kstDateString, setLabel, type Format, type PublicRosterEntry, type PublicTournamentMatchRow,
 } from "@soop-lol/core/lib/contract/client";
 
+/**
+ * 대회 목록의 갈래 — 멸망전 / 이벤트 매치(올스타전·기타 대회).
+ * ★ 진행 방식(format)으로는 가를 수 없다 — 둘 다 'tournament' 다(옛 showmatch 는 concept 로 갔고 대회 목록에 없다).
+ *   그래서 이 갈래는 대회 모듈의 표시 해석으로 남고, 근거는 시리즈 이름(slug) 규칙 하나다.
+ */
 export type TournamentCategory = "meljang" | "event";
-export function tournamentCategory(slug: string, kind: string): TournamentCategory {
+export function tournamentCategory(slug: string): TournamentCategory {
   return slug.startsWith("meljang-") && !slug.includes("allstar")
     ? "meljang"
     : "event";
@@ -18,7 +23,7 @@ export interface TournamentSummary {
   id: string;
   slug: string;
   name: string;
-  kind: string;
+  format: Format;
   category: TournamentCategory;
   start: string | null;
   end: string | null;
@@ -114,7 +119,7 @@ export function tournamentSeries(
   }
   const groups = new Map<string, TournamentMatchRow[]>();
   for (const row of rows) {
-    const id = row.series_id ?? row.match_id;
+    const id = row.series_id;
     const group = groups.get(id) ?? [];
     group.push(row);
     groups.set(id, group);
@@ -163,7 +168,7 @@ export function tournamentSeries(
         id: g.match_id,
         number: g.series_game_no,
         label: setLabel({
-          standalone: g.series_id === null || g.series_id === g.match_id,
+          standalone: isStandaloneSet(g.match_id, g.series_id),
           best_of: g.best_of,
           set_order_known: g.set_order_known,
           series_game_no: g.series_game_no,
