@@ -1,8 +1,11 @@
 import { db } from "./client.ts";
 
-/** Read-time queues only: these checks never mark a match as human reviewed. */
+/**
+ * Read-time queues only: these checks never mark a match as human reviewed.
+ * 경기 **값**을 사람이 확인해야 하는 이유만 센다. 분류(자동 미분류 묶음)는 이유가 아니다 — 그건 "분류 대기" 갈래다(match-overview).
+ */
 export const LOL_PRIORITY_REASONS = `array_remove(ARRAY[
-  CASE WHEN m.origin = 'vod_scan' THEN '화면 판독' END,
+  CASE WHEN m.collected_via = 'vod' THEN '화면 판독' END,
   CASE WHEN rp.participant_count <> 10 OR rp.position_count < 10 OR rp.linked_count < 10
     OR rp.champion_count < 10 OR rp.kda_count < 10 OR m.winning_team IS NULL THEN '필수 값 누락' END,
   CASE WHEN m.review_completed_at IS NULL AND EXISTS (SELECT 1 FROM review_change rc WHERE rc.match_id = m.match_id AND rc.field = 'review_completed' AND rc.after = 'true'::jsonb) THEN '검수 후 변경·해제' END
@@ -11,7 +14,7 @@ export const LOL_PRIORITY_REASONS = `array_remove(ARRAY[
 export async function listFcoReviewPriorities(): Promise<Map<string, string[]>> {
   const rows = await db()<{ match_id: string; reasons: string[] }[]>`
     SELECT m.match_id, array_remove(ARRAY[
-      CASE WHEN m.source = 'manual' THEN '화면 판독' END,
+      CASE WHEN m.collected_via = 'vod' THEN '화면 판독' END,
       CASE WHEN (SELECT count(*) FROM fco_match_participant p WHERE p.match_id = m.match_id) <> 2
         OR EXISTS (SELECT 1 FROM fco_match_participant p WHERE p.match_id = m.match_id
           AND (NULLIF(trim(p.nickname), '') IS NULL OR p.score_display IS NULL OR p.outcome IS NULL OR p.outcome = 'unknown')) THEN '필수 값 누락' END,

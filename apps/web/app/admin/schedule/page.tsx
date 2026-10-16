@@ -5,7 +5,7 @@ import { kstDateString } from "@soop-lol/core/lib/time";
 
 import { listScheduleForAdmin } from "@soop-lol/core/lib/db/schedule";
 import {
-  ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL,
+  ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL, scheduleFormatOptionLabel,
 } from "@soop-lol/core/lib/metrics/schedule";
 
 import { SetupNotice } from "@/components/admin/SetupNotice";
@@ -52,7 +52,7 @@ export default async function AdminSchedulePage({ searchParams }: { searchParams
               </span>
               <Link href={adminHref(`/admin/schedule/${r.id}`, { from: href })} className="font-medium hover:underline">{r.title}</Link>
               <Tag>{SCHEDULE_GAME_LABEL[r.game_code]}</Tag>
-              <Tag>{SCHEDULE_KIND_LABEL[r.planned_kind]}</Tag>
+              <Tag>{scheduleFormatOptionLabel(r.planned_format)}</Tag>
               <Tag tone={((r.state === "upcoming" || r.state === "in_progress") && r.period !== null && r.period.to < kstDateString(new Date())) ? "warn" : r.state === "held" || r.state === "in_progress" ? "accent" : "neutral"}>{ENTRY_STATE_LABEL[r.state]}</Tag>
               {r.visibility === "hidden" && <Tag tone="warn">숨김</Tag>}
               {r.visibility === "public" && r.source_count === 0 && <Tag tone="warn">출처 없음 — 공개 안 됨</Tag>}

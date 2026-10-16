@@ -15,10 +15,12 @@ import { useReviewDraft } from "./use-review-draft";
 import { PersonPicker } from "./PersonPicker";
 import { useActionState, useState } from "react";
 
+// 예정 분류도 행사와 같은 어휘다(schedule_entry.planned_format, 0089) — 이름·게임별 허용은 format.ts 를 감싼 일정 도우미 하나.
 import {
-  SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL,
+  SCHEDULE_GAME_LABEL, SCHEDULE_ROLE_LABEL, scheduleFormatOptionLabel, scheduleFormats,
   addDays, type ScheduleGame,
 } from "@soop-lol/core/lib/metrics/schedule";
+import type { Format } from "@soop-lol/core/lib/metrics/format";
 
 import { deleteScheduleAction, saveScheduleAction, type ScheduleFormPayload } from "@/app/admin/schedule/actions";
 import { IDLE, type ActionState } from "@/lib/action-state";
@@ -32,7 +34,7 @@ type Slot = ScheduleFormPayload["slots"][number];
 type Person = ScheduleFormPayload["participants"][number];
 type Source = ScheduleFormPayload["sources"][number];
 
-export interface ScheduleEventChoice { id: string; name: string; kind: string; date: string | null }
+export interface ScheduleEventChoice { id: string; name: string; format: Format; date: string | null }
 
 export function ScheduleForm({ initial, streamers, events }: {
   initial: ScheduleFormPayload;
@@ -73,12 +75,14 @@ export function ScheduleForm({ initial, streamers, events }: {
         <label className="sm:col-span-2"><span className={label}>제목 *</span>
           <input className={input} value={v.title} onChange={(e) => set("title", e.target.value)} required /></label>
         <label><span className={label}>게임</span>
-          <select className={input} value={v.game_code} onChange={(e) => setV((p) => ({ ...p, game_code: e.target.value, event_id: "" }))}>
+          <select className={input} value={v.game_code} onChange={(e) => setV((p) => ({ ...p, game_code: e.target.value, event_id: "",
+            // 게임이 바뀌면 그 게임에 없는 진행 방식은 "분류 전" 으로 — 지어내지 않는다.
+            planned_format: (scheduleFormats(e.target.value as ScheduleGame) ?? []).includes(p.planned_format as Format) ? p.planned_format : "unclassified" }))}>
             {Object.entries(SCHEDULE_GAME_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select></label>
         <label><span className={label}>분류(공지 기준)</span>
-          <select className={input} value={v.planned_kind} onChange={(e) => set("planned_kind", e.target.value)}>
-            {Object.entries(SCHEDULE_KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          <select className={input} value={v.planned_format} onChange={(e) => set("planned_format", e.target.value)}>
+            {(scheduleFormats(v.game_code as ScheduleGame) ?? []).map((f) => <option key={f} value={f}>{scheduleFormatOptionLabel(f)}</option>)}
           </select></label>
         <label><span className={label}>후원</span>
           <input className={input} value={v.sponsor} onChange={(e) => set("sponsor", e.target.value)} /></label>
@@ -97,7 +101,7 @@ export function ScheduleForm({ initial, streamers, events }: {
         <label className="sm:col-span-4"><span className={label}>결과 경기 연결 (완료일 때만 · 같은 게임의 대회만)</span>
           <select className={input} value={v.event_id} disabled={v.status !== "held"} onChange={(e) => set("event_id", e.target.value)}>
             <option value="">연결 안 함</option>
-            {gameEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.date ?? "날짜 없음"} · {ev.name} ({ev.kind})</option>)}
+            {gameEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.date ?? "날짜 없음"} · {ev.name} ({scheduleFormatOptionLabel(ev.format)})</option>)}
           </select></label>
       </section>
 

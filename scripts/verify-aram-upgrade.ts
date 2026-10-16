@@ -1,4 +1,7 @@
-/** 기존 집계가 섞인 DB를 0071로 올려 원본 보존·집계 분리·숨김 경계를 검증한다. */
+/**
+ * 영상 판독 경기가 쌓인 DB 를 0071 로 올려 원본 보존을, 0089 까지 올려 칼바람 구분(맵 칼럼)·공개 세트·숨김 경계를 검증한다.
+ * ★ 0071 의 옛 집계(저장된 분류·파생 표)는 0089 에서 없어졌다 — 그 단언 대신 0089 의 맵·공개 세트 불변식을 본다.
+ */
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
@@ -19,23 +22,29 @@ try {
     UPDATE match SET visibility='hidden' WHERE match_id='upgrade:hidden';
     INSERT INTO match_participant(match_id,participant_id,team_id,streamer_id,champion_id,outcome,kills,deaths,assists)
       SELECT match_id,1,100,'00000000-0000-0000-0000-000000000001',103,'win',5,1,2 FROM match;
-    INSERT INTO champion_stat(streamer_id,champion_id,queue_id,season,games,wins,kills,deaths,assists,cs,seconds_played,category,kda_games)
-      VALUES('00000000-0000-0000-0000-000000000001',103,0,'ALL',3,3,15,3,6,0,0,'other',3);
   `);
   const originals=(await pg.query('SELECT * FROM match ORDER BY match_id')).rows;
   const participants=(await pg.query('SELECT * FROM match_participant ORDER BY match_id')).rows;
-  assert.equal((await pg.query<{games:number}>('SELECT games FROM core_public.champion_stat')).rows[0]?.games,3);
   await pg.exec(`BEGIN;${migrations.find(m=>m.version==='0071')!.sql}COMMIT;`);
   assert.deepEqual((await pg.query('SELECT * FROM match ORDER BY match_id')).rows,originals,'원본 경기 보존');
   assert.deepEqual((await pg.query('SELECT * FROM match_participant ORDER BY match_id')).rows,participants,'원본 참가자 보존');
-  assert.deepEqual((await pg.query('SELECT match_id FROM core_public.match ORDER BY match_id')).rows,
-    [{match_id:'upgrade:classic'},{match_id:'upgrade:legacy'}],'구형 CUSTOM을 제목 추정으로 재분류하지 않음');
-  assert.deepEqual((await pg.query('SELECT match_id FROM core_public.aram_match')).rows,[{match_id:'upgrade:aram'}],'숨긴 경기 제외');
-  assert.deepEqual((await pg.query("SELECT games,kills,kda_games FROM core_public.champion_stat WHERE season='ALL'")).rows,
-    [{games:2,kills:10,kda_games:2}]);
-  assert.deepEqual((await pg.query("SELECT games,kills,kda_games FROM core_public.aram_champion_stat WHERE season='ALL'")).rows,
-    [{games:1,kills:5,kda_games:1}]);
+  await pg.exec("UPDATE streamer SET visibility='public' WHERE slug='aram-upgrade'");
+
+  // ── 0089 까지: 칼바람 구분은 저장된 분류(category)가 아니라 맵(match.map, 모드에서 정해지는 생성 칼럼) 하나다 ──
+  // 영상 판독 판은 행사 안에 있어야 0089 가 옮겨 담는다(행사 직접 → 같은 행사의 한 판짜리 시리즈).
+  await pg.exec(`INSERT INTO event(id,slug,name,kind,game_code) VALUES('00000000-0000-0000-0000-0000000000a1','aram-upgrade-ck','칼바람 내전','ck','lol');
+    UPDATE match SET event_id='00000000-0000-0000-0000-0000000000a1';`);
+  for(const m of migrations.filter(m=>m.version>'0071')) await pg.exec(`BEGIN;${m.sql}COMMIT;`);
+  assert.deepEqual((await pg.query('SELECT match_id, map, scope, series_id FROM match ORDER BY match_id')).rows, [
+    {match_id:'upgrade:aram',map:'aram',scope:'versus',series_id:'set:upgrade:aram'},
+    {match_id:'upgrade:classic',map:'rift',scope:'versus',series_id:'set:upgrade:classic'},
+    {match_id:'upgrade:hidden',map:'aram',scope:'versus',series_id:'set:upgrade:hidden'},
+    {match_id:'upgrade:legacy',map:'rift',scope:'versus',series_id:'set:upgrade:legacy'},
+  ],'구형 CUSTOM 은 제목 추정 없이 협곡, 칼바람은 모드에서');
+  assert.deepEqual((await pg.query("SELECT match_id, map, format FROM core_public.lol_versus_set ORDER BY match_id")).rows, [
+    {match_id:'upgrade:aram',map:'aram',format:'ck'},{match_id:'upgrade:classic',map:'rift',format:'ck'},{match_id:'upgrade:legacy',map:'rift',format:'ck'},
+  ],'공개 세트는 숨긴 경기를 빼고, 맵과 진행 방식을 따로 단다');
   await pg.exec("UPDATE streamer SET visibility='hidden' WHERE slug='aram-upgrade'");
-  assert.equal((await pg.query('SELECT * FROM core_public.aram_champion_stat')).rows.length,0,'숨긴 스트리머 제외');
-  console.log('ARAM 0071 upgrade: 원본 보존, 기존 집계 분리, 구형 모드 유지, 공개 숨김 경계 통과');
+  assert.equal((await pg.query('SELECT 1 FROM core_public.lol_versus_set')).rows.length,0,'숨긴 스트리머 제외');
+  console.log('ARAM upgrade: 0071 원본 보존 · 0089 맵 칼럼(구형 CUSTOM 협곡 유지)·공개 세트·숨김 경계 통과');
 } finally {await pg.close();}

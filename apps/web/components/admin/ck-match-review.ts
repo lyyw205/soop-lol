@@ -12,10 +12,10 @@
  *     참고 사진의 구간 규칙은 VOD 화면과 같은 projectReviewQueue 하나다(그 판의 사진을 연결 수와 무관하게 넘겨 본다).
  *   · 방송 필터는 보이는 사진만 고른다. 그 방송에 사진이 없으면 없다고 보여 준다.
  */
-import { setLabel } from "@soop-lol/core/lib/metrics/set-label";
+import { isStandaloneSet, isUnbundledSet, setLabel } from "@soop-lol/core/lib/metrics/set-label";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
 
-import { matchOriginLabel } from "../../lib/admin-labels.ts";
+import { collectedViaLabel } from "../../lib/admin-labels.ts";
 import { projectReviewQueue, UNPLACED } from "./ck-review-queue.ts";
 
 export interface WorkItem { match_id: string; completed: boolean }
@@ -100,9 +100,10 @@ export function representativeEvidence(frames: readonly EvidenceFrame[]): Eviden
 
 /** 경기 화면 제목 — 대회 · 세트 · 시각 · 출처. 서버 페이지에서 부르므로 이 모듈(클라이언트 전용 아님)에 둔다. */
 export function matchReviewTitle(match: {
-  series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null;
-  game_creation_epoch_ms: number; game_creation_precision: "datetime" | "date"; origin: string | null; source: string | null;
+  match_id: string; series_id: string | null; best_of: number | null; set_order_known: boolean; series_game_no: number | null;
+  game_creation_epoch_ms: number; game_creation_precision: "datetime" | "date"; collected_via: string;
 }, eventName: string | null): string {
-  const set = setLabel({ standalone: !match.series_id, unassigned: !match.series_id, best_of: match.best_of, set_order_known: match.set_order_known, series_game_no: match.series_game_no });
-  return `${eventName ?? "대회 미지정"} · ${set} · ${kstPlayedAt(new Date(match.game_creation_epoch_ms), match.game_creation_precision)} · ${matchOriginLabel(match)}`;
+  const set = setLabel({ standalone: isStandaloneSet(match.match_id, match.series_id), unassigned: isUnbundledSet(match.match_id, match.series_id),
+    best_of: match.best_of, set_order_known: match.set_order_known, series_game_no: match.series_game_no });
+  return `${eventName ?? "행사 없음(개인 기록)"} · ${set} · ${kstPlayedAt(new Date(match.game_creation_epoch_ms), match.game_creation_precision)} · ${collectedViaLabel(match)}`;
 }

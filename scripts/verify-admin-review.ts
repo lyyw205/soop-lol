@@ -38,17 +38,17 @@ try {
   assert.ok((await current()).context_completed_at, 'value change preserves context confirmation');
   assert.equal((await current()).review_completed_at, null);
   await assert.rejects(C.holdFcoContext(ids[0], m.context_version - 1), /변경/);
-  const before = await sql`SELECT count(*)::int n FROM fco_match_context`;
+  const before = await sql`SELECT count(*)::int n FROM review_change WHERE entity = 'classification'`;
   await assert.rejects(C.applyFcoMatchContexts([
     { provider_match_id: ids[0], conclusion: 'unresolved', note: 'first write' },
     { provider_match_id: ids[1], conclusion: 'casual', note: '' },
   ]), /note/);
-  assert.equal((await sql`SELECT count(*)::int n FROM fco_match_context`)[0].n, before[0].n, 'bulk failure rolls back every match');
+  assert.equal((await sql`SELECT count(*)::int n FROM review_change WHERE entity = 'classification'`)[0].n, before[0].n, 'bulk failure rolls back every match');
   const session = (await SS.listFcoSessions()).find(s => s.match_ids.includes(ids[0]))!;
   assert.equal((await SS.getFcoSession(session.id))?.id, session.id);
   assert.equal((await SS.getFcoSession(encodeURIComponent(session.id)))?.id, session.id, 'encoded match IDs are accepted');
   assert.equal(await SS.getFcoSession('meet~1000000000~99'), null, 'bad session does not open a nearby session');
-  const meta = { slug: 'admin-cup', name: '검수 대회', kind: 'tournament' as const, source_url: 'https://example.test/notice' };
+  const meta = { slug: 'admin-cup', name: '검수 대회', format: 'tournament' as const, source_url: 'https://example.test/notice' };
   await C.applyFcoMatchContexts(ids.map(provider_match_id => ({ provider_match_id, conclusion: 'event', event: meta })));
   const [event] = await C.listFcoEventOptions();
   const ws = (await C.getFcoReviewWorkspace({ eventId: event.id }))[0];
@@ -80,7 +80,7 @@ try {
   assert.equal(await people.setCandidateState(candidate.id, 'ignored', 'pending'), true);
   assert.equal(await people.setCandidateState(candidate.id, 'rejected', 'pending'), false, 'stale candidate state is rejected');
   assert.equal(await schedule.getScheduleForAdmin('not-a-uuid'), null);
-  const input = { game_code: 'lol' as const, title: '샘플 테스트', planned_kind: 'ck' as const, sponsor: null, description: null, admin_note: null, status: 'scheduled' as const, event_id: null, visibility: 'public' as const,
+  const input = { game_code: 'lol' as const, title: '샘플 테스트', planned_format: 'ck' as const, sponsor: null, description: null, admin_note: null, status: 'scheduled' as const, event_id: null, visibility: 'public' as const,
     slots: [{ label: null, on_date: '2026-10-04', starts_at: null, ends_at: null, channel_id: null }], participants: [], sources: [{ url: 'https://example.test/schedule', title: null, posted_at: null }] };
   const saved = await schedule.saveScheduleEntry(input);
   await schedule.saveScheduleEntry({ ...input, title: '샘플 오타 수정' }, { ...saved, recordHistory: false });

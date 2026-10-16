@@ -59,9 +59,9 @@ const PREFILTER_SHARED_MIN = 6;
 /** DB 가 고른 후보 짝 — 시각 순서(앞 경기 a, 뒤 경기 b). 판정 전 단계라 검증에서도 쓴다. */
 export async function listDuplicatePairCandidates(): Promise<{ a: string; b: string }[]> {
   const sql = db();
-  // 짝을 볼 대상 — 공개 수기 LoL 경기, 그리고 숨겼지만 근거가 남고 아직 합치지 않은 경기.
+  // 짝을 볼 대상 — 화면으로 아는(영상 판독·수기) 공개 LoL 경기, 그리고 숨겼지만 근거가 남고 아직 합치지 않은 경기.
   const eligible = sql`
-    m.game_code = 'lol' AND m.source = 'manual'
+    m.game_code = 'lol' AND m.collected_via <> 'api'
     AND (m.visibility = 'public'
       OR ((EXISTS (SELECT 1 FROM match_evidence_frame f WHERE f.match_id = m.match_id)
            OR EXISTS (SELECT 1 FROM match_pov v WHERE v.match_id = m.match_id))
@@ -192,7 +192,7 @@ export interface DuplicateMergePlan {
   hidden: boolean;
   /** 양쪽 다 읽었는데 값이 어긋나는 자리(한쪽이 못 읽은 칸은 차이가 아니다). 값은 고치지 않고 보고만 한다. */
   value_differences: string[];
-  /** 숨길 쪽에만 있던 묶음 정보(시리즈·대회). 근거 없이 옮기지 않는다. */
+  /** 숨길 쪽의 묶음 정보(시리즈·그 시리즈의 행사). 근거 없이 옮기지 않는다. */
   drop_grouping: { series_id: string | null; event_id: string | null };
 }
 
@@ -204,7 +204,7 @@ class DryRun extends Error {
 /**
  * 사진으로 같은 판이라고 확인한 두 경기를 하나로 합친다. 한 트랜잭션이다 — 중간에 실패하면 아무것도 안 바뀐다.
  *
- * ★ 지우지 않는다. 숨길 쪽은 공개에서 빼고(통계·상대전적 재계산), 근거(프레임)·시점 기록·최종 근거·VOD 후보 연결을
+ * ★ 지우지 않는다. 숨길 쪽은 공개에서 빼고(공개 집계는 공개 경기만 고르는 뷰라 바로 빠진다), 근거(프레임)·시점 기록·최종 근거·VOD 후보 연결을
  *   남길 쪽으로 옮긴다. 옮길 수 없는 것(같은 방송의 시점 기록이 양쪽에 있음, 경기당 하나인 최종 근거)은 숨긴 쪽에
  *   그대로 남겨 이력이 끊기지 않게 한다.
  * ★ 값은 고치지 않는다. 두 경기의 값이 다르면 차이만 돌려준다 — 어느 쪽이 맞는지는 사람이 화면으로 정한다.
@@ -231,12 +231,13 @@ export async function mergeDuplicateMatchInTx(tx: Tx, input: DuplicateMergeInput
   if (!input.evidence?.trim()) throw new Error("같은 판이라고 확인한 근거(evidence)가 필요하다.");
   if (keep === drop) throw new Error("남길 경기와 숨길 경기가 같다.");
   await lockCkMatchWritesInTx(tx);
-  const rows = await tx<{ match_id: string; visibility: string; game_code: string; source: string; series_id: string | null; event_id: string | null }[]>`
-    SELECT match_id, visibility, game_code, source, series_id, event_id FROM match
-     WHERE match_id IN (${keep}, ${drop}) ORDER BY match_id FOR UPDATE`;
+  const rows = await tx<{ match_id: string; visibility: string; game_code: string; collected_via: string; series_id: string | null; event_id: string | null }[]>`
+    SELECT m.match_id, m.visibility, m.game_code, m.collected_via, m.series_id, ms.event_id FROM match m
+      LEFT JOIN match_series ms ON ms.id = m.series_id
+     WHERE m.match_id IN (${keep}, ${drop}) ORDER BY m.match_id FOR UPDATE OF m`;
   const K = rows.find((r) => r.match_id === keep), D = rows.find((r) => r.match_id === drop);
   if (!K || !D) throw new Error(`경기가 없다: ${!K ? keep : drop}`);
-  for (const r of [K, D]) if (r.game_code !== "lol" || r.source !== "manual") throw new Error(`${r.match_id}: 수기 LoL 경기만 합친다.`);
+  for (const r of [K, D]) if (r.game_code !== "lol" || r.collected_via === "api") throw new Error(`${r.match_id}: 영상 판독·수기 LoL 경기만 합친다.`);
   if (K.visibility !== "public") throw new Error(`${keep}: 남길 경기는 공개 경기여야 한다.`);
 
   // 값으로도 같은 판 후보인지 — 저장 검사·후보 조회와 같은 판정이다.

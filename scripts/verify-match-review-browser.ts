@@ -27,6 +27,7 @@ import { freePort } from './lib/disposable-postgres.ts';
 import { applyAll } from './lib/migrations.ts';
 import { db, closeDb } from '../packages/core/lib/db/client.ts';
 import { listOverviewWorkList } from '../packages/core/lib/db/match-overview.ts';
+import * as cls from '../packages/core/lib/db/classification.ts';
 
 const root = join(import.meta.dirname, '..'), pg = await disposablePglite();
 process.env.DATABASE_URL = pg.url;
@@ -39,12 +40,15 @@ const LEAD_A = '00000000-0000-4000-8000-0000000e0001', LEAD_B = '00000000-0000-4
 try {
   await applyAll(sql => pg.database.exec(sql), root, { includeModules: true });
   const sql = db();
-  const [event] = await sql`INSERT INTO event (slug, name, kind) VALUES ('mr-ck', '경기 화면 검증 CK', 'ck') RETURNING id`;
-  // 시리즈 없는 경기 3개(다누리 9시 CK 처럼) — 목록은 각각 한 묶음으로 센다.
+  const event = { id: await sql.begin((tx) => cls.ensureEventInTx(tx, { game_code: 'lol', slug: 'mr-ck', name: '경기 화면 검증 CK', format: 'ck' })) as string };
+  // 묶지 않은 경기 3개(다누리 9시 CK 처럼) — 각자 한 판짜리 시리즈(set:<경기>, 0089). 목록은 각각 한 묶음으로 센다.
   const ids = ['mr:M1', 'mr:M2', 'mr:M3'];
   for (const [i, id] of ids.entries()) {
-    await sql`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, source, origin, game_creation, game_creation_precision, game_duration, winning_team, event_id)
-      VALUES (${id}, 'lol', 0, '0', 'CLASSIC', 11, 'manual', 'vod_scan', ${new Date(Date.UTC(2030, 0, 1, 12 + i))}, 'datetime', 1800, 100, ${event.id})`;
+    await sql.begin(async (tx) => {
+      await tx`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, collected_via, scope, game_creation, game_creation_precision, game_duration, winning_team)
+        VALUES (${id}, 'lol', 0, '0', 'CLASSIC', 11, 'vod', 'personal', ${new Date(Date.UTC(2030, 0, 1, 12 + i))}, 'datetime', 1800, 100)`;
+      await cls.placeSingleSetInTx(tx, { match_id: id, game_code: 'lol', event_id: event.id, actor: 'auto' });
+    });
     for (let p = 1; p <= 2; p++) await sql`INSERT INTO match_participant (match_id, participant_id, team_id, observed_name, champion_id, outcome, kills, deaths, assists)
       VALUES (${id}, ${p}, ${p === 1 ? 100 : 200}, ${`선수${p}`}, ${p}, ${p === 1 ? 'win' : 'loss'}, ${i + p}, 1, 2)`;
   }
@@ -204,7 +208,7 @@ try {
   await page.locator('.ck-review-page-head h1', { hasText: '단판' }).waitFor();
   await page.getByText('경기 정보 더 보기', { exact: false }).click();
   await page.getByRole('button', { name: 'Bo1 · VOD 2:10:00 "단판 한 판만" 공지', exact: true }).waitFor();
-  // 같은 대회 묶음에 남는다 = 시리즈가 대회를 넘겨받았다(시리즈 경기는 match.event_id 를 비운다).
+  // 같은 행사 묶음에 남는다 = 행사는 시리즈에만 있다(판에는 행사 칸이 없다 — 0089).
   assert.equal(await eventMeta(), '시리즈 1 · 시리즈 미지정 2경기 · 세트 3');
   assert.equal(await page.locator('.overview-series-round', { hasText: '단판' }).count(), 1);
 

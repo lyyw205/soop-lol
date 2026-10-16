@@ -40,6 +40,12 @@
  *   "candidates": [{ "id": "c1", "at": [400, 900], "conclusion": "unresolved",
  *                    "observed": "…", "why": "…", "open_questions": ["…"] }]
  * }
+ *
+ * 경기(resultType "match")는 **반드시 행사 안에** 들어간다(0089 — 판은 세트 → 시리즈 → 행사 한 길로만 분류된다):
+ *   "event": { "slug": "…", "name": "…", "format": "ck" | "land" | "tournament" | "scrim" | "solo_bet" | "concept" | "unclassified" }
+ *   또는 "event_id": "<행사 uuid>". 형식을 확인하지 못했으면 format 을 "unclassified" 로 적는다(모르면 분류 전 — concept 이 아니다).
+ *   이미 있는 시리즈(series_id)에 붙일 때만 행사를 생략할 수 있다 — 그 시리즈의 행사를 따른다.
+ *   ★ 옛 "event.kind" 는 받지 않는다(바꿔 주는 변환을 두지 않는다): other → "unclassified", showmatch → "concept".
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -56,7 +62,8 @@ import { noteWriteBlocked } from "@soop-lol/core/lib/db/write-block";
 import { submitMatchPovInTx } from "@soop-lol/core/lib/db/ck-pov";
 import { resolveChampion } from "@soop-lol/core/lib/db/participant";
 import { knownNameOwnersInTx, normName } from "@soop-lol/core/lib/db/known-names";
-import { ensureEventInTx } from "@soop-lol/core/lib/db/tournaments";
+import { ensureEventInTx } from "@soop-lol/core/lib/db/classification";
+import { allowedFormat, FORMATS_BY_GAME, isFormat } from "@soop-lol/core/lib/metrics/format";
 import { vodWork } from "@soop-lol/core/lib/metrics/ck-vod-status";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -296,9 +303,36 @@ function creationProblems(r) {
 
 /** 이 파일의 경기 중 DB 에 이미 있는 것. 있으면 시점 추가, 없으면 새 경기다. */
 const existingMatchIds = new Set();
+/** 이 파일이 가리키는 시리즈 중 DB 에 이미 있는 것 — 행사를 생략할 수 있는 유일한 경우(그 시리즈의 행사를 따른다). */
+const existingSeriesIds = new Set();
 {
   const ids = results.filter((r) => r.resultType === "match" && r.match_id).map((r) => r.match_id);
   if (ids.length) for (const row of await db()`SELECT match_id FROM match WHERE match_id = ANY(${ids})`) existingMatchIds.add(row.match_id);
+  const series = results.filter((r) => r.resultType === "match" && r.series_id).map((r) => r.series_id);
+  if (series.length) for (const row of await db()`SELECT id FROM match_series WHERE id = ANY(${series})`) existingSeriesIds.add(row.id);
+}
+
+/**
+ * 행사 입력의 기계적 검사 — 진행 방식 어휘는 core 의 format.ts 하나다(행사 CHECK 와 같은 목록).
+ * ★ 판은 행사 없이 들어가지 않는다. 조용히 미분류 그릇에 넣지 않고 거부한다 — 형식을 모르면 조사자가 unclassified 를 적는다.
+ */
+function eventProblems(r) {
+  const out = [];
+  if (r.event !== undefined && r.event !== null) {
+    if ("kind" in r.event) {
+      out.push(`event.kind 는 없어졌다 — event.format 으로 적는다(${FORMATS_BY_GAME.lol.join("·")}). `
+        + "옛 other 는 unclassified(형식 모름), showmatch 는 concept 이다. 보상 여부는 분류 기준이 아니다");
+    }
+    if (!r.event.slug) out.push("event 에는 slug 가 필요하다");
+    if (r.event.format !== undefined && !(isFormat(r.event.format) && allowedFormat("lol", r.event.format))) {
+      out.push(`event.format "${r.event.format}" 은 롤 진행 방식이 아니다 — ${FORMATS_BY_GAME.lol.join("·")} 중 하나`);
+    }
+  }
+  if (!r.event_id && !r.event?.slug && !(r.series_id && existingSeriesIds.has(r.series_id))) {
+    out.push("match 는 행사가 필요하다 — event({slug, name, format}) 또는 event_id. 형식을 모르면 format \"unclassified\" 로 행사를 만든다"
+      + " (이미 있는 시리즈 series_id 에 붙일 때만 생략 — 그 시리즈의 행사를 따른다)");
+  }
+  return out;
 }
 /** 경기 제출이 어느 VOD 의 시점인가 — 명시(pov.source_key) → 파일에 scan 이 하나면 그것. */
 const scanKeys = results.filter((r) => r.resultType === "scan" && r.lead?.source_key).map((r) => r.lead.source_key);
@@ -358,6 +392,8 @@ for (const [i, r] of results.entries()) {
   }
   if (r.resultType === "match") {
     if (r.game_mode !== undefined && !['CLASSIC', 'ARAM'].includes(r.game_mode)) fail(i, 'game_mode 는 CLASSIC 또는 ARAM');
+    // 이 창구는 영상 판독만 받는다(collected_via=vod). 수기 등록은 일괄 등록 도구(ck-import)·시드의 일이다.
+    if (r.origin !== undefined && r.origin !== "vod_scan") fail(i, `origin "${r.origin}" 은 받지 않는다 — ck:merge 는 영상 판독(collected_via=vod)만 넣는다`);
     if (!r.match_id) { fail(i, "match 는 match_id 가 필요하다"); continue; }
     if (r.pov !== undefined) {
       if (typeof r.pov !== "object" || r.pov === null) fail(i, "pov 는 객체여야 한다");
@@ -397,6 +433,8 @@ for (const [i, r] of results.entries()) {
       if (!r.game_mode) fail(i, '새 경기는 game_mode(CLASSIC 또는 ARAM)가 필요하다 — 모드를 못 확인했으면 unresolved 후보로 남길 것');
       for (const msg of creationProblems(r)) fail(i, msg);
     }
+    // 행사 입력은 새 경기든 시점 추가든 형식이 맞아야 한다(옛 kind 를 조용히 버리지 않는다).
+    for (const msg of eventProblems(r)) if (!existingMatchIds.has(r.match_id) || r.event !== undefined) fail(i, msg);
   }
   if (r.resultType === "identify") {
     if (!r.match_id) fail(i, "identify 는 match_id 가 필요하다");
@@ -521,10 +559,10 @@ try {
     }
     for (const r of results) {
       if (r.resultType === "scan") {
-        // ★ 단서에는 분류가 없다(0035) — 분류는 이어진 경기의 대회가 정한다.
+        // ★ 단서에는 분류가 없다(0035) — 분류는 이어진 경기의 행사가 정한다.
         //   옛 결과 파일을 다시 넣는 것은 정상이므로 멈추지 않고 버린다는 사실만 알린다.
         if (r.lead.kind !== undefined) {
-          console.log(`      ℹ lead.kind(${r.lead.kind}) 는 저장하지 않는다 — 분류는 경기의 대회(event.kind)에서 나온다`);
+          console.log(`      ℹ lead.kind(${r.lead.kind}) 는 저장하지 않는다 — 분류는 경기의 행사(event.format)에서 나온다`);
         }
         const leadId = await upsertEventLeadInTx(tx, {
           source: "vod_title",
@@ -690,26 +728,26 @@ try {
           continue;
         }
         /**
-         * 대회에 **붙이기만** 한다. 분류는 그 대회의 kind 가 정한다
-         * (`lol_match_category(source, queue_id, event.kind)`).
+         * 행사에 **붙이기만** 한다. 분류는 그 행사의 진행 방식(event.format)이 정한다 — 세트 → 시리즈 → 행사 한 길.
          *
-         * ★ 이미 있는 대회는 읽기만 한다 — 분류·이름·주최·기간·출처를 고치지 않는다.
+         * ★ 이미 있는 행사는 읽기만 한다 — 분류·이름·주최·기간·출처를 고치지 않는다.
          *   예전엔 여기서 upsertEvent 가 멸망전 4개를 'ck' 로 덮어 153경기가 내전이 됐다(0035).
-         *   `event.kind` 를 적으면 기존 값과 대조하고, 다르면 파일 전체를 되돌린다.
-         * ★ 새 대회는 이름과 분류가 있어야 만든다. 기본값을 두지 않는다.
+         *   `event.format` 을 적으면 기존 값과 대조하고, 다르면 파일 전체를 되돌린다(classification.ensureEventInTx).
+         * ★ 새 행사는 이름과 진행 방식이 있어야 만든다. 기본값을 두지 않는다(모르면 unclassified 를 명시).
          */
         let eventId = r.event_id ?? null;
         if (!eventId && r.event?.slug) {
           eventId = await ensureEventInTx(tx, {
+            game_code: "lol",
             slug: r.event.slug,
             name: r.event.name,
-            kind: r.event.kind,
+            format: r.event.format,
             organizer: r.event.organizer ?? null,
             starts_at: r.event.starts_at ?? null,
             ends_at: r.event.ends_at ?? null,
             source_url: r.event.source_url ?? r.source_url ?? null,
           });
-          console.log(`대회  ${r.event.slug}`);
+          console.log(`행사  ${r.event.slug}`);
         }
 
         // slug → streamer_id. 화면 이름만 있는 자리는 확정되는 이름이면 붙이고(known-names), 아니면 그대로 둔다(0020).
@@ -767,13 +805,12 @@ try {
           blue_team_id: r.blue_team_id ?? null,
           red_team_id: r.red_team_id ?? null,
           winning_team: r.winning_team,
-          origin: r.origin ?? "vod_scan",
           evidence_frame_ids: frameIds,
           participants,
           distinct_from: r.distinct_from ?? [],
         });
 
-        if ((r.origin ?? "vod_scan") === "vod_scan") vodMatchIds.push(r.match_id);
+        vodMatchIds.push(r.match_id);
         if (wrote) {
           matches++;
           console.log(`경기  ${r.match_id}  ${r.winning_team === 100 ? "1팀" : "2팀"} 승 · 참가자 ${participants.length}`);
@@ -782,7 +819,7 @@ try {
               match_id: r.match_id, lead_id: povLead.id, source: povSource, role: "created",
               link_basis: r.pov?.link_basis ?? null, submission, frame_ids: frameIds,
             });
-          } else if ((r.origin ?? "vod_scan") === "vod_scan") {
+          } else {
             console.log(`      ⚠ 어느 VOD 시점인지 몰라 시점 기록 없이 만들었다 — pov.source_key 를 적으면 남는다`);
           }
         } else {

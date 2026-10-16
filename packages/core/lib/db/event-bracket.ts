@@ -248,12 +248,15 @@ async function apply(tx: postgres.TransactionSql, spec: BracketSpec): Promise<Ap
   }
 
   // 5. 칸 규칙의 세트 수가 정본이다. 칸의 경기가 시리즈 하나에 모여 있으면 시리즈 값도 맞춘다 — 두 값이 따로 놀지 않게.
+  //    ★ 판은 모두 시리즈 안에 있다(0089). 묶이지 않은 판의 한 판짜리 시리즈(`set:<match_id>`)는 칸의 시리즈가 아니라
+  //      그릇이라 세트 수를 찍지 않는다 — 찍으면 한 판뿐인 시리즈가 "3판 2선승" 이 된다.
   for (const s of parsed.slots) {
     if (s.bestOf == null) continue;
     await tx`
       UPDATE match_series ms SET best_of = ${s.bestOf}, best_of_evidence = ${`대진 칸 규칙 — ${parsed.evidence.get(s.id)}`}, updated_at = now()
        WHERE ms.id = (SELECT min(m.series_id) FROM event_slot_match l JOIN match m ON m.match_id = l.match_id
-                       WHERE l.slot_id = ${slotIds.get(s.id)!} HAVING count(DISTINCT m.series_id) = 1 AND count(*) = count(m.series_id))
+                       WHERE l.slot_id = ${slotIds.get(s.id)!}
+                      HAVING count(DISTINCT m.series_id) = 1 AND bool_and(m.series_id <> 'set:' || m.match_id))
          AND ms.best_of IS DISTINCT FROM ${s.bestOf}`;
   }
 

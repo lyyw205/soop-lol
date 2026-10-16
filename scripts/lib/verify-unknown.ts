@@ -3,12 +3,19 @@ import assert from 'node:assert/strict';
 import * as ck from '../../packages/core/lib/db/ck.ts';
 import {db} from '../../packages/core/lib/db/client.ts';
 import {createStreamer} from '../../packages/core/lib/db/streamers.ts';
-import {listMatchRosters} from '../../packages/core/lib/contract/index.ts';
+import {lolEvent} from './verify-ck-fixtures.ts';
+
+// 공개 경기 상세(core_public.match_detail, 0089) — 경기 하나의 공개 자리. 집계는 공개 세트 뷰(lol_versus_set)가 원본에서 바로 계산한다.
+const rosterOf=(id:string)=>db()<{participant_id:number;streamer_id:string|null;kills:number|null}[]>`
+  SELECT participant_id, streamer_id, kills FROM core_public.match_detail WHERE match_id = ${id} ORDER BY participant_id`;
+const versusSets=(streamerId:string)=>db()<{match_id:string;champion_id:number;kills:number|null}[]>`
+  SELECT match_id, champion_id, kills FROM core_public.lol_versus_set WHERE streamer_id = ${streamerId}::uuid ORDER BY match_id`;
 
 export async function verifyUnknownParticipants() {
   const a=await createStreamer({slug:'unknown-test-a',display_name:'A'});
   const b=await createStreamer({slug:'unknown-test-b',display_name:'B'});
-  const fixture=(id:string,name:string):ck.CkMatchInput=>({ played_at_precision: "datetime",match_id:id,played_at:new Date('2026-09-20T00:00:00Z'),winning_team:100,result_evidence:'test',
+  const event=await lolEvent('verify-unknown');
+  const fixture=(id:string,name:string):ck.CkMatchInput=>({ played_at_precision: "datetime",match_id:id,event_id:event,played_at:new Date('2026-09-20T00:00:00Z'),winning_team:100,result_evidence:'test',
     participants:[{participant_id:1,team_id:100,observed_name:name,champion_id:34,kills:3,deaths:8,assists:7},
       {participant_id:2,team_id:200,streamer_id:b.id,champion_id:143,kills:1,deaths:2,assists:3}]});
   for(const id of ['unknown:1','unknown:2','unknown:3','unknown:4']) await ck.upsertMatchFromScan(fixture(id,'four-seats'));
@@ -17,16 +24,17 @@ export async function verifyUnknownParticipants() {
   assert.equal(result.linked,4);
   assert.equal(await ck.upsertMatchFromScan(fixture('unknown:1','four-seats')),false,'manual links must survive automatic re-import');
   assert.ok((await ck.getMatchDetail('unknown:1'))!.match.reviewed_at);
-  assert.equal((await listMatchRosters(['unknown:1'])).find(p=>p.streamer_id===a.id)!.kills,3);
-  const [stats]=await db()`SELECT sum(games)::int AS games FROM champion_stat WHERE streamer_id=${a.id} AND champion_id=34 AND season='ALL'`;
-  assert.equal(stats.games,4);
+  assert.equal((await rosterOf('unknown:1')).find(p=>p.streamer_id===a.id)!.kills,3);
+  // 파생 표가 없다 — 연결한 즉시 공개 세트에 그 사람의 판으로 잡힌다(챔피언 34 네 판).
+  assert.equal((await versusSets(a.id)).filter(r=>r.champion_id===34).length,4);
   console.log('Unknown participant review: four-seat linking and re-import protection passed');
 }
 
 export async function verifyUnknownBoundaries() {
   const a=await createStreamer({slug:'unknown-boundary-a',display_name:'A'});
   const b=await createStreamer({slug:'unknown-boundary-b',display_name:'B'});
-  const fixture=(id:string,name:string,parts:ck.CkMatchParticipantInput[]=[]):ck.CkMatchInput=>({ played_at_precision: "datetime",match_id:id,played_at:new Date('2026-09-20T00:00:00Z'),winning_team:100,result_evidence:'test',
+  const event=await lolEvent('verify-unknown');
+  const fixture=(id:string,name:string,parts:ck.CkMatchParticipantInput[]=[]):ck.CkMatchInput=>({ played_at_precision: "datetime",match_id:id,event_id:event,played_at:new Date('2026-09-20T00:00:00Z'),winning_team:100,result_evidence:'test',
     participants:[{participant_id:1,team_id:100,observed_name:name,champion_id:34,kills:3,deaths:8,assists:7},...parts]});
   const targets=async(name:string)=>(await ck.listUnidentifiedParticipants()).find(r=>r.observed_name===name)!.targets;
   for (const id of ['scope:chosen','scope:other','scope:hidden']) await ck.upsertMatchFromScan(fixture(id,'same-name'));
@@ -44,12 +52,11 @@ export async function verifyUnknownBoundaries() {
   assert.equal((await ck.getMatchDetail('scope:chosen'))!.participants[0].streamer_id,a.id);
   for(const id of ['atomic:a','atomic:z']) await ck.upsertMatchFromScan(fixture(id,'atomic',id.endsWith('z')?[{participant_id:2,team_id:200,streamer_id:a.id,champion_id:143}]:[]));
   const before=await ck.getMatchDetail('atomic:a');
-  const [statBefore]=await db()`SELECT jsonb_agg(to_jsonb(cs) ORDER BY champion_id,queue_id,season,category) AS snapshot FROM champion_stat cs WHERE streamer_id=${a.id}`;
+  const setsBefore=await versusSets(a.id);
   const awaitedAtomic=await targets('atomic');
   await assert.rejects(()=>ck.reviewUnidentifiedParticipants(awaitedAtomic,a.id),/이번 연결은 모두 취소/);
   assert.deepEqual(await ck.getMatchDetail('atomic:a'),before);
-  const [statAfter]=await db()`SELECT jsonb_agg(to_jsonb(cs) ORDER BY champion_id,queue_id,season,category) AS snapshot FROM champion_stat cs WHERE streamer_id=${a.id}`;
-  assert.deepEqual(statAfter,statBefore);
+  assert.deepEqual(await versusSets(a.id),setsBefore,'취소된 연결은 공개 집계에도 흔적이 없다');
   await ck.upsertMatchFromScan(fixture('stale:name','old-name'));
   const stale=await targets('old-name');
   await ck.upsertMatchFromScan(fixture('stale:name','new-name'));
@@ -77,14 +84,14 @@ export async function verifyUnknownBoundaries() {
   const [doneAfter]=await db()`SELECT review_completed_at, review_version FROM match WHERE match_id='skip:reviewed'`;
   assert.deepEqual(doneAfter,doneBefore,'user-confirmed link keeps review completion and version');
   await ck.upsertMatchFromScan(fixture('duplicate:label','duplicate',[{participant_id:2,team_id:100,observed_name:'duplicate',champion_id:34}]));
-  const roster=await listMatchRosters(['duplicate:label']);
+  const roster=await rosterOf('duplicate:label');
   assert.deepEqual(roster.map(p=>p.participant_id).sort(),[1,2]);
   console.log('Unknown review: scope, stale state, atomic rollback, automatic identity, reviewed skip, user-confirmed link, stable seat IDs passed');
 }
 
 export async function verifyUnknownConcurrency(other: import('postgres').Sql) {
   const a=await createStreamer({slug:'unknown-race-a',display_name:'A'}), b=await createStreamer({slug:'unknown-race-b',display_name:'B'});
-  await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:'unknown:race',played_at:new Date(),winning_team:100,result_evidence:'race',participants:[{participant_id:1,team_id:100,observed_name:'race-name',champion_id:34}]});
+  await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:'unknown:race',event_id:await lolEvent('verify-unknown'),played_at:new Date(),winning_team:100,result_evidence:'race',participants:[{participant_id:1,team_id:100,observed_name:'race-name',champion_id:34}]});
   const targets=(await ck.listUnidentifiedParticipants()).find(r=>r.observed_name==='race-name')!.targets;
   let release!:()=>void,locked!:()=>void;
   const gate=new Promise<void>(r=>release=r),ready=new Promise<void>(r=>locked=r);

@@ -14,7 +14,7 @@ import { IDLE } from "@/lib/action-state";
 import { adminHref } from "@/lib/admin-navigation";
 import type { MatchSeriesContext, SeriesContextSet } from "@soop-lol/core/lib/db/match-series-review";
 import { checkSeries } from "@soop-lol/core/lib/metrics/series-check";
-import { setLabel } from "@soop-lol/core/lib/metrics/set-label";
+import { isStandaloneSet, isUnbundledSet, setLabel } from "@soop-lol/core/lib/metrics/set-label";
 
 import { ActionMessage } from "./Field";
 
@@ -22,7 +22,9 @@ const clock = (set: SeriesContextSet) => {
   const wall = new Date(set.game_creation_epoch_ms + 9 * 3600_000).toISOString();
   return set.game_creation_precision === "date" ? wall.slice(5, 10).replace("-", ".") : wall.slice(11, 16);
 };
-const label = (set: SeriesContextSet) => setLabel({ standalone: !set.series_id || set.series_id === set.match_id, unassigned: !set.series_id,
+// 판은 언제나 시리즈 안에 있다(0089) — 묶지 않은 판은 한 판짜리 시리즈(`set:<경기>`)다.
+const unbundled = (set: SeriesContextSet) => isUnbundledSet(set.match_id, set.series_id);
+const label = (set: SeriesContextSet) => setLabel({ standalone: isStandaloneSet(set.match_id, set.series_id), unassigned: unbundled(set),
   best_of: set.best_of, set_order_known: set.set_order_known, series_game_no: set.series_game_no, set_role: set.set_role, set_label: set.set_label });
 const status = (set: SeriesContextSet) => set.visibility === "hidden" ? "공개 제외" : set.completed ? "검수 완료" : "미검수";
 const winner = (set: SeriesContextSet) => set.winning_team ? `${set.winning_team === 100 ? "1팀" : "2팀"} 승` : "승자 미정";
@@ -78,7 +80,8 @@ export function SeriesPanel({ context, matchId, from, compareHref }: {
   return <section ref={panel} className="ck-series-panel" aria-label="시리즈">
     <h3>시리즈</h3>
     <p className="ck-series-warn">시리즈 미지정 — 단판인지 다전제의 한 판인지 아직 모릅니다.</p>
-    <p className="ck-series-meta">같은 대회의 앞뒤 경기 · 함께 나온 선수 수. 단판이면 경기 정보의 세트 칸에서 &ldquo;단판으로 확인&rdquo;.</p>
+    <p className="ck-series-meta">같은 행사의 앞뒤 경기 · 함께 나온 선수 수. 단판이면 경기 정보의 세트 칸에서 &ldquo;단판으로 확인&rdquo;.
+      자동 미분류 묶음(분류 대기)의 판은 묶지 않습니다 — 먼저 경기 정보에서 실제 행사로 옮깁니다.</p>
     {/* 지금 경기를 시각 순서 자리에 끼워 둔다 — 앞뒤 어느 경기와 묶을지 한눈에 보이게. */}
     <ol className="ck-series-sets">
       {[...context.candidates, { ...context.sets[0], shared: null }]
@@ -93,13 +96,13 @@ export function SeriesPanel({ context, matchId, from, compareHref }: {
         </Link>
         <form action={assign}>
           <input type="hidden" name="match_id" value={matchId} />
-          <input type="hidden" name={candidate.series_id ? "join_series" : "pair_with"} value={candidate.series_id ?? candidate.match_id} />
+          <input type="hidden" name={unbundled(candidate) ? "pair_with" : "join_series"} value={unbundled(candidate) ? candidate.match_id : candidate.series_id!} />
           <button disabled={pending} className="text-[11px] text-accent-400 disabled:text-ink-600">
-            {candidate.series_id ? "이 시리즈에 넣기" : "이 경기와 새 시리즈로 묶기"}
+            {unbundled(candidate) ? "이 경기와 새 시리즈로 묶기" : "이 시리즈에 넣기"}
           </button>
         </form>
       </li>)}
-      {context.candidates.length === 0 && <li className="ck-series-meta">같은 대회의 앞뒤 12시간 안에 다른 경기가 없습니다.</li>}
+      {context.candidates.length === 0 && <li className="ck-series-meta">같은 행사의 앞뒤 12시간 안에 다른 경기가 없습니다.</li>}
     </ol>
     <ActionMessage state={state} />
   </section>;

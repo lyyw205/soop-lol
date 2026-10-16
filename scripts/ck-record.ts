@@ -81,7 +81,7 @@ try {
     if (!detail) { console.error(`경기 '${MATCH}' 가 없다.`); process.exit(1); }
     const m = detail.match;
     const [event] = m.event_id
-      ? await sql<{ slug: string; name: string; kind: string }[]>`SELECT slug, name, kind FROM event WHERE id = ${m.event_id}::uuid`
+      ? await sql<{ slug: string; name: string; format: string; auto_bucket: boolean }[]>`SELECT slug, name, format, auto_bucket FROM event WHERE id = ${m.event_id}::uuid`
       : [];
     const people = await sql<{ id: string; display_name: string }[]>`
       SELECT id, display_name FROM streamer WHERE id = ANY(${detail.participants.map((p) => p.streamer_id).filter(Boolean) as string[]}::uuid[])`;
@@ -100,10 +100,10 @@ try {
 
     say(`경기 ${m.match_id}`);
     say(`  시각    ${kstPlayedAt(m.game_creation, m.game_creation_precision)} (${m.game_creation_precision === "date" ? "날짜만 확실" : "시각까지 확실"})`);
-    say(`  대회    ${event ? `${event.name} (${event.slug}, ${event.kind})` : "연결 없음"}`);
-    say(`  세트    ${m.series_id ? `${m.series_id} #${m.series_game_no ?? "?"}` : "단판"} · BO ${m.best_of ?? "미확정"}${m.best_of_evidence ? ` (근거: ${m.best_of_evidence})` : ""} · 세트 순서 ${m.set_order_known ? "확인" : "모름"}`);
+    say(`  행사    ${event ? `${event.name} (${event.slug}, ${event.format}${event.auto_bucket ? " · 자동 미분류 묶음" : ""})` : "없음 — 개인 기록 판"}`);
+    say(`  세트    ${m.series_id ? `${m.series_id} #${m.series_game_no ?? "?"}` : "시리즈 없음(개인 기록)"} · BO ${m.best_of ?? "미확정"}${m.best_of_evidence ? ` (근거: ${m.best_of_evidence})` : ""} · 세트 순서 ${m.set_order_known ? "확인" : "모름"}`);
     say(`  승자    ${m.winning_team === 100 ? "1팀(블루)" : m.winning_team === 200 ? "2팀(레드)" : "미상"} · 경기 시간 ${m.game_duration != null ? hms(m.game_duration) : "미수집"}`);
-    say(`  출처    ${m.source}/${m.origin ?? "-"} · ${m.visibility === "hidden" ? "공개에서 뺌" : "공개"} · ${m.reviewed_at ? `관리자 확인 ${m.reviewed_at.toISOString()}` : "관리자 확인 없음"}`);
+    say(`  출처    ${m.collected_via} · ${m.visibility === "hidden" ? "공개에서 뺌" : "공개"} · ${m.reviewed_at ? `관리자 확인 ${m.reviewed_at.toISOString()}` : "관리자 확인 없음"}`);
     if (m.source_url) say(`  출처 링크 ${m.source_url}`);
     say(`참가자 ${detail.participants.length}/10`);
     for (const p of detail.participants) {
@@ -170,24 +170,25 @@ try {
   }
 
   if (EVENT) {
-    const [event] = await sql<{ id: string; name: string; kind: string }[]>`SELECT id, name, kind FROM event WHERE slug = ${EVENT}`;
-    if (!event) { console.error(`대회 '${EVENT}' 가 없다.`); process.exit(1); }
-    const rows = await sql<{ match_id: string; origin: string | null; source_url: string | null; visibility: string;
+    const [event] = await sql<{ id: string; name: string; format: string }[]>`SELECT id, name, format FROM event WHERE slug = ${EVENT}`;
+    if (!event) { console.error(`행사 '${EVENT}' 가 없다.`); process.exit(1); }
+    const rows = await sql<{ match_id: string; collected_via: string; source_url: string | null; visibility: string;
       reviewed: boolean; participants: number; frames: number; has_text: boolean }[]>`
-      SELECT m.match_id, m.origin, m.source_url, m.visibility, m.reviewed_at IS NOT NULL AS reviewed,
+      SELECT m.match_id, m.collected_via, m.source_url, m.visibility, m.reviewed_at IS NOT NULL AS reviewed,
              (SELECT count(*) FROM match_participant mp WHERE mp.match_id = m.match_id)::int AS participants,
              (SELECT count(*) FROM match_evidence_frame f WHERE f.match_id = m.match_id)::int AS frames,
              EXISTS (SELECT 1 FROM review_record r WHERE r.match_id = m.match_id AND r.type = 'final_evidence') AS has_text
-        FROM match m LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-       WHERE COALESCE(ms.event_id, m.event_id) = ${event.id}::uuid
+        FROM match m JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+       WHERE ms.event_id = ${event.id}::uuid
        ORDER BY m.game_creation, m.match_id`;
-    // 근거의 실체는 연결이다 — VOD 판독·검수 생성 경기는 프레임, 시드 경기는 출처 링크.
-    const unlinked = rows.filter((r) => r.origin === "wiki_seed" ? !r.source_url : r.frames === 0);
+    // 근거의 실체는 연결이다 — 영상 판독은 프레임, 수기(시드·엑셀·검수 생성)는 출처 링크나 프레임. API 경기는 API 가 근거다.
+    const unlinked = rows.filter((r) => r.collected_via === "vod" ? r.frames === 0
+      : r.collected_via === "manual" ? !r.source_url && r.frames === 0 : false);
     const short = rows.filter((r) => r.participants < 10);
-    say(`대회 ${event.name} (${EVENT}, ${event.kind}) — 경기 ${rows.length}`);
+    say(`행사 ${event.name} (${EVENT}, ${event.format}) — 경기 ${rows.length}`);
     say(`  관리자 확인 ${rows.filter((r) => r.reviewed).length} · 공개에서 뺌 ${rows.filter((r) => r.visibility === "hidden").length}`);
     say(`근거 연결이 없는 경기 ${unlinked.length}`);
-    for (const r of unlinked) say(`  ${r.match_id} (${r.origin ?? "-"}) — ${r.origin === "wiki_seed" ? "출처 링크 없음" : "근거 프레임 없음"}${r.has_text ? " · 근거 문장만 있음" : ""}`);
+    for (const r of unlinked) say(`  ${r.match_id} (${r.collected_via}) — ${r.collected_via === "manual" ? "출처 링크·근거 프레임 없음" : "근거 프레임 없음"}${r.has_text ? " · 근거 문장만 있음" : ""}`);
     say(`참가자 10명 미만 ${short.length}`);
     for (const r of short) say(`  ${r.match_id} — ${r.participants}명`);
     json = { event: { slug: EVENT, ...event }, matches: rows, unlinked, short };

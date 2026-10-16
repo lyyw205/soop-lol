@@ -1,5 +1,11 @@
 /**
- * **경기 검수 화면의 시리즈 칸** — 지금 경기가 속한 시리즈의 세트 전부, 또는 (시리즈 미지정이면) 묶을 후보.
+ * **경기 검수 화면의 시리즈 칸** — 지금 경기가 속한 시리즈의 세트 전부, 또는 (묶이지 않은 판이면) 묶을 후보.
+ *
+ * ★ 판은 언제나 시리즈 안에 있다(0089). "시리즈 미지정" 은 그 판 하나짜리 시리즈(`set:<match_id>`)에 있다는 뜻이다.
+ *   묶기는 그 판을 다른 시리즈로 옮기는 일이고(classification.placeSetInTx — 빈 한 판짜리 시리즈는 지워진다),
+ *   시리즈는 행사 하나에 속하므로 행사가 다른 판끼리는 묶지 않는다.
+ * ★ 자동 미분류 묶음(토너먼트 코드 날짜 묶음 등) 안에서는 묶지 않는다 — 묶음의 판은 한 판짜리 시리즈다(계획 §3.4).
+ *   먼저 판(시리즈)을 실제 행사로 옮긴 뒤 묶는다.
  *
  * ★ 왜(2026-10-12): 경기 화면을 경기 하나 기준으로 바꾸자 검수하면서 시리즈(세트 순서·스코어·팀 구성 변화)를
  *   볼 길이 없어졌다. 판정은 시리즈 비교 화면과 같은 metrics/series-check.ts 하나다.
@@ -11,6 +17,7 @@ import type postgres from "postgres";
 
 import { db } from "./client.ts";
 import { applyMatchReviewInTx } from "./ck.ts";
+import { singleSetSeriesId } from "./classification.ts";
 import { rosterKey, sharedPlayers, type SeriesSetInput } from "../metrics/series-check.ts";
 
 type Tx = postgres.TransactionSql;
@@ -29,7 +36,7 @@ export interface MatchSeriesContext {
   series: { id: string; best_of: number | null; best_of_evidence: string | null; set_order_known: boolean; round_label: string | null } | null;
   /** 시리즈의 세트 전부(목록과 같은 순서). 시리즈 미지정이면 지금 경기 하나. */
   sets: SeriesContextSet[];
-  /** 시리즈 미지정일 때만 — 같은 대회의 앞뒤 경기(시각 순)와 함께 나온 사람 수. */
+  /** 묶이지 않은 판일 때만 — 같은 행사의 앞뒤 경기(시각 순)와 함께 나온 사람 수. 자동 묶음 행사면 비어 있다. */
   candidates: Array<SeriesContextSet & { shared: number }>;
 }
 
@@ -39,14 +46,15 @@ const CANDIDATE_LIMIT = 8;
 
 interface Row extends Omit<SeriesContextSet, "game_creation_epoch_ms" | "participants"> {
   game_creation: Date;
-  event_id: string | null;
+  event_id: string;
+  auto_bucket: boolean;
   participants: Array<{ participant_id: number; team_id: number; streamer_slug: string | null; observed_name: string | null; name: string | null }>;
 }
 
 const SET_COLUMNS = `
   m.match_id, m.series_id, m.series_game_no, m.set_role, m.set_label, m.game_creation, m.game_creation_precision, m.winning_team,
   m.review_completed_at IS NOT NULL AS completed, m.visibility, bt.name AS blue_team, rt.name AS red_team,
-  ms.best_of, COALESCE(ms.set_order_known, false) AS set_order_known, COALESCE(ms.event_id, m.event_id) AS event_id,
+  ms.best_of, COALESCE(ms.set_order_known, false) AS set_order_known, ms.event_id, e.auto_bucket,
   COALESCE((SELECT json_agg(json_build_object(
       'participant_id', mp.participant_id, 'team_id', mp.team_id, 'streamer_slug', s.slug, 'observed_name', mp.observed_name,
       'name', COALESCE(s.display_name, mp.observed_name, ra.game_name)) ORDER BY mp.participant_id)
@@ -57,7 +65,8 @@ const SET_COLUMNS = `
     WHERE mp.match_id = m.match_id), '[]'::json) AS participants`;
 const SET_FROM = `
   FROM match m
-  LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+  JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+  JOIN event e ON e.id = ms.event_id
   LEFT JOIN event_team bt ON bt.id = m.blue_team_id
   LEFT JOIN event_team rt ON rt.id = m.red_team_id`;
 
@@ -73,7 +82,7 @@ export async function getMatchSeriesContext(matchId: string): Promise<MatchSerie
   const sql = db();
   const [current] = await sql<Row[]>`SELECT ${sql.unsafe(SET_COLUMNS)} ${sql.unsafe(SET_FROM)} WHERE m.match_id = ${matchId}`;
   if (!current) return null;
-  if (current.series_id) {
+  if (current.series_id !== singleSetSeriesId(current.match_id)) {
     const [series] = await sql<NonNullable<MatchSeriesContext["series"]>[]>`
       SELECT id, best_of, best_of_evidence, set_order_known, round_label FROM match_series WHERE id = ${current.series_id} AND game_code = 'lol'`;
     const sets = await sql<Row[]>`
@@ -82,14 +91,15 @@ export async function getMatchSeriesContext(matchId: string): Promise<MatchSerie
        ORDER BY m.series_game_no NULLS LAST, m.game_creation, m.match_id`;
     return { series: series ?? null, sets: sets.map(toSet), candidates: [] };
   }
+  const self = toSet(current);
+  if (current.auto_bucket) return { series: null, sets: [self], candidates: [] };
   const rows = await sql<Row[]>`
     SELECT ${sql.unsafe(SET_COLUMNS)} ${sql.unsafe(SET_FROM)}
-     WHERE m.game_code = 'lol' AND m.source = 'manual' AND m.visibility = 'public' AND m.match_id <> ${matchId}
-       AND COALESCE(ms.event_id, m.event_id) IS NOT DISTINCT FROM ${current.event_id}::uuid
+     WHERE m.game_code = 'lol' AND m.scope = 'versus' AND m.visibility = 'public' AND m.match_id <> ${matchId}
+       AND ms.event_id = ${current.event_id}::uuid
        AND abs(extract(epoch FROM m.game_creation - ${current.game_creation}::timestamptz)) <= ${CANDIDATE_WINDOW_HOURS * 3600}
      ORDER BY abs(extract(epoch FROM m.game_creation - ${current.game_creation}::timestamptz)), m.match_id
      LIMIT ${CANDIDATE_LIMIT}`;
-  const self = toSet(current);
   const candidates = rows.map((r) => ({ ...toSet(r), shared: sharedPlayers(self.participants, toSet(r).participants) }))
     .sort((a, b) => a.game_creation_epoch_ms - b.game_creation_epoch_ms || a.match_id.localeCompare(b.match_id));
   return { series: null, sets: [self], candidates };
@@ -98,27 +108,37 @@ export async function getMatchSeriesContext(matchId: string): Promise<MatchSerie
 export type SeriesAssignInput = { match_id: string } & ({ join_series: string } | { pair_with: string });
 
 /**
- * 시리즈 미지정 경기를 묶는다. 한 트랜잭션이다.
- * - join_series: 기존 시리즈에 넣는다. 세트 번호 = 그 시리즈에서 이 경기보다 먼저 시작한 본게임 수 + 1.
+ * 묶이지 않은 판(한 판짜리 시리즈 `set:<match_id>`)을 묶는다. 한 트랜잭션이다.
+ * - join_series: 기존 시리즈에 넣는다(같은 행사의 시리즈만 — 다르면 classification 이 거부한다). 세트 번호 = 그 시리즈에서 이 경기보다 먼저 시작한 본게임 수 + 1.
  *   그 번호에 이미 세트가 있으면(기존 세트 사이에 낀다) 번호를 지어내지 않고 거부한다.
- * - pair_with: 다른 시리즈 미지정 경기와 새 시리즈로 묶는다(먼저 시작한 쪽이 1). 키는 `series:<앞 경기 ID>`.
+ * - pair_with: 다른 묶이지 않은 판과 새 시리즈로 묶는다(먼저 시작한 쪽이 1). 키는 `series:<앞 경기 ID>`.
+ * 자동 미분류 묶음 안의 판은 묶지 않는다 — 먼저 실제 행사로 옮긴다.
  */
 export async function assignMatchSeries(input: SeriesAssignInput): Promise<{ series_id: string; series_game_no: number }> {
   return db().begin(async (tx) => {
     const lock = async (id: string) => {
-      const [row] = await tx<{ match_id: string; series_id: string | null; series_game_no: number | null; game_creation: Date; event_id: string | null }[]>`
-        SELECT m.match_id, m.series_id, m.series_game_no, m.game_creation, m.event_id
-          FROM match m WHERE m.match_id = ${id} AND m.game_code = 'lol' FOR UPDATE`;
+      const [row] = await tx<{ match_id: string; series_id: string | null; series_game_no: number | null; game_creation: Date; auto_bucket: boolean | null }[]>`
+        SELECT m.match_id, m.series_id, m.series_game_no, m.game_creation, e.auto_bucket
+          FROM match m
+          LEFT JOIN match_series ms ON ms.id = m.series_id
+          LEFT JOIN event e ON e.id = ms.event_id
+         WHERE m.match_id = ${id} AND m.game_code = 'lol' FOR UPDATE OF m`;
       if (!row) throw new Error(`경기가 없다: ${id}`);
-      if (row.series_id) throw new Error(`${id} 는 이미 시리즈(${row.series_id})에 속해 있다 — 옮기려면 경기 정보에서 시리즈 키를 먼저 고친다.`);
+      if (!row.series_id) throw new Error(`${id} 는 개인 기록 판이다 — 내전 시리즈로 묶지 않는다.`);
+      if (row.series_id !== singleSetSeriesId(id)) throw new Error(`${id} 는 이미 시리즈(${row.series_id})에 속해 있다 — 옮기려면 경기 정보에서 시리즈 키를 먼저 고친다.`);
+      if (row.auto_bucket) throw new Error(`${id} 는 자동 미분류 묶음의 판이다 — 묶음 안에서는 묶지 않는다. 먼저 경기 정보에서 실제 행사로 옮긴다.`);
       return row;
     };
-    const put = (tx2: Tx, row: { match_id: string; series_game_no: number | null }, series_id: string, no: number) =>
+    const put = (tx2: Tx, row: { match_id: string; series_id: string | null; series_game_no: number | null }, series_id: string, no: number) =>
       applyMatchReviewInTx(tx2, row.match_id, { match: {
         changes: { series_id, series_game_no: no },
-        expect: { series_id: null, series_game_no: row.series_game_no },
+        expect: { series_id: row.series_id, series_game_no: row.series_game_no },
       } });
     if ("join_series" in input) {
+      // 한 판짜리 시리즈의 키(`set:<경기>`)는 그 판 하나의 자리다 — 다른 판을 넣으면 키가 거짓이 된다.
+      if (input.join_series.startsWith(singleSetSeriesId(""))) {
+        throw new Error(`${input.join_series} 는 한 판짜리 시리즈다 — 그 경기와 새 시리즈로 묶으려면 pair_with 로 묶는다.`);
+      }
       const match = await lock(input.match_id);
       const sets = await tx<{ match_id: string; series_game_no: number | null; game_creation: Date; set_role: string }[]>`
         SELECT match_id, series_game_no, game_creation, set_role FROM match
@@ -139,7 +159,7 @@ export async function assignMatchSeries(input: SeriesAssignInput): Promise<{ ser
     const [early, late] = rows.sort((a, b) => a.game_creation.getTime() - b.game_creation.getTime() || a.match_id.localeCompare(b.match_id));
     let id = `series:${early.match_id}`;
     for (let n = 2; (await tx`SELECT 1 FROM match_series WHERE id = ${id}`).length > 0; n++) id = `series:${early.match_id}:${n}`;
-    // 대회가 다르면 두 번째 저장에서 시리즈 대회 검사가 거부한다(시리즈는 대회 하나에 속한다).
+    // 행사가 다르면 두 번째 저장에서 시리즈 행사 대조가 거부한다(시리즈는 행사 하나에 속한다 — classification.ensureSeriesInTx).
     await put(tx, early, id, 1);
     await put(tx, late, id, 2);
     return { series_id: id, series_game_no: early.match_id === input.match_id ? 1 : 2 };

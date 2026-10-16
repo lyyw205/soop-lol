@@ -3,13 +3,15 @@ import { db } from "../../packages/core/lib/db/client.ts";
 import { upsertMatchFromScan, upsertMatchFromScanInTx, type CkMatchInput } from "../../packages/core/lib/db/ck.ts";
 import { listDuplicateSuspects, markDistinctMatches, mergeDuplicateMatch } from "../../packages/core/lib/db/ck-duplicates.ts";
 import { createStreamer, linkAccount } from "../../packages/core/lib/db/streamers.ts";
+import { lolEvent } from "./verify-ck-fixtures.ts";
 
 /** 실제 저장 질의로 오탐·임계값·시각 경계·계정 신원·예외 이력을 검증한다. 폐기용 DB에서만 호출한다. */
 export async function verifyCkDuplicatesDb() {
   const sql = db();
   let day = 0;
+  const event = await lolEvent("verify-duplicates");
   const input = (id: string, at: Date): CkMatchInput => ({
-    match_id: `duplicate-regression:${id}`, played_at: at, played_at_precision: "datetime",
+    match_id: `duplicate-regression:${id}`, event_id: event, played_at: at, played_at_precision: "datetime",
     duration: 1500, winning_team: 100, participants: Array.from({ length: 10 }, (_, i) => ({
       participant_id: i + 1, observed_name: `중복${i}`, team_id: i < 5 ? 100 : 200,
       champion_id: i + 1, kills: i, deaths: i + 1, assists: i + 2,
@@ -136,8 +138,9 @@ export async function verifyCkDuplicatesDb() {
  */
 export async function verifyCkDuplicateMergeDb() {
   const sql = db();
+  const event = await lolEvent("verify-duplicates");
   const game = (id: string, at: Date, name = "합침"): CkMatchInput => ({
-    match_id: `duplicate-merge:${id}`, played_at: at, played_at_precision: "datetime",
+    match_id: `duplicate-merge:${id}`, event_id: event, played_at: at, played_at_precision: "datetime",
     duration: null, winning_team: 100, participants: Array.from({ length: 10 }, (_, i) => ({
       participant_id: i + 1, observed_name: `${name}${i}`, team_id: i < 5 ? 100 : 200,
       champion_id: i + 1, kills: i, deaths: i + 1, assists: i + 2,

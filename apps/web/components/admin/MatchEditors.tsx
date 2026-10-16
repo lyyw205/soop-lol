@@ -3,14 +3,16 @@
 /**
  * 경기 값 편집기 — 경기 정보(MatchInspector)·로스터(RosterInspector)·방송별 판독 차이(PovDiffBox).
  * ★ 경기 검수 화면(MatchReviewer)만 쓴다. 편집은 경기 화면 한 곳에서만 한다(2026-10-12) — VOD 화면은 찾기·연결 전용이다.
- * ★ 저장은 서버 액션이다. 원본 수정·조우 재파생·통계 재계산이 한 트랜잭션으로 돈다.
+ * ★ 저장은 서버 액션이다. 원본 수정과 분류(시리즈·행사 — classification.ts)가 한 트랜잭션으로 돈다.
+ *   공개 집계는 원본의 뷰라(0089) 따로 다시 만들 것이 없다.
  */
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 
 import { saveMatchMetaAction, saveRosterAction, setMatchVisibilityAction } from "@/app/admin/ck/actions";
 import { IDLE } from "@/lib/action-state";
-import { matchOriginLabel } from "@/lib/admin-labels";
+import { collectedViaLabel, eventFormatLabel } from "@/lib/admin-labels";
+import { isUnbundledSet } from "@soop-lol/core/lib/metrics/set-label";
 import { metaFormValues, participantFormValues, type CkActionState } from "@/lib/ck-review-form";
 import { rosterFocus, type RosterFocus } from "@/lib/ck-review-progress";
 import { CHAMPIONS, championById } from "@soop-lol/core/lib/riot/champions";
@@ -101,6 +103,8 @@ export function MatchInspector({
   const formRef = useRef<HTMLFormElement>(null);
   const [activeField, setActiveField] = useState<MatchMetaField | null>(null);
   const selectedEvent = events.find((event) => event.id === draft.event_id) ?? null;
+  // ★ 판은 언제나 시리즈 안에 있다(0089). 묶지 않은 판은 한 판짜리 시리즈(`set:<경기>`) — 화면에서는 "시리즈 미지정" 이다.
+  const unbundled = !draft.series_id || isUnbundledSet(match.match_id, draft.series_id);
   useEffect(() => { onBusy(pending || dirty || activeField != null); }, [pending, dirty, activeField, onBusy]);
 
   const openField = (name: MatchMetaField) => {
@@ -161,7 +165,7 @@ export function MatchInspector({
     <div className="ck-review-panel p-4">
       {hidden && (
         <p className="mb-3 rounded border border-lose/30 bg-lose/5 px-2 py-1.5 text-[11px] text-ink-400">
-          <b className="text-lose">공개에서 빠진 경기입니다.</b> 지워지지 않았고 조우·챔피언 통계에서도
+          <b className="text-lose">공개에서 빠진 경기입니다.</b> 지워지지 않았고 상대전적·챔피언 집계에서도
           빠져 있습니다. 되살리면 그대로 돌아옵니다.
         </p>
       )}
@@ -196,7 +200,7 @@ export function MatchInspector({
               <dd>{activeField === "series_game_no"
                 ? <input autoFocus name="series_game_no" inputMode="numeric" aria-label="세트 번호" {...field("series_game_no")}
                     onKeyDown={fieldKeys("series_game_no")} className={inputClass} />
-                : !draft.series_id ? <span className="grid gap-1">
+                : unbundled ? <span className="grid gap-1">
                     <span className="text-amber-300" title="아직 시리즈로 묶지 않았다 — 단판인지 다전제의 한 판인지 모른다">시리즈 미지정</span>
                     {activeField === "confirm_single"
                       ? <input autoFocus aria-label="단판 근거" placeholder="단판 근거: 규정 URL 또는 VOD 시각" className={inputClass}
@@ -209,7 +213,7 @@ export function MatchInspector({
                 : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("series_game_no")}>
                     {(() => {
                       const label = matchSetLabel({
-                        series_id: draft.series_id || null, best_of: draft.best_of ? Number(draft.best_of) : null,
+                        match_id: match.match_id, series_id: draft.series_id || null, best_of: draft.best_of ? Number(draft.best_of) : null,
                         set_order_known: draft.set_order_known === "true", series_game_no: draft.series_game_no ? Number(draft.series_game_no) : null,
                       });
                       // 순서를 모르면 저장된 번호는 정렬용일 뿐이다 — 그렇다고 말한다.
@@ -229,15 +233,15 @@ export function MatchInspector({
           </dl>
           {/* 드물게 만지는 칸 — 접어 둔다. 접어도 같은 폼 안이라 저장·편집 흐름은 그대로다. */}
           <details className="ck-review-more">
-            <summary>경기 정보 더 보기 · 대회·시각·세트 순서·시리즈 키·다전제</summary>
+            <summary>경기 정보 더 보기 · 행사·시각·세트 순서·시리즈 키·다전제</summary>
             <dl className="ck-review-match-summary">
             <div className="is-wide">
-              <dt>대회</dt>
+              <dt>행사</dt>
               <dd>{activeField === "event_id"
                 ? <EventLinkPicker value={draft.event_id} events={events}
                     onCommit={(value) => commitField("event_id", value)} onCancel={() => cancelField("event_id")} />
                 : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("event_id")}>
-                    {selectedEvent?.name ?? "연결 없음"}
+                    {selectedEvent ? `${selectedEvent.name} · ${eventFormatLabel(selectedEvent.format, selectedEvent.auto_bucket)}` : "행사 없음(개인 기록)"}
                   </button>}</dd>
             </div>
             <div>
@@ -262,8 +266,8 @@ export function MatchInspector({
               <dt>세트 순서</dt>
               <dd className="ck-review-winner-toggle">
                 {[["true", "확인"], ["false", "모름"]].map(([value, label]) => <button key={value} type="button"
-                  aria-pressed={draft.set_order_known === value} disabled={!draft.series_id}
-                  title={draft.series_id ? "세트 순서를 출처에서 확인했나 — 모르면 N세트 대신 「세트」로 표시한다" : "시리즈가 있는 경기만"}
+                  aria-pressed={draft.set_order_known === value} disabled={unbundled}
+                  title={unbundled ? "시리즈로 묶은 경기만" : "세트 순서를 출처에서 확인했나 — 모르면 N세트 대신 「세트」로 표시한다"}
                   onClick={() => commitField("set_order_known", value)}>{label}</button>)}
               </dd>
             </div>
@@ -273,7 +277,7 @@ export function MatchInspector({
                 ? <input autoFocus name="series_id" aria-label="시리즈 키" {...field("series_id")}
                     onKeyDown={fieldKeys("series_id")} className={`${inputClass} font-mono`} />
                 : <button type="button" className="ck-review-match-cell-button font-mono" onClick={() => openField("series_id")}>
-                    {draft.series_id || "연결 없음"}
+                    {unbundled ? "묶지 않음(한 판짜리)" : draft.series_id}
                   </button>}</dd>
             </div>
             <div className="is-wide">
@@ -286,7 +290,7 @@ export function MatchInspector({
                       {...field("best_of_evidence")} onKeyDown={seriesFormatKeys} className={inputClass} />
                   </span>
                 : <button type="button" className="ck-review-match-cell-button" onClick={() => openField("best_of")}
-                    disabled={!draft.series_id}>{draft.best_of ? `Bo${draft.best_of} · ${draft.best_of_evidence || "근거 없음"}` : "미확정"}</button>}</dd>
+                    disabled={unbundled}>{draft.best_of ? `Bo${draft.best_of} · ${draft.best_of_evidence || "근거 없음"}` : "미확정"}</button>}</dd>
             </div>
 
             </dl>
@@ -303,7 +307,7 @@ export function MatchFooter({ leadId, match }: { leadId: string; match: ReviewMa
   const hidden = match.visibility === "hidden";
   return (
     <footer className="ck-review-match-footer">
-        <span>{matchOriginLabel(match)}</span>
+        <span>{collectedViaLabel(match)}</span>
         <AdminHistory key={match.match_id} scope="match" id={match.match_id} />
         <form action={setMatchVisibilityAction}>
           <input type="hidden" name="lead_id" value={leadId} />
@@ -330,7 +334,8 @@ function EventLinkPicker({ value, events, onCommit, onCancel }: {
   const [activeIndex, setActiveIndex] = useState(0);
   const selected = events.find((event) => event.id === value) ?? null;
   const matches = query.trim().length >= 1
-    ? events.filter((event) => event.name.toLowerCase().includes(query.trim().toLowerCase()) || (event.slug ?? "").toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8)
+    // 자동 미분류 묶음은 사람이 고르는 행사가 아니다 — 분류는 판(시리즈)을 실제 행사로 옮기는 것이다(계획 §3.4).
+    ? events.filter((event) => !event.auto_bucket).filter((event) => event.name.toLowerCase().includes(query.trim().toLowerCase()) || (event.slug ?? "").toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8)
     : [];
   useEffect(() => { setActiveIndex(0); }, [query]);
   const keys = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -352,17 +357,18 @@ function EventLinkPicker({ value, events, onCommit, onCancel }: {
   return <div className="ck-event-link-editor">
     <input type="hidden" name="event_id" value={value} />
     <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={keys}
-      placeholder="대회명 검색" aria-label="대회명 검색" className={inputClass} />
-    {matches.length > 0 && <div className="ck-event-suggestions" role="listbox" aria-label="일치하는 대회">
+      placeholder="행사명 검색" aria-label="행사명 검색" className={inputClass} />
+    {matches.length > 0 && <div className="ck-event-suggestions" role="listbox" aria-label="일치하는 행사">
         {matches.map((event, index) => <button key={event.id} type="button" role="option" aria-selected={activeIndex === index}
           data-selected={activeIndex === index || undefined} onMouseEnter={() => setActiveIndex(index)} onMouseDown={(mouseEvent) => mouseEvent.preventDefault()}
           onClick={() => onCommit(event.id)}>
-          <span className="text-[11px] text-ink-200">{event.name}</span><small className="text-[10px] text-ink-500">{event.kind}</small>
+          <span className="text-[11px] text-ink-200">{event.name}</span><small className="text-[10px] text-ink-500">{eventFormatLabel(event.format, event.auto_bucket)}</small>
         </button>)}
     </div>}
-    {query.trim().length >= 1 && matches.length === 0 && <p className="text-[10px] text-ink-500">일치하는 대회가 없습니다.</p>}
+    {query.trim().length >= 1 && matches.length === 0 && <p className="text-[10px] text-ink-500">일치하는 행사가 없습니다.</p>}
+    {/* 행사는 비울 수 없다 — 판은 반드시 행사 안에 있다. 형식을 모르면 "분류 전" 행사를 고른다. */}
     <div className="flex items-center gap-3 text-[10px]">
-      {selected && <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onCommit("")} className="text-lose hover:text-lose/80">연결 해제</button>}
+      {selected && <span className="text-ink-500">지금: {selected.name}</span>}
       <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={onCancel} className="ml-auto text-ink-500 hover:text-ink-200">취소</button>
     </div>
   </div>;

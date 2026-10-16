@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "편성표 일정" };
 
 const EMPTY: ScheduleFormPayload = {
-  id: null, version: null, typo: false, game_code: "lol", title: "", planned_kind: "ck", sponsor: "", description: "",
+  id: null, version: null, typo: false, game_code: "lol", title: "", planned_format: "ck", sponsor: "", description: "",
   admin_note: "", status: "scheduled", event_id: "", visibility: "public",
   slots: [{ label: "", on_date: "", start: "", end: "", channel_id: "" }],
   participants: [], sources: [{ url: "", title: "", posted_at: "" }],
@@ -31,7 +31,7 @@ export default async function AdminScheduleEditPage({ params, searchParams }: {
   // 저장된 값 → 폼 값. 시각은 KST 벽시계 "HH:MM" 로 보여 준다(서버 로캘과 무관하게).
   const initial: ScheduleFormPayload = detail ? {
     id: detail.id, version: detail.version, typo: false, game_code: detail.input.game_code, title: detail.input.title,
-    planned_kind: detail.input.planned_kind, sponsor: detail.input.sponsor ?? "",
+    planned_format: detail.input.planned_format, sponsor: detail.input.sponsor ?? "",
     description: detail.input.description ?? "", admin_note: detail.input.admin_note ?? "", status: detail.input.status,
     event_id: detail.input.event_id ?? "", visibility: detail.input.visibility,
     slots: detail.input.slots.map((s) => ({
@@ -44,8 +44,8 @@ export default async function AdminScheduleEditPage({ params, searchParams }: {
 
   const changes = detail ? await listScheduleChanges(detail.id) : [];
   const [streamers, lol, fc] = [await listStreamerChoices(), await listEventsForScheduleLink("lol"), await listEventsForScheduleLink("fconline")];
-  const choice = (e: { id: string; name: string; kind: string; starts_at: Date | null }): ScheduleEventChoice =>
-    ({ id: e.id, name: e.name, kind: e.kind, date: e.starts_at ? kstDateString(new Date(e.starts_at)) : null });
+  const choice = (e: { id: string; name: string; format: ScheduleEventChoice["format"]; starts_at: Date | null }): ScheduleEventChoice =>
+    ({ id: e.id, name: e.name, format: e.format, date: e.starts_at ? kstDateString(new Date(e.starts_at)) : null });
 
   return (
     <div className="space-y-6">

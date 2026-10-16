@@ -17,6 +17,7 @@ import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { loadMigrations } from './lib/migrations.ts';
 import { freePort } from './lib/disposable-postgres.ts';
 import { vodWork } from '../packages/core/lib/metrics/ck-vod-status.ts';
+import { lolEvent } from './lib/verify-ck-fixtures.ts';
 
 const database=await PGlite.create({extensions:{pg_trgm,pgcrypto}});
 const port=await freePort();
@@ -113,7 +114,7 @@ try {
  await ck.markLeadScan(await leadId(303),{status:'running',requested:[[0,3600]],opened:[0],
    resume:{next_action:'두 번째 경기 결과 확인',next_at:1800,context:['앞 경기 저장 완료']}});
  assert.equal((await cli('next','--queue',queue,'--current',current)).code,0);
- await ck.upsertMatchFromScan({match_id:'backfill:progress',played_at:new Date('2026-09-20T00:00:00Z'),played_at_precision:'date',
+ await ck.upsertMatchFromScan({match_id:'backfill:progress',event_id:await lolEvent('verify-backfill'),played_at:new Date('2026-09-20T00:00:00Z'),played_at_precision:'date',
   winning_team:100,participants:[{streamer_id:s.id,participant_id:1,team_id:100,champion_id:103}]});
  await db()`INSERT INTO match_pov(match_id,lead_id,role,source) VALUES('backfill:progress',${await leadId(303)}::uuid,'created','own')`;
  assert.equal((await cli('after','--current',current)).code,0,'새 시점 저장은 진척');

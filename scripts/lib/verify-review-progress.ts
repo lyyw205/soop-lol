@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import * as ck from "../../packages/core/lib/db/ck.ts";
 import { db } from "../../packages/core/lib/db/client.ts";
 import { listReviewEvents, getReviewEvent } from "../../packages/core/lib/db/event-review.ts";
+import { lolEvent } from "./verify-ck-fixtures.ts";
 
 /** 실제 저장/조회 경로로 분모, 0 KDA, 명시적 완료, 수정 후 해제와 롤백을 검증한다. */
 export async function verifyReviewProgress() {
   const sql = db();
-  const [event] = await sql<{ id: string }[]>`INSERT INTO event (name, slug, kind, game_code)
-    VALUES ('검수 현황', 'review-progress', 'tournament', 'lol') RETURNING id`;
+  const event = { id: await lolEvent('review-progress', 'tournament', '검수 현황') };
   const [person] = await sql<{ id: string }[]>`INSERT INTO streamer (display_name, slug)
     VALUES ('검수 선수', 'review-progress-person') RETURNING id`;
   const lead = await ck.upsertEventLead({ source: 'vod_title', source_key: 'vod:progress', title: '검수 현황 VOD', observed_at: new Date() });
@@ -70,6 +70,14 @@ export async function verifyReviewProgress() {
   assert.equal((await detail()).match.position_count, 1);
   assert.equal((await detail()).match.champion_count, 2);
   assert.equal((await getReviewEvent('review-progress'))!.series[0].sets[0].linked_count, 1);
+  // 숨긴 경기는 공개 집계에 없으므로 검수 대기가 아니다 — 미완료로 남아도 "미검수 행사" 로 세지 않는다(전체 수에는 남는다).
+  await ck.setMatchReviewCompleted('progress:2', false, (await detail('progress:2')).match.review_version);
+  assert.equal((await listReviewEvents('tournament', true)).some(e => e.id === event.id), true);
+  await ck.setMatchVisibility('progress:2', 'hidden');
+  assert.equal((await listReviewEvents('tournament', true)).some(e => e.id === event.id), false, '숨긴 경기만 미완료면 검수 대기 아님');
+  assert.equal((await listReviewEvents('tournament')).find(e => e.id === event.id)!.match_count, 2, '숨긴 경기도 행사의 경기 수에는 남는다');
+  await ck.setMatchVisibility('progress:2', 'public');
+  await complete('progress:2');
   await ck.applyMatchReview('progress:1', { match: {
     changes: { best_of: 3, best_of_evidence: '규정' }, expect: { best_of: null, best_of_evidence: null },
   } });

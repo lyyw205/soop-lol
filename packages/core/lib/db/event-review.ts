@@ -8,19 +8,21 @@
  *   · 그래서 정렬은 "날짜 → 시리즈 ID(시드의 경기 번호) → 세트 번호" 다. 이건 **표시 순서를
  *     일정하게** 만드는 규칙이지 실제 순서의 복원이 아니다.
  *
- * 분류는 event.kind 하나다 — 단서(VOD)의 분류가 아니다.
+ * 분류는 행사의 진행 방식(event.format) 하나다 — 단서(VOD)의 분류가 아니다. 경기의 행사는 시리즈 경유 한 길(0089).
  */
 
 import { REVIEW_PROGRESS_JOIN, type ReviewProgress } from "./review-progress.ts";
 import { db } from "./client.ts";
-import type { LeadEventKind } from "./ck.ts";
+import type { Format } from "../metrics/format.ts";
 
 export interface ReviewEventRow extends ReviewProgress {
   completed_count: number;
   id: string;
   slug: string | null;
   name: string;
-  kind: LeadEventKind;
+  format: Format;
+  /** 자동 미분류 묶음(토너먼트 코드 날짜 묶음 등) — 사람은 이 행사를 고치지 않고 시리즈를 실제 행사로 옮긴다. */
+  auto_bucket: boolean;
   starts_at: Date | null;
   ends_at: Date | null;
   series_count: number;
@@ -37,21 +39,23 @@ export interface ReviewEventRow extends ReviewProgress {
  *   들어간 시드 경기 3개 때문에 그 대회가 2026 대회들보다 위로 올라갔다. 대회의 날짜는 대회 행에 있다.
  *   시작일이 없는 대회만 첫 경기 날짜로 대신한다.
  */
-/** `kind` 가 null 이면 모든 분류의 대회를 한 목록으로 낸다(검수 목록의 "전체 분류"). */
-export async function listReviewEvents(kind: LeadEventKind | null, unreviewed = false): Promise<ReviewEventRow[]> {
+/**
+ * `format` 이 null 이면 모든 진행 방식의 행사를 한 목록으로 낸다(검수 목록의 "전체 분류").
+ * ★ 미검수 수는 **공개 경기만** 센다 — 숨긴 경기는 공개 집계에 없으므로 검수 대기도 아니다(전체 수에는 남는다).
+ */
+export async function listReviewEvents(format: Format | null, unreviewed = false): Promise<ReviewEventRow[]> {
   const sql = db();
   return sql<ReviewEventRow[]>`
     WITH em AS (
-      -- 경기의 대회는 시리즈가 있으면 시리즈 쪽이 정본이다(0027).
-      SELECT COALESCE(ms.event_id, m.event_id) AS event_id, m.match_id, m.series_id,
+      SELECT ms.event_id, m.match_id, m.series_id, m.visibility,
              m.review_completed_at, m.game_creation, rp.participant_count, rp.position_count, rp.linked_count, rp.champion_count, rp.kda_count
         FROM match m
         ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
-        LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
-       WHERE m.game_code = 'lol' AND COALESCE(ms.event_id, m.event_id) IS NOT NULL
+        JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+       WHERE m.game_code = 'lol' AND m.scope = 'versus'
     )
-    SELECT e.id, e.slug, e.name, e.kind, e.starts_at, e.ends_at,
-           count(DISTINCT COALESCE(em.series_id, em.match_id))::int      AS series_count,
+    SELECT e.id, e.slug, e.name, e.format, e.auto_bucket, e.starts_at, e.ends_at,
+           count(DISTINCT em.series_id)::int                             AS series_count,
            count(em.match_id)::int                                       AS match_count,
            count(em.match_id) FILTER (WHERE em.review_completed_at IS NOT NULL)::int AS completed_count,
            COALESCE(sum(em.participant_count), 0)::int AS participant_count,
@@ -65,9 +69,10 @@ export async function listReviewEvents(kind: LeadEventKind | null, unreviewed = 
            max(em.game_creation) AS last_played
       FROM event e
       LEFT JOIN em ON em.event_id = e.id
-     WHERE (${kind}::text IS NULL OR e.kind = ${kind}) AND e.game_code = 'lol'
+     WHERE (${format}::text IS NULL OR e.format = ${format}) AND e.game_code = 'lol'
      GROUP BY e.id
-    HAVING (${unreviewed} = false OR count(em.match_id) FILTER (WHERE em.review_completed_at IS NULL) > 0)
+    HAVING (${unreviewed} = false
+            OR count(em.match_id) FILTER (WHERE em.review_completed_at IS NULL AND em.visibility = 'public') > 0)
      ORDER BY COALESCE(e.starts_at, min(em.game_creation)) DESC NULLS LAST, e.name
   `;
 }
@@ -84,15 +89,14 @@ export interface ReviewSetRow extends ReviewProgress {
   red_team: string | null;
   visibility: string;
   reviewed_at: Date | null;
-  /** 누가 만든 행인가. API 가 준 경기는 null 이다 — 그래서 source 와 같이 봐야 출처를 말할 수 있다. */
-  origin: string | null;
-  source: string;
+  /** 어떻게 알았나 — api·vod(영상 판독)·manual(수기). */
+  collected_via: "api" | "vod" | "manual";
   /** 이 경기가 나온 VOD. 누르면 그 VOD 의 검수 화면으로 간다. */
   leads: { id: string; title: string }[];
 }
 
 export interface ReviewSeriesRow {
-  /** 시리즈가 없는 단판(VOD 판독이 대회에 바로 붙인 경기)은 경기 ID 가 곧 키다. */
+  /** 시리즈 키. 묶이지 않은 판은 한 판짜리 시리즈(`set:<match_id>`)다 — 판은 시리즈 밖에 없다(0089). */
   key: string;
   round_label: string | null;
   best_of: number | null;
@@ -109,7 +113,7 @@ export interface ReviewEventDetail {
 export async function getReviewEvent(slug: string): Promise<ReviewEventDetail | null> {
   const sql = db();
   const [event] = await sql<ReviewEventDetail["event"][]>`
-    SELECT id, slug, name, kind, starts_at, ends_at, organizer, source_url
+    SELECT id, slug, name, format, auto_bucket, starts_at, ends_at, organizer, source_url
       FROM event WHERE slug = ${slug} AND game_code = 'lol'
   `;
   if (!event) return null;
@@ -118,9 +122,9 @@ export async function getReviewEvent(slug: string): Promise<ReviewEventDetail | 
     series_key: string; round_label: string | null; best_of: number | null; set_order_known: boolean | null;
   })[]>`
     SELECT m.match_id, m.series_game_no, m.game_creation, m.game_creation_precision, m.winning_team,
-           bt.name AS blue_team, rt.name AS red_team, m.visibility, m.reviewed_at, m.review_completed_at, m.review_version, m.origin, m.source,
+           bt.name AS blue_team, rt.name AS red_team, m.visibility, m.reviewed_at, m.review_completed_at, m.review_version, m.collected_via,
            rp.participant_count, rp.position_count, rp.linked_count, rp.champion_count, rp.kda_count,
-           COALESCE(m.series_id, m.match_id) AS series_key,
+           m.series_id AS series_key,
            ms.round_label, ms.best_of, ms.set_order_known,
            COALESCE((
              SELECT json_agg(json_build_object('id', el.id, 'title', el.title) ORDER BY el.observed_at)
@@ -129,15 +133,15 @@ export async function getReviewEvent(slug: string): Promise<ReviewEventDetail | 
            ), '[]'::json) AS leads
       FROM match m
       ${sql.unsafe(REVIEW_PROGRESS_JOIN)}
-      LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+      JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
       LEFT JOIN event_team bt ON bt.id = m.blue_team_id
       LEFT JOIN event_team rt ON rt.id = m.red_team_id
-     WHERE COALESCE(ms.event_id, m.event_id) = ${event.id}::uuid
+     WHERE ms.event_id = ${event.id}::uuid
      -- 날짜 → 시리즈 ID → 세트 번호. 날짜만 아는 경기의 시각(19시·20시)은 생성기가 지어낸
      -- 값이라 정렬 키로 쓰지 않는다. 시리즈 ID 는 시드의 경기 번호(g03)라 대진 순서를 따른다.
      ORDER BY (m.game_creation AT TIME ZONE 'Asia/Seoul')::date,
               CASE WHEN m.game_creation_precision = 'datetime' THEN m.game_creation END NULLS LAST,
-              COALESCE(m.series_id, m.match_id),
+              m.series_id,
               m.series_game_no NULLS FIRST
   `;
 

@@ -8,7 +8,7 @@
  * ★ 네 가지를 구분한다.
  *   · 단판   — 원래 한 판짜리다. 시리즈가 없거나(공개 큐·단독 경기) 규정상 한 판(best_of=1).
  *              **수집한 세트가 하나뿐인 것**과는 다르다. Bo3 의 첫 판만 모았어도 하나다.
- *   · 시리즈 미지정 — 화면 판독(수기) 경기인데 아직 시리즈로 묶지 않았다. 단판인지 다전제의 한 판인지
+ *   · 시리즈 미지정 — 아직 시리즈로 묶지 않은 판(한 판짜리 시리즈 `set:<match_id>`, 0089). 단판인지 다전제의 한 판인지
  *              **모른다**(`unassigned`). 2026-10-12 관리자 화면의 "단판" 241경기가 전부 이것이었다 —
  *              확인된 단판(best_of=1)은 0경기. 단판으로 확인하면 경기 ID 와 같은 키의 시리즈에 best_of=1 을 적는다.
  *   · N세트  — 세트 순서를 출처에서 확인했다(set_order_known).
@@ -16,9 +16,9 @@
  *              없으면 승리 세트를 앞에 몰아 넣는다(build-meljang) — 그 번호는 우리가 만든 것이다.
  */
 export interface SetLabelInput {
-  /** 시리즈에 속하지 않은 단독 경기인가 (series_id 가 없거나, 시리즈 키가 곧 경기 ID). */
+  /** 혼자인 시리즈의 단독 경기인가 (isStandaloneSet). */
   standalone: boolean;
-  /** 시리즈를 아직 정하지 않은 수기 경기인가(series_id 없음). 넘기지 않으면 단독 경기를 단판으로 본다(공개 큐). */
+  /** 시리즈를 아직 정하지 않은 판인가 — 한 판짜리 시리즈(isUnbundledSet). 넘기지 않으면 단독 경기를 단판으로 본다. */
   unassigned?: boolean;
   best_of: number | null;
   set_order_known: boolean;
@@ -40,8 +40,18 @@ export function setLabel(s: SetLabelInput): string {
 }
 
 /**
- * 시리즈 키가 곧 경기 ID 면 단독 경기다. 공개 뷰는 시리즈 없는 경기의 키를 경기 ID 로 채우고
- * (COALESCE(series_id, match_id)), 시드는 단판을 경기 ID 와 같은 이름의 시리즈로 넣는다(0035).
+ * 한 판짜리 시리즈의 키 — 묶이지 않은 판은 이 키의 시리즈에 혼자 있다(0089 · classification.singleSetSeriesId 와
+ * 같은 값이어야 한다 — set-label.test.ts 가 대조한다). 이 모듈은 화면(클라이언트)도 쓰므로 DB 쓰기 모듈을 들이지 않는다.
+ */
+export const SINGLE_SET_SERIES_PREFIX = "set:";
+
+/**
+ * 단독 경기인가 — 판이 혼자인 시리즈. 시드는 단판을 경기 ID 와 같은 이름의 시리즈로 넣고(0035),
+ * 묶이지 않은 판은 한 판짜리 시리즈(`set:<match_id>`)에 있다(0089). 시리즈가 없는 판(개인 기록)도 단독이다.
  */
 export const isStandaloneSet = (matchId: string, seriesKey: string | null) =>
-  seriesKey == null || seriesKey === matchId;
+  seriesKey == null || seriesKey === matchId || seriesKey === SINGLE_SET_SERIES_PREFIX + matchId;
+
+/** 묶이지 않은 판인가 — 한 판짜리 시리즈(`set:<match_id>`)에 혼자 있다. 시리즈를 정하지 않았다는 뜻이다("시리즈 미지정"). */
+export const isUnbundledSet = (matchId: string, seriesKey: string | null) =>
+  seriesKey === SINGLE_SET_SERIES_PREFIX + matchId;
