@@ -16,6 +16,7 @@ import { applyAll } from './lib/migrations.ts';
 import * as ck from '../packages/core/lib/db/ck.ts';
 import { createStreamer } from '../packages/core/lib/db/streamers.ts';
 import { db,closeDb } from '../packages/core/lib/db/client.ts';
+import { lolEvent } from './lib/verify-ck-fixtures.ts';
 
 const root=new URL('..',import.meta.url).pathname;
 const prebuiltDist=process.env.CK_BROWSER_DIST;
@@ -43,7 +44,8 @@ try {
   console.log("Browser test: disposable database ready");
   const a=await createStreamer({slug:'ck-browser-a',display_name:'검사 A'}),b=await createStreamer({slug:'ck-browser-b',display_name:'검사 B'});
   const lead=await ck.upsertEventLead({source:'vod_title',source_key:'vod:browser',url:'https://example.test/ck',title:'CK browser fixture',observed_at:new Date()});
-  for(const n of [1,2]) await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:`browser:M${n}`,source_url:'https://example.test/ck',played_at:new Date(`2026-09-20T0${n}:00:00Z`),winning_team:n===1?100:200,result_evidence:`M${n} evidence`,series_id:'browser',series_game_no:n,participants:[
+  const event=await lolEvent('verify-ck-browser');
+  for(const n of [1,2]) await ck.upsertMatchFromScan({ played_at_precision: "datetime",match_id:`browser:M${n}`,event_id:event,source_url:'https://example.test/ck',played_at:new Date(`2026-09-20T0${n}:00:00Z`),winning_team:n===1?100:200,result_evidence:`M${n} evidence`,series_id:'browser',series_game_no:n,participants:[
     {participant_id:1,team_id:100,streamer_id:a.id,observed_name:'A',champion_id:n===1?268:143,kills:n===1?5:9,deaths:1,assists:3},
     {participant_id:2,team_id:200,streamer_id:b.id,observed_name:'B',champion_id:64,kills:3,deaths:5,assists:1},
   ]});
@@ -99,7 +101,8 @@ try {
   assert.match(await submit(roster(),'변경사항 저장'),/저장했습니다/);
   assert.equal((await ck.getMatchDetail('browser:M1'))!.participants[0].kills,78, 'immediate repeated roster save uses the new base');
 
-  const oldStats=await db()`SELECT count(*)::int AS n FROM champion_stat WHERE streamer_id=${a.id} AND champion_id=268`;
+  // 공개 집계는 원본의 뷰다(0089) — 고친 챔피언이 곧바로 공개 세트에 반영된다(옛 챔피언으로 남지 않는다).
+  const oldStats=await db()`SELECT count(*)::int AS n FROM core_public.lol_versus_set WHERE streamer_id=${a.id} AND champion_id=268`;
   assert.equal(oldStats[0].n,0);
   // 결과 근거 문장·후보 판단은 사람 검수 화면에 없다 — 조사 기록은 CLI(ck:record)로 본다.
   // 사람은 공개될 값만 고친다: 승자를 바꾸면 참가자 승패(outcome)가 같이 맞춰져야 한다.
@@ -116,11 +119,11 @@ try {
   await durationCell.getByRole('textbox',{name:'경기 길이 초'}).fill('1800');
   await nextAction(p,()=>durationCell.getByRole('textbox',{name:'경기 길이 초'}).press('Enter'));
   await p.reload();await choose(2);assert.equal(await meta.locator('input[name=game_duration]').inputValue(),'1800');
-  const publicParticipants=await db()`SELECT count(*)::int AS n FROM core_public.match_participant WHERE match_id='browser:M1'`;
+  const publicParticipants=await db()`SELECT count(*)::int AS n FROM core_public.match_detail WHERE match_id='browser:M1'`;
   assert.equal(publicParticipants[0].n,2);
-  const publicWins=await db()`SELECT bool_and((a_outcome='win') = (pa.team_id=m.winning_team)) AS ok
-    FROM core_public.streamer_encounter e JOIN match m USING(match_id)
-    JOIN match_participant pa ON pa.match_id=m.match_id AND pa.streamer_id=e.streamer_a_id
+  const publicWins=await db()`SELECT bool_and((e.a_outcome='win') = (pa.team_id=m.winning_team)) AS ok
+    FROM core_public.versus_pair_set e JOIN match m USING(match_id)
+    JOIN match_participant pa ON pa.match_id=m.match_id AND pa.streamer_id=e.a_streamer_id
     WHERE m.match_id='browser:M1'`;
   assert.equal(publicWins[0].ok,true);
   await verifyPriorityBrowser(context,base);

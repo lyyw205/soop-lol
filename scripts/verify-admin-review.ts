@@ -38,12 +38,12 @@ try {
   assert.ok((await current()).context_completed_at, 'value change preserves context confirmation');
   assert.equal((await current()).review_completed_at, null);
   await assert.rejects(C.holdFcoContext(ids[0], m.context_version - 1), /변경/);
-  const before = await sql`SELECT count(*)::int n FROM fco_match_context`;
+  const before = await sql`SELECT count(*)::int n FROM review_change WHERE entity = 'classification'`;
   await assert.rejects(C.applyFcoMatchContexts([
     { provider_match_id: ids[0], conclusion: 'unresolved', note: 'first write' },
     { provider_match_id: ids[1], conclusion: 'casual', note: '' },
   ]), /note/);
-  assert.equal((await sql`SELECT count(*)::int n FROM fco_match_context`)[0].n, before[0].n, 'bulk failure rolls back every match');
+  assert.equal((await sql`SELECT count(*)::int n FROM review_change WHERE entity = 'classification'`)[0].n, before[0].n, 'bulk failure rolls back every match');
   const session = (await SS.listFcoSessions()).find(s => s.match_ids.includes(ids[0]))!;
   assert.equal((await SS.getFcoSession(session.id))?.id, session.id);
   assert.equal((await SS.getFcoSession(encodeURIComponent(session.id)))?.id, session.id, 'encoded match IDs are accepted');

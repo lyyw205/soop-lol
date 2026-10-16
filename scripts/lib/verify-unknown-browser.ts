@@ -3,9 +3,11 @@ import type {BrowserContext, Locator} from 'playwright';
 import * as ck from '../../packages/core/lib/db/ck.ts';
 import {db} from '../../packages/core/lib/db/client.ts';
 import {profileHref} from '../../packages/core/lib/site-paths.ts';
+import {lolEvent} from './verify-ck-fixtures.ts';
 
 export async function verifyUnknownBrowser(context: BrowserContext, base: string, a: string, b: string) {
-  const fixture=(id:string,series:string):ck.CkMatchInput=>({ played_at_precision: "datetime",match_id:id,series_id:series,series_game_no:Number(id.split(':').at(-1))||1,set_order_known:true,
+  const event=await lolEvent('verify-unknown-browser');
+  const fixture=(id:string,series:string):ck.CkMatchInput=>({ played_at_precision: "datetime",match_id:id,event_id:event,series_id:series,series_game_no:Number(id.split(':').at(-1))||1,set_order_known:true,
     played_at:new Date('2026-09-21T00:00:00Z'),winning_team:100,result_evidence:'browser unknown',participants:[
       {participant_id:1,team_id:100,observed_name:'브라우저 미확인',champion_id:34,kills:3,deaths:8,assists:7},
       {participant_id:2,team_id:200,streamer_id:b,champion_id:143,kills:1,deaths:2,assists:3}]});
