@@ -1,5 +1,5 @@
 /**
- * 분류·수집 뼈대 리허설 — 운영 데이터 복사본에 초안(db/drafts/classification_skeleton.sql)을 돌려
+ * 분류·수집 뼈대 리허설 — 운영 데이터 복사본에 초안(db/migrations/0089_classification_skeleton.sql)을 돌려
  * 옮겨 담기 대조(계획 §8)와 공개 질의 속도(§5.1: 질의당 200ms 이하)를 잰다. 계획 §8 1단계(성능)·3단계(리허설).
  *
  *   CK_PG_BIN=<PostgreSQL 17 bin 디렉터리> node --env-file=apps/web/.env.local scripts/skeleton-rehearsal.ts
@@ -20,7 +20,7 @@ import { disposablePostgres } from "./lib/disposable-postgres.ts";
 import { applyAll } from "./lib/migrations.ts";
 
 const ROOT = join(import.meta.dirname, "..");
-const DRAFT = readFileSync(join(ROOT, "db/drafts/classification_skeleton.sql"), "utf8");
+const DRAFT = readFileSync(join(ROOT, "db/migrations/0089_classification_skeleton.sql"), "utf8");
 const DUO = ["jAu-Fy-yQ96GJFQtR4mbyYIiumZdM8v3dmyaPu4dQuAslWnjeiGfKLJmu2-yQe79gBdWbKDpZmTivA",
   "hmeMsJn7_kn3-w6SLpjVBC59hkbzfdiTi6hOWv2aSpbIgYBJCnf8hUigsdf7seukt7x0eV610pO9fw"];
 const BUDGET_MS = 200;
@@ -39,8 +39,8 @@ const check = async (name: string, fn: () => Promise<void> | void) => {
 };
 
 try {
-  await applyAll((s) => dst.unsafe(s).then(() => undefined), ROOT);
-  log("빈 DB 에 마이그레이션 전부 적용");
+  await applyAll((s) => dst.unsafe(s).then(() => undefined), ROOT, { before: "0089" });
+  log("빈 DB 에 0088 까지 적용");
 
   // ── 복사(운영 → 일회용) ────────────────────────────────────────────────
   const pqKeep = `SELECT DISTINCT p.match_id FROM match_participant p JOIN match m ON m.match_id = p.match_id
@@ -95,7 +95,7 @@ try {
 
   // ── 초안 적용 ─────────────────────────────────────────────────────────
   const tDraft = Date.now();
-  await dst.unsafe(DRAFT);
+  await dst.unsafe(`BEGIN;\n${DRAFT}\nCOMMIT;`);
   log(`초안 적용 ${((Date.now() - tDraft) / 1000).toFixed(1)}초`);
   await dst.unsafe("ANALYZE");
 

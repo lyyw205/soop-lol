@@ -1,7 +1,7 @@
 -- 경기 분류·수집 뼈대 — docs/CLASSIFICATION-REDESIGN-PLAN.md (2026-10-16 확정)
 --
--- ⚠ 초안이다. db/migrations 에 없으므로 db:migrate 가 적용하지 않는다. 전환(계획 §8 4단계) 때
---   번호를 붙여 db/migrations 로 옮긴다. 그 전까지는 scripts/verify-skeleton.ts 가 메모리 DB 에서만 돌린다.
+-- ⚠ 운영 적용은 전환 절차(계획 §8 4단계)로만 한다 — 쓰는 진입점 정지·백업·대조. scripts/verify-skeleton.ts(메모리 DB)와
+--   scripts/skeleton-rehearsal.ts(운영 복사본)가 0088 까지의 옛 구조에 실제 경우를 넣고 이 파일을 적용해 대조한다.
 --
 -- 새 뼈대: 행사(format) → 시리즈(event 필수) → 세트(scope·map·collected_via) → 참가자(기본 칸) → 상세(지명한 사람만).
 -- 진행 방식을 찾는 길은 세트 → 시리즈 → 행사 하나뿐이다. 옛 분류(lol_match_category·event.kind·match.event_id·

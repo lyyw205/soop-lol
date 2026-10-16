@@ -438,3 +438,50 @@ Codex 검토 의견(2026-10-16): 1·3·4·6·7 추천안 동의, 2 는 결정적
 `fco_context_evidence` 의 게임 공통 근거 표 일반화, `mod_versus.pair`(아무도 안 읽는 매시간 재계산) 삭제, 쓰기·읽기 경로 전환.
 ★ 2단계는 작업 트리를 자동화가 그대로 실행하므로 **별도 브랜치(worktree)** 에서 해야 한다 — 그 전에 지금 작업 트리의 미커밋 변경을 커밋해 두어야 브랜치가 그 위에서 시작한다.
 
+
+---
+
+## 12. 2단계 계약 (코드 전환 — 브랜치 `classification-skeleton`)
+
+모든 전환 작업이 이 계약 하나를 따른다. 계약에 없는 것이 필요하면 바꾸지 말고 보고한다.
+
+### 12.1 스키마(0089 뒤)
+- `event.format` NOT NULL(게임별 허용 — `metrics/format.ts` = DB CHECK), `event.auto_bucket`. `event.kind` 없음.
+- `match_series.event_id` NOT NULL, (event_id, game_code) 복합 FK. `match.event_id` 없음 — 행사는 **시리즈 경유 한 길**.
+- `match.scope` NOT NULL(`versus` = 시리즈 안 내전 세트 / `personal` = 시리즈 밖 개인 기록), `match.map`(롤 생성 칼럼 rift·aram·unsupported, FC NULL),
+  `match.collected_via`(api·vod·manual). `match.source`·`origin`·`game_type`·`game_start`·`game_end`·`has_timeline` 없음.
+- `match_participant` 는 기본 칸만. 상세는 `lol_participant_detail`(지명 계정만).
+- 없어진 것: `lol_match_category`, `streamer_encounter`·`champion_stat`(파생 표), `ingest_cursor`, `fco_match_context`, `fco_event_match_decision`,
+  `schedule_entry.planned_kind`(→ `planned_format`), core_public 의 옛 뷰(`match`·`match_with_bonus`·`aram_*`·`streamer_encounter`·`champion_stat`·
+  `match_participant`·`match_lineup`·`streamer_match`·`tournament_match`·`lol_*_all_modes`).
+- 새 표: `collection_target`(지명 수집), `event_exclusion`(현재 제약), `review_change.entity` 에 `classification`.
+
+### 12.2 쓰기 — `packages/core/lib/db/classification.ts` 만
+`ensureEventInTx`(찾기·만들기, 기존은 대조만) · `updateEventInTx`(주인만) · `ensureAutoBucketInTx` + `lolCodeBucketSlug`·`fcPairBucketSlug` ·
+`ensureSeriesInTx` · `placeSetInTx`·`placeSingleSetInTx`(판을 시리즈에 두는 유일한 길 — 제외 확인·게임 대조) · `moveSeriesInTx` ·
+`assertAttachAllowedInTx`·`excludeFromEventInTx` · `dropEmptySeriesInTx`. 판을 행사·시리즈에 붙이는 SQL 을 다른 곳에 쓰지 않는다.
+- 자동 경로(수집·자동 조사)는 `actor: 'auto'`, 사람(검수 화면·사람이 돌리는 CLI)은 `'admin'`.
+- 행사 없이 들어오는 내전 판: 토너먼트 코드 → `lolCodeBucketSlug`, FC 스트리머끼리 → `fcPairBucketSlug` 묶음에 한 판짜리 시리즈.
+  사람은 묶음을 relabel 하지 않는다(`updateEventInTx` 가 거부) — 시리즈를 실제 행사로 `moveSeriesInTx`.
+- 파생 표가 없으므로 재파생·재계산 호출(`rederiveEncountersInTx`·`recomputeChampionStatsInTx` 등)은 지운다.
+
+### 12.3 읽기 — 공개 집계는 이것만
+- `core_public.versus_set`(= `lol_versus_set` ∪ `fc_versus_set`, 한 행 = 사람×본게임 세트, format·map·series_started_on 포함),
+  `core_public.versus_pair_set`(같은 판의 두 사람, relation teammate/opponent), `core_public.personal_game`(개인 기록 — 솔랭 도전),
+  `core_public.match_detail`(롤 경기 하나 — 보너스 포함), `core_public.event`·`event_dates`(format).
+- 세기: `metrics/tally.ts` 의 `tally`(세트·시리즈), `pairSetOutcome`(상대전적 한 세트), `mirror`. 다수결·랜드 규칙을 다른 곳에 두지 않는다.
+- 분류: `metrics/format.ts`(`FORMATS_BY_GAME` 칩 순서, `formatChipLabel`, `formatLabel` — 미분류는 라벨 없음).
+- 화면 규칙: 필터 = `전체` + 게임별 진행 방식 칩(마지막 "분류 전"). 한 맵 탭 안에서 전체 = 칩 합. 보너스 판은 집계 제외(펼친 목록에만).
+  세트와 시리즈는 **항상 같이** 보인다. 기간 필터는 `series_started_on`. 롤 맵 탭(협곡/칼바람) — 칼바람은 진행 방식으로 나누지 않는다.
+  상대전적은 언제나 대칭(`pairSetOutcome`). 승+무+패+미상 = 판 수, 미상이 있으면 보인다.
+
+### 12.4 영역과 파일 소유 (같은 파일을 두 영역이 고치지 않는다)
+| 영역 | 파일 |
+|---|---|
+| **A 롤 쓰기·검수** | `packages/core/lib/db/`의 ck*.ts·tournaments.ts·match-series-review.ts·match-review.ts·match-overview.ts·event-review.ts·review-*.ts·lol-review-scope.ts·participant.ts·admin-history.ts·puuid-move.ts·event-bracket.ts·tournaments 관련, `metrics/`의 ck-*·series-check·set-label·review-*, `apps/web/app/admin/**`(fco·office 제외), `apps/web/components/admin/**`(Fco*·office 제외), `apps/web/lib/`의 admin-*·lol-review-list·ck-*·vod-*, `scripts/`의 ck-merge.mjs·ck-record*·seed-tournament.ts·ck-queue.ts·bracket-apply.ts·repair-*, verify-ck*·verify-admin*·verify-match-review*·verify-review*·verify-bracket*·verify-tournaments.mjs·verify-aram-upgrade.ts, `scripts/lib/verify-match-series.ts`·`verify-review-progress.ts` |
+| **F FC** | `packages/core/lib/games/fconline/**`, `packages/core/lib/db/fconline*.ts`, `apps/web/app/admin/fco/**`, `apps/web/components/admin/Fco*`, `apps/web/app/fc/**`, `apps/web/components/fco-*`, `apps/web/lib/fco-*`, `packages/ui/fc/**`, `packages/modules/fc_*/**`, `scripts/fco-*.ts`, `scripts/verify-fco*.ts`, `metrics/club-*` |
+| **R 롤 공개 읽기** | `packages/core/lib/db/`의 public.ts·personal.ts·opponent-history.ts·public-tournaments.ts·public-ranked.ts·profile-links.ts·known-names.ts·types.ts, `packages/core/lib/contract/**`(schedule.ts 제외), `metrics/`의 category.ts·match-tally.ts·opponent-history.ts·opponents.ts·record-*.ts·event.ts·placement.ts·affinity.ts, `packages/modules/`의 versus·tournaments·solo_challenge, `packages/ui/`(fc 제외), `apps/web/app/`의 lol/**·page.tsx·[...path]/**, `apps/web/components/`(admin·fco 제외) |
+| **K 수집·편성표** | `apps/worker/**`, `packages/core/lib/db/`의 ingest.ts·streamers.ts·watchlist.ts·schedule*.ts, `packages/core/lib/ingest/**`, `packages/core/lib/riot/**`, `packages/core/lib/contract/schedule.ts`, `metrics/schedule.ts`, `packages/modules/schedule/**`, `scripts/schedule-notices/**`, `scripts/`의 verify-ingest.ts·fake-riot.ts·seed-streamers.ts·identify-candidates.ts·verify-schedule*, `ops/jobs/`(worker-loop·lol-rank) |
+| **본 세션** | `db/migrations/`, `classification.ts`·`format.ts`·`tally.ts`, `scripts/verify-db.ts`·`verify-skeleton.ts`·`skeleton-rehearsal.ts`·`verify-modules.ts`·`lib/consistency-checks.ts`, `.claude/skills/**`, `scripts/ck-auto.sh`·`ck-backfill.sh`(프롬프트), 문서·CLAUDE.md |
+
+ingest.ts 의 재파생 함수는 K 가 지우고, 그 호출부는 각 파일의 소유 영역이 지운다(병합 때 맞춘다).

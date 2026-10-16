@@ -91,11 +91,12 @@ export function loadModuleMigrations(root: string): Migration[] {
 export async function applyAll(
   exec: (sql: string) => Promise<unknown>,
   root: string,
-  opts: { includeModules?: boolean; log?: (m: Migration) => void } = {},
+  opts: { includeModules?: boolean; log?: (m: Migration) => void; before?: string } = {},
 ): Promise<Migration[]> {
+  // before: 이 번호 **전까지만** 적용한다(core 만). 옛 구조에 데이터를 넣고 다음 마이그레이션을 따로 시험할 때 쓴다.
   const list = [
-    ...loadMigrations(root),
-    ...(opts.includeModules ? loadModuleMigrations(root) : []),
+    ...loadMigrations(root).filter((m) => !opts.before || m.version < opts.before),
+    ...(opts.includeModules && !opts.before ? loadModuleMigrations(root) : []),
   ];
   for (const m of list) {
     opts.log?.(m);

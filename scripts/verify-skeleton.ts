@@ -1,5 +1,5 @@
 /**
- * 분류·수집 뼈대 초안(db/drafts/classification_skeleton.sql)을 메모리 DB 에서 끝까지 돌려 본다 — 계획 §8 1단계.
+ * 분류·수집 뼈대 초안(db/migrations/0089_classification_skeleton.sql)을 메모리 DB 에서 끝까지 돌려 본다 — 계획 §8 1단계.
  *
  *   1) 마이그레이션 전부 적용 → **옛 구조**로 실제 경우들을 넣는다(엑셀 CK·VOD 직접 연결·토너먼트 코드·지울/남길 공개 큐·
  *      FC 친선·사람의 제외·숨긴 계정·계정 없이 사람만 확인된 자리·보너스·검수 완료).
@@ -20,7 +20,7 @@ import { disposablePglite } from "./lib/disposable-pglite.ts";
 import { applyAll } from "./lib/migrations.ts";
 
 const ROOT = join(import.meta.dirname, "..");
-const DRAFT = readFileSync(join(ROOT, "db/drafts/classification_skeleton.sql"), "utf8");
+const DRAFT = readFileSync(join(ROOT, "db/migrations/0089_classification_skeleton.sql"), "utf8");
 const DUO1 = "jAu-Fy-yQ96GJFQtR4mbyYIiumZdM8v3dmyaPu4dQuAslWnjeiGfKLJmu2-yQe79gBdWbKDpZmTivA";
 const DUO2 = "hmeMsJn7_kn3-w6SLpjVBC59hkbzfdiTi6hOWv2aSpbIgYBJCnf8hUigsdf7seukt7x0eV610pO9fw";
 
@@ -43,7 +43,7 @@ const rejects = async (sql: string, why: RegExp | string) => {
 };
 
 try {
-  await applyAll((s) => db.exec(s), ROOT);
+  await applyAll((s) => db.exec(s), ROOT, { before: "0089" });
 
   // ── 1. 옛 구조의 실제 경우들 ───────────────────────────────────────────────
   await db.exec(`
@@ -184,7 +184,7 @@ try {
   };
 
   // ── 2. 초안 적용 ───────────────────────────────────────────────────────────
-  await db.exec(DRAFT);
+  await db.exec(`BEGIN;\n${DRAFT}\nCOMMIT;`);
   console.log("초안 적용 완료 — 대조:");
 
   // ── 3. 옮겨 담기 대조 ───────────────────────────────────────────────────────
