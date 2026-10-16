@@ -1,6 +1,6 @@
 # 지명 수집 설계
 
-> 2026-10-16 작성 · **확정**(§9 — 2026-10-16 사용자 결정). 배경: [CLASSIFICATION-REDESIGN-PLAN.md](CLASSIFICATION-REDESIGN-PLAN.md) §4 —
+> 2026-10-16 작성 · **확정**(§9 — 2026-10-16 사용자 결정) · **운영 적용 2026-10-16**(0090 — 지명 ttgyo-duo, 범위 3칸, 개인 기록 110판 유지). 배경: [CLASSIFICATION-REDESIGN-PLAN.md](CLASSIFICATION-REDESIGN-PLAN.md) §4 —
 > 공개 큐 경기 기록은 "지명한 것만" 모은다(사용자 결정 12). 0089 는 그 수집 대상을 `collection_target` 한 표로만 세웠다.
 > 이 문서는 그 위에 도구를 덧붙이기 전에 **지명이 무엇인지부터** 다시 세운다.
 
