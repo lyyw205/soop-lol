@@ -27,6 +27,7 @@ import { verifyMemberDb } from "./lib/verify-member-db.ts";
 import { verifyCommunityDb } from "./lib/verify-community-db.ts";
 import { verifyCkDuplicateMergeDb, verifyCkDuplicatesDb } from "./lib/verify-ck-duplicates.ts";
 import { verifyMatchSeriesDb } from "./lib/verify-match-series.ts";
+import { verifySubmissionDb } from "./lib/verify-submission-db.ts";
 import { verifyCollectionDb } from "./lib/verify-collection-db.ts";
 import { recordCursor } from "../packages/core/lib/metrics/record-cursor.ts";
 import { resolveRecordPeriod } from "../packages/core/lib/metrics/record-period.ts";
@@ -2184,6 +2185,7 @@ try {
   await verifyMemberDb(check, expectReject);
   await verifyCommunityDb(check, expectReject);
   await verifyCollectionDb(check, riotGame);
+  await verifySubmissionDb(check, expectReject);
 } finally {
   await closeDb();
   await server.stop();
