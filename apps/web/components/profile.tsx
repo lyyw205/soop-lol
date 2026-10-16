@@ -13,8 +13,10 @@
  */
 
 import { RecordEventItem, RecordEventList, RecordSectionTabs } from "../../../packages/ui/record-structure";
+import { RecordPair } from "../../../packages/ui/record-pair";
 
-import type { MatchCategoryFilter } from "@soop-lol/core/lib/metrics/category";
+import type { FormatFilter, MapTab } from "@soop-lol/core/lib/metrics/record-scope";
+import { total } from "@soop-lol/core/lib/metrics/tally";
 
 import type { EventRecord } from "@soop-lol/core/lib/db/public";
 import type { OpponentSort } from "@soop-lol/core/lib/metrics/opponents";
@@ -42,7 +44,8 @@ export type HrefFor = (next: {
   tab?: ProfileTab;
   year?: number | null;
   sort?: OpponentSort | null;
-  category?: MatchCategoryFilter;
+  map?: MapTab;
+  format?: FormatFilter;
   page?: number | null;
 }) => string;
 
@@ -60,10 +63,10 @@ export function TabBar({ active, hrefFor }: {
     items={PROFILE_TABS.map((tab) => ({ key: tab.key, label: tab.label, href: hrefFor({ tab: tab.key }) }))} />;
 }
 
-export function EventList({ events, year }: { events: EventRecord[]; year?: number }) {
+export function EventList({ events, filtered = false }: { events: EventRecord[]; filtered?: boolean }) {
   if (events.length === 0) {
     return (
-      <EmptyLine>{year ? `${year}년에 나간 대회가 없습니다.` : "아직 대회 기록이 없습니다."}</EmptyLine>
+      <EmptyLine>{filtered ? "선택한 기간에 나간 대회가 없습니다." : "아직 대회 기록이 없습니다."}</EmptyLine>
     );
   }
   return (
@@ -101,7 +104,7 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
               · 순위 자체를 모름    — 둘 중 뭔지 우리도 모른다. 모른다고 적는다.
             한 문장으로 뭉뚱그리면 예선에서 떨어진 사람이 데이터 결함처럼 보인다.
           */}
-          {e.matches === 0 ? (
+          {total(e.record.sets) === 0 ? (
             <p className="tabular mt-2 text-[length:var(--type-micro)] text-ink-400">
               {e.placement_rank === 99
                 ? "예선에서 탈락해 본선 경기가 없습니다."
@@ -112,14 +115,8 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
                   : "명단에는 있으나 경기 기록을 붙이지 못했습니다 — 라이엇 계정을 확인하지 못한 참가자입니다."}
             </p>
           ) : (
-            <p className="tabular mt-2 text-sm text-ink-300">
-              매치 {e.match_wins}승
-              {e.match_draws > 0 && ` ${e.match_draws}무`}
-              {" "}{e.matches - e.match_wins - e.match_draws}패
-              <span className="ml-3 text-[length:var(--type-micro)] text-ink-500">
-                세트로는 {e.set_wins}승 {e.sets - e.set_wins}패
-              </span>
-            </p>
+            /* 세트·시리즈를 함께 — 다전제 2:1 은 세트 2승 1패, 시리즈 1승이다. 미상이 있으면 보인다. */
+            <RecordPair tally={e.record} compact className="mt-2" />
           )}
         </RecordEventItem>
       ))}

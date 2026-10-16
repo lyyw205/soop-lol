@@ -11,14 +11,6 @@ import type { ReactNode } from "react";
 import { EmptyLine } from "../../../packages/ui/empty-line";
 export { EmptyLine };
 
-import {
-  affinity,
-  formatRecord,
-  isSmallSample,
-  rawWinRate,
-  SMALL_SAMPLE_THRESHOLD,
-  type HeadToHead,
-} from "@soop-lol/core/lib/metrics/affinity";
 import { formatRank } from "@soop-lol/core/lib/metrics/lp";
 
 // ── 크롬 ─────────────────────────────────────────────────────────────
@@ -107,40 +99,6 @@ export function RankChip({
     >
       {label}
     </span>
-  );
-}
-
-export function RecordBar({ record, label }: { record: HeadToHead; label?: string }) {
-  const n = record.wins + record.losses;
-  if (n === 0) return <EmptyLine>{label ? `${label} 기록이 없습니다.` : "기록이 없습니다."}</EmptyLine>;
-
-  const raw = rawWinRate(record) ?? 0;
-  const small = isSmallSample(record);
-
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        {/* ★ formatRecord 가 이미 괄호 승률을 포함한다. 뒤에 pct 를 또 찍어서
-            화면에 "5승 2패 (71%) 71%" 로 나왔다. 표본이 작으면 formatRecord 의
-            '· N경기 참고용' 과 옆 뱃지 '표본 N판 · 참고용' 까지 겹쳐 세 번 경고했다. */}
-        <span className="tabular text-sm text-ink-200">{formatRecord(record)}</span>
-        {small && (
-          <span className="rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[length:var(--type-micro)] text-amber-300">
-            표본 {n}판 · 참고용
-          </span>
-        )}
-      </div>
-      <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-ink-800">
-        <div className="bg-win" style={{ width: `${raw * 100}%` }} />
-        <div className="bg-lose" style={{ width: `${(1 - raw) * 100}%` }} />
-      </div>
-      {small && (
-        <p className="mt-2 text-[length:var(--type-micro)] leading-relaxed text-ink-400">
-          {SMALL_SAMPLE_THRESHOLD}판 미만이라 승률이 크게 흔들립니다.
-          정렬에는 보정값({affinity(record).toFixed(2)})을 씁니다.
-        </p>
-      )}
-    </div>
   );
 }
 

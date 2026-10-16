@@ -14,16 +14,14 @@
  *   **판정과 문구만** 공유하고 배치는 각 화면이 정한다 — packages/ui/README.md 의 방침과 같다.
  */
 
-import { matchOutcome, tallyGroup, type MatchOutcomeKind } from "@soop-lol/core/lib/contract/client";
-export { matchOutcome, type MatchOutcomeKind };
-export function matchOutcomeLabel(wins: number, sets: number, land = false): string {
-  const result = matchOutcome(wins, sets, land);
-  const tally = tallyGroup({ wins, sets, land });
-  return result === "record" ? `${tally.wins}승 ${tally.losses}패` : OUTCOME_LABEL[result];
-}
+import type { Outcome } from "@soop-lol/core/lib/contract/client";
 
-export const OUTCOME_LABEL: Record<MatchOutcomeKind, string> = {
-  win: "승", draw: "무", loss: "패", record: "기록",
+/**
+ * 시리즈·세트 결과 글자. ★ 결과는 화면이 판정하지 않는다 — core 의 tally.ts(seriesOutcome·pairSetOutcome)가 정한
+ *   값을 받아 글자만 붙인다. 예전엔 여기에 다수결·랜드 분기(matchOutcome)가 있었다.
+ */
+export const OUTCOME_LABEL: Record<Outcome, string> = {
+  win: "승", draw: "무", loss: "패", unknown: "미상",
 };
 
 /**

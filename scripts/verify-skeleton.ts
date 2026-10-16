@@ -18,6 +18,8 @@ import { FORMATS_BY_GAME } from "../packages/core/lib/metrics/format.ts";
 import { mirror, pairSetOutcome, tally, type Outcome } from "../packages/core/lib/metrics/tally.ts";
 import { disposablePglite } from "./lib/disposable-pglite.ts";
 import { applyAll } from "./lib/migrations.ts";
+import postgres from "postgres";
+import * as cls from "../packages/core/lib/db/classification.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const DRAFT = readFileSync(join(ROOT, "db/migrations/0089_classification_skeleton.sql"), "utf8");
@@ -384,6 +386,62 @@ try {
     await db.exec(`UPDATE match_series SET event_id = '10000000-0000-0000-0000-000000000001' WHERE id = 'excel-ck-2026-09-01 1'`);
     assert.equal((await one<{ r: unknown }>(`SELECT review_completed_at AS r FROM match WHERE match_id = 'xs1'`))!.r, null);
   });
+  // ── 7. 쓰기 단일 출처(classification.ts) — 실제 함수로 ─────────────────────────
+  // PGlite 는 연결이 하나라, 위에서 쓰던 db 와 같은 소켓으로 postgres.js 가 붙는다(한 번에 한 쪽만 쓴다).
+  const sql = postgres(pg.url, { max: 1, onnotice: () => {} });
+  try {
+    const A = "00000000-0000-0000-0000-00000000000a", B = "00000000-0000-0000-0000-00000000000b";
+    const fcGame = async (id: string, at: string) => {
+      await sql`INSERT INTO match (match_id, game_code, collected_via, scope, game_creation, mode_key) VALUES (${id}, 'fconline', 'api', 'personal', ${at}, '40')`;
+    };
+    const bucketOf = async (id: string) => (await sql<{ slug: string }[]>`SELECT e.slug FROM match m JOIN match_series ms ON ms.id = m.series_id JOIN event e ON e.id = ms.event_id WHERE m.match_id = ${id}`)[0]?.slug;
+    const place = (id: string, at: string) => sql.begin(async (tx) => {
+      const day = new Date(at);
+      const ev = await cls.ensureAutoBucketInTx(tx, { game_code: "fconline", slug: cls.fcPairBucketSlug(day, B, A), name: "x", day });
+      await cls.placeSingleSetInTx(tx, { match_id: id, game_code: "fconline", event_id: ev, actor: "auto" });
+    });
+    await check("자동 묶음: 입력 순서·재실행·사람 순서와 무관하게 같은 판은 같은 묶음", async () => {
+      await fcGame("q2", "2026-09-20 23:50+09"); await fcGame("q1", "2026-09-20 20:00+09"); await fcGame("q3", "2026-09-21 00:10+09");
+      await place("q2", "2026-09-20 23:50+09"); await place("q1", "2026-09-20 20:00+09"); await place("q3", "2026-09-21 00:10+09");
+      await place("q2", "2026-09-20 23:50+09");  // 재실행
+      const slugs = [await bucketOf("q1"), await bucketOf("q2"), await bucketOf("q3")];
+      assert.equal(slugs[0], slugs[1]);
+      assert.notEqual(slugs[1], slugs[2], "KST 날짜가 다르면 다른 묶음");
+      assert.equal(slugs[0], cls.fcPairBucketSlug(new Date("2026-09-20T12:00:00Z"), A, B));
+      assert.equal((await sql`SELECT count(*)::int AS n FROM match WHERE match_id IN ('q1','q2','q3') AND scope = 'versus'`)[0]!.n, 3);
+    });
+    await check("자동 묶음은 사람도 relabel 할 수 없다 — 시리즈를 실제 행사로 옮긴다", async () => {
+      const slug = (await bucketOf("q1"))!;
+      await assert.rejects(sql.begin((tx) => cls.updateEventInTx(tx, slug, { format: "ck" })), /자동 미분류 묶음/);
+      await assert.rejects(sql.begin((tx) => cls.ensureEventInTx(tx, { game_code: "fconline", slug, name: "x", format: "ck" })), /자동 미분류 묶음/);
+    });
+    await check("사람의 제외는 자동 경로가 못 넘고, 사람이 다시 붙이면 제외가 풀린다", async () => {
+      const tour = (await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = 'fc-tour'`)[0]!.id;
+      await sql.begin((tx) => cls.excludeFromEventInTx(tx, { event_id: tour, match_id: "q1", actor: "admin", note: "연습" }));
+      await assert.rejects(sql.begin((tx) => cls.moveSeriesInTx(tx, { series_id: "set:q1", event_id: tour, actor: "auto" })), /사람이 이 행사에서 뺀/);
+      await sql.begin((tx) => cls.excludeFromEventInTx(tx, { event_id: tour, match_id: "q1", actor: "auto", note: "자동이 덮으려 함" }));
+      assert.equal((await sql`SELECT decided_by FROM event_exclusion WHERE event_id = ${tour} AND match_id = 'q1'`)[0]!.decided_by, "admin", "자동 제외가 사람 제외를 덮지 않는다");
+      await sql.begin((tx) => cls.moveSeriesInTx(tx, { series_id: "set:q1", event_id: tour, actor: "admin" }));
+      assert.equal(await bucketOf("q1"), "fc-tour");
+      assert.equal((await sql`SELECT count(*)::int AS n FROM event_exclusion WHERE event_id = ${tour} AND match_id = 'q1'`)[0]!.n, 0);
+    });
+    await check("판 두기는 게임을 대조한다 / 기존 행사는 대조만 하고 고치지 않는다", async () => {
+      const lolEvent = (await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = 'ck-1'`)[0]!.id;
+      await assert.rejects(sql.begin((tx) => cls.placeSingleSetInTx(tx, { match_id: "q3", game_code: "fconline", event_id: lolEvent, actor: "admin" })));
+      await assert.rejects(sql.begin((tx) => cls.ensureEventInTx(tx, { game_code: "lol", slug: "ck-1", format: "land" })), /이미 ck/);
+      await assert.rejects(sql.begin((tx) => cls.ensureEventInTx(tx, { game_code: "lol", slug: "new-x", name: "새 행사" })), /진행 방식/);
+      await assert.rejects(sql.begin((tx) => cls.ensureEventInTx(tx, { game_code: "fconline", slug: "new-y", name: "새", format: "land" })), /쓸 수 없다/);
+    });
+    await check("판이 빠져 빈 자동 묶음은 시리즈와 함께 지워진다", async () => {
+      const slug3 = (await bucketOf("q3"))!;
+      const tour = (await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = 'fc-tour'`)[0]!.id;
+      await sql.begin((tx) => cls.placeSetInTx(tx, { match_id: "q3", game_no: 2, actor: "admin", series: { id: "set:q1", game_code: "fconline", event_id: tour } }));
+      assert.equal((await sql`SELECT count(*)::int AS n FROM event WHERE slug = ${slug3}`)[0]!.n, 0);
+      assert.equal((await sql`SELECT count(*)::int AS n FROM match_series WHERE id = 'set:q3'`)[0]!.n, 0);
+    });
+  } finally {
+    await sql.end();
+  }
 } finally {
   await pg.stop();
 }

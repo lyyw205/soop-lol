@@ -6,7 +6,7 @@
  * ★ 기간은 **겹치면 포함**: 일정의 칸 날짜 범위가 [from, to] 와 겹치면 일정 전체(모든 칸)를 돌려준다.
  *   조회 시작 전에 시작한 대회도 나온다.
  * ★ 결과 링크는 **열리는 상세가 있을 때만** — 공개 상세 조건을 충족할 때만 result 를 채운다.
- *   상세 화면과 같은 조건을 따로 적지 않으려는 것이다(롤 대회 상세는 kind='tournament' 만 연다 — CK 로 링크하면 404).
+ *   상세 화면과 같은 조건을 따로 적지 않으려는 것이다(롤 대회 상세는 format='tournament' 만 연다 — CK 로 링크하면 404).
  */
 
 import { db } from "./client.ts";
@@ -15,8 +15,9 @@ import { listPublicTournamentEvents } from "./public-tournaments.ts";
 import { kstDateString } from "../time.ts";
 import {
   addDays, daysBetween, entryState, pickBroadcastChannel, slotPhase,
-  type ScheduleChangeField, type ScheduleGame, type SchedulePlannedKind, type ScheduleRole, type ScheduleStatus,
+  type ScheduleChangeField, type ScheduleGame, type ScheduleRole, type ScheduleStatus,
 } from "../metrics/schedule.ts";
+import type { Format } from "../metrics/format.ts";
 
 /** 한 번에 볼 수 있는 최대 기간(일). 조회 범위 상한. */
 export const SCHEDULE_MAX_DAYS = 31;
@@ -34,7 +35,8 @@ export interface PublicScheduleEntry {
   schedule_id: string;
   game_code: ScheduleGame;
   title: string;
-  planned_kind: SchedulePlannedKind;
+  /** 예정 분류 — 행사 진행 방식과 같은 어휘(metrics/format.ts). 미분류(unclassified)는 화면에 라벨을 달지 않는다. */
+  planned_format: Format;
   sponsor: string | null;
   description: string | null;
   status: ScheduleStatus;
@@ -143,7 +145,7 @@ async function hydrate(entries: EntryRow[]): Promise<PublicScheduleEntry[]> {
 }
 
 /** 목록·상세가 같은 칸을 읽는다(조각 — 연결은 부를 때 얻는다). */
-const entryColumns = () => db()`e.schedule_id, e.game_code, e.title, e.planned_kind, e.sponsor, e.description, e.status, e.origin, e.event_id`;
+const entryColumns = () => db()`e.schedule_id, e.game_code, e.title, e.planned_format, e.sponsor, e.description, e.status, e.origin, e.event_id`;
 
 /** 결과 상세가 실제로 열리는 event 만 — 각 게임의 공개 상세 적격 집합. */
 async function resultPages(linked: { game_code: ScheduleGame; event_id: string | null }[]) {

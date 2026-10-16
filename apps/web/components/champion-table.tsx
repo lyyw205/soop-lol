@@ -20,7 +20,8 @@
 
 import { Fragment, useState } from "react";
 import { championById, championIconPath } from "@soop-lol/core/lib/riot/champions";
-import type { ChampionMatchup, ChampionRecord } from "@soop-lol/core/lib/db/public";
+import type { ChampionLine, ChampionRecord } from "@soop-lol/core/lib/metrics/record-champions";
+import { headToHead, rawWinRate } from "@soop-lol/core/lib/metrics/affinity";
 import { EmptyLine } from "../../../packages/ui/empty-line";
 
 /**
@@ -28,19 +29,19 @@ import { EmptyLine } from "../../../packages/ui/empty-line";
  * ★ `champion_id = 0` 은 챔피언이 아니라 **'모른다'** 다 — 방송을 읽어 넣은 내전 중
  *   결과 화면을 못 구해 챔피언까지는 확정하지 못한 경기가 그렇게 저장된다
  *   (없는 값을 지어내지 않는다). 그대로 두면 화면에 '챔피언 0' 이라고 뜬다.
- * ★ 한글 이름표가 먼저다. `champion_name` 은 Riot 이 준 영문(`Pantheon`)이라 그대로 쓰면
- *   같은 챔피언이 매치 상세에서는 '판테온', 챔피언 탭에서는 'Pantheon' 으로 나온다.
+ * ★ 이름표는 챔피언 표(championById) 하나다 — 같은 챔피언이 매치 상세에서는 '판테온',
+ *   챔피언 탭에서는 'Pantheon' 으로 나오지 않게.
  */
-export function championLabel(c: { champion_name: string | null; champion_id: number }): string {
+export function championLabel(c: { champion_id: number }): string {
   if (c.champion_id === 0) return "챔피언 미상";
-  return championById(c.champion_id)?.name ?? c.champion_name ?? `챔피언 ${c.champion_id}`;
+  return championById(c.champion_id)?.name ?? `챔피언 ${c.champion_id}`;
 }
 
 /**
  * @param vs 맞라인 줄 표시. **챔피언 이미지가 서던 자리**에 `VS` 를 세우고 아이콘은 그만큼
  *   오른쪽으로 밀린다 — 들여쓰기가 곧 "위 줄에 딸렸다" 는 뜻이 된다. 순위 칸은 비운다.
  */
-function ChampionCell({ row, vs }: { row: { champion_id: number; champion_name: string | null }; vs?: string }) {
+function ChampionCell({ row, vs }: { row: { champion_id: number }; vs?: string }) {
   const champion = championById(row.champion_id);
   return <span className="record-cell-name">
     {vs && <i className="champion-vs"><span className="sr-only">{vs} 상대</span><span aria-hidden="true">VS</span></i>}
@@ -58,7 +59,7 @@ function ChampionCell({ row, vs }: { row: { champion_id: number; champion_name: 
  *   NULL 이라 합에서 빠지고, `games` 로 나누면 평균이 묽어진다. 한 판도 못 읽었으면
  *   평균을 내지 않고 '—' 를 그린다 (0020 ⑧).
  */
-function KdaCell({ row }: { row: Pick<ChampionMatchup, "kills" | "deaths" | "assists" | "kda_games"> }) {
+function KdaCell({ row }: { row: Pick<ChampionLine, "kills" | "deaths" | "assists" | "kda_games"> }) {
   if (!row.kda_games) return <span className="record-dash" title="KDA 를 읽은 경기가 없습니다">—</span>;
   const [k, d, a] = [row.kills, row.deaths, row.assists].map((n) => n / row.kda_games);
   const ratio = d ? (k + a) / d : k + a;
@@ -67,17 +68,20 @@ function KdaCell({ row }: { row: Pick<ChampionMatchup, "kills" | "deaths" | "ass
   </span>;
 }
 
-/** 막대와 퍼센트는 **다른 칸**이다. 숫자끼리 세로로 줄이 서야 위아래 비교가 된다. */
-function statCells(row: { games: number; wins: number }) {
-  const rate = row.games ? row.wins / row.games : 0;
+/**
+ * 막대와 퍼센트는 **다른 칸**이다. 숫자끼리 세로로 줄이 서야 위아래 비교가 된다.
+ * ★ 판 = 세트. 승률은 무·미상을 분모에서 뺀다(headToHead) — 미상을 패로 세지 않는다. 무·미상이 있으면 승·패 칸에 적는다.
+ */
+function statCells(row: Pick<ChampionLine, "record">) {
+  const rate = rawWinRate(headToHead(row.record));
   return <>
     <td className="champion-col-bar">
-      <span className="champion-bar" aria-hidden="true"><i style={{ width: `${rate * 100}%` }} /></span>
+      <span className="champion-bar" aria-hidden="true"><i style={{ width: `${(rate ?? 0) * 100}%` }} /></span>
     </td>
-    <td className="champion-col-rate">{Math.round(rate * 100)}%</td>
+    <td className="champion-col-rate">{rate === null ? "—" : `${Math.round(rate * 100)}%`}</td>
     {/* ★ 승과 패에 위계를 주지 않는다. 예전엔 승이 <b>, 패가 <small> 이라 0승 1패 인데도
         승 쪽이 더 크고 밝았다 — 읽는 사람에게 "승이 더 중요하다" 는 거짓 신호다. */}
-    <td><span className="record-wl"><span>{row.wins}승</span><span>{row.games - row.wins}패</span></span></td>
+    <td><span className="record-wl"><span>{row.record.win}승</span>{row.record.draw > 0 && <span>{row.record.draw}무</span>}<span>{row.record.loss}패</span>{row.record.unknown > 0 && <span>미상 {row.record.unknown}</span>}</span></td>
   </>;
 }
 

@@ -35,7 +35,8 @@ export interface MemberLine {
 }
 
 export interface Line {
-  kills: number; deaths: number; assists: number; cs: number; damage: number;
+  /** CS·피해량은 상세 칸 — 지명 계정(collection_target)의 판만 채워진다. 없으면 null(0 으로 채우지 않는다). */
+  kills: number; deaths: number; assists: number; cs: number | null; damage: number | null;
   champId: number; champName: string; position: string | null;
   kp: number; damageShare: number; soloKills: number; csLead: number;
   items: number[]; spells: (number | null)[]; keystone: number | null; subStyle: number | null;
@@ -54,7 +55,8 @@ export interface FlowPoint { i: number; net: number; win: boolean; day: string }
 /** 연속 결과 한 덩어리 — 3연승·2연패 */
 export interface Run { win: boolean; n: number; firstMatchId: string }
 export interface DayLog { day: string; games: number; wins: number; losses: number; runs: Run[] }
-export interface ChampRow { id: number; name: string; games: number; wins: number; losses: number; shrunk: number; kda: number; csPerMin: number; dmgPerMin: number; kills: number; deaths: number; assists: number }
+/** 분당 CS·딜은 상세가 있는 판으로만 낸다 — 없으면 null. */
+export interface ChampRow { id: number; name: string; games: number; wins: number; losses: number; shrunk: number; kda: number; csPerMin: number | null; dmgPerMin: number | null; kills: number; deaths: number; assists: number }
 export interface MemberStat { games: number; wins: number; champs: ChampRow[] }
 export interface RecordRow { key: string; label: string; value: string; who: string | null; champ: string | null; matchId: string | null; at: string | null; note?: string }
 export interface CoPlayer { slug: string; name: string; ally: number; enemy: number }
@@ -173,6 +175,7 @@ export function buildChallenge(
   const stats: MemberStat[] = def.members.map((m) => {
     const mine = rows.filter((r) => r.puuid === m.puuid);
     const champs = new Map<number, ChampRow & { mins: number; dmg: number; csSum: number }>();
+    // ★ 분모(분)는 상세가 있는 판만 — 상세 없는 판을 0 으로 넣으면 분당 값이 묽어진다.
     for (const r of mine) {
       const c = champs.get(r.champion_id) ?? champs.set(r.champion_id, {
         id: r.champion_id, name: championById(r.champion_id)?.name ?? r.champion_name, games: 0, wins: 0, losses: 0, shrunk: 0,
@@ -180,13 +183,13 @@ export function buildChallenge(
       }).get(r.champion_id)!;
       c.games++; if (r.outcome === "win") c.wins++; else c.losses++;
       c.kills += r.kills; c.deaths += r.deaths; c.assists += r.assists;
-      c.mins += r.game_duration / 60; c.dmg += r.damage_to_champions; c.csSum += r.cs;
+      if (r.cs != null && r.damage_to_champions != null) { c.mins += r.game_duration / 60; c.dmg += r.damage_to_champions; c.csSum += r.cs; }
     }
     return {
       games: mine.length, wins: mine.filter((r) => r.outcome === "win").length,
       champs: [...champs.values()].map(({ mins, dmg, csSum, ...c }) => ({
         ...c, shrunk: affinity({ wins: c.wins, losses: c.losses }), kda: kdaOf(c.kills, c.deaths, c.assists),
-        csPerMin: csSum / Math.max(1, mins), dmgPerMin: dmg / Math.max(1, mins),
+        csPerMin: mins > 0 ? csSum / mins : null, dmgPerMin: mins > 0 ? dmg / mins : null,
       })).sort((a, b) => b.games - a.games || b.shrunk - a.shrunk),
     };
   });

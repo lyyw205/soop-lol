@@ -1,4 +1,7 @@
 import { recordCursor } from "@soop-lol/core/lib/metrics/record-cursor";
+import { tally } from "@soop-lol/core/lib/metrics/tally";
+import { formatChipLabel, isFormat } from "@soop-lol/core/lib/metrics/format";
+import { isMapTab, mapTabLabel, type FormatFilter, type MapTab } from "@soop-lol/core/lib/metrics/record-scope";
 import { isTitle, isRunnerUp } from "@soop-lol/core/lib/contract";
 import Link from "next/link";
 import { profileHref } from "@soop-lol/core/lib/site-paths";
@@ -16,15 +19,12 @@ import { PersonalProfileInfo } from "@/components/personal-profile-info";
 import { championById, championIconPath, formatRank } from "@soop-lol/core/lib/contract";
 import { RecordSearch } from "../../../../../../packages/ui/record-search";
 import { listPublicStreamerOptions, listPublicStreamers, listMatchRosters } from "@soop-lol/core/lib/contract";
-import { listPersonalRecords, listPersonalMatches } from "@soop-lol/core/lib/db/personal";
-import { CATEGORY_LABEL, isMatchCategoryFilter } from "@soop-lol/core/lib/metrics/category";
+import { listPersonalSets, listPersonalMatches, listChampions, listChampionRecords } from "@soop-lol/core/lib/db/personal";
 import { PersonalRecordFilters, PersonalRecordSummary, PersonalMatchHistory } from "@/components/personal-records";
 import { versusIndexHref } from "@/lib/module-links";
 
 import {
   getStreamerBySlug,
-  listChampions,
-  listChampionRecords,
   listProfileAccounts,
   listPublicChannels,
   listStreamerEvents,
@@ -55,7 +55,7 @@ export default async function StreamerProfile({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ year?: string; sort?: string; tab?: string; category?: string; cursor?: string; opponent?: string; period?: string; from?: string; to?: string; duel?: string }>;
+  searchParams: Promise<{ year?: string; sort?: string; tab?: string; map?: string; format?: string; cursor?: string; opponent?: string; period?: string; from?: string; to?: string; duel?: string }>;
 }) {
   const { slug } = await params;
   const streamer = await getStreamerBySlug(slug);
@@ -67,7 +67,9 @@ export default async function StreamerProfile({
   const year = sp.year && /^\d{4}$/.test(sp.year) ? Number(sp.year) : undefined;
   const opponentSort: OpponentSort = isOpponentSort(sp.sort) ? sp.sort : DEFAULT_OPPONENT_SORT;
   const tab: ProfileTab = isProfileTab(sp.tab) ? sp.tab : DEFAULT_PROFILE_TAB;
-  const category = sp.category && isMatchCategoryFilter(sp.category) ? sp.category : "all";
+  // ★ 분류 필터 = 맵 탭 + 진행 방식(칼바람은 나누지 않는다). 옛 `?category=` 는 읽지 않는다 — 기본값(협곡·전체)으로 간다.
+  const map: MapTab = isMapTab(sp.map) ? sp.map : "rift";
+  const format: FormatFilter = sp.format && isFormat(sp.format) ? sp.format : "all";
   const matchPageSize = 20;
   // 기간은 상대 전적 전용이 아니다 — 매치 히스토리·챔피언 탭도 같은 값을 쓴다.
   const recordPeriod = resolveRecordPeriod({...sp, year});
@@ -87,10 +89,13 @@ export default async function StreamerProfile({
     const t = next.tab ?? tab;
     const y = next.year === undefined ? year : (next.year ?? undefined);
     const so = next.sort === undefined ? opponentSort : (next.sort ?? DEFAULT_OPPONENT_SORT);
-    const c = next.category ?? category;
+    const m = next.map ?? map;
+    // 맵을 바꾸면 진행 방식은 전체로 — 칼바람은 진행 방식으로 나누지 않는다.
+    const f = next.format ?? (next.map && next.map !== map ? "all" : format);
 
     const q = new URLSearchParams();
-    if (c !== "all") q.set("category", c);
+    if (m !== "rift") q.set("map", m);
+    if (f !== "all" && m !== "aram") q.set("format", f);
 
     if (sp.opponent) q.set("opponent", sp.opponent);
     if (t !== DEFAULT_PROFILE_TAB) q.set("tab", t);
@@ -119,33 +124,38 @@ export default async function StreamerProfile({
     games: tab === "games" && periodOk,
   };
 
+  // ★ 고르기 하나 — 요약 카드·매치 히스토리·챔피언 탭·상대 전적이 같은 조건(맵·진행 방식·기간)을 쓴다.
+  const scope = { map, format, ...periodRange };
   const allEventsPromise = listStreamerEvents(id);
   const allChampionsPromise = listChampions(id, 10);
-  const [channels, accounts, events, placements, opponentPeople, opponentGames, champions, games, records, searchOptions, allEvents, allChampions] =
+  const [channels, accounts, events, placements, opponentPeople, opponentGames, champions, mySets, searchOptions, allEvents, allChampions] =
     await Promise.all([
       listPublicChannels(id),
       listProfileAccounts(id),
-      needs.events ? (tab === "events" && year ? listStreamerEvents(id, year) : allEventsPromise) : [],
-      // ★ 연도를 안 넘긴다. 수상 내역은 프로필 머리에 붙어 어느 탭에서도 같은 값이어야
-      //   한다 — 연도를 누를 때마다 이름 옆 우승 횟수가 바뀌면 통산인지 그 해인지 모른다.
+      // ★ 대회 탭도 기간 필터를 따른다(대회 기간이 겹치는 대회, 그 기간의 시리즈만). 예전엔 무시했다.
+      needs.events ? (periodOk ? (periodRange.from || periodRange.to ? listStreamerEvents(id, periodRange) : allEventsPromise) : []) : [],
+      // ★ 수상 요약은 기간을 안 넘긴다. 프로필 머리에 붙어 어느 탭에서도 같은 값이어야
+      //   한다 — 기간을 바꿀 때마다 이름 옆 우승 횟수가 바뀌면 통산인지 그 해인지 모른다.
       summarizePlacements(id),
       needs.opponents ? listPublicStreamers() : [],
-      needs.opponentGames && periodOk ? listOpponentSummaries(id, {category, ...periodRange, laneOnly}) : [],
-      needs.champions ? listChampionRecords(id, 20, {category, ...periodRange}) : [],
-      needs.games ? listPersonalMatches(id, {category, ...periodRange, limit: matchPageSize + 1, cursor: sp.cursor}) : [],
-      periodOk ? listPersonalRecords(id, {category, ...periodRange}) : [],
+      needs.opponentGames && periodOk ? listOpponentSummaries(id, {...scope, laneOnly}) : [],
+      needs.champions ? listChampionRecords(id, 20, scope) : [],
+      periodOk ? listPersonalSets(id, scope) : [],
       listPublicStreamerOptions(),
       allEventsPromise,
       allChampionsPromise,
     ]);
 
   const sortedOpponents = sortOpponents(opponentGames, opponentSort);
-
-  const visibleGames = games.slice(0, matchPageSize);
-  const matchRosters = await listMatchRosters(visibleGames.flatMap((game) => game.match_ids));
+  // 요약 카드의 분모 = 매치 히스토리의 분모(같은 세트). 세는 규칙은 tally 하나.
+  const record = tally(mySets);
+  const history = needs.games ? await listPersonalMatches(id, mySets, { limit: matchPageSize, cursor: sp.cursor }) : { rows: [], more: false };
+  const visibleGames = history.rows;
+  const matchRosters = await listMatchRosters(visibleGames.flatMap((game) => game.sets.map((set) => set.match_id)));
 
   const periodKey = `${recordPeriod.key}-${recordPeriod.from}-${recordPeriod.to}-${laneOnly}-${opponentSort}`;
   const periodLabel = recordPeriodLabel(recordPeriod);
+  const filterLabel = map === "aram" ? mapTabLabel(map) : `${mapTabLabel(map)} · ${format === "all" ? "전체" : formatChipLabel(format)}`;
 
   const topChampions = allChampions.slice(0, 5);
   /**
@@ -191,9 +201,9 @@ export default async function StreamerProfile({
           // 개인 기록의 우측 컬럼 — 다가오는 일정(편성표). 없으면 빈 칸으로 본문 폭과 시선 축만 유지한다.
           sidebar={<ProfileSidebar slug={slug} game="lol" />}
         >
-        <RecordSearch key={`${slug}-${sp.opponent ?? ""}`} options={searchOptions} a={slug} b={sp.opponent} mode="personal" versusPath={versusIndexHref()} category={category} year={year} />
-        <PersonalRecordFilters key={periodKey} category={category} year={year} period={recordPeriod} hrefFor={hrefFor} />
-        <PersonalRecordSummary records={records} category={category} art={profileArt}
+        <RecordSearch key={`${slug}-${sp.opponent ?? ""}`} options={searchOptions} a={slug} b={sp.opponent} mode="personal" versusPath={versusIndexHref()} scope={{ map, format, year }} />
+        <PersonalRecordFilters key={periodKey} map={map} format={format} year={year} period={recordPeriod} hrefFor={hrefFor} />
+        <PersonalRecordSummary record={record} art={profileArt}
           portrait={<Avatar name={streamer.display_name} src={streamer.profile_image_url} channelId={channels.find((c) => c.platform === "soop")?.channel_id} />}
           identity={<>
             {/* 이름 **위** 는 게임 계정, **아래** 는 방송 채널. 둘 다 예전엔 카드 아래쪽
@@ -218,7 +228,7 @@ export default async function StreamerProfile({
             awards={allEvents.filter((e) => (isTitle(e) || isRunnerUp(e))).slice(0, 3).map((e) => ({id:e.event_slug, title:e.event_name, placement:e.placement, year:e.starts_at ? kstYear(new Date(e.starts_at)) : undefined, team:e.team_name}))}
             champions={topChampions.map((c) => {
               const champion = championById(c.champion_id);
-              return {id:c.champion_id, name:champion?.name ?? c.champion_name ?? "챔피언 미상", image:champion ? championIconPath(champion) : undefined, games:c.games};
+              return {id:c.champion_id, name:champion?.name ?? (c.champion_id ? `챔피언 ${c.champion_id}` : "챔피언 미상"), image:champion ? championIconPath(champion) : undefined, games:c.games};
             })} />}
         />
 
@@ -229,8 +239,8 @@ export default async function StreamerProfile({
         {/* ── 대회 ── */}
         {tab === "events" && (
           <RecordContentPanel>
-            <SectionTitle hint={`${year ? `${year}년` : "전체 기간"} · 카테고리 필터 제외`}>대회 성적</SectionTitle>
-            <EventList events={events} year={year} />
+            <SectionTitle hint={`${periodLabel} · 맵·진행 방식 필터 제외`}>대회 성적</SectionTitle>
+            <EventList events={events} filtered={recordPeriod.key !== "all"} />
           </RecordContentPanel>
         )}
 
@@ -240,16 +250,16 @@ export default async function StreamerProfile({
             {/* 제목 · 요약 · 조작을 한 줄에 둔다. 예전엔 세 줄이었는데 '상대' 라는 말이
                 토글·요약·탭 이름에 세 번 나왔다. */}
             <OpponentHistoryHeading href={hrefFor({})} period={recordPeriod}
-              categoryLabel={category === "all" ? undefined : CATEGORY_LABEL[category]} count={sortedOpponents.length} sort={opponentSort}
+              categoryLabel={filterLabel} count={sortedOpponents.length} sort={opponentSort}
               laneToggle={<OpponentModeToggle href={hrefFor({})} laneOnly={laneOnly} />} />
-            <OpponentHistoryList rows={sortedOpponents} people={opponentPeople} slug={slug} streamerName={streamer.display_name} category={category} period={recordPeriod} laneOnly={laneOnly} />
+            <OpponentHistoryList rows={sortedOpponents} people={opponentPeople} slug={slug} streamerName={streamer.display_name} map={map} format={format} period={recordPeriod} laneOnly={laneOnly} />
           </RecordContentPanel>
         )}
 
         {/* ── 챔피언 ── */}
         {tab === "champions" && (
           <RecordContentPanel>
-            <SectionTitle hint={`${CATEGORY_LABEL[category]} · ${periodLabel}`}>모스트 챔피언</SectionTitle>
+            <SectionTitle hint={`${filterLabel} · ${periodLabel}`}>모스트 챔피언</SectionTitle>
             <ChampionList champions={champions} />
           </RecordContentPanel>
         )}
@@ -257,11 +267,11 @@ export default async function StreamerProfile({
         {/* ── 경기 ── */}
         {tab === "games" && (
           <RecordContentPanel className="arena-records" id="match-records">
-            <SectionTitle hint={`${CATEGORY_LABEL[category]} · ${periodLabel} · 최신순`}>매치 히스토리</SectionTitle>
+            <SectionTitle hint={`${filterLabel} · ${periodLabel} · 최신순`}>매치 히스토리</SectionTitle>
             <PersonalMatchHistory matches={visibleGames} rosters={matchRosters} streamerId={id} streamerName={streamer.display_name} />
             <nav className="personal-pagination" aria-label="매치 페이지">
               {sp.cursor && <Link href={hrefFor({})} scroll={false}>처음으로</Link>}
-              {games.length > matchPageSize && <Link href={`${hrefFor({})}${hrefFor({}).includes("?") ? "&" : "?"}cursor=${encodeURIComponent(recordCursor(visibleGames.at(-1)!.played_at, visibleGames.at(-1)!.series_key))}`} scroll={false}>이전 기록 더 보기 →</Link>}
+              {history.more && <Link href={`${hrefFor({})}${hrefFor({}).includes("?") ? "&" : "?"}cursor=${encodeURIComponent(recordCursor(visibleGames.at(-1)!.played_at, visibleGames.at(-1)!.series_id))}`} scroll={false}>이전 기록 더 보기 →</Link>}
             </nav>
           </RecordContentPanel>
         )}

@@ -74,3 +74,9 @@ export function takeSeries<T>(rows: readonly T[], limit:number, key:(row:T)=>str
   const visible=new Set(keys.slice(0,limit));
   return {rows: rows.filter(row=>visible.has(key(row))),truncated:keys.length>limit};
 }
+
+/** KST 달력 날짜(`YYYY-MM-DD`, core_public 의 series_started_on)가 기간 안인가. 날짜를 다시 계산하지 않는다. */
+export function withinRecordDay(day: string, period: RecordPeriod): boolean {
+  if (period.error) return false;
+  return (!period.from || day >= period.from) && (!period.to || day <= period.to);
+}

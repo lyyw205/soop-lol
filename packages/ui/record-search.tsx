@@ -61,9 +61,13 @@ function PersonField({ label, options, value, onChange, hidden = false }: {
   </div>;
 }
 
-export function RecordSearch({ options, a, b, mode = "versus", versusPath, game = "lol", includeOpponentInPersonal = true, category, year, personalHint, versusHint }: {
+/**
+ * @param scope 검색으로 옮겨 갈 때 지금 필터(맵·진행 방식·연도)를 그대로 넘긴다 — 기본값이면 적지 않는다.
+ */
+export function RecordSearch({ options, a, b, mode = "versus", versusPath, game = "lol", includeOpponentInPersonal = true, scope = {}, personalHint, versusHint }: {
   options: RecordSearchOption[]; a?: string; b?: string; mode?: "personal" | "versus";
-  versusPath?: string | null; game?: SiteGame; includeOpponentInPersonal?: boolean; category?: string; year?: number;
+  versusPath?: string | null; game?: SiteGame; includeOpponentInPersonal?: boolean;
+  scope?: { map?: string; format?: string; year?: number };
   personalHint?: string; versusHint?: string;
 }) {
   const [selectedMode, setMode] = useState(versusPath ? mode : "personal");
@@ -80,8 +84,9 @@ export function RecordSearch({ options, a, b, mode = "versus", versusPath, game 
     if (selectedMode === "versus" && !right.slug) { setError("비교할 상대 스트리머를 선택해 주세요.");return; }
     if (selectedMode === "versus" && left.slug === right.slug) { setError("서로 다른 스트리머를 선택해 주세요.");return; }
     const query = new URLSearchParams();
-    if (category && category !== "all") query.set("category",category);
-    if (year) query.set("year",String(year));
+    if (scope.map && scope.map !== "rift") query.set("map",scope.map);
+    if (scope.format && scope.format !== "all") query.set("format",scope.format);
+    if (scope.year) query.set("year",String(scope.year));
     let path: string;
     if (selectedMode === "personal") {
       path = profileHref(game, left.slug);

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { entryPeriod, entryState, ENTRY_STATE_LABEL, kstClock, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL,
+import { entryPeriod, entryState, ENTRY_STATE_LABEL, kstClock, SCHEDULE_GAME_LABEL, scheduleFormatLabel,
   type PublicScheduleEntry } from "@soop-lol/core/lib/contract/schedule";
 import { Avatar } from "../../../ui/avatar.tsx";
 import type { DayCard } from "./layout.ts";
@@ -35,9 +35,9 @@ export function HeadlineMatch({ card, people, href }: {
   card: DayCard; people: SchedulePerson[]; href: string;
 }) {
   const { entry, slot } = card;
-  return <Link href={href} data-schedule-id={entry.schedule_id} aria-haspopup="dialog" className="sched-headline" data-kind={entry.planned_kind}>
+  return <Link href={href} data-schedule-id={entry.schedule_id} aria-haspopup="dialog" className="sched-headline" data-kind={entry.planned_format}>
     <div className="sched-headline-top"><span>주목할 일정 / {SCHEDULE_GAME_LABEL[entry.game_code]}</span><ScheduleStatus entry={entry} /></div>
-    <h2>{entry.title}</h2><p>{slot.label ?? SCHEDULE_KIND_LABEL[entry.planned_kind]}</p>
+    <h2>{entry.title}</h2><p>{slot.label ?? scheduleFormatLabel(entry.planned_format)}</p>
     <div className="sched-headline-bottom"><ScheduleFaces entry={entry} people={people} />
       <span className="sched-headline-time"><small>{shortDate(slot.on_date)} {weekday(slot.on_date)}요일</small><b><SlotTime card={card} /></b></span>
       <span className="sched-match-link"><ScheduleArrow diagonal /></span>
@@ -50,13 +50,15 @@ export function ScheduleRow({ card, people, href, compact = false }: {
 }) {
   const { entry, slot } = card;
   const hosts = entry.participants.filter((p) => p.role === "host").map((p) => p.display_name).join(" · ");
-  return <Link href={href} data-schedule-id={entry.schedule_id} aria-haspopup="dialog" data-kind={entry.planned_kind} data-state={entryState(entry.status)}
+  // 미분류 일정은 분류 이름을 달지 않는다 — 확인된 것만 이름을 단다(계획 결정 7).
+  const formatName = scheduleFormatLabel(entry.planned_format);
+  return <Link href={href} data-schedule-id={entry.schedule_id} aria-haspopup="dialog" data-kind={entry.planned_format} data-state={entryState(entry.status)}
     className={compact ? "sched-agenda-row is-compact" : "sched-agenda-row"}>
     <span className="sched-row-time">{compact ? <><b>{slot.on_date.slice(-2)}</b><small>{Number(slot.on_date.slice(5, 7))}월 · {weekday(slot.on_date)}요일</small></>
       : <><b><SlotTime card={card} /></b><ScheduleStatus entry={entry} /></>}</span>
     <div className="sched-row-copy">
       <h3>{entry.title}</h3>
-      <div className="sched-row-meta"><span className="sched-kind">{SCHEDULE_KIND_LABEL[entry.planned_kind]}</span>
+      <div className="sched-row-meta">{formatName && <span className="sched-kind">{formatName}</span>}
         <span>{compact ? <SlotTime card={card} /> : SCHEDULE_GAME_LABEL[entry.game_code]}</span>
         {slot.label && <span>{slot.label}</span>}{hosts && <span>{hosts} 주최</span>}
         {entry.slots_changed_at && entry.status !== "cancelled" && <span className="sched-changed">일정 변경</span>}
@@ -80,6 +82,6 @@ export function TournamentCard({ entry, date, href }: { entry: PublicScheduleEnt
       </span>)}
     </div>
     {slots.length > 5 && <span className="sched-more-slots">외 {slots.length - 5}개 일정</span>}
-    <div className="sched-competition-bottom"><span>{hosts ? `${hosts} 주최` : SCHEDULE_KIND_LABEL[entry.planned_kind]}</span><ScheduleStatus entry={entry} /><ScheduleArrow /></div>
+    <div className="sched-competition-bottom"><span>{hosts ? `${hosts} 주최` : scheduleFormatLabel(entry.planned_format)}</span><ScheduleStatus entry={entry} /><ScheduleArrow /></div>
   </Link>;
 }

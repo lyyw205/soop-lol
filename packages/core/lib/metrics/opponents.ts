@@ -10,7 +10,8 @@
  *   그래서 모든 정렬을 여기서 한다. 하나만 TS 로 빼면 "이 정렬은 어디 있더라" 가 된다.
  */
 
-import { affinity, games, type HeadToHead } from "./affinity.ts";
+import { affinity, games, headToHead, type HeadToHead } from "./affinity.ts";
+import { total, type Tally } from "./tally.ts";
 
 export const OPPONENT_SORTS = [
   { key: "games", label: "판수순", hint: "많이 만난 순" },
@@ -27,34 +28,29 @@ export function isOpponentSort(v: string | null | undefined): v is OpponentSort 
   return OPPONENT_SORTS.some((s) => s.key === v);
 }
 
-/** 정렬에 필요한 것만 본다 — `OpponentRow` 전체를 요구하면 테스트가 못 쓴다. */
+/** 정렬에 필요한 것만 본다 — 세트·시리즈 집계(tally 결과)와 마지막으로 만난 날. */
 export interface SortableOpponent {
-  vs_matches: number;
-  vs_match_wins: number;
-  vs_match_draws: number;
-  /** 일부 게임 API가 승패를 반환하지 않는 경우. 미상은 패배로 간주하지 않는다. */
-  vs_match_unknown?: number;
-  ally_matches: number;
+  record: Tally;
   last_met: Date | string;
 }
 
-/** 맞붙었을 때의 전적. 승률 정렬은 이걸 쓴다 — 같은 팀 승률과 섞지 않는다. */
+/**
+ * 승률 정렬의 재료 = **시리즈** 전적. 미상은 승률의 분모에서 뺀다(진 것도 이긴 것도 아니다).
+ * ★ 세트로 정렬하지 않는다 — 다전제 한 번이 단판 세 번처럼 무게를 갖게 된다.
+ */
 export function versusRecord(r: SortableOpponent): HeadToHead {
-  return {
-    wins: r.vs_match_wins,
-    draws: r.vs_match_draws,
-    losses: r.vs_matches - r.vs_match_wins - r.vs_match_draws - (r.vs_match_unknown ?? 0),
-  };
+  return headToHead(r.record.series);
 }
 
 const time = (v: Date | string) => new Date(v).getTime();
-const played = (r: SortableOpponent) => r.vs_matches + r.ally_matches;
+/** 판수순의 판 = 세트. 표에 보이는 "N세트" 와 같은 수로 줄을 세운다. */
+const played = (r: SortableOpponent) => total(r.record.sets);
 
 /**
  * 정렬한 새 배열을 준다. 원본은 건드리지 않는다.
  *
- * 승률순에서 **맞붙은 적이 없는 상대는 맨 뒤**로 보낸다. 축소를 거치면 0판도
- * 0.5 가 나오는데, 그걸 그대로 두면 '한 번도 안 붙은 사람' 이 5할 상대들 사이에
+ * 승률순에서 **승부가 난 시리즈가 없는 상대는 맨 뒤**로 보낸다. 축소를 거치면 0판도
+ * 0.5 가 나오는데, 그걸 그대로 두면 '승부를 가린 적 없는 사람' 이 5할 상대들 사이에
  * 섞여 앉는다. 없는 걸 중간값으로 보여주는 셈이라 뒤로 뺀다.
  */
 export function sortOpponents<T extends SortableOpponent>(rows: T[], sort: OpponentSort): T[] {
@@ -63,9 +59,9 @@ export function sortOpponents<T extends SortableOpponent>(rows: T[], sort: Oppon
     out.sort((a, b) => time(b.last_met) - time(a.last_met) || played(b) - played(a));
   } else if (sort === "winrate" || sort === "winrate_asc") {
     out.sort((a, b) => {
-      if ((a.vs_matches === 0) !== (b.vs_matches === 0)) return a.vs_matches === 0 ? 1 : -1;
       const ra = versusRecord(a);
       const rb = versusRecord(b);
+      if ((games(ra) === 0) !== (games(rb) === 0)) return games(ra) === 0 ? 1 : -1;
       return (
         (sort === "winrate_asc" ? affinity(ra) - affinity(rb) : affinity(rb) - affinity(ra)) ||
         games(rb) - games(ra) ||

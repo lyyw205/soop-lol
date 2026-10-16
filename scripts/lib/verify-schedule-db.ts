@@ -20,11 +20,17 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
   await sql`INSERT INTO streamer_channel (streamer_id, platform, channel_id, is_primary) VALUES (${host.id}, 'soop', 'schedhost', true)`;
   const [hidden] = await sql<{ id: string }[]>`
     INSERT INTO streamer (slug, display_name, visibility) VALUES ('sched-hidden', '숨긴 참가자', 'hidden') RETURNING id`;
-  const [lolCk] = await sql<{ id: string }[]>`INSERT INTO event (slug, name, kind, game_code) VALUES ('sched-ck', '편성 CK', 'ck', 'lol') RETURNING id`;
-  const [fcEv] = await sql<{ id: string }[]>`INSERT INTO event (slug, name, kind, game_code) VALUES ('sched-fc', '편성 FC 대회', 'tournament', 'fconline') RETURNING id`;
+  const [lolCk] = await sql<{ id: string }[]>`INSERT INTO event (slug, name, format, game_code) VALUES ('sched-ck', '편성 CK', 'ck', 'lol') RETURNING id`;
+  const [fcEv] = await sql<{ id: string }[]>`INSERT INTO event (slug, name, format, game_code) VALUES ('sched-fc', '편성 FC 대회', 'tournament', 'fconline') RETURNING id`;
+
+  await sql`INSERT INTO event (slug, name, format, auto_bucket, game_code) VALUES ('lol-code-auto-2026-10-03', '묶음', 'unclassified', true, 'lol')`;
+  const linkable = await schedule.listEventsForScheduleLink("lol");
+  check("결과 연결 후보는 같은 게임의 실제 행사만 — 자동 미분류 묶음은 없다, 진행 방식(format)을 함께 준다",
+    linkable.some((e) => e.id === lolCk.id && e.format === "ck") && !linkable.some((e) => e.slug === "lol-code-auto-2026-10-03")
+      && !linkable.some((e) => e.id === fcEv.id), JSON.stringify(linkable.map((e) => [e.slug, e.format])));
 
   const base = () => ({
-    game_code: "lol" as const, title: "검증 CK", planned_kind: "ck" as const,
+    game_code: "lol" as const, title: "검증 CK", planned_format: "ck" as const,
     sponsor: null, description: "공개 설명", admin_note: "관리자만", status: "scheduled" as const,
     event_id: null as string | null, visibility: "public" as const,
     slots: [{ label: null, on_date: "2026-10-03", starts_at: kst("2026-10-03T20:00"), ends_at: kst("2026-10-03T23:00"), channel_id: null }],
@@ -44,6 +50,14 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
   await expectReject("DB 도 끝 ≤ 시작을 거부한다(CHECK)",
     () => sql`INSERT INTO schedule_slot (entry_id, on_date, starts_at, ends_at) VALUES (${saved.id}, '2026-10-03', ${kst("2026-10-03T20:00")}, ${kst("2026-10-03T20:00")})`,
     "schedule_slot_end_after_start");
+  await expectReject("일정 분류는 게임별 허용만 — 롤 일정에 FC 친선은 저장을 거부한다",
+    () => schedule.saveScheduleEntry({ ...base(), planned_format: "friendly" }), "분류");
+  await expectReject("★ DB 도 게임별 허용 밖 분류를 거부한다(schedule_entry_planned_format_check) — FC 일정의 랜드",
+    () => sql`INSERT INTO schedule_entry (game_code, title, planned_format) VALUES ('fconline', 'FC 랜드', 'land')`,
+    "schedule_entry_planned_format_check");
+  await expectReject("DB 도 옛 분류 값(showmatch)을 거부한다",
+    () => sql`INSERT INTO schedule_entry (game_code, title, planned_format) VALUES ('lol', '옛 이벤트전', 'showmatch')`,
+    "schedule_entry_planned_format_check");
   await expectReject("공개인데 출처가 없으면 저장을 거부한다",
     () => schedule.saveScheduleEntry({ ...base(), sources: [] }), "출처");
 
@@ -87,7 +101,7 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
 
   // 출처 없는 공개 일정을 접근자를 우회해 직접 넣어도 뷰가 내보내지 않는다.
   const [raw] = await sql<{ id: string }[]>`
-    INSERT INTO schedule_entry (game_code, title, planned_kind) VALUES ('lol', '출처 없음', 'ck') RETURNING id`;
+    INSERT INTO schedule_entry (game_code, title, planned_format) VALUES ('lol', '출처 없음', 'ck') RETURNING id`;
   await sql`INSERT INTO schedule_slot (entry_id, on_date) VALUES (${raw.id}, '2026-10-03')`;
   check("★ 출처 없는 일정은(직접 넣어도) 공개 뷰에 없다",
     (await sql`SELECT 1 FROM core_public.schedule_entry WHERE schedule_id = ${raw.id}`).length === 0
@@ -102,7 +116,7 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
 
   console.log("\n▸ 편성표 — 공개 조회");
   const major = await schedule.saveScheduleEntry({
-    ...base(), title: "여러 날 FC 대회", game_code: "fconline", planned_kind: "tournament", status: "held", event_id: fcEv.id,
+    ...base(), title: "여러 날 FC 대회", game_code: "fconline", planned_format: "tournament", status: "held", event_id: fcEv.id,
     participants: [{ streamer_id: host.id, role: "host", team: null }],
     slots: [
       { label: "개막", on_date: "2026-09-28", starts_at: kst("2026-09-28T19:00"), ends_at: null, channel_id: null },
@@ -119,14 +133,14 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
   check("FC 대회 목록에 있는 event 와 연결된 완료 일정은 결과 링크를 갖는다",
     majorRow?.result?.page === "fc_event" && majorRow.result.slug === "sched-fc", JSON.stringify(majorRow?.result));
   const fco = await import("../../packages/core/lib/db/fconline.ts");
-  await sql`UPDATE event SET kind = 'ck' WHERE id = ${fcEv.id}`;
+  await sql`UPDATE event SET format = 'ck' WHERE id = ${fcEv.id}`;
   const fcCkSchedule = (await pub.listPublicSchedule({from:"2026-10-01",to:"2026-10-07"})).find(e=>e.schedule_id === major.id);
   check("FC CK는 대회 목록에서 빠져도 상세와 편성표 결과 링크가 남는다",
-    !(await fco.listFcoEvents()).some(e=>e.id===fcEv.id) && (await fco.getFcoEvent("sched-fc"))?.kind === "ck"
+    !(await fco.listFcoEvents()).some(e=>e.id===fcEv.id) && (await fco.getFcoEvent("sched-fc")) != null
       && fcCkSchedule?.result?.page === "fc_event");
-  await sql`UPDATE event SET kind = 'tournament' WHERE id = ${fcEv.id}`;
+  await sql`UPDATE event SET format = 'tournament' WHERE id = ${fcEv.id}`;
   const ckRow = win.find((e) => e.schedule_id === saved.id);
-  check("★ 롤 CK event 와 연결돼도 결과 링크가 없다 — 롤 대회 상세는 kind='tournament' 만 연다(404 방지)",
+  check("★ 롤 CK event 와 연결돼도 결과 링크가 없다 — 롤 대회 상세는 format='tournament' 만 연다(404 방지)",
     ckRow !== undefined && ckRow.result === null, JSON.stringify(ckRow?.result));
   const lolT = (await listPublicTournamentEvents()).find((t) => t.slug);
   if (lolT) {
@@ -180,7 +194,7 @@ export async function verifyScheduleDb(check: Check, expectReject: ExpectReject)
 
   // 상태는 관리자가 정한다(0058) — 완료(held)는 다가오는 일정이 아니다. 이미 시작한 대회는 '진행중' 으로 둔다.
   const ongoing = await schedule.saveScheduleEntry({
-    ...base(), title: "진행중 대회", planned_kind: "tournament", status: "in_progress",
+    ...base(), title: "진행중 대회", planned_format: "tournament", status: "in_progress",
     participants: [{ streamer_id: host.id, role: "host", team: null }],
     slots: [
       { label: "개막", on_date: "2026-10-01", starts_at: kst("2026-10-01T19:00"), ends_at: kst("2026-10-01T22:00"), channel_id: null },

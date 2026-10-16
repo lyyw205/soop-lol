@@ -1,21 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { bestOfLabel, formatBadge, isRepeatedDate, matchOutcome, OUTCOME_LABEL, setCountLabel } from "./match-row-model.ts";
+import { seriesOutcome } from "@soop-lol/core/lib/contract/client";
+import { bestOfLabel, formatBadge, isRepeatedDate, OUTCOME_LABEL, setCountLabel } from "./match-row-model.ts";
 
-test("다전제 승패는 세트 과반으로 정한다", () => {
-  assert.equal(matchOutcome(2, 3), "win", "2:1 은 승");
-  assert.equal(matchOutcome(1, 3), "loss", "1:2 는 패");
-  assert.equal(matchOutcome(2, 2), "win", "2:0 은 승");
-  assert.equal(matchOutcome(1, 1), "win", "단판 승");
-  assert.equal(matchOutcome(0, 1), "loss", "단판 패");
-});
-
-test("★ 세트가 정확히 반이면 무승부다 — 옛 2세트제 조별리그가 그렇다", () => {
-  assert.equal(matchOutcome(1, 2), "draw");
-  assert.equal(OUTCOME_LABEL[matchOutcome(1, 2)], "무");
-  // "이긴 세트가 더 많지 않으면 패" 로 단순화하면 이 판이 패로 세어진다.
-  assert.notEqual(matchOutcome(1, 2), "loss");
+test("줄의 결과 글자는 core 의 시리즈 판정(seriesOutcome)에 붙인다 — 화면이 다시 판정하지 않는다", () => {
+  assert.equal(OUTCOME_LABEL[seriesOutcome(["win", "loss", "win"])], "승", "2:1 은 승");
+  assert.equal(OUTCOME_LABEL[seriesOutcome(["loss", "win", "loss"])], "패");
+  // 옛 2세트제 1:1 은 무승부 — "이긴 세트가 더 많지 않으면 패" 로 단순화하면 패로 세어진다.
+  assert.equal(OUTCOME_LABEL[seriesOutcome(["win", "loss"])], "무");
+  // ★ 미상이 섞여 뒤집힐 수 있으면 미상이다 — 1승 0패 1미상은 아직 승이 아니다.
+  assert.equal(OUTCOME_LABEL[seriesOutcome(["win", "unknown"])], "미상");
 });
 
 test("BO 라벨은 몇 판 몇 선승인가만 말한다 (세트 수가 아니다)", () => {

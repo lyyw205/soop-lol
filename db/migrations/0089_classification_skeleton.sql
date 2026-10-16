@@ -472,6 +472,7 @@ CREATE VIEW core_public.personal_game AS
 -- 경기 하나 보기(롤) — 경기·행사 상세 화면. 보너스 판 포함. 미등록 자리는 화면에서 읽은 이름만.
 CREATE VIEW core_public.match_detail AS
   SELECT m.match_id, m.series_id, m.series_game_no, m.set_role, m.set_label, ms.event_id, e.format, m.map,
+         ms.best_of, ms.set_order_known, ms.round_label,
          m.queue_id, m.game_mode, m.game_creation AS played_at, m.game_creation_precision, m.game_duration,
          m.winning_team, m.blue_team_id, m.red_team_id, m.source_url, m.collected_via,
          p.participant_id, p.team_id, p.team_position, p.individual_position,

@@ -3,6 +3,8 @@
 posts의 모든 revision에 정확히 한 개의 결과를 반환한다. 게임과 무관한 글도 ignore와 이유를 남긴다.
 각 글의 assets에 있는 이미지를 Read로 모두 확인하라. 읽지 못하면 review로 남기고 문제를 명시한다.
 한 글에 일정이 여러 개면 events에 분리한다. 단순 방송 시작 공지, 프로 경기 시청 예고는 CK/대회로 만들지 않는다.
+format은 진행 방식이다: ck(스트리머끼리 하는 내전, 보상·상금 여부와 무관) · land(랜드) · tournament(대회) · scrim(스크림) · solo_bet(솔랭내기) · concept(정해진 형식 밖의 특별한 컨셉 내전) · friendly(FC 친선) · unclassified.
+롤은 ck·land·tournament·scrim·solo_bet·concept·unclassified, FC온라인은 ck·tournament·concept·friendly·unclassified만 쓴다. 원문에 근거가 없으면 unclassified다 — concept는 모를 때 고르는 값이 아니다.
 모집·개최 가능성은 확정 일정과 구별한다. 게임을 평소 방송 종목으로 추정하지 않는다.
 본문의 명시적 정정은 포스터보다 우선한다. '경기 끝나고'는 시각 null과 timeNote로 표현한다.
 postedAt의 날짜는 SOOP 원문 표기이며 timezone이 verified가 아니면 '오늘/내일'의 절대 날짜를 확정하지 않는다.

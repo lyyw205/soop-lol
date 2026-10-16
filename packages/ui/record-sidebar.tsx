@@ -26,7 +26,8 @@ export function RecordSidebar({ name, slug, isPro, portrait, placements, awards,
       <RecordAwards awards={awards} href={profileHref("lol", slug, { tab: "events" })} />
     </section>
     <section className="arena-panel">
-      <h2>모스트 챔피언 <small className="record-sidebar-note">통산</small></h2>
+      {/* 챔피언 탭의 기본 보기(협곡 · 전체 진행 방식 · 전체 기간)와 같은 수다 — 같은 세트·같은 함수(listChampions). */}
+      <h2>모스트 챔피언 <small className="record-sidebar-note">협곡 · 통산</small></h2>
       <RecordChampions champions={champions} href={profileHref("lol", slug, { tab: "champions" })} />
     </section>
     {children}

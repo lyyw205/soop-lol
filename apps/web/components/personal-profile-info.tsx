@@ -17,7 +17,8 @@ export function PersonalProfileInfo({ slug, champions, awards, placements }: {
   const eventsHref = profileHref("lol", slug, { tab: "events" });
   return <>
     <section className="profile-most profile-info-section">
-      <h3>모스트 챔피언 <small>통산</small></h3>
+      {/* 사이드바·챔피언 탭 기본 보기와 같은 수(협곡 · 전체 진행 방식 · 전체 기간, listChampions). */}
+      <h3>모스트 챔피언 <small>협곡 · 통산</small></h3>
       <RecordChampions champions={champions} href={profileHref("lol", slug, { tab: "champions" })} layout="profile" />
     </section>
     <section className="profile-career profile-info-section">
