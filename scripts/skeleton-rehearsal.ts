@@ -160,7 +160,7 @@ try {
     ["사이드바 자주 만난 매치업", () => versusMod.topLaneOpponents(S, 3)],
     ["스트리머 목록", () => pub.listStreamerCards()],
     ["홈 숫자", () => pub.countPublic()],
-    ["솔랭 도전", () => ranked.listPublicRankedGames(DUO, new Date("2026-08-20T15:00:00Z"))],
+    ["솔랭 도전", () => ranked.listPublicRankedGames(DUO, { since: new Date("2026-08-20T15:00:00Z"), queueIds: [420] })],
     ["FC 프로필 요약", () => fco.getFcoPersonalSummary(F)],
     ["FC 매치 히스토리", () => fco.listFcoStreamerGamesForPerson(F)],
     ...(fcRival ? [["FC 상대전적", () => fco.listFcoVersus(F, fcRival)] as [string, () => Promise<unknown>]] : []),

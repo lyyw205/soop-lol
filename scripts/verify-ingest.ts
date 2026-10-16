@@ -9,7 +9,7 @@
  * 여기서 확인하는 것 — 전부 "돌려보지 않으면 모르는" 것들이다(docs/CLASSIFICATION-REDESIGN-PLAN.md §4):
  *   · 랭크 점수는 연결된 계정 **전원** — 지명과 무관하다. 언랭도 자리가 남는다(구멍과 구분)
  *   · 계정을 연결해도 수집 대상이 생기지 않는다(자동 백필 등록 없음)
- *   · 경기 기록은 지명(collection_target: 계정·큐·기간)한 것만 Riot 에 묻고, 지명 밖 판은 **저장하지 않는다**
+ *   · 경기 기록은 지명 범위(collection_scope: 지명된 사람의 연결 계정·큐·기간)만 Riot 에 묻고, 범위 밖 판은 **저장하지 않는다**
  *   · 지명 판은 개인 기록(personal), 참가자 10명은 기본 칸만, 상세는 **지명 계정 행만**
  *   · spectator 전이를 본 계정만 match-v5 를 부르는가 (호출 낭비)
  *   · 백필 커서가 **반드시 내려가는가** (제자리걸음 = 영원한 루프), 404 는 dead_match 로 가고 다시 안 부른다
@@ -131,6 +131,9 @@ const { db: connect, closeDb } = await import("../packages/core/lib/db/client.ts
 const sql = connect();
 const streamers = await import("../packages/core/lib/db/streamers.ts");
 const ingest = await import("../packages/core/lib/db/ingest.ts");
+const collection = await import("../packages/core/lib/db/collection.ts");
+type OrderInput = Parameters<typeof collection.createOrderInTx>[1];
+const createOrder = (o: OrderInput) => sql.begin((tx) => collection.createOrderInTx(tx, o));
 const { loadConfig } = await import("../apps/worker/src/config.ts");
 const { createContext } = await import("../apps/worker/src/context.ts");
 const { runRankEngine } = await import("../apps/worker/src/engines/rank.ts");
@@ -166,7 +169,7 @@ try {
       evidence: { source: "broadcast_notice", url: "https://example.com/proof" },
     });
   }
-  const autoTargets = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM collection_target`;
+  const autoTargets = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM collection_scope`;
   check("★ 계정 3개를 연결해도 지명 수집 대상은 0 이다(자동 백필 등록 없음)", autoTargets[0].n === 0, `${autoTargets[0].n}건`);
   check("랭크 대상은 연결 계정 전원(3)", (await ingest.listRankTargets()).length === 3);
 
@@ -176,13 +179,14 @@ try {
   const backfillNothing = await backfillJob();
   check("지명이 없으면 백필은 비었다고 한다", backfillNothing.exhausted && fake.matchIdsAsked.length === 0);
 
-  await ingest.addCollectionTarget({ puuid: PUUID_A, queue_id: 420, starts_at: new Date(NOW - 60 * DAY), purpose: "verify:a-solo" });
-  await ingest.addCollectionTarget({ puuid: PUUID_B, queue_id: 420, starts_at: new Date(NOW - 60 * DAY), purpose: "verify:b-solo" });
-  await ingest.addCollectionTarget({
-    puuid: PUUID_A, queue_id: 440, starts_at: new Date(NOW - 100 * DAY), ends_at: new Date(NOW - 50 * DAY), purpose: "verify:a-flex",
+  // 지명은 사람 단위다 — 알파·베타 듀오(솔랭), 알파 혼자(자유랭, 이미 끝난 기간).
+  await createOrder({ slug: "verify-duo", title: "검증 듀오", owner: "module:verify/duo", queue_ids: [420], starts_at: new Date(NOW - 60 * DAY), members: ["alpha", "beta"] });
+  await createOrder({
+    slug: "verify-a-flex", title: "검증 알파 자유랭", owner: "module:verify/a-flex", queue_ids: [440],
+    starts_at: new Date(NOW - 100 * DAY), ends_at: new Date(NOW - 50 * DAY), members: ["alpha"],
   });
   let rejected = false;
-  try { await ingest.addCollectionTarget({ puuid: PUUID_A, queue_id: 420, starts_at: new Date(NOW), purpose: " " }); } catch { rejected = true; }
+  try { await createOrder({ slug: "verify-bad", title: "목적 없음", owner: " ", queue_ids: [420], starts_at: new Date(NOW), members: ["alpha"] }); } catch { rejected = true; }
   check("목적 없는 지명은 거부한다", rejected);
 
   // ── Engine A ───────────────────────────────────────────────────────
@@ -299,18 +303,18 @@ try {
   check("죽은 매치를 다시 부르지 않는다", fake.calls.match === matchCallsBefore,
     `match ${matchCallsBefore} → ${fake.calls.match}`);
 
-  const cursors = await sql<{ purpose: string; state: string; reached_end: boolean; cursor_before: Date | null }[]>`
-    SELECT purpose, state, reached_end, cursor_before FROM collection_target ORDER BY purpose`;
-  check("지명 커서가 전부 done + 끝 도달", cursors.every((c) => c.state === "done" && c.reached_end), JSON.stringify(cursors));
-  const flex = cursors.find((c) => c.purpose === "verify:a-flex");
+  const cursors = await sql<{ slug: string; state: string; reached_end: boolean; cursor_before: Date | null }[]>`
+    SELECT o.slug, p.state, p.reached_end, p.cursor_before FROM collection_progress p JOIN collection_order o ON o.id = p.order_id ORDER BY o.slug, p.puuid`;
+  check("지명 범위 진척이 전부 done + 끝 도달(칸 3: 듀오 2·자유랭 1)", cursors.length === 3 && cursors.every((c) => c.state === "done" && c.reached_end), JSON.stringify(cursors));
+  const flex = cursors.find((c) => c.slug === "verify-a-flex");
   check("끝난 지명은 기간의 끝에서부터 내려간다(커서가 기간 안)", Boolean(flex?.cursor_before && flex.cursor_before.getTime() < NOW - 50 * DAY),
     JSON.stringify(flex));
   const asked = new Set(fake.matchIdsAsked.map((a) => `${a.puuid[0]}:${a.queue}`));
   check("★ Riot 에 물은 것은 지명(계정·큐)뿐이다", [...asked].sort().join(",") === "a:420,a:440,b:420", [...asked].join(","));
 
   // 나중에 지명한 계정의 상세가 빠진 판은 다시 받아 채운다.
-  console.log("\n▸ 나중에 지명한 계정 — 이미 가진 판의 상세를 채운다");
-  await ingest.addCollectionTarget({ puuid: PUUID_C, queue_id: 420, starts_at: new Date(NOW - 60 * DAY), purpose: "verify:c-solo" });
+  console.log("\n▸ 나중에 지명한 사람 — 이미 가진 판의 상세를 채운다");
+  await sql.begin((tx) => collection.addMemberInTx(tx, "verify-duo", "gamma"));
   const matchCallsC = fake.calls.match;
   for (let i = 0; i < 5; i++) if ((await backfillJob()).exhausted) break;
   check("★ 감마 지명 뒤 KR_1003 을 한 번 다시 받아 감마 상세만 더한다",
@@ -320,12 +324,16 @@ try {
     && (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM match_participant WHERE match_id = 'KR_1003'`)[0].n === 10);
 
   // 실패한 지명은 영구 제외가 아니라 한동안 쉬었다가 다시 집힌다(옛 ingest_cursor 는 5번 실패하면 영영 빠졌다).
-  const errored = await ingest.addCollectionTarget({ puuid: PUUID_B, queue_id: 440, starts_at: new Date(NOW - 10 * DAY), purpose: "verify:b-flex" });
-  await ingest.saveBackfillProgress({ id: errored, state: "error", error: "가짜 5xx" });
-  check("방금 실패한 지명은 바로 다시 집지 않는다", (await ingest.claimBackfillTarget()) === null);
-  const later = await ingest.claimBackfillTarget(60 * 60 * 1000, new Date(NOW + 2 * HOUR));
-  check("★ 실패하고 한 시간이 지나면 다시 집는다", later?.id === errored, JSON.stringify(later?.purpose));
-  await sql`DELETE FROM collection_target WHERE id = ${errored}::uuid`;
+  await createOrder({ slug: "verify-b-flex", title: "검증 베타 자유랭", owner: "module:verify/b-flex", queue_ids: [440], starts_at: new Date(NOW - 10 * DAY), members: ["beta"] });
+  const first = await collection.claimBackfillScope();
+  const errored = first?.id ?? "";
+  check("새 지명의 칸은 백필이 처음 집을 때 진척이 생긴다", first?.slug === "verify-b-flex", JSON.stringify(first?.slug));
+  await collection.saveScopeProgress({ id: errored, state: "error", error: "가짜 5xx" });
+  check("방금 실패한 칸은 바로 다시 집지 않는다", (await collection.claimBackfillScope()) === null);
+  const later = await collection.claimBackfillScope(60 * 60 * 1000, new Date(NOW + 2 * HOUR));
+  check("★ 실패하고 한 시간이 지나면 다시 집는다", later?.id === errored, JSON.stringify(later?.slug));
+  const dropped = await sql.begin((tx) => collection.deleteOrderInTx(tx, "verify-b-flex"));
+  check("모은 판이 없는 지명을 지우면 정리할 것도 없다", dropped.pruned.matches.length === 0, dropped.pruned.matches.join(","));
 
   // ── 저장 관문 ──────────────────────────────────────────────────────
   console.log("\n▸ 저장 관문 — 엔진을 거치지 않아도 지명 밖 판은 저장되지 않는다");

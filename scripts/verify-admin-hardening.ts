@@ -56,9 +56,9 @@ try {
   const [owner] = await sql`SELECT id FROM streamer WHERE slug='hard-a'`;
   await people.linkAccount({ candidate_id: candidate.id, streamer_id: owner.id, puuid: 'candidate-hard', confidence: 'verified', evidence: { source: 'manual', note: 'checked' } });
   assert.equal((await sql`SELECT game_name FROM riot_account WHERE puuid='candidate-hard'`)[0].game_name, '최신 이름', 'candidate sighting never overwrites the latest account name');
-  // ★ 계정 연결은 수집 대상을 늘리지 않는다(0089 — 지명 수집만). 편집도 지명(collection_target)을 만들지 않는다.
+  // ★ 연결만으로는 수집 대상이 생기지 않는다(지명된 사람의 계정만 — 0090). 편집도 범위를 만들지 않는다.
   await people.linkAccount({ edit: true, streamer_id: owner.id, puuid: 'candidate-hard', confidence: 'verified', evidence: { source: 'manual', note: 'edited' } });
-  assert.equal((await sql`SELECT count(*)::int n FROM collection_target WHERE puuid='candidate-hard'`)[0].n, 0, 'account link never queues collection');
+  assert.equal((await sql`SELECT count(*)::int n FROM collection_scope WHERE puuid='candidate-hard'`)[0].n, 0, 'account link never queues collection');
   // A merged screen with a retained event decision must not block the canonical event.
   const event = { slug: 'hard-cup', name: 'hard cup', format: 'tournament' as const, source_url: 'https://example.test/cup' };
   await S.saveFcoScreenMatch({ vodTitleNo: 998877, atSec: 10, endedAt: '2026-09-01T01:00:00Z', sides: [{ nickname: 'A', score: 3, streamerSlug: 'hard-a', basis: 'manual' }, { nickname: 'B', score: 1, streamerSlug: 'hard-b', basis: 'manual' }] });

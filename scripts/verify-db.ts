@@ -27,6 +27,7 @@ import { verifyMemberDb } from "./lib/verify-member-db.ts";
 import { verifyCommunityDb } from "./lib/verify-community-db.ts";
 import { verifyCkDuplicateMergeDb, verifyCkDuplicatesDb } from "./lib/verify-ck-duplicates.ts";
 import { verifyMatchSeriesDb } from "./lib/verify-match-series.ts";
+import { verifyCollectionDb } from "./lib/verify-collection-db.ts";
 import { recordCursor } from "../packages/core/lib/metrics/record-cursor.ts";
 import { resolveRecordPeriod } from "../packages/core/lib/metrics/record-period.ts";
 import { mirror, tally, total, type Counts } from "../packages/core/lib/metrics/tally.ts";
@@ -76,6 +77,7 @@ const personalDb = await import("../packages/core/lib/db/personal.ts");
 const opponents = await import("../packages/core/lib/db/opponent-history.ts");
 const ck = await import("../packages/core/lib/db/ck.ts");
 const classification = await import("../packages/core/lib/db/classification.ts");
+const collection = await import("../packages/core/lib/db/collection.ts");
 const publicContract = await import("../packages/core/lib/contract/index.ts");
 const { lolEvent } = await import("./lib/verify-ck-fixtures.ts");
 const { lpAbsolute } = await import("../packages/core/lib/metrics/lp.ts");
@@ -161,9 +163,9 @@ try {
     `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`,
   );
   const names = tables.rows.map((r) => r.tablename);
-  // 파생 표(조우·챔피언 통계)와 전원 백필 커서는 없다(0089) — 지명 수집(collection_target)·제외(event_exclusion)·상세(지명 계정만)가 새로 있다.
+  // 파생 표(조우·챔피언 통계)와 전원 백필 커서는 없다(0089) — 지명 수집(0090: 지명·사람·진척)·제외(event_exclusion)·상세(지명 범위 계정만)가 있다.
   const expected = [
-    "account_candidate", "career_event", "collection_target", "dead_match", "event", "event_exclusion",
+    "account_candidate", "career_event", "collection_member", "collection_order", "collection_progress", "dead_match", "event", "event_exclusion",
     "job_run", "lol_participant_detail", "match", "match_participant", "rank_snapshot",
     "match_series", "review_record", "riot_account", "streamer", "streamer_account", "streamer_channel",
   ];
@@ -243,8 +245,8 @@ try {
   );
 
   // ★ 계정 연결은 수집 대상을 만들지 않는다(계획 §4) — 옛 구조는 여기서 전원 백필 대기열에 넣어 하루 2.7만 판을 쌓았다.
-  const targetsAfterLink = await sqlClient()<{ n: number }[]>`SELECT count(*)::int AS n FROM collection_target`;
-  check("계정을 연결해도 수집 대상이 생기지 않는다 — 경기 수집은 지명(collection_target)한 것만",
+  const targetsAfterLink = await sqlClient()<{ n: number }[]>`SELECT count(*)::int AS n FROM collection_scope`;
+  check("계정을 연결해도 수집 대상이 생기지 않는다 — 경기 수집은 지명된 사람의 계정(collection_scope)만",
     targetsAfterLink[0].n === 0, `${targetsAfterLink[0].n}건`);
 
   console.log("\n▸ 수집 — 토너먼트 코드 판은 내전 세트, 공개 큐 판은 지명한 것만 개인 기록");
@@ -275,7 +277,10 @@ try {
     { puuid: puuidB, teamId: 200, championId: 238, position: "MIDDLE" },
   ];
   const unnamed = await ingestDb.saveMatch(riotGame("KR_SOLO0", 2, soloAt, soloSeats, { queueId: 420 }));
-  await ingestDb.addCollectionTarget({ puuid: puuidA, queue_id: 420, starts_at: new Date("2026-07-01T00:00:00Z"), purpose: "verify:solo" });
+  await sqlClient().begin((tx) => collection.createOrderInTx(tx, {
+    slug: "verify-solo", title: "검증 솔랭", owner: "module:verify/solo", queue_ids: [420],
+    starts_at: new Date("2026-07-01T00:00:00Z"), members: ["alpha"],
+  }));
   const named = await ingestDb.saveMatch(riotGame("KR_SOLO1", 3, soloAt, soloSeats, { queueId: 420 }));
   check("★ 지명 없는 공개 큐 판은 저장하지 않는다 / 지명한 판은 개인 기록(personal)으로만",
     unnamed.state === "out_of_scope" && named.state === "saved" && named.scope === "personal"
@@ -2178,6 +2183,7 @@ try {
   await verifyNormNameSqlDb(check);
   await verifyMemberDb(check, expectReject);
   await verifyCommunityDb(check, expectReject);
+  await verifyCollectionDb(check, riotGame);
 } finally {
   await closeDb();
   await server.stop();

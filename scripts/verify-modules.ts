@@ -459,11 +459,12 @@ for (const rel of DATE_TIMELINES) {
 console.log("\n  [옛 분류 체계 금지]");
 {
   const before = failures;
-  const EXEMPT = new Set(["scripts/verify-modules.ts", "scripts/verify-skeleton.ts", "scripts/skeleton-rehearsal.ts"]);
+  const EXEMPT = new Set(["scripts/verify-modules.ts", "scripts/verify-skeleton.ts", "scripts/skeleton-rehearsal.ts", "scripts/lib/skeleton-checks.ts", "scripts/cutover-0089.ts"]);
   const FORBIDDEN: [RegExp, string][] = [
     [/\blol_match_category\b/, "분류 함수는 없다 — event.format + match.map"],
     [/\bstreamer_encounter\b|\bchampion_stat\b/, "파생 표는 없다 — core_public.versus_set·versus_pair_set 에서 센다"],
-    [/\bingest_cursor\b/, "전원 백필 커서는 없다 — collection_target"],
+    [/\bingest_cursor\b/, "전원 백필 커서는 없다 — 지명 범위(collection_scope)"],
+    [/\bcollection_target\b/, "계정 한 줄짜리 지명은 없다 — collection_order·collection_member·collection_scope(0090)"],
     [/\bfco_match_context\b|\bfco_event_match_decision\b/, "FC 판단은 행사 소속·event_exclusion 이다"],
     [/\bplanned_kind\b/, "일정 예정 분류는 planned_format"],
     [/core_public\.(match|match_with_bonus|aram_match|aram_encounter|streamer_match|match_participant|match_lineup|tournament_match|lol_match_all_modes|lol_encounter_all_modes|aram_champion_stat|lol_champion_stat_all_modes|champion_stat|streamer_encounter)\b/,
