@@ -14,7 +14,7 @@ export async function verifyPuuidMoveDb(check: Check): Promise<void> {
   const oldP = "o".repeat(78), newP = "w".repeat(78), otherP = "x".repeat(78);
   for (const p of [oldP, otherP]) await sql`INSERT INTO riot_account (puuid, game_name, tag_line, platform_region, routing_region) VALUES (${p}, 'n', 'KR1', 'kr', 'asia')`;
   for (const id of ["pm:done", "pm:open", "pm:untouched"]) {
-    await sql`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_creation, source, origin) VALUES (${id}, 'lol', 0, '0', now(), 'manual', 'admin')`;
+    await sql`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_creation, collected_via, scope) VALUES (${id}, 'lol', 0, '0', now(), 'manual', 'personal')`;
   }
   const part = (m: string, p: string, n: number) => sql`
     INSERT INTO match_participant (match_id, puuid, participant_id, team_id, champion_id, outcome, kills, deaths, assists)
