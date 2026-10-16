@@ -13,7 +13,9 @@ await server.start();
 process.env.DATABASE_URL = `postgres://postgres@127.0.0.1:${port}/postgres`;
 process.env.DATABASE_POOL_MAX = '1';
 const { db, closeDb } = await import('../packages/core/lib/db/client.ts');
-const { ensureEvent, saveEventTeams, saveTournamentGame, saveEventLinks, saveEventFacts } = await import('../packages/core/lib/db/tournaments.ts');
+const { saveEventTeams, saveTournamentGame, saveEventLinks, saveEventFacts, pruneEventMatches, listEventGames } = await import('../packages/core/lib/db/tournaments.ts');
+// 행사 찾기·만들기는 분류 쓰기 단일 출처(classification.ts)다 — 시드(seed-tournament)와 같은 길.
+const cls = await import('../packages/core/lib/db/classification.ts');
 // 대회 목록·상세 조립은 대회 모듈의 것이다(core 는 사실만 내보낸다).
 const { listTournaments: listPublicTournaments, getTournament: getPublicTournament } = await import('../packages/modules/tournaments/server/index.ts');
 try {
@@ -21,7 +23,8 @@ try {
   const sql = db();
   const [visible] = await sql`INSERT INTO streamer(slug,display_name) VALUES ('visible','공개선수') RETURNING id`;
   const [hidden] = await sql`INSERT INTO streamer(slug,display_name,visibility) VALUES ('hidden','비공개선수','hidden') RETURNING id`;
-  const eventId = await ensureEvent({ slug: 'meljang-test', name: '검증 대회', kind: 'tournament' });
+  const ensureEvent = (input) => db().begin(tx => cls.ensureEventInTx(tx, { game_code: 'lol', ...input }));
+  const eventId = await ensureEvent({ slug: 'meljang-test', name: '검증 대회', format: 'tournament' });
   const teams = await saveEventTeams(eventId, [
     { name: '우승팀', placement: '우승', placement_rank: 1, prize: '100만 원', vote_rank: 2,
       members: [{ streamer_id: visible.id, position: 'TOP', is_captain: true, rating_label: 'S', rating_points: 43.5, award: 'FINAL MVP' }] },
@@ -43,19 +46,27 @@ try {
   await saveTournamentGame(game);
   await saveTournamentGame({ ...game, match_id: 'hidden-set', series_game_no: 2 });
   await sql`UPDATE match SET visibility='hidden' WHERE match_id='hidden-set'`;
-  const ckId = await ensureEvent({ slug: 'ck-test', name: 'CK 경기', kind: 'ck' });
+  // 시드 판은 수기(collected_via manual)로 시리즈 안에 들어간다 — 판에는 행사 칸이 없다(0089).
+  assert.deepEqual([...(await sql`SELECT m.collected_via, m.scope, ms.event_id FROM match m JOIN match_series ms ON ms.id = m.series_id WHERE m.match_id = 'public-set'`)],
+    [{ collected_via: 'manual', scope: 'versus', event_id: eventId }]);
+  // 시드 경기는 롤 행사에만 — FC 행사에 넣으려 하면 거부한다.
+  const ckId = await ensureEvent({ slug: 'ck-test', name: 'CK 경기', format: 'ck' });
   await saveTournamentGame({ ...game, match_id: 'ck-set', event_id: ckId, series_id: 'ck-series', blue_team_id: null, red_team_id: null });
-  const showId = await ensureEvent({ slug: 'showmatch-test', name: '쇼매치', kind: 'showmatch' });
+  const showId = await ensureEvent({ slug: 'showmatch-test', name: '쇼매치', format: 'concept' });
   await saveTournamentGame({ ...game, match_id: 'show-set', event_id: showId, series_id: 'show-series', blue_team_id: null, red_team_id: null });
-  const scrimId = await ensureEvent({ slug: 'scrim-test', name: '스크림', kind: 'scrim' });
+  const scrimId = await ensureEvent({ slug: 'scrim-test', name: '스크림', format: 'scrim' });
   await saveTournamentGame({ ...game, match_id: 'scrim-set', event_id: scrimId, series_id: 'scrim-series', blue_team_id: null, red_team_id: null });
-  const allstarId = await ensureEvent({ slug: 'meljang-test-allstar', name: '올스타 대회', kind: 'tournament' });
+  const allstarId = await ensureEvent({ slug: 'meljang-test-allstar', name: '올스타 대회', format: 'tournament' });
   await saveTournamentGame({ ...game, match_id: 'allstar-set', event_id: allstarId, series_id: 'allstar-series', blue_team_id: null, red_team_id: null });
-  const fcId = await ensureEvent({ slug: 'fc-test', name: 'FC 대회', kind: 'tournament' });
-  await sql`INSERT INTO match(match_id,game_code,mode_key,source,origin,event_id,game_creation) VALUES ('fc-set','fconline','50','manual','wiki_seed',${fcId}::uuid,now())`;
+  const fcId = await db().begin(tx => cls.ensureEventInTx(tx, { game_code: 'fconline', slug: 'fc-test', name: 'FC 대회', format: 'tournament' }));
+  await assert.rejects(saveTournamentGame({ ...game, match_id: 'fc-wrong', event_id: fcId, series_id: 'fc-wrong' }), /롤 행사가 아니다/);
+  await db().begin(async tx => {
+    await tx`INSERT INTO match(match_id,game_code,mode_key,collected_via,scope,game_creation) VALUES ('fc-set','fconline','50','manual','personal',now())`;
+    await cls.placeSingleSetInTx(tx, { match_id: 'fc-set', game_code: 'fconline', event_id: fcId, actor: 'admin' });
+  });
   const list = await listPublicTournaments();
   assert.equal(list.length, 2, 'only LoL tournaments included; CK, scrim, showmatch and FC excluded');
-  assert.ok(list.every(e => e.kind === 'tournament'));
+  assert.ok(list.every(e => e.format === 'tournament'));
   assert.equal(list.find(e => e.id === allstarId).category, 'event');
   const summary = list.find(e => e.id === eventId);
   assert.equal(summary.setCount, 1, 'hidden set does not affect counts');
@@ -90,6 +101,11 @@ try {
     assert.equal(await getPublicTournament(slug), null, `${slug} cannot open as a tournament`);
   }
   assert.equal(await getPublicTournament('nonexistent'), null);
+  // 시드 정리: 이번 파일에 없는 시드(수기) 판만 지운다 — 그 시리즈가 비면 시리즈도 지운다(classification.dropEmptySeriesInTx).
+  await saveTournamentGame({ ...game, match_id: 'stale-set', series_id: 'stale', series_game_no: 1 });
+  assert.equal(await pruneEventMatches(eventId, ['public-set', 'hidden-set']), 1);
+  assert.equal((await sql`SELECT 1 FROM match_series WHERE id = 'stale'`).length, 0, '빈 시리즈가 남지 않는다');
+  assert.deepEqual((await listEventGames('meljang-test')).map(r => r.match_id).sort(), ['hidden-set', 'public-set']);
   console.log('PASS public tournament queries: tournament-only list/detail, privacy, game isolation, search, KST, metadata and rosters.');
 } finally {
   await closeDb();

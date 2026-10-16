@@ -1,4 +1,4 @@
-import { applyFcoMatchContext } from "../packages/core/lib/games/fconline/context.ts";
+import { ensureEventInTx, moveSeriesInTx, placeSingleSetInTx } from "../packages/core/lib/db/classification.ts";
 /**
  * 대진(칸·화살표·결정)을 실제 Postgres(PGlite)에서 끝까지 돌린다. docs/TOURNAMENT-FORMAT-PLAN.md
  *
@@ -76,6 +76,19 @@ const rankMap = (bracket: Awaited<ReturnType<typeof getEventBracket>>) => {
   }));
 };
 
+/**
+ * FC 경기를 대회에 둔다 — 분류 쓰기 단일 출처(classification.ts)로. 대진 칸은 시리즈 경유로 그 대회의 경기여야 한다(0089 트리거).
+ * 수집이 이미 시리즈(자동 묶음)에 두었으면 그 시리즈째 옮기고, 아니면 대회의 한 판짜리 시리즈로 둔다.
+ */
+async function placeInEvent(matchId: string, event: { slug: string; name: string; source_url: string }) {
+  await db().begin(async (tx) => {
+    const eventId = await ensureEventInTx(tx, { game_code: "fconline", format: "tournament", ...event });
+    const [m] = await tx<{ series_id: string | null }[]>`SELECT series_id FROM match WHERE match_id = ${matchId}`;
+    if (m.series_id) await moveSeriesInTx(tx, { series_id: m.series_id, event_id: eventId, actor: "admin" });
+    else await placeSingleSetInTx(tx, { match_id: matchId, game_code: "fconline", event_id: eventId, actor: "admin" });
+  });
+}
+
 try {
   await applyAll((sql) => database.exec(sql), ROOT);
   const sql = db();
@@ -90,12 +103,12 @@ try {
     const at = new Date(Date.UTC(2026, 7, 25, 8, minute));
     await saveFcoMatch({ matchId: id, matchDate: at.toISOString().slice(0, 19).replace("T", " "), matchType: 40,
       matchInfo: [side(w, "승", ws), side(l, "패", ls)] } as Parameters<typeof saveFcoMatch>[0]);
-    await applyFcoMatchContext({ provider_match_id: id, conclusion: "event", event: { slug: "2026-mini-ppuchamps", name: "N커넥트 미니 뿌챔스 싸워", kind: "tournament", source_url: "https://pick.sooplive.com/daily/view/182785" } });
+    await placeInEvent(`fco:${id}`, { slug: "2026-mini-ppuchamps", name: "N커넥트 미니 뿌챔스 싸워", source_url: "https://pick.sooplive.com/daily/view/182785" });
   }
   // 다른 대회 경기 하나(연결 거부 검사용)
   await saveFcoMatch({ matchId: "other-event-game", matchDate: "2026-08-26 10:00:00", matchType: 40,
     matchInfo: [side("imyujin", "승", 1), side("dohyun", "패", 0)] } as Parameters<typeof saveFcoMatch>[0]);
-  await applyFcoMatchContext({ provider_match_id: "other-event-game", conclusion: "event", event: { slug: "other-cup", name: "다른 대회", kind: "tournament", source_url: "https://example.com/x" } });
+  await placeInEvent("fco:other-event-game", { slug: "other-cup", name: "다른 대회", source_url: "https://example.com/x" });
   const [{ id: eventId }] = await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = '2026-mini-ppuchamps'`;
   const [{ id: otherEventId }] = await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = 'other-cup'`;
   check(`준비: 경기 ${Object.keys(GAMES).length}판, 참가자 ${people.length}명`, true);
@@ -116,6 +129,9 @@ try {
   const applied = await applyBracketSpec(SPEC);
   check("반영 보고: 칸 24 · 화살표 48 · 경기 연결 20 · 결정 1", applied.slots === 24 && applied.routes === 48 && applied.links === 20 && applied.decisionsAdded === 1,
     JSON.stringify({ slots: applied.slots, routes: applied.routes, links: applied.links, decisions: applied.decisionsAdded }));
+  // ★ 판은 모두 시리즈 안에 있다(0089). 묶지 않은 판의 한 판짜리 시리즈(`set:<경기>`)에는 칸의 세트 수를 찍지 않는다.
+  const [{ n: stamped }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM match_series WHERE id LIKE 'set:%' AND best_of IS NOT NULL`;
+  check("한 판짜리 시리즈에 칸 규칙(Bo1·Bo3)을 찍지 않는다", stamped === 0, `${stamped}개`);
   const bracket = await getEventBracket(eventId);
   check("대진을 읽는다(단계 1 · 참가 8)", bracket?.stages.length === 1 && bracket.entrants.length === 8);
   check("★ DB 에서 읽은 대진으로 계산한 순위 = 공식 1~4위 + 규칙 5~8위", JSON.stringify(rankMap(bracket)) === JSON.stringify(EXPECTED), JSON.stringify(rankMap(bracket)));
