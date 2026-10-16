@@ -85,7 +85,7 @@ export default async function StreamersPage({
                       계정 {s.account_count}
                       {s.verified_count > 0 && <span className="text-win"> (확인 {s.verified_count})</span>}
                     </div>
-                    <div>경기 {s.match_count.toLocaleString("ko-KR")}</div>
+                    <div title="공개 내전 세트 수(core_public.versus_set)">공개 경기 {s.match_count.toLocaleString("ko-KR")}</div>
                   </div>
                 </Link>
               </li>

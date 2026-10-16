@@ -163,7 +163,6 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
   }
 
   const editing = text(form, "account_mode") === "edit";
-  let backfillQueued = false;
   const confidence = (text(form, "confidence") || "unverified") as Confidence;
 
   try {
@@ -175,7 +174,8 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
       summoner_level: summonerLevel,
       profile_icon_id: profileIconId,
     });
-    const linked = await linkAccount({
+    // ★ 계정 연결은 수집 대상을 늘리지 않는다(0089) — 경기 기록은 지명(collection_target)한 것만 모은다.
+    await linkAccount({
       edit: editing,
       candidate_id: candidateId || undefined,
       streamer_id: streamerId,
@@ -189,7 +189,6 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
         note: evidenceNote || undefined,
       },
     });
-    backfillQueued = linked.backfillQueued;
   } catch (e) {
     return fail(`저장 실패: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -197,7 +196,7 @@ export async function linkAccountAction(_prev: ActionState, form: FormData): Pro
   revalidatePath(`/admin/streamers/${streamerId}`);
   revalidatePath("/admin/candidates");
   revalidatePath("/admin/streamers");
-  return { ok: true, message: editing ? "계정 정보를 저장했습니다." : backfillQueued ? "계정을 연결했습니다. 백필 대기열에 올렸습니다." : "계정을 연결했습니다." };
+  return { ok: true, message: editing ? "계정 정보를 저장했습니다." : "계정을 연결했습니다." };
 }
 
 export async function setMainAccountAction(form: FormData): Promise<void> {
