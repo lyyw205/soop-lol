@@ -1,11 +1,11 @@
 {
   "id": "worker-loop",
-  "title": "상주 워커 루프(공개 경기 수집 · Riot 백필 · 집계 · 모듈 작업)",
+  "title": "상주 워커 루프(랭크 · 지명 수집 · 지명 백필 · 모듈 작업)",
   "group": "collect",
   "install": "none",
   "units": [],
   "run": "npm run worker -- loop",
-  "schedule": "상주 — A > B > D > C 우선순위 단일 루프",
+  "schedule": "상주 — A > B > C 우선순위 단일 루프",
   "record": "none",
   "office": {
     "room": "lol",
@@ -19,14 +19,13 @@
   ],
   "job_run_names": [
     "engine_b_live",
-    "engine_d_derive",
     "engine_c_backfill"
   ],
   "docs": [
     "docs/PLAN.md",
     "CLAUDE.md"
   ],
-  "notes": "로컬에서는 돌리지 않는다(공개 큐 데이터 0, Riot 키 상태는 docs/SETUP.md §1). 루프와 타이머를 같이 돌리지 않는다 — 루프가 rank·fco 등을 안에서 또 돌린다.",
+  "notes": "로컬에서는 돌리지 않는다(Riot 키 상태는 docs/SETUP.md §1). 롤 경기 기록은 collection_target(계정·큐·기간)에 지명한 것만 B·C 가 수집한다 — 계정을 연결해도 수집 대상이 생기지 않는다. 루프와 타이머를 같이 돌리지 않는다 — 루프가 rank·fco 등을 안에서 또 돌린다.",
   "remove": [
     "이 파일을 지운다",
     "node scripts/ops/jobs.ts sync 로 운영 화면 목록을 다시 만들고 npm run verify:automation"

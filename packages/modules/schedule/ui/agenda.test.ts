@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { PublicScheduleEntry } from "@soop-lol/core/lib/contract/schedule";
-import { agendaCards, agendaEntries, agendaRange, featuredCard, tournamentEntries, weekStart } from "./agenda.ts";
+import { agendaCards, agendaEntries, agendaRange, featuredCard, parseKind, tournamentEntries, weekStart } from "./agenda.ts";
 
 const entry = (title: string, dates: string[], changes: Partial<PublicScheduleEntry> = {}): PublicScheduleEntry => ({
-  schedule_id: title, game_code: "fconline", title, planned_kind: "tournament", status: "scheduled", origin: "manual",
+  schedule_id: title, game_code: "fconline", title, planned_format: "tournament", status: "scheduled", origin: "manual",
   sponsor: null, description: null, participants: [], sources: [], result: null, slots_changed_at: null,
   slots: dates.map((on_date) => ({ on_date, starts_at: null, ends_at: null, label: null, channel_id: null })), ...changes,
 });
@@ -37,8 +37,17 @@ test("헤드라인: 가까운 유효 일정 우선, 취소·연기를 다음 경
 
 test("대회 분류는 날짜 수와 독립적이며 참가자·라운드 검색을 지원", () => {
   const cup = entry("하루 대회", ["2026-10-13"], { participants: [{ slug: "kim", display_name: "김민교", role: "host", team: null }] });
-  const ck = entry("이틀 CK", ["2026-10-13", "2026-10-14"], { planned_kind: "ck" });
+  const ck = entry("이틀 CK", ["2026-10-13", "2026-10-14"], { planned_format: "ck" });
   assert.deepEqual(tournamentEntries([ck, cup], "2026-10-13").map((e) => e.title), ["하루 대회"]);
   assert.deepEqual(agendaEntries([cup, ck], "tournament", "김 민교").map((e) => e.title), ["하루 대회"]);
   assert.deepEqual(agendaEntries([cup, ck], "ck", "김민교"), []);
+});
+
+test("유형 필터는 진행 방식 어휘만 읽는다 — 옛 값·모르는 값은 필터 없음", () => {
+  assert.equal(parseKind("ck"), "ck");
+  assert.equal(parseKind("concept"), "concept");
+  assert.equal(parseKind("unclassified"), "unclassified");
+  assert.equal(parseKind("showmatch"), null);
+  assert.equal(parseKind("other"), null);
+  assert.equal(parseKind(undefined), null);
 });

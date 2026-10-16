@@ -14,9 +14,10 @@ import { db } from "./client.ts";
 import { kstDateString } from "../time.ts";
 import {
   entryPeriod, entryState, scheduleChanges, slotSummary, validateScheduleInput,
-  type EntryState, type ScheduleChangeField, type ScheduleGame, type ScheduleInput, type SchedulePlannedKind, type ScheduleRole,
+  type EntryState, type ScheduleChangeField, type ScheduleGame, type ScheduleInput, type ScheduleRole,
   type ScheduleStatus,
 } from "../metrics/schedule.ts";
+import type { Format } from "../metrics/format.ts";
 
 /** 저장 거부. reasons 를 그대로 폼에 보여준다. */
 export class ScheduleSaveError extends Error {
@@ -74,7 +75,7 @@ export async function saveScheduleEntry(
     }
 
     const body = {
-      game_code: input.game_code, title: input.title.trim(), planned_kind: input.planned_kind,
+      game_code: input.game_code, title: input.title.trim(), planned_format: input.planned_format,
       sponsor: input.sponsor, description: input.description, admin_note: input.admin_note,
       status: input.status, event_id: input.event_id, visibility: input.visibility,
     };
@@ -134,7 +135,7 @@ export interface AdminScheduleRow {
   id: string;
   game_code: ScheduleGame;
   title: string;
-  planned_kind: SchedulePlannedKind;
+  planned_format: Format;
   status: ScheduleStatus;
   visibility: "public" | "hidden";
   source_count: number;
@@ -150,7 +151,7 @@ export interface AdminScheduleRow {
  */
 export async function listScheduleForAdmin(now = new Date()): Promise<AdminScheduleRow[]> {
   const rows = await db()<Omit<AdminScheduleRow, "state" | "period">[]>`
-    SELECT e.id, e.game_code, e.title, e.planned_kind, e.status, e.visibility, e.event_id,
+    SELECT e.id, e.game_code, e.title, e.planned_format, e.status, e.visibility, e.event_id,
            (SELECT count(*)::int FROM schedule_source s WHERE s.entry_id = e.id) AS source_count,
            COALESCE((SELECT jsonb_agg(jsonb_build_object('on_date', sl.on_date, 'starts_at', sl.starts_at, 'ends_at', sl.ends_at)
                                       ORDER BY sl.on_date, sl.starts_at NULLS LAST)
@@ -182,7 +183,7 @@ export async function getScheduleForAdmin(id: string): Promise<AdminScheduleDeta
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
   const sql = db();
   const [e] = await sql<(Omit<ScheduleInput, "slots" | "participants" | "sources"> & { id: string; version: string })[]>`
-    SELECT id, updated_at::text AS version, game_code, title, planned_kind, sponsor, description, admin_note,
+    SELECT id, updated_at::text AS version, game_code, title, planned_format, sponsor, description, admin_note,
            status, event_id, visibility
       FROM schedule_entry WHERE id = ${id}::uuid`;
   if (!e) return null;
@@ -203,11 +204,14 @@ export async function getScheduleForAdmin(id: string): Promise<AdminScheduleDeta
   };
 }
 
-/** 결과 연결 후보 — 같은 게임의 event 만(다른 게임은 저장이 거부하지만, 고를 수조차 없게 한다). */
-export async function listEventsForScheduleLink(game: ScheduleGame): Promise<{ id: string; slug: string | null; name: string; kind: string; starts_at: Date | null }[]> {
+/**
+ * 결과 연결 후보 — 같은 게임의 event 만(다른 게임은 저장이 거부하지만, 고를 수조차 없게 한다).
+ * ★ 자동 미분류 묶음(auto_bucket)은 빼 둔다 — 자동 수집이 판을 담는 그릇이지 일정의 결과가 될 행사가 아니다(계획 §3.4).
+ */
+export async function listEventsForScheduleLink(game: ScheduleGame): Promise<{ id: string; slug: string | null; name: string; format: Format; starts_at: Date | null }[]> {
   return db()`
-    SELECT id, slug, name, kind, starts_at FROM event
-     WHERE game_code = ${game}
+    SELECT id, slug, name, format, starts_at FROM event
+     WHERE game_code = ${game} AND NOT auto_bucket
      ORDER BY starts_at DESC NULLS LAST, created_at DESC
     `;
 }

@@ -10,22 +10,19 @@ export interface WorkerConfig {
   /** 프로필(닉네임·레벨)을 다시 받기까지의 최소 간격. */
   profileMaxAgeMs: number;
 
-  /** Engine B — 라이브 폴링 주기. */
+  /** Engine B — 지명 수집 라이브 폴링 주기. */
   liveIntervalMs: number;
-  /** N 틱마다 spectator 판정을 무시하고 전 계정을 훑는다 (놓친 경기 안전망). */
+  /** N 틱마다 spectator 판정을 무시하고 지명 계정 전부를 훑는다 (놓친 경기 안전망). */
   liveSweepEveryTicks: number;
-  /** 커서가 없는 계정을 Engine B 가 볼 범위. 그 이전은 Engine C 의 몫이다. */
+  /** 아직 가진 판이 없는 지명을 Engine B 가 볼 범위. 그 이전은 Engine C 의 몫이다. 끝난 지 이보다 오래된 지명도 B 가 안 본다. */
   liveLookbackMs: number;
 
-  /** Engine C — 백필. */
+  /** Engine C — 지명 수집 백필. */
   backfillEnabled: boolean;
+  /** Riot match-v5 보존 경계. 지명 기간이 이보다 앞서도 여기서 멈춘다. */
   backfillYears: number;
   /** 한 슬라이스에서 상세 조회할 최대 매치 수. 작을수록 A/B 가 덜 굶는다. */
   backfillBatch: number;
-
-  /** Engine D — 파생. */
-  deriveIntervalMs: number;
-  championStatIntervalMs: number;
 
   /** Engine E — FC 온라인 일일 수집을 돌릴 KST 시각. NEXON_API_KEY 없으면 조용히 쉰다. */
   fcoHourKst: number;
@@ -75,9 +72,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     backfillEnabled: bool(env.BACKFILL_ENABLED, true),
     backfillYears: num(env.BACKFILL_YEARS, 2),
     backfillBatch: num(env.BACKFILL_BATCH, 25),
-
-    deriveIntervalMs: num(env.DERIVE_INTERVAL_MINUTES, 15) * 60 * 1000,
-    championStatIntervalMs: num(env.CHAMPION_STAT_INTERVAL_HOURS, 6) * 60 * 60 * 1000,
 
     fcoHourKst: num(env.FCO_HOUR_KST, 10),
     // 친선(40)만 — 스트리머끼리 붙는 건 서로 초대하는 친선이다. 공식경기(50·60)는 랜덤 매칭이라

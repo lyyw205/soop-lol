@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { entryState, ENTRY_STATE_LABEL, kstClock, kstDateString, profileHref, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL, slotTimeLabel, type PublicScheduleEntry, type PublicScheduleSlot } from "@soop-lol/core/lib/contract/schedule";
+import { entryState, ENTRY_STATE_LABEL, kstClock, kstDateString, profileHref, SCHEDULE_GAME_LABEL, scheduleFormatLabel, SCHEDULE_ROLE_LABEL, slotTimeLabel, type PublicScheduleEntry, type PublicScheduleSlot } from "@soop-lol/core/lib/contract/schedule";
 export type RoleHref = (role: string, params?: Record<string, string>) => string | null;
 const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
 export const weekday = (date: string) => { const [y, m, d] = date.split("-").map(Number); return WEEKDAY[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]; };
@@ -28,9 +28,10 @@ export function resultLink(e: PublicScheduleEntry, roleHref: RoleHref): string |
 
 /** 제목 옆 뱃지 — 목록과 상세가 같은 것을 쓴다. */
 export function Badges({ entry, state }: { entry: PublicScheduleEntry; state: ReturnType<typeof entryState> }) {
+  const formatName = scheduleFormatLabel(entry.planned_format); // 미분류는 뱃지 없음
   return <span className="sched-badges">
     <span className="sched-tag">{SCHEDULE_GAME_LABEL[entry.game_code]}</span>
-    <span className="sched-tag">{SCHEDULE_KIND_LABEL[entry.planned_kind]}</span>
+    {formatName && <span className="sched-tag">{formatName}</span>}
     {entry.slots_changed_at && state !== "cancelled" && <span className="sched-tag is-changed" title="공지 뒤 날짜·시각이 바뀌었습니다">일정 변경</span>}
     <span className="sched-state">{ENTRY_STATE_LABEL[state]}</span>
   </span>;

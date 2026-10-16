@@ -12,7 +12,7 @@ const config={pollMinutes:30,lookbackDays:7,maxPages:4,maxRequests:12,batchSize:
 const raw=(id=1,text='10월 15일 FC CK',user='host')=>({titleNo:id,userId:user,titleName:'공지',regDate:'2026-10-14 12:00:00',content:{content:text},photos:[]});
 const board=(rows:unknown[],notices:unknown[]=[],total=1)=>new Response(JSON.stringify({contents:rows,noticeData:notices,meta:{totalPages:total}}));
 async function temp(t: {after: (fn:()=>Promise<void>)=>void}) { const p=await mkdtemp(join(tmpdir(),'notices-test-'));t.after(()=>rm(p,{recursive:true,force:true}));return p; }
-const result=(p: {key:string;revision:string})=>({results:[{key:p.key,revision:p.revision,decision:'candidate',reason:'공지',events:[{action:'new',title:'FC CK',game:'fconline',kind:'ck',date:'2026-10-15',startsAt:null,timeNote:'미정',participants:[],relatedScheduleIds:[],evidence:['10월 15일 FC CK'],unknowns:[]}]}]});
+const result=(p: {key:string;revision:string})=>({results:[{key:p.key,revision:p.revision,decision:'candidate',reason:'공지',events:[{action:'new',title:'FC CK',game:'fconline',format:'ck',date:'2026-10-15',startsAt:null,timeNote:'미정',participants:[],relatedScheduleIds:[],evidence:['10월 15일 FC CK'],unknowns:[]}]}]});
 test('pins included, fan posts excluded, counts do not trigger reanalysis, body edits do',()=>{
  const p=normalizePost(raw(),channel)!;const state={posts:{}};
  assert.equal(stage(state,p),true);assert.equal(stage(state,normalizePost({...raw(),count:{read:20}},channel)),false);
@@ -55,6 +55,10 @@ test('reject invented schedule IDs and invalid dates; unknown game forces review
  const post=normalizePost(raw(),channel)!;const r=result(post);r.results[0].events[0].date='2026-02-30';assert.throws(()=>validateResult(r,[post]));
  const bad=result(post);(bad.results[0].events[0].relatedScheduleIds as string[]).push('invented');assert.throws(()=>validateResult(bad,[post]));
  const unknown=result(post);Object.assign(unknown.results[0].events[0],{game:null});assert.equal(validateResult(unknown,[post]).results[0].decision,'review');
+ // 분류는 진행 방식 어휘·게임별 허용만 — 옛 값(showmatch)·FC 의 랜드는 거부, 모르면 unclassified.
+ const old=result(post);Object.assign(old.results[0].events[0],{format:'showmatch'});assert.throws(()=>validateResult(old,[post]));
+ const land=result(post);Object.assign(land.results[0].events[0],{format:'land'});assert.throws(()=>validateResult(land,[post]),/Format not allowed/);
+ const none=result(post);Object.assign(none.results[0].events[0],{format:'unclassified'});assert.equal(validateResult(none,[post]).results[0].decision,'candidate');
 });
 test('shared board gate serializes concurrent callers and persists cooldown',async t=>{
  const base=await temp(t);const path=join(base,'gate');const times:number[]=[];
