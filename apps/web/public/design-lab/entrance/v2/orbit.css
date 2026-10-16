@@ -1,0 +1,166 @@
+/* B refinement: a bounded entrance with a brief introduction to each game. */
+.orbit {
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  padding: 56px clamp(28px, 5vw, 80px);
+  background: radial-gradient(ellipse at 50% 45%, #14201f 0%, #0b0f11 65%);
+}
+
+.orbit-stage { position: relative; width: min(1180px, 100%); }
+.orbit .entrance {
+  height: min(660px, calc(100svh - 112px));
+  min-height: 580px;
+  gap: 12px;
+  border-radius: 20px;
+}
+.orbit .game { border-radius: 18px; }
+.orbit .game:after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgb(5 11 14 / 16%), rgb(5 11 14 / 20%) 55%, rgb(5 11 14 / 30%));
+}
+.orbit .object { width: 118%; height: 72%; left: -23%; top: 0; scale: .85; }
+.orbit .game-lol .object { width: 120%; height: 80%; left: 4%; top: -3%; }
+.orbit .orbital-lines { width: 880px; height: 300px; left: -270px; top: 17%; }
+.orbit .game-lol .orbital-lines { left: auto; right: -270px; }
+
+.orbit .game-info {
+  display: block;
+  z-index: 2;
+  width: 100%;
+  max-width: calc(100% - 72px);
+  padding-bottom: 30px;
+}
+.orbit .game-fc .game-info { padding-right: 64px; }
+.orbit .game-lol .game-info { padding-left: 64px; }
+.orbit .fc-title, .orbit .lol-title { height: 92px; }
+.orbit .fc-title .game-wordmark { width: 270px; }
+.orbit .lol-title .game-wordmark { width: 190px; }
+.game-features {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  list-style: none;
+  margin: 7px 0 24px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 450;
+  color: #bbcec5;
+}
+.game-lol .game-features { color: #bfccd9; }
+.game-features li { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.game-features li + li:before { content: ''; width: 2px; height: 2px; border-radius: 50%; background: #acbeb570; }
+.orbit .game-cta { padding-top: 16px; font-size: 12px; }
+.orbit .arrow { width: 40px; height: 40px; font-size: 24px; }
+
+.orbit .brand-center {
+  width: 202px;
+  height: 202px;
+  top: 38%;
+  border-width: 7px;
+  box-shadow: 0 0 0 1px #f4ffe024, 0 0 0 12px #0a161b88, 0 24px 60px #0006;
+  pointer-events: none;
+}
+.orbit .brand-slot { min-height: 0; padding: 0; gap: 0; border-radius: 50%; overflow: hidden; }
+.orbit .brand-slot .brand-logo { width: 90%; padding: 0; font-size: 0; line-height: 0; letter-spacing: normal; }
+.brand-logo img { width: 100%; height: auto; mix-blend-mode: multiply; }
+.orbit .brand-halo { inset: -29px; }
+.brand-description {
+  position: absolute;
+  top: calc(100% + 38px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  margin: 0;
+  isolation: isolate;
+  font-size: 13px;
+  line-height: 1.6;
+  letter-spacing: -.2px;
+  color: #dae4de;
+}
+.brand-description:before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -24px -12px;
+  background: radial-gradient(ellipse, #0c181bec, #0c181bb3 35%, transparent 72%);
+}
+.brand-description strong { display: block; font-weight: 600; }
+.brand-description span { display: block; margin-top: 4px; font-size: 11px; color: #a1b3b1; }
+
+@media(max-width: 1100px) {
+  .orbit { padding: 40px 32px; }
+  .orbit .entrance { height: min(640px, calc(100svh - 80px)); min-height: 560px; }
+  .orbit .game-info { max-width: calc(100% - 52px); padding-bottom: 26px; }
+  .orbit .game-fc .game-info { padding-right: 32px; }
+  .orbit .game-lol .game-info { padding-left: 32px; }
+  .orbit .fc-title .game-wordmark { width: 236px; }
+  .orbit .lol-title .game-wordmark { width: 174px; }
+  .orbit .brand-center { width: 180px; height: 180px; top: 35%; }
+  .orbit .brand-halo { inset: -24px; }
+  .brand-description { width: 196px; font-size: 12px; }
+  .game-features { gap: 6px 9px; font-size: 12px; }
+  .game-features li { gap: 9px; }
+}
+
+@media(max-width: 800px) and (min-width: 701px) {
+  .orbit { padding-inline: 24px; }
+  .orbit .game-info { max-width: calc(100% - 40px); }
+  .orbit .game-fc .game-info { padding-right: 10px; }
+  .orbit .game-lol .game-info { padding-left: 10px; }
+  .orbit .fc-title .game-wordmark { width: 215px; }
+  .orbit .lol-title .game-wordmark { width: 162px; }
+  .orbit .brand-center { width: 166px; height: 166px; }
+}
+
+@media(min-width: 701px) and (max-width: 1100px) and (max-height: 740px) {
+  .orbit .brand-center { top: 31%; }
+}
+
+@media(max-width: 700px) {
+  .orbit { padding: 26px 20px; }
+  .orbit-stage { max-width: 480px; }
+  .orbit .entrance {
+    height: clamp(780px, calc(100svh - 52px), 864px);
+    min-height: 0;
+    gap: 132px;
+    border-radius: 15px;
+  }
+  .orbit .game { padding-inline: 24px !important; border-radius: 15px; }
+  .orbit .game-info, .orbit .game-fc .game-info, .orbit .game-lol .game-info {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 16px;
+    row-gap: 10px;
+    max-width: none;
+    padding: 0 0 24px !important;
+  }
+  .orbit .fc-title, .orbit .lol-title { grid-column: 1; height: auto; align-self: end; }
+  .orbit .fc-title .game-wordmark { width: 204px; }
+  .orbit .lol-title .game-wordmark { width: 150px; }
+  .game-features { grid-column: 1 / -1; grid-row: 2; margin: 0; font-size: 12px; gap: 6px 10px; }
+  .game-features li { gap: 10px; }
+  .orbit .game-cta { grid-column: 2; grid-row: 1; align-self: end; padding: 0; font-size: 10px; gap: 8px; }
+  .orbit .arrow { width: 34px; height: 34px; font-size: 22px; }
+  .orbit .object { width: 93%; height: 87%; left: -10%; top: -11%; }
+  .orbit .game-lol .object { width: 94%; height: 96%; left: 15%; top: -11%; }
+  .orbit .orbital-lines { width: 720px; height: 220px; top: 10%; left: -220px; }
+  .orbit .game-lol .orbital-lines { left: auto; right: -270px; top: 16%; }
+  .orbit .brand-center { top: calc(50% - 18px); width: 112px; height: 112px; border-width: 5px; }
+  .orbit .brand-halo { inset: -14px; }
+  .brand-description { top: calc(100% + 16px); width: 226px; font-size: 12px; line-height: 1.5; }
+  .brand-description span { margin-top: 2px; font-size: 10px; }
+}
+
+@media(max-width: 370px) {
+  .orbit { padding-inline: 16px; }
+  .orbit .game { padding-inline: 20px !important; }
+  .orbit .fc-title .game-wordmark { width: 182px; }
+  .game-features { font-size: 11px; }
+}

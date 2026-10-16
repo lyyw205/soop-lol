@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useRecordScope } from "../../../ui/use-record-scope.ts";
+import { useMemo, type ReactNode } from "react";
 import {
-  FCO_MODE_LABEL, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod,
+  FCO_MODE_LABEL, recordPeriodLabel, resolveRecordPeriod, filterSeriesPeriod, takeSeries,
   type FcoGame, type FcoPerson, type RecordPeriod,
 } from "@soop-lol/core/lib/contract/client";
 import { RecordDateRange } from "../../../ui/record-date-range.tsx";
@@ -17,17 +18,19 @@ export function FcoVersusDetail({ a, b, people, games, initialTab, metrics, play
   a: FcoPerson; b: FcoPerson; people: FcoPerson[]; games: FcoGame[];
   initialTab: "games" | "metrics" | "players"; metrics: ReactNode; players: ReactNode;
 }) {
-  const [mode, setMode] = useState("all");
-  const [period, setPeriod] = useState<RecordPeriod>({ key: "all" });
-  const [sort, setSort] = useState<"recent" | "oldest">("recent");
+  const { scope, setScope } = useRecordScope();
+  const { mode, period, sort } = scope;
+  const setMode = (mode: string) => setScope({ mode });
+  const setPeriod = (period: RecordPeriod) => setScope({ period });
   const modes = useMemo(() => [...new Set(games.map((game) => game.mode_key).filter((key): key is string => !!key))]
     .sort((left, right) => (FCO_MODE_LABEL[left] ?? left).localeCompare(FCO_MODE_LABEL[right] ?? right, "ko")), [games]);
-  const filtered = useMemo(() => games.filter((game) => (mode === "all" || game.mode_key === mode)
-    && withinRecordPeriod(game.played_at, period))
+  const filtered = useMemo(() => filterSeriesPeriod(games.filter(game => mode === "all" || game.mode_key === mode), period, game => game.series_id ?? game.id, game => game.played_at)
     .sort((left, right) => new Date(right.played_at).getTime() - new Date(left.played_at).getTime()), [games, mode, period]);
-  const displayed = sort === "recent" ? filtered : [...filtered].reverse();
-  const base = versusHref({ a: a.slug, b: b.slug });
-  const swap = versusHref({ a: b.slug, b: a.slug });
+  const page = takeSeries(sort === "recent" ? filtered : [...filtered].reverse(), 200, game => game.series_id ?? game.id);
+  const displayed = page.rows;
+  const params = { mode, from: period.from, to: period.to, sort };
+  const base = versusHref({ ...params, a: a.slug, b: b.slug });
+  const swap = versusHref({ ...params, a: b.slug, b: a.slug, tab: initialTab });
   const modeLabel = mode === "all" ? "전체 경기" : FCO_MODE_LABEL[mode] ?? `모드 ${mode}`;
 
   return <>
@@ -46,18 +49,18 @@ export function FcoVersusDetail({ a, b, people, games, initialTab, metrics, play
     <div id="record-content">
       <RecordSectionTabs active={initialTab} label="상대 전적 기록" items={[
         { key: "games", label: "경기 기록", href: base },
-        { key: "metrics", label: "경기 지표", href: versusHref({ a: a.slug, b: b.slug, tab: "metrics" }) },
-        { key: "players", label: "사용 선수", href: versusHref({ a: a.slug, b: b.slug, tab: "players" }) },
+        { key: "metrics", label: "경기 지표", href: versusHref({ ...params, a: a.slug, b: b.slug, tab: "metrics" }) },
+        { key: "players", label: "사용 선수", href: versusHref({ ...params, a: a.slug, b: b.slug, tab: "players" }) },
       ]} />
       {initialTab === "games" ? <RecordContentPanel className="arena-records" id="match-records">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <h2 className="text-[15px] font-semibold text-ink-200">경기 기록 <span className="tabular ml-1.5 text-xs font-normal text-ink-400">{filtered.length}경기</span></h2>
           <div className="flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] text-ink-400">
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[length:var(--type-micro)] text-ink-400">
               <span className="h-[7px] w-[7px] rounded-full bg-sky-400" />{a.name}
               <span className="ml-1 h-[7px] w-[7px] rounded-full bg-red-400" />{b.name}
             </span>
-            <button type="button" className="record-sort-toggle" onClick={() => setSort((value) => value === "recent" ? "oldest" : "recent")}
+            <button type="button" className="record-sort-toggle" onClick={() => setScope({ sort: sort === "recent" ? "oldest" : "recent" })}
               aria-label={`정렬 ${sort === "recent" ? "최신순" : "오래된순"} — 누르면 바꿉니다`}>
               {sort === "recent" ? "최신순" : "오래된순"}
               <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -66,6 +69,7 @@ export function FcoVersusDetail({ a, b, people, games, initialTab, metrics, play
             </button>
           </div>
         </div>
+        {page.truncated && <p className="record-scope-label">경기 기록은 200개 묶음까지 표시합니다. 요약은 선택 범위 전체 기준입니다.</p>}
         <div className="mt-3.5"><FcoMatchList games={displayed} perspectiveStreamerId={a.id} rowIdPrefix="fc-versus-game-" /></div>
       </RecordContentPanel> : <RecordContentPanel className="fc-tab-panel">
         <h2>{initialTab === "metrics" ? "경기 지표" : "사용 선수"} <small>전체 맞대결 기준</small></h2>

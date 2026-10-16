@@ -1,10 +1,11 @@
+import { ChangeDirection } from "../../../ui/sort-header.tsx";
 /** FC 구단가치: 스트리머 순위·가치 차트·선수 선택을 한 화면에서 제공한다.
  * 선택은 ?s=스트리머&p=카드,카드 로 유지한다. */
 import Link from "next/link";
 import { cache } from "react";
 import { Avatar } from "../../../ui/avatar.tsx";
 import {
-  cardKey, changeOver, formatWon, fcoMetadata, getFcoClub, listFcoClubBoard, profileHref,
+  cardKey, changeOver, change7d, kstDateString, formatWon, fcoMetadata, getFcoClub, listFcoClubBoard, profileHref,
   type FcoClub, type FcoClubAccountSummary, type FcoClubBoardRow,
 } from "@soop-lol/core/lib/contract";
 import { clubBoardHref } from "./paths.ts";
@@ -15,6 +16,7 @@ import { TeamColorIcons } from "./team-color-icons.tsx";
 import { quotedPrices } from "./price-history.ts";
 import { MAX_PLAYERS, PLAYER_COLORS } from "./comparison-config.ts";
 import "./club-value.css";
+import "./ranking-table.css";
 
 type Props = {
   params: Record<string, string>;
@@ -58,17 +60,17 @@ const withLabel = (points: { day: string; value: number; missing?: number }[]): 
 
 function Won({ value }: { value: number | null }) {
   if (value === null) return <span className="cv-muted">—</span>;
-  return <span title={`${value.toLocaleString("ko-KR")}원`}>{formatWon(value)}</span>;
+  return <span title={`${value.toLocaleString("ko-KR")} BP`}>{formatWon(value)}</span>;
 }
 
 /** 등락. 오르면 빨강 ▲, 내리면 파랑 ▼(국내 시세 관례) — 색만으로 구분하지 않는다. 기록이 모자라면 모른다고 쓴다. */
-function Change({ series, days }: { series: { day: string; value: number }[] | undefined; days: number }) {
-  const c = series ? changeOver(series, days) : null;
-  if (!c) return <span className="cv-muted" title={`${days}일 전 기록이 아직 없다`}>—</span>;
+function Change({ series, today }: { series: { day: string; value: number }[]; today: string }) {
+  const c = change7d(series, today).change;
+  if (!c) return <span className="cv-muted" title={"최근 7일 안에 서로 다른 날짜의 기록이 두 개 필요합니다"}>—</span>;
   const dir = c.delta > 0 ? "up" : c.delta < 0 ? "down" : "flat";
   const mark = dir === "up" ? "▲" : dir === "down" ? "▼" : "–";
-  return <span className={`cv-change cv-${dir}`} title={`${c.since} 대비 ${c.delta > 0 ? "+" : ""}${formatWon(c.delta)}`}>
-    {mark} {Math.abs(c.pct).toFixed(c.pct !== 0 && Math.abs(c.pct) < 0.1 ? 2 : 1)}%
+  return <span className={`cv-change cv-${dir}`} title={`${c.since} ~ ${c.until} · ${c.delta > 0 ? "+" : ""}${formatWon(c.delta)}`}>
+    <ChangeDirection delta={c.delta} /> {Math.abs(c.pct).toFixed(c.pct !== 0 && Math.abs(c.pct) < 0.1 ? 2 : 1)}%
   </span>;
 }
 
@@ -78,7 +80,7 @@ const kst = (iso: string | null) => iso
 
 const statusText = (a: FcoClubAccountSummary) =>
   a.status === "missing" ? `구단주 검색에서 "${a.nickname}" 을 찾지 못했다(감독명이 바뀌었을 수 있다)`
-    : a.status === null ? "아직 조회하지 않았다" : "공식 구단가치를 받지 못했다";
+    : a.status === null ? "아직 조회하지 않았습니다" : a.status === "pending" ? "조회 완료 미확인" : a.status === "error" ? "최근 조회 실패" : "공식 구단가치를 받지 못했습니다";
 
 // ── 차트 패널 ────────────────────────────────────────
 
@@ -96,7 +98,7 @@ async function ClubPanel({ club, picks, hrefFor }: {
     removeHref: hrefFor({ slug: club.slug, picks: picks.filter((k) => k !== key) }),
   }));
   return <section className="cv-panel" aria-label={`${club.name} 구단 가치`}>
-    {account.club_value === null && <div className="fc-empty">{statusText(account)}</div>}
+    {(account.status !== "ok" || !account.fresh) && <p className="cv-source">{account.status !== "ok" ? statusText(account) : "이전 기록"}{account.captured_at ? ` · ${kst(account.captured_at)} 기준 값` : ""}</p>}
     <div className="cv-comparison">
       <ClubValueChart clubName={club.name} estimatedHistory={withLabel(quotedPrices(club.backcast))} collectedHistory={withLabel(quotedPrices(club.actual))} players={players} summary={
     <div className="cv-chart-summary">
@@ -108,7 +110,7 @@ async function ClubPanel({ club, picks, hrefFor }: {
       </div>
     </div>
       } />
-      <ComparisonPicker slug={club.slug} count={picks.length} players={[...club.holdings].sort((a, b) => (b.price ?? -1) - (a.price ?? -1)).map(c => {
+      <ComparisonPicker slug={club.slug} count={picks.length} priceDay={account.history.at(-1)?.day ?? null} players={[...club.holdings].sort((a, b) => (b.price ?? -1) - (a.price ?? -1)).map(c => {
         const key = cardKey(c);
         const selected = picks.includes(key);
         return { key, name: c.name, season: c.season ?? "", seasonIcon: seasons.get(Math.floor(c.spid / 1_000_000))?.icon ?? null, meta: [c.season, c.grade === null ? "강화 미확인" : `+${c.grade}`].filter(Boolean).join(" · "),
@@ -129,11 +131,17 @@ async function ClubPanel({ club, picks, hrefFor }: {
 
 /** 공식 구단가치 큰 순. 값을 못 받은 사람은 순위 없이 아래로 — 0원으로 섞지 않는다. */
 const byValue = (a: FcoClubBoardRow, b: FcoClubBoardRow) =>
-  (b.account.club_value ?? -1) - (a.account.club_value ?? -1) || a.name.localeCompare(b.name, "ko");
+  Number(b.account.rank_eligible) - Number(a.account.rank_eligible) || (b.account.club_value ?? -1) - (a.account.club_value ?? -1) || a.name.localeCompare(b.name, "ko");
 
 async function Board({ searchParams }: { searchParams: Props["searchParams"] }) {
+  const today = kstDateString(new Date());
   const rows = (await listFcoClubBoard()).sort(byValue);
-  const ranked = rows.filter((r) => r.account.club_value !== null);
+  const ranges = [...new Set(rows.flatMap(r => {
+    const c = change7d(r.account.history, today).change;
+    return c ? [`${c.since.slice(5).replace("-", ".")} ~ ${c.until.slice(5).replace("-", ".")}`] : [];
+  }))];
+  const changeLabel = ranges.length === 1 ? ranges[0] : "기간별 등락";
+  const ranked = rows.filter((r) => r.account.rank_eligible);
   const latest = rows.map((r) => r.account.captured_at).filter(Boolean).sort().at(-1) ?? null;
   // 고른 사람이 없거나 목록에 없으면 1위를 보여 준다.
   const selected = rows.find((r) => r.slug === first(searchParams.s)) ?? ranked[0] ?? rows[0];
@@ -144,11 +152,11 @@ async function Board({ searchParams }: { searchParams: Props["searchParams"] }) 
     <h1 className="cv-sr-only">구단가치</h1>
     <div className="cv-dashboard">
       <section className="cv-streamers" aria-label="스트리머 구단가치 순위">
-        <h2>스트리머 순위 <small>등락률 · 7일 기준</small></h2>
+        <h2>스트리머 순위 <small>최근 7일 내 기록 비교</small></h2>
         <div className="cv-streamer-grid" tabIndex={0} aria-label="스트리머 순위표">
-        <RankingTable items={rows.map(row => {
+        <RankingTable changeLabel={changeLabel} items={rows.map(row => {
             const rank = ranked.indexOf(row) + 1;
-            return { id: row.id, rank: rank || null, value: row.account.club_value,
+            return { id: row.id, rank: rank || null, value: row.account.rank_eligible ? row.account.club_value : null,
               officialRank: row.account.officialRank?.rank ?? null, rating: row.account.rating?.currentGrade?.order ?? null, previousBest: row.account.rating?.previousBestGrade?.order ?? null,
               content: <Link key={row.id} href={boardHrefFor({ slug: row.slug, picks: [] })} scroll={false}
               className="cv-streamer-card" aria-current={row.id === selected?.id ? "true" : undefined}>
@@ -159,8 +167,8 @@ async function Board({ searchParams }: { searchParams: Props["searchParams"] }) 
               <span className="cv-streamer-identity" title={row.name}><Avatar name={row.name} src={row.image} channelId={row.channel_id} /><strong>{row.name}</strong></span>
               <span className="cv-streamer-owner" title={row.account.nickname}>{row.account.nickname}</span>
               <span className="cv-streamer-team"><TeamColorIcons observation={row.account.teamColors} /></span>
-              <span className="cv-streamer-value"><strong><Won value={row.account.club_value} /></strong></span>
-              <span className="cv-streamer-change"><Change series={row.account.history} days={7} /></span>
+              <span className="cv-streamer-value"><strong title={row.account.rank_eligible ? undefined : `${kst(row.account.captured_at)} 기준 참고 값 · 순위 제외`}><Won value={row.account.club_value} /></strong>{!row.account.rank_eligible && <small>이전 기록</small>}</span>
+              <span className="cv-streamer-change"><Change series={row.account.history} today={today} /></span>
 
               <span className="cv-rating cv-division-cell" title={row.account.rating
                 ? `현재 시즌 1대1 · 등급 ${kst(row.account.rating.gradesCheckedAt)} 조회`
@@ -174,7 +182,7 @@ async function Board({ searchParams }: { searchParams: Props["searchParams"] }) 
             </Link> };
           })} />
         </div>
-        <p className="cv-source">마지막 확인 {kst(latest)} · 기록은 하루 한 번 쌓입니다.</p>
+        <p className="cv-source">마지막 확인 {kst(latest)} · 매일 정기 조회 · 재조회 시 갱신됩니다.</p>
       </section>
       <div className="cv-dashboard-main">
         {club && <>

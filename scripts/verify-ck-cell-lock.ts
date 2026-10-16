@@ -101,7 +101,9 @@ function created(matchId: string, at: string) {
   const champs = ["가렌", null, null, null, "룰루", "아리", "징크스", "리 신", "블리츠크랭크", "코르키"];
   return {
     resultType: "match", match_id: matchId, game_mode: "CLASSIC", winning_team: 100, played_at: at,
-    played_at_precision: "date", duration: 1800, result_evidence: "결과창 점수판",
+    // 별개의 네 경기다. 중복 방지 규칙이 같은 날짜·KDA·경기 시간을 같은 판으로
+    // 판단하지 않도록 시험 입력에도 서로 다른 경기 시간을 준다.
+    played_at_precision: "date", duration: 1800 + new Date(at).getUTCHours() * 10, result_evidence: "결과창 점수판",
     evidence_frames: [framePath(VOD_A, 100)],
     participants: people.slice(0, 10).map((p, i) => ({
       participant_id: i + 1, team_id: i < 5 ? 100 : 200,

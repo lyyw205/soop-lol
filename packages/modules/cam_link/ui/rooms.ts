@@ -12,17 +12,15 @@ export interface SavedRoom {
   sent?: string;
 }
 
-export const ROOM_MIN = 2;
-/** 원본은 제한이 없지만 P2P 라 사람이 늘면 각자 업로드가 커진다. 초대 문구도 디스코드 한 메시지(2,000자)에 들어가야 한다. */
-export const ROOM_MAX = 8;
-/** 이름 최대 길이 — 8명 모두 이 길이여도 초대 문구가 디스코드 한 메시지에 들어간다(테스트). */
+export const ROOM_MIN = 4;
+/** 참가자 이름 최대 길이. */
 export const NAME_MAX = 20;
 const KEY = "cam_link.room.v1";
 const QUALITIES: CamQuality[] = ["1080", "720", "360"];
 
 export const newSeat = (): RoomSeat => ({ id: newCamId(), name: "" });
 export function newRoom(): SavedRoom {
-  return { room: newCamId(), seats: [newSeat(), newSeat()], options: { ...DEFAULT_OPTIONS } };
+  return { room: newCamId(), seats: Array.from({ length: ROOM_MIN }, newSeat), options: { ...DEFAULT_OPTIONS } };
 }
 
 /** 저장된 글자를 믿지 않는다 — 모양이 맞을 때만 살린다. */
@@ -31,13 +29,14 @@ export function parseRoom(raw: string | null): SavedRoom | null {
   try { r = JSON.parse(raw ?? "null"); } catch { return null; }
   if (!r || typeof r !== "object" || !isCamId(r.room) || !Array.isArray(r.seats)) return null;
   const seats: RoomSeat[] = r.seats.filter((s: any) => s && typeof s === "object" && isCamId(s.id))
-    .map((s: any) => ({ id: s.id, name: typeof s.name === "string" ? s.name.slice(0, NAME_MAX) : "" })).slice(0, ROOM_MAX);
-  if (seats.length < ROOM_MIN) return null;
+    .map((s: any) => ({ id: s.id, name: typeof s.name === "string" ? s.name.slice(0, NAME_MAX) : "" }));
+  if (seats.length < 2) return null;
+  while (seats.length < ROOM_MIN) seats.push(newSeat());
   const o = r.options ?? {};
   return {
     room: r.room,
     seats,
-    ...(typeof r.sent === "string" ? { sent: r.sent.slice(0, 5000) } : {}),
+    ...(typeof r.sent === "string" ? { sent: r.sent } : {}),
     options: {
       quality: QUALITIES.includes(o.quality) ? o.quality : DEFAULT_OPTIONS.quality,
       audio: typeof o.audio === "boolean" ? o.audio : DEFAULT_OPTIONS.audio,

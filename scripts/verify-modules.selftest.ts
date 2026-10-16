@@ -32,7 +32,7 @@ const SKIP = new Set(["node_modules", "public", "tsconfig.tsbuildinfo"]);
 
 /** .next 는 빌드 산출물이지만 next-env.d.ts 가 생성 타입을 import 한다 — 타입 디렉터리만 가져간다. */
 function keep(src: string): boolean {
-  if (SKIP.has(basename(src))) return false;
+  if (SKIP.has(basename(src)) || (basename(src).startsWith(".next") && basename(src) !== ".next")) return false;
   const at = src.indexOf(`${sep}.next`);
   if (at < 0) return true;
   const rest = src.slice(at + 1).split(sep);
@@ -76,9 +76,11 @@ function addProbeModule(root: string, name: string) {
 
 function sandbox(opts: { probes?: boolean } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "verify-modules-"));
+  mkdirSync(join(root,"scripts/lib"), {recursive:true});
+  cpSync(join(REPO,"scripts/lib/consistency-checks.ts"),join(root,"scripts/lib/consistency-checks.ts"));
   for (const tree of TREES) cpSync(join(REPO, tree), join(root, tree), { recursive: true, filter: keep });
-  mkdirSync(join(root, "scripts"));
-  for (const f of ["verify-modules.ts", "sync-modules.ts"]) cpSync(join(REPO, "scripts", f), join(root, "scripts", f));
+  mkdirSync(join(root, "scripts"), {recursive:true});
+  for (const f of ["verify-modules.ts", "sync-modules.ts", "typography-baseline.json"]) cpSync(join(REPO, "scripts", f), join(root, "scripts", f));
   for (const f of readdirSync(REPO).filter((f) => /^tsconfig.*\.json$|^package\.json$/.test(f))) {
     cpSync(join(REPO, f), join(root, f));
   }

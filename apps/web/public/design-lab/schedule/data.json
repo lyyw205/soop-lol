@@ -1,0 +1,27 @@
+{
+  "note": "디자인 비교용 예시 일정입니다. 실제 경기 일정이 아닙니다. 세 시안은 같은 데이터를 사용합니다.",
+  "today": "2026-10-13",
+  "people": {
+    "이상호": "avatar-6.jpg",
+    "봉준": "avatar-4.jpg",
+    "김민교": "avatar-2.jpg",
+    "두치와뿌꾸": "avatar-1.jpg",
+    "스맵": "avatar-10.jpg",
+    "정준홍": "avatar-21.jpg",
+    "우질": "avatar-24.jpg",
+    "저라뎃": "avatar-3.jpg"
+  },
+  "events": [
+    {"id":"league-1","game":"fconline","kind":"tournament","title":"FC 스트리머 리그","stage":"조별리그 A조","date":"2026-10-13","time":"20:00","status":"예정","people":["이상호","두치와뿌꾸","김민교","봉준"],"host":"두치와뿌꾸","series":"league","tone":"green"},
+    {"id":"ck-1","game":"fconline","kind":"ck","title":"이상호 vs 봉준","stage":"FC 온라인 CK","date":"2026-10-13","time":"22:00","status":"예정","people":["이상호","봉준"],"host":"이상호","tone":"blue"},
+    {"id":"ck-0","game":"fconline","kind":"ck","title":"정준홍 vs 우질","stage":"FC 온라인 CK","date":"2026-10-12","time":"21:00","status":"종료","people":["정준홍","우질"],"host":"정준홍","tone":"blue"},
+    {"id":"match-1","game":"fconline","kind":"showmatch","title":"김민교 vs 스맵","stage":"초청 매치","date":"2026-10-14","time":"21:00","status":"시간 변경","people":["김민교","스맵"],"host":"김민교","tone":"amber"},
+    {"id":"league-2","game":"fconline","kind":"tournament","title":"FC 스트리머 리그","stage":"조별리그 B조","date":"2026-10-15","time":"20:00","status":"예정","people":["김민교","봉준","정준홍","우질"],"host":"두치와뿌꾸","series":"league","tone":"green"},
+    {"id":"ck-2","game":"fconline","kind":"ck","title":"두치와뿌꾸 vs 정준홍","stage":"FC 온라인 CK","date":"2026-10-16","time":"21:00","status":"예정","people":["두치와뿌꾸","정준홍"],"host":"두치와뿌꾸","tone":"blue"},
+    {"id":"weekend-1","game":"fconline","kind":"tournament","title":"위켄드 컵","stage":"준결승","date":"2026-10-17","time":"19:00","status":"예정","people":["이상호","김민교"],"host":"이상호","series":"weekend","tone":"violet"},
+    {"id":"league-3","game":"fconline","kind":"tournament","title":"FC 스트리머 리그","stage":"결승","date":"2026-10-18","time":"20:00","status":"예정","people":["두치와뿌꾸"],"host":"두치와뿌꾸","series":"league","tone":"green"},
+    {"id":"weekend-2","game":"fconline","kind":"tournament","title":"위켄드 컵","stage":"결승","date":"2026-10-18","time":"18:00","status":"예정","people":["이상호"],"host":"이상호","series":"weekend","tone":"violet"},
+    {"id":"lol-1","game":"lol","kind":"ck","title":"김민교 팀 vs 저라뎃 팀","stage":"LOL CK","date":"2026-10-13","time":"19:00","status":"예정","people":["김민교","저라뎃"],"host":"김민교","tone":"blue"},
+    {"id":"lol-2","game":"lol","kind":"tournament","title":"SOOP 롤 스트리머 컵","stage":"결승","date":"2026-10-18","time":"18:00","status":"예정","people":["김민교","스맵"],"host":"김민교","tone":"violet"}
+  ]
+}

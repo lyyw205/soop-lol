@@ -1,0 +1,13 @@
+{
+  "purpose": "편성표 리디자인 비교용 정적 프로토타입. 실제 페이지 및 데이터베이스를 변경하지 않음.",
+  "data": "data.json의 일정, 대진, 참가자, 날짜, 시각은 디자인 예시. 기존 DB의 일정으로 주장하지 않음. 모든 시안에 같은 데이터 사용.",
+  "stadium": "기존 FC 메인에서 사용하는 /images/fc/home-stadium.png. 생성 이미지 출처: /design-lab/fc-home/assets/sources.json",
+  "chromeBall": "기존 /design-lab/fc-home/assets/chrome-ball.png 재사용. 시안 B에서 CSS hue-rotate로 FC 그린 적용.",
+  "portraits": "기존 공개 스트리머 프로필 썸네일 /design-lab/fc-home/assets/avatar-*.jpg 재사용. 비율 유지.",
+  "font": {
+    "name": "Pretendard Variable",
+    "source": "https://github.com/orioncactus/pretendard",
+    "asset": "https://raw.githubusercontent.com/orioncactus/pretendard/main/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2",
+    "license": "OFL-Pretendard.txt"
+  }
+}

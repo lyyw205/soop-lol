@@ -23,7 +23,7 @@ export const dotted = (date: string | null) =>
 export const period = (e: TournamentSummary) =>
   `${dotted(e.start)}${e.end && e.end !== e.start ? ` ~ ${dotted(e.end)}` : ""}`;
 export const categoryLabel = (e: TournamentSummary) =>
-  e.category === "meljang" ? "멸망전" : e.category === "ck" ? "CK" : "이벤트 매치";
+  e.category === "meljang" ? "멸망전" : "이벤트 매치";
 export function SafeExternal({
   href,
   children,

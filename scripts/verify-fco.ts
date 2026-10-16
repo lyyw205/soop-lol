@@ -1,3 +1,6 @@
+import {recordCursor} from "../packages/core/lib/metrics/record-cursor.ts";
+import {addFcoStats, EMPTY_FCO_STATS} from "../packages/core/lib/games/fconline/view.ts";
+import { applyFcoMatchContext } from "../packages/core/lib/games/fconline/context.ts";
 /** FC 온라인 수집 → 대회 연결 → 공개 질의의 최소 관통 검증. 외부 DB를 사용하지 않는다. */
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -14,15 +17,15 @@ const server = new PGLiteSocketServer({ db: database, port, host: "127.0.0.1" })
 await server.start();
 process.env.DATABASE_URL = `postgres://postgres@127.0.0.1:${port}/postgres`;
 const { db, closeDb } = await import("../packages/core/lib/db/client.ts");
-const { linkFcoAccount, saveFcoMatch, linkFcoMatchToEvent } = await import("../packages/core/lib/games/fconline/ingest.ts");
-const { listFcoEvents, listFcoEventGames, listFcoVersus, listFcoTopPairs,
+const { linkFcoAccount, saveFcoMatch } = await import("../packages/core/lib/games/fconline/ingest.ts");
+const { listFcoEvents, listFcoRecentEvents, listFcoEventGames, listFcoVersus, listFcoTopPairs,
   listFcoGamesForPerson, listFcoStreamerGamesForPerson, listFcoModesForPerson,
-  getFcoGame, listFcoPeople, getFeaturedFcoPair, FCO_PUBLIC_MATCH_INFO_KEYS } = await import("../packages/core/lib/db/fconline.ts");
+  getFcoPersonalSummary, listFcoPersonalEvents, getFcoGame, listFcoPeople, getFeaturedFcoPair, FCO_PUBLIC_MATCH_INFO_KEYS } = await import("../packages/core/lib/db/fconline.ts");
 
 /** 공개 조회 함수의 반환값 전부를 한 문자열로. 신원 문자열이 어디에든 남으면 여기서 잡힌다. */
 async function publicDump(personIds: string[]): Promise<string> {
   const out: unknown[] = [await listFcoPeople(), await listFcoTopPairs(),
-    await getFeaturedFcoPair(), await listFcoEvents()];
+    await getFeaturedFcoPair(), await listFcoEvents(), await listFcoRecentEvents()];
   for (const event of await listFcoEvents()) out.push(await listFcoEventGames(event.id));
   for (const id of personIds) {
     out.push(await listFcoGamesForPerson(id), await listFcoStreamerGamesForPerson(id));
@@ -57,10 +60,7 @@ try {
     matchDate: "2026-09-23 13:00:00", matchType: 50,
     matchInfo: [detail.matchInfo[0], { ...detail.matchInfo[1], ouid: "ordinary-ouid", nickname: "일반감독" }],
   }), "saved");
-  await linkFcoMatchToEvent({
-    providerMatchId: detail.matchId, eventSlug: "fc-cup-test", eventName: "FC 검증컵",
-    sourceUrl: "https://example.com/fc-cup-test",
-  });
+  await applyFcoMatchContext({ provider_match_id: detail.matchId, conclusion: "event", event: { slug: "fc-cup-test", name: "FC 검증컵", kind: "tournament", source_url: "https://example.com/fc-cup-test" } });
   const events = await listFcoEvents();
   assert.equal(events[0]?.game_count, 1);
   const games = await listFcoEventGames(events[0].id);
@@ -88,6 +88,22 @@ try {
   assert.equal((await listFcoGamesForPerson(people[0].id, 200, { mode: "50" })).length, 1);
   assert.equal((await listFcoStreamerGamesForPerson(people[0].id, 200, { mode: "50" })).length, 0);
   assert.equal((await listFcoGamesForPerson(people[0].id, 200, { from: "2026-09-22", to: "2026-09-22" })).length, 1);
+
+  // 홈은 입력된 대회 일정 대신 실제 공개 경기 날짜로 CK·대회를 함께 정렬한다.
+  await applyFcoMatchContext({ provider_match_id: "fco-test-public-user", conclusion: "event", event: { slug: "recent-ck", name: "최근 CK", kind: "tournament", source_url: "https://example.com/recent-ck" } });
+  await sql`UPDATE event SET kind = 'ck', starts_at = NULL WHERE slug = 'recent-ck'`;
+  await sql`UPDATE event SET starts_at = '2027-01-01' WHERE slug = 'fc-cup-test'`;
+  let recent = await listFcoRecentEvents();
+  assert.deepEqual(recent.map((e) => e.slug), ["recent-ck", "fc-cup-test"]);
+  assert.equal(recent[0].latest_provider_id, "fco-test-public-user");
+  assert.equal(recent[0].game_count, 1);
+  assert.equal((await listFcoRecentEvents(1)).length, 1);
+  await sql`UPDATE match SET visibility = 'hidden' WHERE match_id = (
+    SELECT match_id FROM fco_match_detail WHERE provider_match_id = 'fco-test-public-user')`;
+  recent = await listFcoRecentEvents();
+  assert.deepEqual(recent.map((e) => e.slug), ["fc-cup-test"], "공개 경기 없는 대회는 메인에 노출하지 않는다");
+  await sql`UPDATE match SET visibility = 'public' WHERE match_id = (
+    SELECT match_id FROM fco_match_detail WHERE provider_match_id = 'fco-test-public-user')`;
 
   // ── 공개 반환값에서 신원이 새지 않는다 ─────────────────────────────
   // 숨긴 사람: 계정 연결은 공개인데 사람이 숨김이다.
@@ -134,6 +150,38 @@ try {
   dump = await publicDump([alphaId, betaId]);
   assert.deepEqual(leaks(dump, ["beta-ouid", "베타감독"]), [], "숨긴 계정의 신원이 공개 반환값에 남았다");
   assert.ok((await listFcoGamesForPerson(alphaId)).length > 0, "숨긴 계정과의 경기 자체는 알파 쪽에서 보인다");
+  await sql`UPDATE streamer SET visibility = 'hidden' WHERE id = ${alphaId}`;
+  assert.equal((await listFcoRecentEvents()).length, 0, "공개 연결 스트리머가 없는 경기는 메인에서도 제외한다");
+  await sql`UPDATE streamer SET visibility = 'public' WHERE id = ${alphaId}`;
+  await sql`UPDATE streamer_fco_account SET visibility = 'public' WHERE ouid = 'beta-ouid'`;
+  const full = await listFcoGamesForPerson(alphaId,null);
+  const expectedStats = full.reduce((acc,g) => addFcoStats(acc,g.participants.find(p=>p.streamer_id === alphaId)!),EMPTY_FCO_STATS);
+  const {lastPlayed,...summary} = await getFcoPersonalSummary(alphaId);
+  assert.deepEqual(summary,expectedStats,'SQL 요약과 core TS 집계가 같다');
+  assert.ok(lastPlayed);
+  assert.equal((await listFcoPersonalEvents(alphaId)).reduce((n,e)=>n+e.games,0),full.filter(g=>g.event_id).length);
+  // 옛 1000건 상한을 넘는 최근 기록을 만든 뒤 과거 기간과 전체 요약을 확인한다.
+  await sql`INSERT INTO match (match_id,game_code,mode_key,game_creation,source,event_id)
+    SELECT 'fco:cap-' || n,'fconline',mode_key,'2026-10-01'::timestamptz + n*interval '1 minute',source,event_id
+    FROM match CROSS JOIN generate_series(1,1005) n WHERE match_id = 'fco:fco-test-1'`;
+  await sql`INSERT INTO fco_match_detail (match_id,provider_match_id,payload)
+    SELECT 'fco:cap-' || n,'cap-' || n,'{}'::jsonb FROM generate_series(1,1005) n`;
+  await sql`INSERT INTO fco_match_participant (match_id,ouid,nickname,streamer_id,side_no,outcome,goals,match_info)
+    SELECT 'fco:cap-' || n,ouid,nickname,streamer_id,side_no,outcome,goals,match_info FROM fco_match_participant
+      CROSS JOIN generate_series(1,1005) n WHERE match_id = 'fco:fco-test-1'`;
+  assert.equal((await getFcoPersonalSummary(alphaId)).games,summary.games+1005);
+  const old = {from:'2026-09-01',to:'2026-09-30'};
+  assert.equal((await getFcoPersonalSummary(alphaId,old)).games,summary.games);
+  assert.ok((await listFcoStreamerGamesForPerson(alphaId,21,old)).length);
+  await sql`INSERT INTO match_series (id,game_code) VALUES ('cap-series','fconline')`;
+  await sql`UPDATE match SET event_id=NULL,series_id='cap-series',series_game_no=CASE WHEN match_id='fco:cap-1004' THEN 1 ELSE 2 END
+    WHERE match_id IN ('fco:cap-1004','fco:cap-1005')`;
+  const firstPage = await listFcoStreamerGamesForPerson(alphaId,1);
+  assert.equal(firstPage.length,2,'한 묶음 두 세트가 한 페이지에 온다');
+  const at = firstPage.map(g=>new Date(g.played_at)).sort((a,b)=>+a-+b)[0];
+  const secondPage = await listFcoStreamerGamesForPerson(alphaId,1,{},recordCursor(at,'cap-series'));
+  assert.equal(secondPage.length,1);
+  assert.ok(secondPage.every(g=>!firstPage.some(p=>p.id===g.id)),'커서 페이지는 중복되지 않는다');
   console.log("FC 수집·대회 연결·상대전적·공개 반환값 신원 차단 검증 통과");
 } finally {
   await closeDb();

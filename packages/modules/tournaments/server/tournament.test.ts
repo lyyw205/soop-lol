@@ -119,8 +119,6 @@ test("all-star and invitation events share the event tab without changing stored
   assert.equal(tournamentCategory("meljang-2026-geng", "tournament"), "meljang");
   assert.equal(tournamentCategory("meljang-2024-allstar", "tournament"), "event");
   assert.equal(tournamentCategory("junggangye-2026-viper", "tournament"), "event");
-  assert.equal(tournamentCategory("ck-2026-09-19", "ck"), "ck");
-  assert.equal(tournamentCategory("custom-slug", "ck"), "ck");
 });
 
 /* ── 기록실: 맞라인 대결 · 명기록 ─────────────────────────────────────── */

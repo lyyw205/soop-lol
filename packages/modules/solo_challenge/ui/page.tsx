@@ -9,7 +9,7 @@ import Link from "next/link";
 import { ArrowDown, ArrowLeft, ArrowUpRight, ChevronRight, Users } from "lucide-react";
 
 import {
-  championById, championIconPath, profileHref, kstDateString,
+  affinity, championById, championIconPath, profileHref, kstDateString,
 } from "@soop-lol/core/lib/contract";
 
 import {
@@ -76,7 +76,7 @@ export default async function SoloChallengePage({ params, searchParams }: Props)
   const tabHref = (id: string) => challengeHref(v.def.slug, { tab: id, ...(f !== "all" ? { f } : {}) });
   // Calendar days in KST; the start date is D+0.
   const challengeDays = Math.max(0, Math.round((Date.parse(kstDateString(new Date()) + "T00:00:00Z") - Date.parse(v.def.since + "T00:00:00Z")) / 86_400_000));
-  const winRate = v.record.games ? (v.record.wins / v.record.games * 100).toFixed(1) : "0.0";
+  const winRate = v.record.games ? (affinity({wins: v.record.wins, losses: v.record.games - v.record.wins}) * 100).toFixed(1) : "—";
   const visibleGames = [...v.games].reverse().filter((g) => keep(g, f));
   return (
     <div className="sc-page sc-detail" style={colorVars(v)}>
@@ -102,8 +102,8 @@ export default async function SoloChallengePage({ params, searchParams }: Props)
         </div>
         <div className="sc-hero-stats">
           <div><span>진행</span><strong>D+{challengeDays}<small>일째</small></strong></div>
-          <div><span>수집된 경기</span><strong>{v.record.games}<small>판</small></strong></div>
-          <div><span className="sc-hero-record-label">도전 전적<b>승률 {winRate}%</b></span><strong className="sc-hero-record-value"><b className="sc-w">{v.record.wins}<small>승</small></b><b className="sc-l">{v.record.games - v.record.wins}<small>패</small></b></strong></div>
+          <div><span>함께한 경기</span><strong>{v.record.games}<small>판</small></strong></div>
+          <div><span className="sc-hero-record-label">도전 전적<b>보정 승률 {winRate}% · {v.record.games}판</b></span><strong className="sc-hero-record-value"><b className="sc-w">{v.record.wins}<small>승</small></b><b className="sc-l">{v.record.games - v.record.wins}<small>패</small></b></strong></div>
           <div><span>최장 연승</span><strong>{v.record.bestWinStreak}<small>연승</small></strong></div>
         </div>
       </header>
@@ -172,9 +172,7 @@ export default async function SoloChallengePage({ params, searchParams }: Props)
         <ShowMore key={f} step={10} gameIds={visibleGames.map((g) => `g-${g.matchId}`)}>
           {visibleGames.map((g) => <GameCard key={g.matchId} view={v} g={g} />)}
         </ShowMore>
-        {v.riotGames != null && v.riotGames > v.record.games && (
-          <p className="sc-note">Riot 기준 시즌 {v.riotGames}판 중 {v.record.games}판이 수집됐습니다. 나머지는 수집되는 대로 늘어납니다.</p>
-        )}
+
       </section>
       )}
       </div>

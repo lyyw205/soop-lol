@@ -154,6 +154,26 @@ try {
   assert.equal((await sql`SELECT count(*)::int AS n FROM fco_club_snapshot`)[0].n, before, "칸 하나라도 못 받으면 아무것도 안 쓴다");
   site.failSquadFor = null;
 
+  const afterFailure = (await rankBoard()).find(r => r.slug === "alpha-fc")!.account;
+  assert.equal(afterFailure.status, "error");
+  assert.equal(afterFailure.club_value, 212235711090);
+  assert.equal(afterFailure.captured_at, rankingRows.find(r=>r.slug === "alpha-fc")!.account.captured_at, "실패가 값 기준 시각을 갱신하지 않는다");
+  assert.equal(afterFailure.rank_eligible, true, "최근 성공 값은 재시도 중에도 유지");
+  assert.ok(!JSON.stringify(afterFailure).includes("빈 응답"), "오류 원문은 공개하지 않는다");
+  assert.equal((await syncClub(client,names,"alpha-ouid")).outcome,"ok");
+  assert.equal((await rankBoard()).find(r=>r.slug === "alpha-fc")!.account.status,"ok");
+  const [pending] = await sql`INSERT INTO fco_club_attempt (ouid) VALUES ('alpha-ouid') RETURNING id`;
+  assert.equal((await rankBoard()).find(r=>r.slug === "alpha-fc")!.account.status,"pending");
+  // 먼저 시작한 시도가 늦게 완료되어도 최근 시도 순서가 바뀌지 않는다.
+  await sql`UPDATE fco_club_attempt SET completed_at = clock_timestamp() WHERE ouid = 'alpha-ouid' AND outcome = 'error'`;
+  assert.equal((await rankBoard()).find(r=>r.slug === "alpha-fc")!.account.status,"pending");
+  await sql`DELETE FROM fco_club_attempt WHERE id = ${pending.id}`;
+  const attempts = await sql`SELECT outcome, failure_code FROM fco_club_attempt WHERE ouid = 'gamma-ouid' ORDER BY started_at, id`;
+  assert.deepEqual(attempts.map(r=>[r.outcome,r.failure_code]),[["error","identity_mismatch"],["missing",null]]);
+  const beforeUnknown = (await sql`SELECT count(*)::int AS n FROM fco_club_attempt`)[0].n;
+  await syncClub(client,names,"not-registered");
+  assert.equal((await sql`SELECT count(*)::int AS n FROM fco_club_attempt`)[0].n,beforeUnknown);
+
   // ── 회원번호가 바뀌면(감독명이 남에게 넘어감) 저장하지 않는다 ───────
   site.accounts.set("알파감독", { sn: 999 });
   const moved = await syncClub(client, names, "alpha-ouid");
@@ -176,7 +196,16 @@ try {
   assert.equal(last, "2026-10-01");
   const again = await syncCardPrices(client, cards.slice(0, 3), now);
   assert.equal(again.fresh, 3, "오늘 이미 받은 카드는 다시 부르지 않는다");
-  await sql`UPDATE fco_card_price_daily SET price = 1, fetched_at = now() - interval '2 days'`;
+  // 다음 날 다시 받았는데 값이 그대로면 시세 표에 한 줄도 쓰지 않는다 — 매일 30만 줄을 다시 썼다(0084).
+  await sql`UPDATE fco_card_price_fetch SET fetched_at = now() - interval '2 days'`;
+  const [priceRowsBefore] = await sql`SELECT count(*)::int AS n, max(xmin::text::bigint)::text AS x FROM fco_card_price_daily`;
+  const same = await syncCardPrices(client, cards.slice(0, 3), now);
+  assert.deepEqual({ fetched: same.fetched, inserted: same.inserted, revised: same.revised }, { fetched: 3, inserted: 0, revised: 0 });
+  const [priceRowsAfter] = await sql`SELECT count(*)::int AS n, max(xmin::text::bigint)::text AS x FROM fco_card_price_daily`;
+  assert.deepEqual(priceRowsAfter, priceRowsBefore, "값이 같으면 시세 줄을 다시 쓰지 않는다(새 줄 버전 없음)");
+  assert.equal((await syncCardPrices(client, cards.slice(0, 3), now)).fresh, 3, "받은 기록은 수집 기록 표에 남는다");
+  await sql`UPDATE fco_card_price_daily SET price = 1`;
+  await sql`UPDATE fco_card_price_fetch SET fetched_at = now() - interval '2 days'`;
   const revised = await syncCardPrices(client, cards.slice(0, 1), now);
   assert.equal(revised.revised, 99, "넥슨 값으로 덮고, 바뀐 행 수를 남긴다");
 

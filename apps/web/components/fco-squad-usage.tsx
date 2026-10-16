@@ -1,3 +1,4 @@
+import { fcoPlayerAppearance } from "@soop-lol/core/lib/contract/client";
 import type { FcoGame } from "@soop-lol/core/lib/db/fconline";
 import { fcoNumber } from "@soop-lol/core/lib/games/fconline/view";
 import { fcoMetadata } from "@soop-lol/core/lib/games/fconline/meta";
@@ -7,7 +8,7 @@ import { FcoSquadUsageTable, type SquadUsageRow, type SquadWindow } from "./fco-
 const MIN_GAMES_ALL = 5;
 const RECENT = [5, 10, 20, 30] as const;
 
-interface Tally { position: number; games: number; goals: number; assists: number; rating: number }
+interface Tally { position: number; games: number; goals: number; assists: number; rating: number; rated: number }
 
 /**
  * 수집 경기의 실제 출전 선수 기록. 현재 보유 스쿼드와는 다르다(넥슨 API 에 보유 선수 목록이 없다).
@@ -27,13 +28,13 @@ function tally(games: FcoGame[], streamerId: string): Map<number, Tally> {
       const player = raw as Record<string, unknown>;
       const id = fcoNumber(player.spId);
       const status = player.status && typeof player.status === "object" ? player.status as Record<string, unknown> : {};
-      const rating = typeof status.spRating === "number" ? status.spRating : 0;
-      if (!id || rating <= 0) continue;
-      const item = players.get(id) ?? { position: fcoNumber(player.spPosition), games: 0, goals: 0, assists: 0, rating: 0 };
+      const { appeared, rating } = fcoPlayerAppearance(status);
+      if (!id || !appeared) continue;
+      const item = players.get(id) ?? { position: fcoNumber(player.spPosition), games: 0, goals: 0, assists: 0, rating: 0, rated: 0 };
       item.games++;
       item.goals += fcoNumber(status.goal);
       item.assists += fcoNumber(status.assist);
-      item.rating += rating;
+      if (rating !== null) { item.rating += rating; item.rated++; }
       players.set(id, item);
     }
   }
@@ -65,7 +66,7 @@ export async function FcoSquadUsage({ games, streamerId }: { games: FcoGame[]; s
         usage: stat.games / slice.length,
         goals: stat.goals,
         assists: stat.assists,
-        rating: stat.games ? stat.rating / stat.games : null,
+        rating: stat.rated ? stat.rating / stat.rated : null,
       };
     });
 

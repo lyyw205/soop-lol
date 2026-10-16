@@ -14,20 +14,16 @@
  *   **판정과 문구만** 공유하고 배치는 각 화면이 정한다 — packages/ui/README.md 의 방침과 같다.
  */
 
-export type MatchOutcomeKind = "win" | "draw" | "loss";
-
-/**
- * 다전제의 승패. **세트 과반**을 이기면 승, 정확히 반이면 무승부다.
- * 무승부는 옛 2세트제 조별리그에서 실제로 나온다(멸망전 2014·2015·2017 에서 12건).
- * 그래서 "이긴 세트가 더 많지 않으면 패" 로 단순화하면 안 된다.
- */
-export function matchOutcome(setWins: number, sets: number): MatchOutcomeKind {
-  if (setWins * 2 === sets) return "draw";
-  return setWins * 2 > sets ? "win" : "loss";
+import { matchOutcome, tallyGroup, type MatchOutcomeKind } from "@soop-lol/core/lib/contract/client";
+export { matchOutcome, type MatchOutcomeKind };
+export function matchOutcomeLabel(wins: number, sets: number, land = false): string {
+  const result = matchOutcome(wins, sets, land);
+  const tally = tallyGroup({ wins, sets, land });
+  return result === "record" ? `${tally.wins}승 ${tally.losses}패` : OUTCOME_LABEL[result];
 }
 
 export const OUTCOME_LABEL: Record<MatchOutcomeKind, string> = {
-  win: "승", draw: "무", loss: "패",
+  win: "승", draw: "무", loss: "패", record: "기록",
 };
 
 /**

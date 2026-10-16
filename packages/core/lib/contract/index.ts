@@ -108,6 +108,7 @@ export interface PublicRosterEntry {
   team_id: number;
   team_name: string | null;
   team_position: Position | null;
+  individual_position?: string | null;
   champion_id: number;
   champion_name: string | null;
   outcome: MatchOutcome;
@@ -179,7 +180,7 @@ export async function listEncountersFor(streamerId: string, limit = 500): Promis
 }
 
 /** 두 스트리머 사이의 조우. 쌍 정규화(a < b)는 여기서 흡수한다 — 모듈이 신경 쓸 일이 아니다. */
-export async function listEncountersBetween(x: string, y: string, limit = 500): Promise<PublicEncounter[]> {
+export async function listEncountersBetween(x: string, y: string): Promise<PublicEncounter[]> {
   const [a, b] = [x, y].sort();
   return db()<PublicEncounter[]>`
     SELECT e.match_id, e.streamer_a_id, e.streamer_b_id, e.relation,
@@ -194,7 +195,7 @@ export async function listEncountersBetween(x: string, y: string, limit = 500): 
       JOIN core_public.match m ON m.match_id = e.match_id
       LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
      WHERE e.streamer_a_id = ${a}::uuid AND e.streamer_b_id = ${b}::uuid
-     ORDER BY e.game_creation DESC, e.series_game_no DESC LIMIT ${limit}
+     ORDER BY e.game_creation DESC, e.series_game_no DESC, e.match_id
   `;
 }
 
@@ -245,12 +246,12 @@ export async function listMatchRosters(matchIds: string[]): Promise<PublicRoster
   if (matchIds.length === 0) return [];
   return db()<PublicRosterEntry[]>`
     SELECT mp.match_id, mp.participant_id, mp.streamer_id, s.slug, s.display_name, mp.observed_name,
-           mp.team_id, mp.team_position, mp.champion_id, mp.champion_name, mp.outcome,
+           mp.team_id, mp.team_position, mp.individual_position, mp.champion_id, mp.champion_name, mp.outcome,
            mp.kills, mp.deaths, mp.assists,
            t.name AS team_name
       FROM core_public.match_participant mp
       LEFT JOIN core_public.streamer s ON s.streamer_id = mp.streamer_id
-      JOIN core_public.match m    ON m.match_id = mp.match_id
+      JOIN core_public.match_with_bonus m ON m.match_id = mp.match_id
       LEFT JOIN core_public.event_team t
              ON t.event_team_id = CASE WHEN mp.team_id = 100 THEN m.blue_team_id ELSE m.red_team_id END
      WHERE mp.match_id = ANY(${matchIds}::text[])
@@ -362,3 +363,16 @@ export type { PublicRankedGame, PublicAccountRank, RankedChallengeKey } from "..
 export { itemIconPath, itemName, spellIconPath, spellName, runeIconPath, runeName } from "../riot/build-icons.ts";
 export { listPublicLineups } from "../db/public-ranked.ts";
 export type { PublicLineupSlot } from "../db/public-ranked.ts";
+
+export { TOURNAMENT_KIND, EVENT_KIND_LABEL, eventKindLabel, listedInTournaments, isTitle, isRunnerUp, classifyTeamStage, TEAM_STAGE_LABEL } from "../metrics/event.ts";
+
+export { matchOutcome, tallyGroup, type MatchOutcomeKind } from "../metrics/match-tally.ts";
+export { readRecordScope, writeRecordScope, type RecordScope } from "../metrics/record-scope.ts";
+export { isLaneMatchup } from "../metrics/matchup.ts";
+
+export { fcoPlayerAppearance } from "../games/fconline/player-record.ts";
+
+export { change7d } from "../metrics/club-value.ts";
+export { resolveClubState, pickRepresentative, CLUB_COLLECTION_POLICY } from "../metrics/club-state.ts";
+
+export { filterSeriesPeriod, takeSeries } from "../metrics/record-period.ts";

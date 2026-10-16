@@ -1,3 +1,6 @@
+import { listedInTournaments } from "../metrics/event.ts";
+import { readRecordCursor } from "../metrics/record-cursor.ts";
+import type { FcoStatLine } from "../games/fconline/view.ts";
 import { db } from "./client.ts";
 export { addFcoStats, EMPTY_FCO_STATS, fcoNumber, FCO_MODE_LABEL } from "../games/fconline/view.ts";
 export type { FcoStatLine } from "../games/fconline/view.ts";
@@ -42,6 +45,7 @@ export interface FcoGame {
   event_id: string | null;
   event_name: string | null;
   event_slug: string | null;
+  event_kind: string | null;
   series_id: string | null;
   series_game_no: number | null;
   /** 다전제의 예정 세트 수. 근거와 함께 확정한 값만 있다 — 모르면 null(0027). */
@@ -57,6 +61,9 @@ export interface FcoEvent {
   organizer: string | null;
   starts_at: string | null;
   ends_at: string | null;
+  /** 등록 일정 우선, 없으면 공개 경기 기간. 목록 정렬·표시·연도 분류의 공통 기준. */
+  effective_starts_at: Date | null;
+  effective_ends_at: Date | null;
   source_url: string | null;
   game_count: number;
 }
@@ -79,10 +86,10 @@ const PUBLIC_FCO_MATCH = `m.game_code = 'fconline' AND m.visibility = 'public'
         AND visible_streamer.visibility = 'public'
       WHERE visible.match_id = m.match_id)`;
 
-const gameSelect = `
+const selectGame = (detail = true) => `
   m.match_id AS id, d.provider_match_id AS provider_id, m.game_creation AS played_at,
   m.mode_key, COALESCE(ms.event_id, m.event_id) AS event_id,
-  e.name AS event_name, e.slug AS event_slug, m.series_id, m.series_game_no, ms.best_of,
+  e.name AS event_name, e.slug AS event_slug, e.kind AS event_kind, m.series_id, m.series_game_no, ms.best_of,
   (SELECT jsonb_agg(jsonb_build_object(
       'ouid', CASE WHEN s.id IS NOT NULL THEN p.ouid ELSE 'unlinked:' || p.side_no END,
       'nickname', CASE WHEN s.id IS NOT NULL THEN p.nickname ELSE '상대' END,
@@ -93,7 +100,7 @@ const gameSelect = `
       'division', p.division,
       'match_info', (SELECT COALESCE(jsonb_object_agg(info.key, info.value), '{}'::jsonb)
                        FROM jsonb_each(p.match_info) AS info
-                      WHERE info.key IN (${FCO_PUBLIC_MATCH_INFO_KEYS.map((key) => `'${key}'`).join(", ")}))
+                      WHERE info.key IN (${FCO_PUBLIC_MATCH_INFO_KEYS.filter(key => detail || !["player", "shootDetail"].includes(key)).map((key) => `'${key}'`).join(", ")}))
     ) ORDER BY p.side_no)
    FROM fco_match_participant p
    LEFT JOIN streamer_fco_account link ON link.ouid = p.ouid AND link.visibility = 'public'
@@ -105,6 +112,8 @@ const gameSelect = `
   LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = 'fconline'
   LEFT JOIN event e ON e.id = COALESCE(ms.event_id, m.event_id) AND e.game_code = 'fconline'
   WHERE ${PUBLIC_FCO_MATCH}`;
+
+const gameSelect = selectGame();
 
 export async function listFcoPeople(): Promise<FcoPerson[]> {
   return db()<FcoPerson[]>`
@@ -167,42 +176,73 @@ export async function listFcoModesForPerson(streamerId: string): Promise<string[
   return rows.map((row) => row.mode_key);
 }
 
-export async function listFcoGamesForPerson(streamerId: string, limit = 60, filter: FcoRecordFilter = {}): Promise<FcoGame[]> {
-  const rows = await db().unsafe<GameRow[]>(`
-    SELECT ${gameSelect}
-      AND ($3::text IS NULL OR m.mode_key = $3)
-      AND ($4::text IS NULL OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date >= $4::date)
-      AND ($5::text IS NULL OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date <= $5::date)
-      AND EXISTS (SELECT 1 FROM fco_match_participant mine
-                   JOIN streamer_fco_account link ON link.ouid = mine.ouid
-                                                AND link.streamer_id = mine.streamer_id
-                                                AND link.visibility = 'public'
-                   WHERE mine.match_id = m.match_id AND mine.streamer_id = $1)
-     ORDER BY m.game_creation DESC LIMIT $2
-  `, [streamerId, limit, filter.mode ?? null, filter.from ?? null, filter.to ?? null]);
-  return games(rows);
+/** 다전제의 첫 공개 경기일로 기간을 고른다. 목록과 모든 요약에서 이 SQL만 사용한다. */
+const personGamesScope = `
+  AND ($2::text IS NULL OR m.mode_key = $2)
+  AND ($3::date IS NULL OR (COALESCE((SELECT min(g.game_creation) FROM match g WHERE g.series_id = m.series_id
+       AND g.visibility = 'public'), m.game_creation) AT TIME ZONE 'Asia/Seoul')::date >= $3::date)
+  AND ($4::date IS NULL OR (COALESCE((SELECT min(g.game_creation) FROM match g WHERE g.series_id = m.series_id
+       AND g.visibility = 'public'), m.game_creation) AT TIME ZONE 'Asia/Seoul')::date <= $4::date)
+  AND EXISTS (SELECT 1 FROM fco_match_participant mine
+    JOIN streamer_fco_account link ON link.ouid = mine.ouid AND link.streamer_id = mine.streamer_id AND link.visibility = 'public'
+    WHERE mine.match_id = m.match_id AND mine.streamer_id = $1)`;
+const scopeValues = (id: string, filter: FcoRecordFilter) => [id, filter.mode ?? null, filter.from ?? null, filter.to ?? null];
+
+export async function listFcoGamesForPerson(streamerId: string, limit: number | null = 60, filter: FcoRecordFilter = {}, detail = true): Promise<FcoGame[]> {
+  return games(await db().unsafe<GameRow[]>(`SELECT ${selectGame(detail)} ${personGamesScope}
+    ORDER BY m.game_creation DESC, m.match_id DESC LIMIT $5`, [...scopeValues(streamerId, filter), limit]));
 }
 
-/** 공개 계정으로 확인된 다른 스트리머와의 경기만 매치 히스토리에 노출한다. */
-export async function listFcoStreamerGamesForPerson(streamerId: string, limit = 200, filter: FcoRecordFilter = {}): Promise<FcoGame[]> {
-  const rows = await db().unsafe<GameRow[]>(`
-    SELECT ${gameSelect}
-      AND ($3::text IS NULL OR m.mode_key = $3)
-      AND ($4::text IS NULL OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date >= $4::date)
-      AND ($5::text IS NULL OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date <= $5::date)
-      AND EXISTS (SELECT 1 FROM fco_match_participant mine
-                   JOIN streamer_fco_account own_link ON own_link.ouid = mine.ouid
-                     AND own_link.streamer_id = mine.streamer_id AND own_link.visibility = 'public'
-                   WHERE mine.match_id = m.match_id AND mine.streamer_id = $1)
+/** 커서는 묶음 단위다. limit은 다전제 수이며 어느 페이지도 다전제를 중간에서 끊지 않는다. */
+export async function listFcoStreamerGamesForPerson(streamerId: string, limit: number | null = 200, filter: FcoRecordFilter = {}, cursorValue?: string): Promise<FcoGame[]> {
+  const cursor = readRecordCursor(cursorValue);
+  return games(await db().unsafe<GameRow[]>(`
+    WITH scoped AS (SELECT ${selectGame(false)} ${personGamesScope}
       AND EXISTS (SELECT 1 FROM fco_match_participant opponent
-                   JOIN streamer_fco_account opponent_link ON opponent_link.ouid = opponent.ouid
-                     AND opponent_link.streamer_id = opponent.streamer_id AND opponent_link.visibility = 'public'
-                   JOIN streamer opponent_streamer ON opponent_streamer.id = opponent_link.streamer_id
-                     AND opponent_streamer.visibility = 'public'
-                   WHERE opponent.match_id = m.match_id AND opponent.streamer_id <> $1)
-     ORDER BY m.game_creation DESC LIMIT $2
-  `, [streamerId, limit, filter.mode ?? null, filter.from ?? null, filter.to ?? null]);
-  return games(rows);
+        JOIN streamer_fco_account l ON l.ouid = opponent.ouid AND l.streamer_id = opponent.streamer_id AND l.visibility = 'public'
+        JOIN streamer s ON s.id = l.streamer_id AND s.visibility = 'public'
+        WHERE opponent.match_id = m.match_id AND opponent.streamer_id <> $1)
+    ), grouped AS (
+      SELECT COALESCE(series_id, id) AS key, min(played_at) AS at FROM scoped GROUP BY COALESCE(series_id, id)
+    ), page AS (
+      SELECT * FROM grouped WHERE ($6::timestamptz IS NULL OR at < $6 OR (at = $6 AND key > $7))
+      ORDER BY at DESC, key LIMIT $5
+    ) SELECT s.* FROM scoped s JOIN page p ON p.key = COALESCE(s.series_id, s.id)
+      ORDER BY p.at DESC, p.key, s.played_at DESC, s.id DESC`,
+    [...scopeValues(streamerId, filter), limit, cursor?.at ?? null, cursor?.id ?? null]));
+}
+export interface FcoProfileEventRecord {
+  slug: string; name: string; kind: string; games: number; wins: number; draws: number; losses: number; unknown: number;
+  firstPlayed: string; lastPlayed: string;
+}
+export async function getFcoPersonalSummary(streamerId: string, filter: FcoRecordFilter = {}): Promise<FcoStatLine & {lastPlayed: string | null}> {
+  const rows = await db().unsafe<(FcoStatLine & {lastPlayed: string | null})[]>(`
+    WITH scoped AS (SELECT ${selectGame(false)} ${personGamesScope}), mine AS (
+      SELECT played_at, p FROM scoped CROSS JOIN LATERAL jsonb_array_elements(participants) p WHERE p->>'streamer_id' = $1::text
+    ) SELECT count(*)::int AS games, count(*) FILTER (WHERE p->>'outcome' = 'win')::int AS wins,
+      count(*) FILTER (WHERE p->>'outcome' = 'draw')::int AS draws, count(*) FILTER (WHERE p->>'outcome' = 'loss')::int AS losses,
+      COALESCE(sum((p->>'goals')::int),0)::int AS goals,
+      COALESCE(sum((p#>>'{match_info,shoot,shootTotal}')::numeric),0)::float8 AS shots,
+      COALESCE(sum((p#>>'{match_info,shoot,effectiveShootTotal}')::numeric),0)::float8 AS "shotsOnTarget",
+      COALESCE(sum((p#>>'{match_info,pass,passTry}')::numeric),0)::float8 AS "passTry",
+      COALESCE(sum((p#>>'{match_info,pass,passSuccess}')::numeric),0)::float8 AS "passSuccess",
+      COALESCE(sum((p#>>'{match_info,defence,tackleSuccess}')::numeric),0)::float8 AS tackles,
+      COALESCE(sum((p#>>'{match_info,matchDetail,possession}')::numeric),0)::float8 AS "possessionTotal",
+      max(played_at)::text AS "lastPlayed" FROM mine`, scopeValues(streamerId, filter));
+  return rows[0];
+}
+export async function listFcoPersonalEvents(streamerId: string, filter: FcoRecordFilter = {}): Promise<FcoProfileEventRecord[]> {
+  return db().unsafe<FcoProfileEventRecord[]>(`
+    WITH scoped AS (SELECT ${selectGame(false)} ${personGamesScope})
+    SELECT event_slug AS slug, min(event_name) AS name, min(event_kind) AS kind,
+      count(*)::int AS games, count(*) FILTER (WHERE p->>'outcome' = 'win')::int AS wins,
+      count(*) FILTER (WHERE p->>'outcome' = 'draw')::int AS draws,
+      count(*) FILTER (WHERE p->>'outcome' = 'loss')::int AS losses,
+      count(*) FILTER (WHERE p->>'outcome' = 'unknown')::int AS unknown,
+      min(played_at)::text AS "firstPlayed", max(played_at)::text AS "lastPlayed"
+    FROM scoped CROSS JOIN LATERAL jsonb_array_elements(participants) p
+    WHERE p->>'streamer_id' = $1::text AND event_slug IS NOT NULL
+    GROUP BY event_slug ORDER BY max(played_at) DESC, event_slug`, scopeValues(streamerId, filter));
 }
 
 export async function listFcoVersus(aId: string, bId: string): Promise<FcoGame[]> {
@@ -214,7 +254,7 @@ export async function listFcoVersus(aId: string, bId: string): Promise<FcoGame[]
       AND EXISTS (SELECT 1 FROM fco_match_participant b
                    JOIN streamer_fco_account lb ON lb.ouid = b.ouid AND lb.streamer_id = b.streamer_id AND lb.visibility = 'public'
                    WHERE b.match_id = m.match_id AND b.streamer_id = $2)
-     ORDER BY m.game_creation DESC LIMIT 200
+     ORDER BY m.game_creation DESC, m.match_id DESC
   `, [aId, bId]);
   return games(rows);
 }
@@ -284,37 +324,64 @@ export async function getFcoGame(providerId: string): Promise<FcoGame | null> {
   return games(rows)[0] ?? null;
 }
 
-export async function listFcoEvents(): Promise<FcoEvent[]> {
-  return db()<FcoEvent[]>`
-    SELECT e.id, e.slug, e.name, e.kind, e.organizer, e.starts_at, e.ends_at,
-           e.source_url, (count(DISTINCT m.match_id) + count(DISTINCT series_match.match_id))::int AS game_count
-      FROM event e
-      LEFT JOIN match m ON m.game_code = 'fconline' AND m.visibility = 'public'
-                       AND m.event_id = e.id
-      LEFT JOIN match_series ms ON ms.event_id = e.id AND ms.game_code = 'fconline'
-      LEFT JOIN match series_match ON series_match.series_id = ms.id
-                                  AND series_match.game_code = 'fconline'
-                                  AND series_match.visibility = 'public'
+/** 목록·상세·메인이 같은 공개 경기 집계와 보완 날짜를 읽는다.
+ * 경기 귀속과 공개 조건은 listFcoEventGames와 동일하다. 직접/시리즈 연결을 중복 집계하지 않는다.
+ * 등록 일정 원본은 보존하고, 조회 결과에만 effective_*를 만든다. */
+const fcoDatedEvents = `
+  WITH event_games AS (
+    SELECT COALESCE(ms.event_id, m.event_id) AS event_id, count(*)::int AS game_count,
+           min(m.game_creation) AS first_played_at, max(m.game_creation) AS last_played_at,
+           (array_agg(d.provider_match_id ORDER BY m.game_creation DESC, m.match_id DESC))[1] AS latest_provider_id
+      FROM match m
+      JOIN fco_match_detail d ON d.match_id = m.match_id
+      LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = 'fconline'
+     WHERE ${PUBLIC_FCO_MATCH} AND COALESCE(ms.event_id, m.event_id) IS NOT NULL
+     GROUP BY COALESCE(ms.event_id, m.event_id)
+  ), dated_events AS (
+    SELECT e.id, e.slug, e.name, e.kind, e.organizer, e.starts_at, e.ends_at, e.source_url,
+           COALESCE(e.starts_at, g.first_played_at) AS effective_starts_at,
+           COALESCE(e.ends_at, g.last_played_at) AS effective_ends_at,
+           COALESCE(g.game_count, 0)::int AS game_count, g.last_played_at, g.latest_provider_id
+      FROM event e LEFT JOIN event_games g ON g.event_id = e.id
      WHERE e.game_code = 'fconline' AND e.slug IS NOT NULL
-     GROUP BY e.id
-     ORDER BY e.starts_at DESC NULLS LAST, e.created_at DESC
-  `;
+  )`;
+
+const fcoEventColumns = `id, slug, name, kind, organizer, starts_at, ends_at, source_url,
+  effective_starts_at, effective_ends_at, game_count`;
+
+/** 상세가 열리는 행사 집합. 대회 목록 정책과 독립적이다. */
+export async function listFcoDetailEvents(ids?: string[]): Promise<FcoEvent[]> {
+  return db().unsafe<FcoEvent[]>(`${fcoDatedEvents}
+    SELECT ${fcoEventColumns} FROM dated_events
+     WHERE ($1::uuid[] IS NULL OR id = ANY($1::uuid[]))
+     ORDER BY effective_starts_at DESC NULLS LAST, slug
+  `, [ids ?? null]);
+}
+
+export async function listFcoEvents(): Promise<FcoEvent[]> {
+  return (await listFcoDetailEvents()).filter(event => listedInTournaments(event.kind));
+}
+
+export interface FcoRecentEvent extends FcoEvent {
+  last_played_at: string;
+  latest_provider_id: string;
+}
+
+/** 메인의 짧은 히스토리. 일정이 비어 있는 CK도 실제 공개 경기 시각으로 정렬한다.
+ * 선수 통계 원본은 읽지 않고, 같은 경기를 event/series 양쪽에서 중복 집계하지 않는다. */
+export async function listFcoRecentEvents(limit = 3): Promise<FcoRecentEvent[]> {
+  return db().unsafe<FcoRecentEvent[]>(`${fcoDatedEvents}
+    SELECT ${fcoEventColumns}, last_played_at, latest_provider_id FROM dated_events
+     WHERE last_played_at IS NOT NULL AND kind IN ('ck', 'tournament', 'showmatch', 'scrim')
+     ORDER BY last_played_at DESC, id
+     LIMIT $1
+  `, [Math.min(12, Math.max(1, Math.trunc(limit) || 3))]);
 }
 
 export async function getFcoEvent(slug: string): Promise<FcoEvent | null> {
-  const rows = await db()<FcoEvent[]>`
-    SELECT e.id, e.slug, e.name, e.kind, e.organizer, e.starts_at, e.ends_at,
-           e.source_url, (count(DISTINCT m.match_id) + count(DISTINCT series_match.match_id))::int AS game_count
-      FROM event e
-      LEFT JOIN match m ON m.game_code = 'fconline' AND m.visibility = 'public'
-                       AND m.event_id = e.id
-      LEFT JOIN match_series ms ON ms.event_id = e.id AND ms.game_code = 'fconline'
-      LEFT JOIN match series_match ON series_match.series_id = ms.id
-                                  AND series_match.game_code = 'fconline'
-                                  AND series_match.visibility = 'public'
-     WHERE e.game_code = 'fconline' AND e.slug = ${slug}
-     GROUP BY e.id
-  `;
+  const rows = await db().unsafe<FcoEvent[]>(`${fcoDatedEvents}
+    SELECT ${fcoEventColumns} FROM dated_events WHERE slug = $1
+  `, [slug]);
   return rows[0] ?? null;
 }
 

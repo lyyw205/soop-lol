@@ -91,7 +91,7 @@ export function DetailView({ event, games, people: info, names, tab, bracket, cl
       <ChevronRight size={12} />
       <span>{event.name}</span>
     </div>
-    <TournamentHero event={event} games={games} numbers={{ people: people.length, games: games.length, goals }}
+    <TournamentHero event={event} numbers={{ people: people.length, games: games.length, goals }}
       champion={bracket?.champion ?? null} />
     <nav className="ft-detail-tabs" aria-label="대회 상세 메뉴">
       {tabs.map(([key, label]) => <Link key={key} href={eventHref(event.slug, key)} scroll={false}
@@ -315,7 +315,7 @@ function EventFacts({ view }: { view: View }) {
   const { event, games } = view;
   const modes = [...new Set(games.map(modeLabel))];
   const series = new Set(games.map((g) => g.series_id).filter(Boolean)).size;
-  const period = eventPeriod(event, games);
+  const period = eventPeriod(event);
   return <Panel title="대회 한눈에">
     <Facts rows={[
       ["기간", period.text],

@@ -1,3 +1,4 @@
+import { eventKindLabel } from "@soop-lol/core/lib/contract";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FCO_MODE_LABEL, getFcoGame, listFcoPeople } from "@soop-lol/core/lib/db/fconline";
@@ -37,7 +38,7 @@ export default async function FcMatchDetail({ params }: { params: Promise<{ matc
     <FcoScoreboard sides={sides} date={fcDate(game.played_at)} mode={modeLabel} event={game.event_name} />
 
     {game.event_slug && fcTournamentHref(game.event_slug) && <p className="fc-match-event-link">
-      <Link className="fc-card-link" href={fcTournamentHref(game.event_slug)!}>대회 기록으로 이동 →</Link>
+      <Link className="fc-card-link" href={fcTournamentHref(game.event_slug)!}>{eventKindLabel(game.event_kind)} 기록으로 이동 →</Link>
     </p>}
 
     <section className="fc-section">

@@ -13,6 +13,14 @@
  */
 
 export type SiteGame = "lol" | "fconline";
+export type NavigationSite = "platform" | SiteGame;
+
+/** 공유 화면의 메뉴 문맥은 콘텐츠 필터와 별개다. 기존 ?game= 링크도 게임 메뉴로 연다. */
+export function navigationSite(query: Record<string, string | string[] | undefined>): NavigationSite {
+  const { site, game } = query;
+  if (site === "platform" || site === "lol" || site === "fconline") return site;
+  return game === "lol" || game === "fconline" ? game : "platform";
+}
 
 /**
  * 게임 공간의 뿌리. 주소를 옮길 때 고칠 곳은 여기 한 줄이다.
@@ -36,6 +44,10 @@ export const lobbyHref = (): string => "/";
 /** 게임 공간 첫 화면. */
 export const gameHomeHref = (game: SiteGame): string => GAME_BASE[game];
 
+/** FC 메인과 전적 검색은 별도 화면이다. 롤은 기존 홈에서 검색한다. */
+export const recordSearchHref = (game: SiteGame): string =>
+  game === "fconline" ? `${GAME_BASE[game]}/search` : gameHomeHref(game);
+
 /** 스트리머 개인 기록. */
 export const profileHref = (game: SiteGame, slug: string, query?: HrefQuery): string =>
   withQuery(`${GAME_BASE[game]}/s/${encodeURIComponent(slug)}`, query);
@@ -43,7 +55,7 @@ export const profileHref = (game: SiteGame, slug: string, query?: HrefQuery): st
 /** 프로필 주소들의 공통 앞부분. 메뉴가 "프로필을 보는 중이면 전적 검색에 불을 켠다" 를 판정할 때 쓴다. */
 export const profilePrefix = (game: SiteGame): string => `${GAME_BASE[game]}/s/`;
 
-/** 롤 스트리머 목록(티어·우승 수). FC 는 첫 화면이 목록을 겸해서 따로 없다. */
+/** 롤 스트리머 목록(티어·우승 수). FC 는 전적 검색 화면에 목록이 있다. */
 export const streamersHref = (query?: HrefQuery): string => withQuery(`${GAME_BASE.lol}/streamers`, query);
 
 /** FC 경기 상세. */
@@ -73,4 +85,16 @@ export function routeHref(routes: readonly { path: string }[], params: Record<st
   const route = routes.find((r) => [...r.path.matchAll(/\[(\w+)\]/g)].map((m) => m[1]).sort().join(",") === want);
   if (!route) return null;
   return withQuery(route.path.replace(/\[(\w+)\]/g, (_, key: string) => encodeURIComponent(params[key])), query);
+}
+
+/** 사람의 일정은 두 게임 모두. 메뉴 맥락은 필수이며 game 필터는 넘기지 않는다. */
+export function profileScheduleQuery(site: SiteGame, slug: string): { site: SiteGame; s: string } {
+  return { site, s: slug };
+}
+
+/** 글 게임 → 들어온 메뉴 → 기록이 있는 게임. 열리지 않는 프로필로는 보내지 않는다. */
+export function profileGameFor(available: readonly SiteGame[], game: SiteGame | null, site: NavigationSite): SiteGame {
+  if (game && available.includes(game)) return game;
+  if (site !== "platform" && available.includes(site)) return site;
+  return available[0] ?? "lol";
 }

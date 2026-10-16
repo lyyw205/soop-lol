@@ -46,7 +46,7 @@ export function FcoSeriesSummary({ games }: { games: FcoGame[] }) {
               </span>
             </div>
 
-            <ol className="mt-3 grid gap-1 text-[13px]">
+            <ol className="mt-3 grid gap-1 text-[length:var(--type-dense)]">
               {sets.map((set) => (
                 <li key={set.id} className="flex flex-wrap items-center gap-2 opacity-80">
                   <span className="w-12 shrink-0 opacity-60">{set.series_game_no ?? "?"}세트</span>

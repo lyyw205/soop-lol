@@ -33,7 +33,6 @@ test("목표까지 남은 LP·출발점에서 온 LP·바닥은 가장 낮은 �
   assert.deepEqual(v.members.map((m) => m.toGoal), [605, 800]);
   assert.deepEqual(v.members.map((m) => m.gained), [2195 - 1140, null], "출발(실버 I 40 = 1140)에서 온 LP, 출발 기록 없으면 null");
   assert.equal(v.floorAbs, 800, "바닥은 출발점이 든 실버의 시작");
-  assert.equal(v.riotGames, 109);
 });
 
 test("같은 판의 두 멤버는 한 판 · 같이 한 판에서 딜을 더 넣은 쪽을 센다", () => {
@@ -59,10 +58,21 @@ test("챔피언 승률은 표본이 작으면 50%쪽으로 — 3승 0패는 100%
 test("다시하기(5분 미만)는 판으로 세지 않는다", () => {
   const r = { ...row("m9", "pa", true, {}), game_duration: 200 };
   const v = buildChallenge(def, [r, row("m1", "pa", true, {})], [], []);
-  assert.deepEqual([v.games.length, v.record.remakes], [1, 1]);
+  assert.deepEqual([v.games.length, v.stats[0].games, v.record.remakes], [0, 1, 1]);
 });
 
 test("서렌 패만 서렌 태그", () => {
   assert.deepEqual(gameTags({ lines: [null], win: false, surrender: true }, [{ name: "가" }]), ["서렌"]);
   assert.deepEqual(gameTags({ lines: [null], win: true, surrender: true }, [{ name: "가" }]), []);
+});
+
+test("듀오는 같은 팀인 판만, 개인은 단독·상대였던 판도 센다", () => {
+  const v = buildChallenge(def, [
+    row("duo", "pa", true, {}), row("duo", "pb", true, {}),
+    row("solo", "pa", false, {}),
+    row("opponents", "pa", true, {}), { ...row("opponents", "pb", false, {}), team_id: 200 },
+  ], [], []);
+  assert.deepEqual([v.record.games, v.record.wins], [1, 1]);
+  assert.deepEqual(v.stats.map(s => [s.games, s.wins]), [[3, 2], [2, 1]]);
+  assert.deepEqual(v.flow.map(p => p.net), [1]);
 });

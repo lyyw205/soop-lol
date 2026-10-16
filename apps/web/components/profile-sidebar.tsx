@@ -15,8 +15,8 @@ import { UpcomingSchedule } from "./upcoming-schedule";
  * ★ 둘 다 없으면 빈 칸으로 둔다(본문 폭과 시선 축은 유지된다).
  */
 export async function ProfileSidebar({ slug, game }: { slug: string; game: SiteGame }) {
-  const schedule = await UpcomingSchedule({ slug });
-  const talk = roleHref("community", {}, { game, s: slug });
+  const schedule = await UpcomingSchedule({ slug, site: game });
+  const talk = roleHref("community", {}, { site: game, game, s: slug });
   if (!schedule && !talk) return <aside className="record-sidebar record-sidebar-empty" aria-label="추가 스트리머 정보" />;
   return (
     <aside className="record-sidebar" aria-label="추가 스트리머 정보">

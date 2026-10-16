@@ -13,6 +13,14 @@
 @source "../../../packages/modules";
 @source "../../../packages/ui";
 
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("/fonts/pretendard/PretendardVariable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 @theme {
   --color-ink-950: #0a0b0f;
   --color-ink-900: #101219;
@@ -31,7 +39,40 @@
 }
 
 :root {
+  /* Shared neutral boxes, aligned with the cam sharing palette. */
+  --surface-panel: #141b25;
+  --surface-panel-soft: #1b2532;
+  --surface-border: #303a47;
   color-scheme: dark;
+  /* Public UI roles. Display mastheads and game artwork use their own scale. */
+  --font-site: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --type-page: 26px;
+  --type-section: 20px;
+  --type-card: 16px;
+  --type-body: 14px;
+  --type-dense: 13px;
+  --type-meta: 12px;
+  --type-micro: 11px;
+  --type-metric: 28px;
+  --type-metric-compact: 20px;
+  --leading-title: 1.3;
+  --leading-body: 1.5;
+  --control-height: 44px;
+  --control-height-sm: 36px;
+  --control-height-xs: 32px;
+  --panel-padding: 20px;
+  --section-gap: 32px;
+  --row-height: 56px;
+  --avatar-size: 32px;
+}
+
+@media (max-width: 620px) {
+  :root {
+    --type-page: 24px;
+    --type-section: 18px;
+    --panel-padding: 16px;
+    --section-gap: 28px;
+  }
 }
 
 html,
@@ -42,9 +83,7 @@ body {
 }
 
 body {
-  font-family:
-    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
-    "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  font-family: var(--font-site);
 }
 
 /* 숫자가 흔들리지 않게. 전적 표에서 자릿수가 바뀔 때 열이 출렁이는 걸 막는다. */

@@ -18,6 +18,7 @@
  *     승 초록 / 패 빨강으로 갈아탄다.
  */
 
+import { useRecordScope } from "../../../ui/use-record-scope.ts";
 import Link from "next/link";
 import { MatchDetails } from "../../../ui/match-details.tsx";
 import { RecordContentPanel, RecordOverviewCard } from "../../../ui/record-structure.tsx";
@@ -31,7 +32,7 @@ import { formatBadge, isRepeatedDate, matchOutcome } from "../../../ui/match-row
 // ★ 모듈은 계약만 import 한다. core/lib/db·metrics 를 직접 부르면 verify:modules 가 막는다 —
 //   좁은 계약이 곧 core 가 내부를 바꿀 수 있는 자유다.
 import {
-  withinRecordPeriod, resolveRecordPeriod, recordPeriodLabel, type RecordPeriod, type PublicRosterEntry, QUEUE_LABEL, RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, expandCategory, kstDateString, kstYear, type MatchCategoryFilter,
+  filterSeriesPeriod, resolveRecordPeriod, recordPeriodLabel, type RecordPeriod, type PublicRosterEntry, QUEUE_LABEL, RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, expandCategory, kstDateString, kstYear, type MatchCategoryFilter,
   setLabel, isStandaloneSet, profileHref as contractProfileHref, tallyGroups, isLandCategory,
 } from "@soop-lol/core/lib/contract/client";
 import { versusHref } from "./paths.ts";
@@ -69,17 +70,13 @@ interface Props {
   sets: VersusSet[];
   rosters: RosterEntry[];
   options: PickerOption[];
-  initialCategory?: MatchCategoryFilter;
-  initialYear?: number;
-  initialRelation?: "o" | "a" | "l";
-  initialDatePeriod?: RecordPeriod;
 }
 
 // ── 색 ───────────────────────────────────────────────────────────────
 
-const X_DOT = "#38bdf8", X_TEXT = "#7dd3fc";
-const Y_DOT = "#f87171", Y_TEXT = "#fca5a5";
-const WIN = "#4ade80", DEAD = "#4b5568";
+const X_DOT = "var(--team-blue-strong, #38bdf8)", X_TEXT = "var(--team-blue, #7dd3fc)";
+const Y_DOT = "var(--team-red-strong, #f87171)", Y_TEXT = "var(--team-red, #fca5a5)";
+const WIN = "var(--result-win-strong, #4ade80)", DEAD = "var(--text-muted, #4b5568)";
 
 // ── 파생 ─────────────────────────────────────────────────────────────
 
@@ -111,18 +108,19 @@ function foldMatches(rows: VersusSet[]): Match[] {
   return [...by.entries()]
     .map(([series, list]) => {
       const sorted = [...list].sort((a, b) => (a.series_game_no ?? 0) - (b.series_game_no ?? 0) || new Date(a.played_at).getTime() - new Date(b.played_at).getTime());
+      const first = [...list].sort((a,b)=>+new Date(a.played_at)-+new Date(b.played_at))[0];
       const xSets = sorted.filter((s) => s.xWin).length;
       // ★ 판정식을 여기서 다시 쓰지 않는다. 같은 규칙이 네 군데에 복사돼 있었고,
       //   무승부(정확히 반)를 한 곳만 패로 세는 사고가 실제로 났다.
-      const outcome = matchOutcome(xSets, sorted.length);
+      const outcome = matchOutcome(xSets, sorted.length, isLandCategory(sorted[0].category));
       return {
         series, sets: sorted, xSets, ySets: sorted.length - xSets,
         xWin: outcome === "win",
         draw: outcome === "draw",
         // ★ ISO 문자열을 그냥 자르면 **UTC 날짜**다. 자정을 넘긴 경기에서 개인 기록(KST)과
         //   하루씩 어긋났다. 연도 머리글(227·230행)도 이 값을 쓰므로 여기서 KST 로 맞춘다.
-        date: kstDateString(new Date(sorted[0].played_at)),
-        head: sorted[0],
+        date: kstDateString(new Date(first.played_at)),
+        head: first,
         land: isLandCategory(sorted[0].category),
       };
     })
@@ -137,7 +135,7 @@ const setRecord = (rows: VersusSet[]) => ({
 const matchRecord = (rows: VersusSet[]) => {
   // ★ 한 줄 = 매치 하나가 아니다 — 랜드 한 줄은 판 수만큼의 매치다. 세는 규칙은 계약 하나(tallyGroups).
   const t = tallyGroups(foldMatches(rows).map((g) => ({ sets: g.sets.length, wins: g.xSets, land: g.land })));
-  return { wins: t.wins, losses: t.losses, matches: t.matches };
+  return t;
 };
 
 /** 이미 KST 로 맞춰 둔 `YYYY-MM-DD`(Match.date)를 점 표기로 바꾼다. */
@@ -149,12 +147,13 @@ const labelOf = (s: VersusSet) =>
 
 // ── 본체 ─────────────────────────────────────────────────────────────
 
-export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "all", initialYear, initialRelation = "o", initialDatePeriod = {key:"all"} }: Props) {
-  const [rel, setRel] = useState<"o" | "a" | "l">(initialRelation);
-  const [year, setYear] = useState<"all" | string>(initialYear ? String(initialYear) : "all");
-  const [category, setCategory] = useState<MatchCategoryFilter>(initialCategory);
-  const [datePeriod, setDatePeriod] = useState(initialDatePeriod);
-  const [sort, setSort] = useState<"recent" | "oldest">("recent");
+export function VersusDetail({ x, y, sets, rosters, options }: Props) {
+  const { scope, setScope } = useRecordScope();
+  const { relation: rel, category, period: datePeriod, sort } = scope;
+  const year = datePeriod.key === "year" && datePeriod.from ? datePeriod.from.slice(0, 4) : "all";
+  const setRel = (relation: "o" | "a" | "l") => setScope({ relation });
+  const setCategory = (category: MatchCategoryFilter) => setScope({ category });
+  const setDatePeriod = (period: RecordPeriod) => setScope({ period });
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   const matchButtons = useRef(new Map<string, HTMLButtonElement>());
@@ -174,20 +173,14 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
   const scoped = useMemo(
     () => {
       const categories = expandCategory(category);
-      return sets.filter((s) => (year === "all" || String(kstYear(new Date(s.played_at))) === year)
-        && (!categories || categories.some((c) => c === s.category)));
+      return sets.filter((s) => (!categories || categories.some((c) => c === s.category)));
     },
-    [sets, year, category],
+    [sets, category],
   );
   const sel = useMemo(
     () => {
       const related = scoped.filter((s) => isAlly ? s.relation === "ally" : s.relation === "opponent");
-      const starts = new Map<string, string>();
-      for (const row of related) {
-        const previous = starts.get(row.series_key);
-        if (!previous || row.played_at < previous) starts.set(row.series_key, row.played_at);
-      }
-      const rows = related.filter((s)=>withinRecordPeriod(starts.get(s.series_key)!, datePeriod));
+      const rows = filterSeriesPeriod(related, datePeriod, row=>row.series_key, row=>row.played_at);
       if (rel !== "l") return rows;
       // 프로필과 같은 경기 기준: 모든 세트에서 맞라인이었던 다전제만 포함한다.
       const mixed = new Set(rows.filter((s) => !s.is_lane_matchup).map((s) => s.series_key));
@@ -234,14 +227,14 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
     let cur: string | null = null;
     // 같은 날이 이어지면 날짜는 맨 위 한 번만 쓴다 — 개인 기록 매치 히스토리와 같은 규칙이다.
     let previousDate = "";
-    for (const m of matches) {
+    for (const m of matches.slice(0, 500)) {
       const yy = m.date.slice(0, 4);
       const yearBreak = yy !== cur;
       if (yearBreak) {
         cur = yy;
         const inYear = matches.filter((g) => g.date.slice(0, 4) === yy);
-        const w = inYear.filter((g) => g.xWin).length;
-        const l = inYear.filter((g) => !g.xWin && !g.draw).length;
+        const yearRecord = tallyGroups(inYear.map(g => ({ sets: g.sets.length, wins: g.xSets, land: g.land })));
+        const w = yearRecord.wins, l = yearRecord.losses;
         rows.push({
           kind: "year", year: yy,
           summary: isAlly
@@ -255,6 +248,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
   }
 
   const context = new URLSearchParams();
+  if (sort !== "recent") context.set("sort", sort);
   if (category !== "all") context.set("category", category);
   if (year !== "all") context.set("year", year);
   if (datePeriod.from) context.set("from", datePeriod.from);
@@ -283,7 +277,6 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
         years={[]}
         onCategoryChange={(value)=>setCategory(value as MatchCategoryFilter)} onYearChange={()=>{}}
         trailing={<RecordDateRange period={datePeriod} onApply={(range)=>{
-          setYear("all");
           setDatePeriod(range ? resolveRecordPeriod({period:"custom",from:range.from,to:range.to}) : {key:"all"});
         }} />}>
         <div className="arena-tabs" aria-label="관계 필터">
@@ -298,7 +291,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
           <FixturePersonView person={x} linked profileHref={profileHref(x.slug,y.slug)} badge="기준" />
           {/* 순서 바꾸기는 **두 사람 사이**가 제자리다. 예전엔 카드 밖 아래에 글자 링크로
               있었는데, 무엇과 무엇을 바꾸는지 그 자리에서는 보이지 않았다. */}
-          <Link className="arena-duel-swap" href={versusHref(swapped)} title="스트리머 순서 바꾸기" aria-label="스트리머 순서 바꾸기">
+          <Link className="arena-duel-swap" href={versusHref(swapped)} prefetch={false} title="스트리머 순서 바꾸기" aria-label="스트리머 순서 바꾸기">
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2.5 5h9M9 2.5 11.5 5 9 7.5M13.5 11h-9M7 8.5 4.5 11 7 13.5" />
             </svg>
@@ -313,15 +306,15 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
           {/* '경기 승수 기준' 과 '(X 기준)' 은 뺐다 — 위 큰 숫자가 경기 승수이고, 기준은
               왼쪽 인물의 '기준' 칩이 말한다. 세트 승패와 무승부만 남긴다. */}
           <p>{isAlly && `공동 전적 · ${mRec.wins}승 ${mRec.losses}패 · `}세트 {sRec.wins}승 {sRec.losses}패
-            {matches.some((m) => m.draw) && ` · 무승부 ${matches.filter((m) => m.draw).length}경기`}</p>
+            {mRec.draws > 0 && ` · 무승부 ${mRec.draws}경기`}</p>
         </div>
         {recentForm.length > 0 && (
           <div className="record-form">
             <span className="record-form-label">최근 {recentForm.length}경기</span>
             <ol className="record-form-chips">
               {recentForm.map((m) => {
-                const result = m.draw ? "draw" : m.xWin ? "win" : "loss";
-                const label = m.draw ? "무" : m.xWin ? "승" : "패";
+                const result = matchOutcome(m.xSets, m.sets.length, m.land);
+                const label = m.land ? `${m.xSets}-${m.ySets}` : m.draw ? "무" : m.xWin ? "승" : "패";
                 return <li key={m.series}>
                   <button type="button" data-result={result} data-ally={isAlly || undefined}
                     title={`${ymd(m.date)} · ${m.xSets} : ${m.ySets}`}
@@ -347,7 +340,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
           <div className="flex flex-wrap items-center gap-3">
             {/* '상대편으로 만난 경기만' 은 뺐다 — 바로 위 관계 필터(상대 팀/같은 팀/맞라인)가
                 같은 말을 이미 하고 있고, 그쪽이 누를 수 있는 진짜 조작이다. */}
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] text-ink-400">
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[length:var(--type-micro)] text-ink-400">
               <span className="h-[7px] w-[7px] rounded-full" style={{ background: isAlly ? WIN : X_DOT }} />
               {isAlly ? "함께 승" : x.display_name}
               <span className="ml-1 h-[7px] w-[7px] rounded-full" style={{ background: Y_DOT }} />
@@ -355,7 +348,7 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
             </span>
             {/* 둘 중 하나는 늘 꺼져 있는 버튼이었다. 상태가 둘뿐이면 토글 하나가 맞다. */}
             <button type="button" className="record-sort-toggle"
-              onClick={() => setSort((previous) => (previous === "recent" ? "oldest" : "recent"))}
+              onClick={() => setScope({ sort: sort === "recent" ? "oldest" : "recent" })}
               aria-label={`정렬 ${sort === "recent" ? "최신순" : "오래된순"} — 누르면 바꿉니다`}>
               {sort === "recent" ? "최신순" : "오래된순"}
               <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -367,9 +360,10 @@ export function VersusDetail({ x, y, sets, rosters, options, initialCategory = "
           </div>
         </div>
 
+        {matches.length > 500 && <p className="record-scope-label">경기 기록은 500묶음까지 표시합니다. 요약은 선택 범위 전체 기준입니다.</p>}
         <div className="mt-3.5">
           {rows.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-ink-700 px-[18px] py-[34px] text-center text-[13px] text-ink-400">
+            <p className="rounded-xl border border-dashed border-ink-700 px-[18px] py-[34px] text-center text-[length:var(--type-dense)] text-ink-400">
               조건에 맞는 경기가 없습니다. 필터를 풀어 보세요.
             </p>
           ) : (
@@ -422,9 +416,9 @@ function MatchRow({
   streamerId: string;
 }) {
   const multi = m.sets.length > 1;
-  const dot = isAlly ? "#2f3546" : m.draw ? "#2f3546" : m.xWin ? X_DOT : Y_DOT;
-  const cardBorder = isAlly || m.draw ? "#1c2030" : m.xWin ? "rgba(56,189,248,0.26)" : "rgba(248,113,113,0.26)";
-  const cardBg = isAlly || m.draw ? "rgba(16,18,25,0.6)" : m.xWin ? "rgba(56,189,248,0.05)" : "rgba(248,113,113,0.045)";
+  const dot = isAlly || m.land ? "var(--result-draw, #2f3546)" : m.draw ? "var(--result-draw, #2f3546)" : m.xWin ? X_DOT : Y_DOT;
+  const cardBorder = isAlly || m.land || m.draw ? "var(--result-draw-border, #1c2030)" : m.xWin ? "var(--team-blue-border, rgba(56,189,248,0.26))" : "var(--team-red-border, rgba(248,113,113,0.26))";
+  const cardBg = isAlly || m.land || m.draw ? "var(--result-draw-bg, rgba(16,18,25,0.6))" : m.xWin ? "var(--team-blue-bg, rgba(56,189,248,0.05))" : "var(--team-red-bg, rgba(248,113,113,0.045))";
 
   // 같은 팀 모드는 둘이 함께 이겼는지를 센다 — 사람 색을 쓰지 않는다.
   const allyWins = m.sets.filter((s) => s.xWin).length;
@@ -467,7 +461,7 @@ function MatchRow({
             {isAlly ? (
               <span className="flex-none whitespace-nowrap">
                 <span className="text-xs" style={{ color: X_TEXT }}>{x.display_name}</span>
-                <span className="mx-1.5 text-[11px] text-ink-600">·</span>
+                <span className="mx-1.5 text-[length:var(--type-micro)] text-ink-600">·</span>
                 <span className="text-xs" style={{ color: Y_TEXT }}>{y.display_name}</span>
                 <span
                   className="tabular ml-2 text-sm font-bold"
@@ -482,7 +476,7 @@ function MatchRow({
                 <span className="tabular text-[15px] font-bold" style={{ color: m.xSets >= m.ySets ? X_TEXT : DEAD }}>
                   {m.xSets}
                 </span>
-                <span className="text-[11px] font-normal text-ink-600">:</span>
+                <span className="text-[length:var(--type-micro)] font-normal text-ink-600">:</span>
                 <span className="tabular text-[15px] font-bold" style={{ color: m.ySets >= m.xSets ? Y_TEXT : DEAD }}>
                   {m.ySets}
                 </span>
@@ -491,18 +485,18 @@ function MatchRow({
             )}
 
             {isAlly && (
-              <span className="flex-none rounded border border-ink-700 bg-ink-800 px-1.5 py-px text-[10px] text-ink-400">
+              <span className="flex-none rounded border border-ink-700 bg-ink-800 px-1.5 py-px text-[length:var(--type-micro)] text-ink-400">
                 같은 팀
               </span>
             )}
             {/* ★ 조건부로 감싸지 않는다. 예전엔 `{(multi || best_of) && …}` 라 단판 줄만 칩이
                 없어서, 같은 경기가 개인 기록에는 `단판` 으로 여기에는 아무것도 없이 나왔다. */}
-            <span className="tabular ml-auto flex-none rounded border border-ink-700 px-1.5 py-px text-[10px] text-ink-400">
+            <span className="tabular ml-auto flex-none rounded border border-ink-700 px-1.5 py-px text-[length:var(--type-micro)] text-ink-400">
               {m.land ? `랜드 ${m.sets.length}판` : formatBadge(m.head.best_of, m.sets.length, m.sets.length === 1 && isStandaloneSet(m.head.match_id, m.series))}
             </span>
             {/* ▸/▾ 는 Pretendard 서브셋에 글리프가 없어 안 그려진다 — +/− 를 쓴다 */}
             {/* 글자가 아니라 아이콘 상자라 밑선이 아니라 가운데로 맞춘다. */}
-            <span className="inline-flex h-[18px] w-[18px] flex-none self-center items-center justify-center rounded-[5px] border border-ink-700 text-[11px] leading-none text-ink-400">
+            <span className="inline-flex h-[18px] w-[18px] flex-none self-center items-center justify-center rounded-[5px] border border-ink-700 text-[length:var(--type-micro)] leading-none text-ink-400">
               {open ? "−" : "+"}
             </span>
           </button>

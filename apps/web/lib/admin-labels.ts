@@ -12,9 +12,7 @@
  */
 
 /** 행사 분류(event.kind). CK 조사와 FC 판정이 같은 값을 쓴다. */
-export const EVENT_KIND_LABEL: Record<string, string> = {
-  ck: "CK", land: "랜드", tournament: "대회", showmatch: "이벤트", scrim: "스크림", other: "기타",
-};
+export { EVENT_KIND_LABEL } from "@soop-lol/core/lib/contract/client";
 
 /**
  * match.reviewed_at. **모든 칸을 검수했다는 뜻이 아니다** — KDA 한 칸만 고쳐도, 근거만 고쳐도 찍힌다.

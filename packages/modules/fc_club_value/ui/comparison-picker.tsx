@@ -1,4 +1,5 @@
 "use client";
+import { ChangeDirection } from "../../../ui/sort-header.tsx";
 
 import { useId, useState, useTransition, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
@@ -12,13 +13,13 @@ export interface PlayerOption {
   selected: boolean; available: boolean; color?: string;
 }
 
-export function ComparisonPicker({ slug, players, count }: {
-  slug: string; players: PlayerOption[]; count: number;
+export function ComparisonPicker({ slug, players, count, priceDay }: {
+  slug: string; players: PlayerOption[]; count: number; priceDay: string | null;
 }) {
-  return <PickerContents key={slug} players={players} count={count} />;
+  return <PickerContents key={slug} players={players} count={count} priceDay={priceDay} />;
 }
 
-function PickerContents({ players, count }: { players: PlayerOption[]; count: number }) {
+function PickerContents({ players, count, priceDay }: { players: PlayerOption[]; count: number; priceDay: string | null }) {
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -33,8 +34,8 @@ function PickerContents({ players, count }: { players: PlayerOption[]; count: nu
       </label>
       <span className="cv-picker-count">{count} / {MAX_PLAYERS}</span>
     </div>
-    <p className="cv-quick-status" role="status">{pending ? "차트에 반영 중…" : count === MAX_PLAYERS ? `${MAX_PLAYERS}명 선택 완료 · 선택한 선수를 누르면 해제` : "선택하면 구단 곡선 대신 선수 가치 곡선을 보여줍니다"}</p>
-    <div className="cv-player-columns" aria-hidden="true"><span>선수</span><span>강화</span><span className="cv-player-ovr">OVR</span><span>현재가</span><span>7일 등락</span></div>
+    <p className="cv-quick-status" role="status">{pending ? "차트에 반영 중…" : count === MAX_PLAYERS ? `${MAX_PLAYERS}명 선택 완료 · 선택한 선수를 누르면 해제` : `${priceDay ? `현재가 ${priceDay.slice(5).replace("-", ".")} 확인 · ` : ""}등락은 일별 시세 기준`}</p>
+    <div className="cv-player-columns" aria-hidden="true"><span>선수</span><span>강화</span><span className="cv-player-ovr">OVR</span><span title={priceDay ? `${priceDay}에 확인한 스쿼드 현재가` : undefined}>현재가</span><span>7일 등락</span></div>
     <div className="cv-quick-list" tabIndex={0} aria-label="비교할 선수 목록">
       {filtered.map(p => <button key={p.key} type="button" className="cv-quick-player" aria-pressed={p.selected}
         style={p.selected ? { "--cv-player-color": p.color } as CSSProperties : undefined}
@@ -55,13 +56,13 @@ function PickerContents({ players, count }: { players: PlayerOption[]; count: nu
             : <span title="강화 미확인">?</span>}
         </span>
         <span className="cv-player-ovr" aria-label={`OVR ${p.ovr ?? "미확인"}`}>{p.ovr ?? "—"}</span>
-        <span className="cv-quick-price" title={p.exactPrice ? `${p.exactPrice}원` : undefined}>
+        <span className="cv-quick-price" title={p.exactPrice ? `${p.exactPrice} BP` : undefined}>
           <strong>{p.price}</strong>
           {!p.available && <small>시세 없음</small>}
         </span>
           <span className={`cv-player-change cv-change cv-${p.change7 ? p.change7.delta > 0 ? "up" : p.change7.delta < 0 ? "down" : "flat" : "flat"}`}
             title={p.change7 ? `${p.change7.since} 대비 7일 등락률` : "7일 전 시세 기록 없음"}>
-            {p.change7 ? <><span className="cv-change-arrow">{p.change7.delta > 0 ? "▲" : p.change7.delta < 0 ? "▼" : "–"}</span>{" "}{Math.abs(p.change7.pct).toFixed(p.change7.pct !== 0 && Math.abs(p.change7.pct) < .1 ? 2 : 1)}%</> : "7일 —"}
+            {p.change7 ? <><span className="cv-change-arrow"><ChangeDirection delta={p.change7.delta} /></span>{" "}{Math.abs(p.change7.pct).toFixed(p.change7.pct !== 0 && Math.abs(p.change7.pct) < .1 ? 2 : 1)}%</> : "7일 —"}
           </span>
       </button>)}
       {!filtered.length && <p className="cv-quick-empty">{players.length ? "검색 결과가 없습니다." : "아직 받은 스쿼드가 없습니다."}</p>}

@@ -1,3 +1,6 @@
+import { recordCursor } from "../packages/core/lib/metrics/record-cursor.ts";
+import { listOpponentSummaries, listOpponentHistoryMatches } from "../packages/core/lib/db/opponent-history.ts";
+import { resolveRecordPeriod as recordPeriodScope } from "../packages/core/lib/metrics/record-period.ts";
 /**
  * 스키마와 질의를 **실제로 실행해서** 검증한다.
  *
@@ -14,7 +17,7 @@ import { join } from "node:path";
 
 import { applyAll } from "./lib/migrations.ts";
 import { verifyReviewRecordUpgrade } from "./lib/verify-review-record-migration.ts";
-import { verifyNameHistoryDb, verifyPuuidMoveDb } from "./lib/verify-puuid-move-db.ts";
+import { verifyNameHistoryDb, verifyNormNameSqlDb, verifyPuuidMoveDb } from "./lib/verify-puuid-move-db.ts";
 import { verifyScheduleDb } from "./lib/verify-schedule-db.ts";
 import { verifyMemberDb } from "./lib/verify-member-db.ts";
 import { verifyCommunityDb } from "./lib/verify-community-db.ts";
@@ -49,6 +52,8 @@ const db = await PGlite.create({ extensions: { pg_trgm, pgcrypto } });
 const server = new PGLiteSocketServer({ db, port: PORT, host: "127.0.0.1" });
 await server.start();
 process.env.DATABASE_URL = `postgres://postgres@127.0.0.1:${PORT}/postgres`;
+// PGlite는 단일 연결만 지원한다. 병렬 공개 조회도 같은 연결에서 직렬 실행한다.
+process.env.DATABASE_POOL_MAX = "1";
 
 // core 는 import 시점이 아니라 호출 시점에 DATABASE_URL 을 읽으므로 순서는 안전하다.
 const { db: sqlClient, closeDb } = await import("../packages/core/lib/db/client.ts");
@@ -439,14 +444,14 @@ try {
     drawRow[0]?.sets === 2 && drawRow[0]?.wins === 0 && drawRow[0]?.draws === 1,
     JSON.stringify(drawRow[0]));
   // 개인 기록은 조우 상대 수와 무관하게 경기 하나를 한 번만 센다.
-  const personalRows = await personalDb.listPersonalMatches(s1.id, {category: "tournament", year: 2026});
-  const personalStats = await personalDb.listPersonalRecords(s1.id, {category: "tournament", year: 2026});
+  const personalRows = await personalDb.listPersonalMatches(s1.id, {category: "tournament", ...recordPeriodScope({year: 2026})});
+  const personalStats = await personalDb.listPersonalRecords(s1.id, {category: "tournament", ...recordPeriodScope({year: 2026})});
   check("개인 기록: 대회 4세트를 3경기로 집계하고 무승부를 보존한다",
     personalRows.length === 3 && personalStats[0]?.matches === 3 && personalStats[0]?.sets === 4
       && personalStats[0]?.wins === 2 && personalStats[0]?.draws === 1 && personalStats[0]?.losses === 0,
     JSON.stringify(personalStats));
   const latestPersonal = await personalDb.listPersonalMatches(s1.id, {category: "tournament", limit: 1});
-  const nextPersonal = await personalDb.listPersonalMatches(s1.id, {category: "tournament", limit: 1, offset: 1});
+  const nextPersonal = await personalDb.listPersonalMatches(s1.id, {category: "tournament", limit: 1, cursor: recordCursor(latestPersonal[0].played_at, latestPersonal[0].series_key)});
   check("개인 기록: LIMIT이 다전제 세트를 자르지 않고 페이지가 중복되지 않는다",
     latestPersonal[0]?.sets === 2 && latestPersonal[0]?.set_wins === 1
       && latestPersonal[0]?.series_key !== nextPersonal[0]?.series_key);
@@ -484,7 +489,7 @@ try {
   }
   const [opponentVisibility] = await sqlClient()`SELECT visibility FROM streamer WHERE slug = 'beta'`;
   await sqlClient()`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'beta'`;
-  const withoutPublicOpponent = await personalDb.listPersonalMatches(s1.id, {category: "tournament", year: 2026});
+  const withoutPublicOpponent = await personalDb.listPersonalMatches(s1.id, {category: "tournament", ...recordPeriodScope({year: 2026})});
   const personalRosters = await publicContract.listMatchRosters(withoutPublicOpponent.flatMap((game) => game.match_ids));
   check("개인 히스토리: 상대가 비공개여도 본인 경기는 남고 상대 이름은 로스터에서 제외한다",
     withoutPublicOpponent.length === personalRows.length && personalRosters.every((player) => player.streamer_id !== s2.id));
@@ -492,20 +497,33 @@ try {
   check("개인 기록: CK 필터는 대회 기록을 포함하지 않는다",
     (await personalDb.listPersonalRecords(s1.id, {category: "ck"})).length === 0);
   check("개인 기록: 빈 연도는 기록 없음으로 반환한다",
-    (await personalDb.listPersonalMatches(s1.id, {year: 1999})).length === 0);
+    (await personalDb.listPersonalMatches(s1.id, {...recordPeriodScope({year: 1999})})).length === 0);
   check("개인 기록: 경기 연도를 찾는다", (await personalDb.listPersonalYears(s1.id)).includes(2026));
   await sqlClient()`UPDATE match SET game_creation = '2025-12-31T16:00:00Z' WHERE match_id = 'verify-cup:f1'`;
   await ingestDb.rederiveEncounters(["verify-cup:f1"]);
   check("개인 기록·상대 목록은 한국 시간 연도 경계를 공유한다",
-    (await personalDb.listPersonalMatches(s1.id, {year: 2026})).some((m) => m.series_key === "verify-cup:f1")
-      && !(await personalDb.listPersonalMatches(s1.id, {year: 2025})).some((m) => m.series_key === "verify-cup:f1")
-      && (await publicDb.listOpponentGames(s1.id, 2026)).some((m) => m.match_id === "verify-cup:f1")
-      && (await publicDb.listOpponents(s1.id, {year: 2026, category: "tournament"}))[0]?.vs_sets === 4);
+    (await personalDb.listPersonalMatches(s1.id, {...recordPeriodScope({year: 2026})})).some((m) => m.series_key === "verify-cup:f1")
+      && !(await personalDb.listPersonalMatches(s1.id, {...recordPeriodScope({year: 2025})})).some((m) => m.series_key === "verify-cup:f1")
+      && (await listOpponentHistoryMatches(s1.id, s2.id, recordPeriodScope({year:2026}))).matches.some((m) => m.series === "verify-cup:f1")
+      && (await listOpponentSummaries(s1.id, {...recordPeriodScope({year:2026}), category: "tournament"}))[0]?.vs_sets === 4);
   await sqlClient()`UPDATE match SET game_creation = '2026-08-01T12:00:00Z' WHERE match_id = 'verify-cup:f1'`;
   await ingestDb.rederiveEncounters(["verify-cup:f1"]);
+  // 첫 판은 2025 KST, 다음 판은 2026 KST: 요약·목록·상대 조회가 같은 묶음을 고른다.
+  const boundarySeries = personalRows.find(r=>r.sets === 2)!;
+  const priorDates = await sqlClient()<{match_id:string; game_creation:Date}[]>`SELECT match_id,game_creation FROM match WHERE match_id = ANY(${boundarySeries.match_ids}) ORDER BY game_creation`;
+  for (const [i,r] of priorDates.entries()) await sqlClient()`UPDATE match SET game_creation = ${new Date(i === 0 ? "2025-12-31T14:59:00Z" : "2025-12-31T15:01:00Z")} WHERE match_id = ${r.match_id}`;
+  await ingestDb.rederiveEncounters(boundarySeries.match_ids);
+  const boundaryScope = {...recordPeriodScope({year:2025}),category:"tournament" as const};
+  check("연말 다전제: 개인 목록·기간 요약·상대 기록은 첫 경기 연도로 전 세트를 포함한다",
+    (await personalDb.listPersonalMatches(s1.id,boundaryScope)).find(r=>r.series_key===boundarySeries.series_key)?.sets === 2
+    && (await personalDb.listPersonalRecords(s1.id,boundaryScope))[0]?.sets === 2
+    && (await listOpponentHistoryMatches(s1.id,s2.id,boundaryScope)).matches.find(r=>r.series===boundarySeries.series_key)?.sets === 2
+    && !(await personalDb.listPersonalMatches(s1.id,recordPeriodScope({year:2026}))).some(r=>r.series_key===boundarySeries.series_key));
+  for (const r of priorDates) await sqlClient()`UPDATE match SET game_creation = ${r.game_creation} WHERE match_id = ${r.match_id}`;
+  await ingestDb.rederiveEncounters(boundarySeries.match_ids);
   check("상대 목록: CK 필터와 상세 이력의 범위가 같다",
-    (await publicDb.listOpponents(s1.id, {category: "ck"})).length === 0
-      && (await publicDb.listOpponentGames(s1.id, undefined, "ck")).length === 0);
+    (await listOpponentSummaries(s1.id, {category: "ck"})).length === 0
+      && (await listOpponentHistoryMatches(s1.id, s2.id, {category:"ck"})).matches.length === 0);
   await sqlClient()`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'alpha'`;
   check("개인 기록: 숨긴 스트리머의 통계·이력은 노출하지 않는다",
     (await personalDb.listPersonalRecords(s1.id)).length === 0
@@ -612,18 +630,17 @@ try {
     tally3.buckets.find((b) => b.key === "qualifier")?.count === 1 && tally3.unknown === 0,
     JSON.stringify(tally3));
 
-  // ★ 올스타전·이벤트 매치는 우승 숫자에서 뺀다(0052). 참가 수에는 넣고, 따로 센다.
-  await db.query("UPDATE event SET counts_toward_titles = false WHERE id = $1::uuid", [otherEventId]);
+  // 2026-10-13: 올스타전도 대회 1위이면 같은 우승으로 센다.
   await tournaments.saveEventTeams(otherEventId, [
     { name: "올스타팀", placement: "우승", placement_rank: 1, members: [{ streamer_id: s2.id }] },
   ]);
   const tally4 = await publicDb.summarizePlacements(s2.id);
-  check("★ 올스타전·이벤트전 우승은 우승 숫자에 안 들어가고 따로 센다(참가 수에는 들어간다)",
-    tally4.buckets.find((b) => b.key === "champion")?.count === 0 && tally4.exhibition.champion === 1 && tally4.total === 2,
-    JSON.stringify(tally4));
-  check("대회 성적 목록에는 그대로 나오고 표시 칸이 있다",
-    (await publicDb.listStreamerEvents(s2.id)).some((r) => r.team_name === "올스타팀" && r.counts_toward_titles === false));
-  await db.query("UPDATE event SET counts_toward_titles = true WHERE id = $1::uuid", [otherEventId]);
+  const cards4 = await publicDb.listStreamerCards();
+  check("올스타 우승은 목록·프로필에서 같은 수로 집계한다",
+    tally4.buckets.find(b => b.key === "champion")?.count === 1 &&
+    cards4.find(s => s.streamer_id === s2.id)?.titles === 1 && tally4.total === 2, JSON.stringify(tally4));
+  check("대회 성적 목록에도 올스타 우승이 남는다",
+    (await publicDb.listStreamerEvents(s2.id)).some(r => r.team_name === "올스타팀" && r.placement_rank === 1));
 
   // ── 다전제: 세트와 매치를 나눠 셀 수 있는가 (마이그레이션 0007) ──────
   //
@@ -2108,17 +2125,16 @@ try {
       SELECT match_id, series_key, category FROM core_public.streamer_encounter WHERE match_id IN ('VL1','VL3') ORDER BY 1`;
     check("★ 랜드 조우의 series_key 는 랜드 묶음이다 — 화면은 한 줄로 접고, 세는 건 집계 규칙이 판 단위로 한다(0080)",
       landKeys.every((r) => r.series_key === "verify-land:land" && r.category === "land"), JSON.stringify(landKeys));
-    const landGames = (await publicDb.listOpponentGames(g1.id, undefined, "land")).filter((x) => x.other_id === g2.id && x.relation === "opponent");
-    const { buildOpponentHistory } = await import("../packages/core/lib/metrics/opponent-history.ts");
-    const landHist = buildOpponentHistory(landGames, { key: "all" }, false)[0];
+    const landMatches = (await listOpponentHistoryMatches(g1.id,g2.id,{category:"land"})).matches;
+    const landHist = {...(await listOpponentSummaries(g1.id,{category:"land"})).find(r=>r.other_id===g2.id)!, matches:landMatches};
     check("★ 프로필 상대전적: 랜드는 한 줄(묶음)이지만 매치는 판 수(2경기 1승 1패)로 센다",
       landHist?.matches.length === 1 && landHist.vs_matches === 2 && landHist.vs_match_wins === 1 && landHist.matches[0].land,
       JSON.stringify(landHist && { rows: landHist.matches.length, vs: landHist.vs_matches, w: landHist.vs_match_wins }));
-    const vs = (await publicDb.listOpponents(g1.id, { category: "land" })).find((o) => o.streamer_id === g2.id);
+    const vs = (await listOpponentSummaries(g1.id, { category: "land" })).find((o) => o.other_id === g2.id);
     check("★ 랜드 상대전적: 적으로 2판(1승 1패) = 매치 2개, 아군 1판",
-      vs?.vs_sets === 2 && vs.vs_set_wins === 1 && vs.vs_matches === 2 && vs.vs_match_wins === 1 && vs.ally_sets === 1,
+      vs?.vs_sets === 2 && vs.vs_set_wins === 1 && vs.vs_matches === 2 && vs.vs_match_wins === 1 && (await sqlClient()`SELECT 1 FROM core_public.streamer_encounter WHERE match_id = 'VL2' AND relation = 'ally'`).length > 0,
       JSON.stringify(vs));
-    const ckVs = (await publicDb.listOpponents(g1.id, { category: "ck" })).find((o) => o.streamer_id === g2.id);
+    const ckVs = (await listOpponentSummaries(g1.id, { category: "ck" })).find((o) => o.other_id === g2.id);
     check("★ CK 상대전적에 보너스 판이 없다 — 본게임 2:0 만", ckVs?.vs_sets === 2 && ckVs.vs_set_wins === 2
       && ckVs.vs_matches === 1 && ckVs.vs_match_wins === 1, JSON.stringify(ckVs));
     const hist = await personalDb.listPersonalMatches(g1.id, { category: "all" });
@@ -2129,6 +2145,8 @@ try {
         && ckRow.match_ids.length === 3 && ckRow.set_roles[2] === "bonus" && ckRow.set_labels[2] === "범인찾기"
         && ckRow.set_labels[0] === "",
       JSON.stringify({ landRow, ckRow }));
+    check("보너스 판의 참가자 명단은 펼친 히스토리에 남는다",
+      (await publicContract.listMatchRosters(["VB3"])).length === 2);
     const recs = await personalDb.listPersonalRecords(g1.id, {});
     const landRec = recs.find((r) => r.category === "land");
     const ckRec = recs.find((r) => r.category === "ck");
@@ -2175,6 +2193,7 @@ try {
   await verifyScheduleDb(check, expectReject);
   await verifyPuuidMoveDb(check);
   await verifyNameHistoryDb(check);
+  await verifyNormNameSqlDb(check);
   await verifyMemberDb(check, expectReject);
   await verifyCommunityDb(check, expectReject);
 } finally {

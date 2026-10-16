@@ -73,10 +73,9 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <span className="font-medium text-ink-200">
               {e.event_name}
-              {/* 올스타전·이벤트 매치 — 목록엔 그대로, 우승 숫자에서만 뺀다(0052). 왜 숫자가 안 맞는지 여기서 보이게. */}
-              {!e.counts_toward_titles && <span className="ml-2 text-[11px] font-normal text-ink-400">이벤트전 · 우승 집계 제외</span>}
+
             </span>
-            <span className="text-[11px] text-ink-400">
+            <span className="text-[length:var(--type-micro)] text-ink-400">
               {e.placement && (
                 <span
                   className={`mr-2 rounded px-1.5 py-0.5 ${
@@ -92,7 +91,7 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
               {e.position && (
                 <span className="ml-1">· {POSITION_LABEL[e.position as Position] ?? e.position}</span>
               )}
-              <span className="ml-2">{kstYear(new Date(e.starts_at))}</span>
+              <span className="ml-2">{e.starts_at ? kstYear(new Date(e.starts_at)) : "일정 미확인"}</span>
             </span>
           </div>
           {/*
@@ -103,7 +102,7 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
             한 문장으로 뭉뚱그리면 예선에서 떨어진 사람이 데이터 결함처럼 보인다.
           */}
           {e.matches === 0 ? (
-            <p className="tabular mt-2 text-[11px] text-ink-400">
+            <p className="tabular mt-2 text-[length:var(--type-micro)] text-ink-400">
               {e.placement_rank === 99
                 ? "예선에서 탈락해 본선 경기가 없습니다."
                 : e.placement === "실격"
@@ -117,7 +116,7 @@ export function EventList({ events, year }: { events: EventRecord[]; year?: numb
               매치 {e.match_wins}승
               {e.match_draws > 0 && ` ${e.match_draws}무`}
               {" "}{e.matches - e.match_wins - e.match_draws}패
-              <span className="ml-3 text-[11px] text-ink-500">
+              <span className="ml-3 text-[length:var(--type-micro)] text-ink-500">
                 세트로는 {e.set_wins}승 {e.sets - e.set_wins}패
               </span>
             </p>

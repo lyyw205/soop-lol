@@ -1,9 +1,11 @@
+import { recordCursor } from "@soop-lol/core/lib/metrics/record-cursor";
+import { isTitle, isRunnerUp } from "@soop-lol/core/lib/contract";
 import Link from "next/link";
 import { profileHref } from "@soop-lol/core/lib/site-paths";
 import { OpponentHistoryHeading } from "@/components/opponent-history-filters";
 import { OpponentModeToggle } from "@/components/record-period-filters";
 import { OpponentHistoryList } from "@/components/opponent-history";
-import { buildOpponentHistory } from "@soop-lol/core/lib/metrics/opponent-history";
+import { listOpponentSummaries } from "@soop-lol/core/lib/db/opponent-history";
 import { recordPeriodLabel, resolveRecordPeriod } from "@soop-lol/core/lib/metrics/record-period";
 import { Avatar } from "@/components/avatar";
 import { notFound } from "next/navigation";
@@ -23,7 +25,6 @@ import {
   getStreamerBySlug,
   listChampions,
   listChampionRecords,
-  listOpponentGames,
   listProfileAccounts,
   listPublicChannels,
   listStreamerEvents,
@@ -54,7 +55,7 @@ export default async function StreamerProfile({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ year?: string; sort?: string; tab?: string; category?: string; page?: string; opponent?: string; period?: string; from?: string; to?: string; duel?: string }>;
+  searchParams: Promise<{ year?: string; sort?: string; tab?: string; category?: string; cursor?: string; opponent?: string; period?: string; from?: string; to?: string; duel?: string }>;
 }) {
   const { slug } = await params;
   const streamer = await getStreamerBySlug(slug);
@@ -67,7 +68,6 @@ export default async function StreamerProfile({
   const opponentSort: OpponentSort = isOpponentSort(sp.sort) ? sp.sort : DEFAULT_OPPONENT_SORT;
   const tab: ProfileTab = isProfileTab(sp.tab) ? sp.tab : DEFAULT_PROFILE_TAB;
   const category = sp.category && isMatchCategoryFilter(sp.category) ? sp.category : "all";
-  const page = sp.page && /^\d{1,5}$/.test(sp.page) ? Math.max(1, Number(sp.page)) : 1;
   const matchPageSize = 20;
   // 기간은 상대 전적 전용이 아니다 — 매치 히스토리·챔피언 탭도 같은 값을 쓴다.
   const recordPeriod = resolveRecordPeriod({...sp, year});
@@ -88,10 +88,10 @@ export default async function StreamerProfile({
     const y = next.year === undefined ? year : (next.year ?? undefined);
     const so = next.sort === undefined ? opponentSort : (next.sort ?? DEFAULT_OPPONENT_SORT);
     const c = next.category ?? category;
-    const p = next.page ?? (next.tab !== undefined || next.category !== undefined || next.year !== undefined ? 1 : page);
+
     const q = new URLSearchParams();
     if (c !== "all") q.set("category", c);
-    if (t === "games" && p > 1) q.set("page", String(p));
+
     if (sp.opponent) q.set("opponent", sp.opponent);
     if (t !== DEFAULT_PROFILE_TAB) q.set("tab", t);
     if (y) q.set("year", String(y));
@@ -130,16 +130,16 @@ export default async function StreamerProfile({
       //   한다 — 연도를 누를 때마다 이름 옆 우승 횟수가 바뀌면 통산인지 그 해인지 모른다.
       summarizePlacements(id),
       needs.opponents ? listPublicStreamers() : [],
-      needs.opponentGames ? listOpponentGames(id, undefined, category) : [],
+      needs.opponentGames && periodOk ? listOpponentSummaries(id, {category, ...periodRange, laneOnly}) : [],
       needs.champions ? listChampionRecords(id, 20, {category, ...periodRange}) : [],
-      needs.games ? listPersonalMatches(id, {category, year, ...periodRange, limit: matchPageSize + 1, offset: (page-1)*matchPageSize}) : [],
-      listPersonalRecords(id, {year}),
+      needs.games ? listPersonalMatches(id, {category, ...periodRange, limit: matchPageSize + 1, cursor: sp.cursor}) : [],
+      periodOk ? listPersonalRecords(id, {category, ...periodRange}) : [],
       listPublicStreamerOptions(),
       allEventsPromise,
       allChampionsPromise,
     ]);
 
-  const sortedOpponents = sortOpponents(buildOpponentHistory(opponentGames, recordPeriod, laneOnly), opponentSort);
+  const sortedOpponents = sortOpponents(opponentGames, opponentSort);
 
   const visibleGames = games.slice(0, matchPageSize);
   const matchRosters = await listMatchRosters(visibleGames.flatMap((game) => game.match_ids));
@@ -215,7 +215,7 @@ export default async function StreamerProfile({
             })}</p>}
           </>}
           details={<PersonalProfileInfo slug={slug} placements={placements}
-            awards={allEvents.filter((e) => e.counts_toward_titles && (e.placement_rank === 1 || e.placement_rank === 2)).slice(0, 3).map((e) => ({id:e.event_slug, title:e.event_name, placement:e.placement, year:kstYear(new Date(e.starts_at)), team:e.team_name}))}
+            awards={allEvents.filter((e) => (isTitle(e) || isRunnerUp(e))).slice(0, 3).map((e) => ({id:e.event_slug, title:e.event_name, placement:e.placement, year:e.starts_at ? kstYear(new Date(e.starts_at)) : undefined, team:e.team_name}))}
             champions={topChampions.map((c) => {
               const champion = championById(c.champion_id);
               return {id:c.champion_id, name:champion?.name ?? c.champion_name ?? "챔피언 미상", image:champion ? championIconPath(champion) : undefined, games:c.games};
@@ -260,9 +260,8 @@ export default async function StreamerProfile({
             <SectionTitle hint={`${CATEGORY_LABEL[category]} · ${periodLabel} · 최신순`}>매치 히스토리</SectionTitle>
             <PersonalMatchHistory matches={visibleGames} rosters={matchRosters} streamerId={id} streamerName={streamer.display_name} />
             <nav className="personal-pagination" aria-label="매치 페이지">
-              {page > 1 && <Link href={hrefFor({page:page-1})} scroll={false}>← 이전</Link>}
-              <span>{page}페이지</span>
-              {games.length > matchPageSize && <Link href={hrefFor({page:page+1})} scroll={false}>다음 →</Link>}
+              {sp.cursor && <Link href={hrefFor({})} scroll={false}>처음으로</Link>}
+              {games.length > matchPageSize && <Link href={`${hrefFor({})}${hrefFor({}).includes("?") ? "&" : "?"}cursor=${encodeURIComponent(recordCursor(visibleGames.at(-1)!.played_at, visibleGames.at(-1)!.series_key))}`} scroll={false}>이전 기록 더 보기 →</Link>}
             </nav>
           </RecordContentPanel>
         )}

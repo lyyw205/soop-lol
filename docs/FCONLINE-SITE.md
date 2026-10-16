@@ -51,8 +51,8 @@ FC의 포인트 녹색 `#04e45f`는
    `npm run fco:find-event-matches -- --from YYYY-MM-DD --to YYYY-MM-DD --streamer 스트리머slug`로
    찾는다. 이 출력은 후보이며 대회 경기라는 뜻은 아니다.
 4. 방송 VOD나 대회 공지로 확인한 넥슨 matchId만
-   `npm run fco:link-event -- --match-id 넥슨matchId --slug 대회slug --name '대회명' --source-url 확인근거URL`로
-   연결한다. 첫 연결에서 대회가 생성된다. 같은 대회에 속한 다른 경기도 반복해서 연결한다.
+   `npm run fco:context -- apply --file 조사결과.json`으로 연결한다. 행사 종류·이름·근거를 함께 기록한다.
+   입력 형식은 `npm run fco:context -- --help`와 `docs/FCO-MATCH-CONTEXT-SKILL-PLAN.md`를 따른다.
 5. `npm run verify:fco`로 수집·대회 연결·공개 질의를 임시 DB에서 검증한다.
 
 넥슨 매치 상세 원본은 `fco_match_detail.payload`에 남는다. 스탯표는 이 원본의

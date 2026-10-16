@@ -4,8 +4,7 @@
  * 주소(`?period=` / `?from=` / `?to=`)에 기간을 남기는 필터와, 상대 전적의 상대/맞라인 토글.
  *
  * ★ 날짜 칸 자체는 `packages/ui/record-date-range` 다
- *   상대전적 화면(모듈)도 같은 칸을 쓰는데, 거기는 기간을 주소가 아니라 컴포넌트 상태로
- *   들고 있다. 그래서 칸은 "이 범위로 정했다" 만 알리고, **어디에 적을지는 여기가 정한다.**
+ *   상대전적 화면(모듈)도 같은 칸을 쓰며, 거기는 useRecordScope로 서버 요청 없이 주소를 갱신한다. 그래서 칸은 "이 범위로 정했다" 만 알리고, **어디에 적을지는 여기가 정한다.**
  */
 
 import { useTransition } from "react";
@@ -23,7 +22,7 @@ export function RecordPeriodFilters({ href, period, label = "기간" }: {
     const [path, query] = href.split("?");
     const params = new URLSearchParams(query);
     // 기간을 바꾸면 연도·기존 기간은 전부 지운다 — 둘이 겹치면 어느 쪽이 먹었는지 모른다.
-    for (const key of ["year", "period", "from", "to", "page"]) params.delete(key);
+    for (const key of ["year", "period", "from", "to", "page", "cursor"]) params.delete(key);
     if (range) { params.set("period", "custom"); params.set("from", range.from); params.set("to", range.to); }
     startTransition(() => router.push(`${path}?${params}`, { scroll: false }));
   }} />;
@@ -39,6 +38,7 @@ export function OpponentModeToggle({ href, laneOnly }: { href: string; laneOnly:
     if (lane) params.set("duel", "lane"); else params.delete("duel");
     params.set("tab", "opponents");
     params.delete("page");
+    params.delete("cursor");
     startTransition(() => router.push(`${path}?${params}`, { scroll: false }));
   }
   return <div className="opponent-mode" aria-label="상대 전적 구분" aria-busy={pending}>

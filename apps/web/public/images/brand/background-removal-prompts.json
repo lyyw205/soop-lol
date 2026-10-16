@@ -1,0 +1,16 @@
+{
+  "tool": "Built-in image_gen",
+  "use_case": "background-extraction",
+  "variants": [
+    {
+      "input": "soop-seek-navy-horizontal.png",
+      "output": "soop-seek-horizontal-transparent.png",
+      "prompt": "Use case: background-extraction.\nAsset type: existing website brand logo, precise transparent PNG cutout.\nInput image: the ONLY edit target, NOT a style reference.\nPrimary request: Remove the white/off-white background from this exact supplied SOOP SEEK logo, producing a genuine alpha-transparent PNG.\nKeep the original navy blue artwork exactly: identical silhouette, proportions, stroke shapes, sharp points, original blue tones, letter shapes, kerning, word spacing and relative placement. Text must remain exactly \"SOOP SEEK\". Do not redraw, reimagine, stylize, add ornament, or change the logo. All white negative spaces including the letter counters and internal logo cutouts must be transparent; retain all dark navy enclosed regions and the original smooth edges.\nComposition: preserve the horizontal 3:1 canvas, owl/binocular symbol at left and SOOP SEEK text to the right, same placement and margins as the source.\nKeep clean antialiased edges without white fringes. No background, no shadow, no glow, no border, no checkerboard baked into the pixels. Change ONLY the alpha/background, not the logo itself."
+    },
+    {
+      "input": "soop-seek-navy-stacked.png",
+      "output": "soop-seek-stacked-transparent.png",
+      "prompt": "Use case: background-extraction.\nAsset type: existing website brand logo, precise transparent PNG cutout.\nInput image: the ONLY edit target, NOT a style reference.\nPrimary request: Remove the white/off-white background from this exact supplied SOOP SEEK logo, producing a genuine alpha-transparent PNG.\nKeep the original navy blue artwork exactly: identical silhouette, proportions, stroke shapes, sharp points, original blue tones, letter shapes, kerning, word spacing and relative placement. Text must remain exactly \"SOOP SEEK\". Do not redraw, reimagine, stylize, add ornament, or change the logo. All white negative spaces including the letter counters and internal logo cutouts must be transparent; retain all dark navy enclosed regions and the original smooth edges.\nComposition: preserve the square canvas, owl/binocular symbol centered above SOOP SEEK text, same placement and margins as the source.\nKeep clean antialiased edges without white fringes. No background, no shadow, no glow, no border, no checkerboard baked into the pixels. Change ONLY the alpha/background, not the logo itself."
+    }
+  ]
+}

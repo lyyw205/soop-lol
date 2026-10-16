@@ -11,3 +11,16 @@ export { championById, championIconPath } from "../riot/champions.ts";
 export { RIFT_MATCH_CATEGORIES, CATEGORY_LABEL, expandCategory } from "../metrics/category.ts";
 export { RECORD_PERIODS, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod } from "../metrics/record-period.ts";
 export { profileHref, fcMatchHref, routeHref } from "../site-paths.ts";
+
+export { TOURNAMENT_KIND, EVENT_KIND_LABEL, eventKindLabel, listedInTournaments, isTitle, isRunnerUp, classifyTeamStage, TEAM_STAGE_LABEL } from "../metrics/event.ts";
+
+export { matchOutcome, tallyGroup, type MatchOutcomeKind } from "../metrics/match-tally.ts";
+export { readRecordScope, writeRecordScope, type RecordScope } from "../metrics/record-scope.ts";
+export { isLaneMatchup } from "../metrics/matchup.ts";
+
+export { fcoPlayerAppearance } from "../games/fconline/player-record.ts";
+
+export { change7d } from "../metrics/club-value.ts";
+export { resolveClubState, pickRepresentative, CLUB_COLLECTION_POLICY } from "../metrics/club-state.ts";
+
+export { filterSeriesPeriod, takeSeries } from "../metrics/record-period.ts";

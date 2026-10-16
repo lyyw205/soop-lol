@@ -6,9 +6,44 @@
  * 생성되는 SQL 을 못 읽게 되고, 느려졌을 때 손댈 곳이 사라진다.
  */
 
+import { appendFileSync } from "node:fs";
+import net from "node:net";
+import { basename } from "node:path";
+
 import postgres from "postgres";
 
 type Sql = ReturnType<typeof postgres>;
+
+/**
+ * DB_WIRE_TRACE=1 — 이 프로세스가 DB 와 **실제로 주고받은 바이트**(TLS 포함)를 끝날 때 stderr 에 찍는다.
+ * DB_WIRE_LOG=<파일> — 같은 값을 그 파일에 한 줄(JSON)로 덧붙인다. 조사 세션 안의 스크립트는 출력이 세션 문맥에
+ *   들어가므로 이쪽을 쓴다(ck-auto.sh·ck-backfill.sh). ops:usage 가 지난 24시간을 스크립트별로 묶어 보여 준다.
+ * 전송량(egress) 절감을 수정 전후로 재는 용도다. pg_stat_statements 에는 바이트가 없다.
+ * ★ 실측(2026-10-12): 1MB 결과 → 받은 1,000,075B. 연결 한 번(TLS·인증)이 약 12KB 라 짧은 스크립트를 자주 띄우면 그것도 쌓인다.
+ * ★ 끌 때와 같은 동작을 위해 연결 시간 제한을 직접 건다(직접 만든 소켓은 connect_timeout 이 연결 전에 안 걸린다).
+ */
+function wireTraceSocket() {
+  const sockets: net.Socket[] = [];
+  process.once("exit", () => {
+    const kb = (n: number) => `${(n / 1000).toFixed(1)}KB`;
+    const read = sockets.reduce((n, s) => n + s.bytesRead, 0), written = sockets.reduce((n, s) => n + s.bytesWritten, 0);
+    if (process.env.DB_WIRE_TRACE === "1") process.stderr.write(`[db 전송] 받은 ${kb(read)} · 보낸 ${kb(written)} · 연결 ${sockets.length}회\n`);
+    const file = process.env.DB_WIRE_LOG;
+    if (file) {
+      try {
+        appendFileSync(file, JSON.stringify({ at: new Date().toISOString(), script: basename(process.argv[1] ?? "?"),
+          arg: process.argv[2] ?? null, read, written, connections: sockets.length }) + "\n");
+      } catch { /* 계측 실패가 작업을 막지 않는다 */ }
+    }
+  });
+  return (o: { host: string[]; port: number[] }) => new Promise<net.Socket>((resolve, reject) => {
+    const s = Object.assign(net.connect(o.port[0], o.host[0]), { host: o.host[0], port: o.port[0] });
+    sockets.push(s);
+    s.setTimeout(10_000, () => s.destroy(new Error("DB 연결 시간 초과(10초)")));
+    s.once("connect", () => { s.setTimeout(0); resolve(s); });
+    s.once("error", reject);
+  });
+}
 
 // next dev 의 핫리로드는 모듈을 다시 평가한다. 전역에 물려두지 않으면
 // 저장할 때마다 커넥션 풀이 하나씩 새로 생겨 금방 max_connections 를 넘긴다.
@@ -44,6 +79,7 @@ export function db(): Sql {
     connect_timeout: 10,
     // NOTICE 를 서버 로그로 흘리지 않는다 (마이그레이션 때 시끄럽다)
     onnotice: () => {},
+    ...(process.env.DB_WIRE_TRACE === "1" || process.env.DB_WIRE_LOG ? { socket: wireTraceSocket() as never } : {}),
   });
 
   globalRef.__soopLolSql = sql;

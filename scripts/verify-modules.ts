@@ -1,3 +1,4 @@
+import { consistencyViolations, fontLiterals } from "./lib/consistency-checks.ts";
 /**
  * 모듈 경계를 **검사해서** 강제한다.
  *
@@ -41,7 +42,7 @@ const toRel = (abs: string) => relative(ROOT, abs).split(sep).join("/");
 function walk(dir: string, exts: RegExp, out: string[] = []): string[] {
   if (!existsSync(dir)) return out;
   for (const e of readdirSync(dir)) {
-    if (e === "node_modules" || e === ".next") continue;
+    if (e === "node_modules" || e.startsWith(".next")) continue;
     const p = join(dir, e);
     if (statSync(p).isDirectory()) walk(p, exts, out);
     else if (exts.test(e)) out.push(p);
@@ -420,7 +421,7 @@ const present = (rel: string) => {
 };
 const ROW_SCREENS = [
   "apps/web/components/personal-records.tsx",
-  "apps/web/components/opponent-history.tsx",
+  "apps/web/components/opponent-history-detail.tsx",
   "packages/modules/versus/ui/detail.tsx",
 ].filter(present);
 for (const rel of ROW_SCREENS) {
@@ -445,6 +446,20 @@ for (const rel of DATE_TIMELINES) {
   const src = readFileSync(join(ROOT, rel), "utf8");
   check(`${rel}: 반복 날짜를 isRepeatedDate 로 판정한다`, src.includes("isRepeatedDate"),
     src.includes("isRepeatedDate") ? "" : "같은 날이 이어져도 날짜를 매 줄 반복한다");
+}
+
+// 화면의 독자 계산과 글자 크기가 다시 늘어나는지 검사한다.
+console.log("\n  [사이트 공통 규칙]");
+for (const file of [...sourcesIn("packages"), ...sourcesIn("apps", "web")]) {
+  for (const problem of consistencyViolations(file, readFileSync(join(ROOT,file),"utf8"))) check(`${file}: ${problem}`,false);
+}
+const baseline = JSON.parse(readFileSync(join(ROOT,"scripts/typography-baseline.json"),"utf8")) as Record<string,Record<string,number>>;
+for (const path of [...walk(join(ROOT,"apps/web"),/\.(tsx|css)$/), ...walk(join(ROOT,"packages"),/\.(tsx|css)$/)]) {
+  const file=toRel(path);
+  if(file.includes("/public/") || file.includes("/admin/")) continue;
+  for(const [size,count] of Object.entries(fontLiterals(readFileSync(path,"utf8")))) {
+    if(count > (baseline[file]?.[size] ?? 0)) check(`${file}: 새 글자 크기는 공통 토큰 사용 (${size})`,false);
+  }
 }
 
 console.log(failures === 0 ? "\n모듈 경계 이상 없음.\n" : `\n${failures}건 위반.\n`);

@@ -1,4 +1,5 @@
 /** 개인 기록. 조우 수가 아니라 공개 참가 기록을 경기별로 한 번씩 센다. */
+import { readRecordCursor } from "../metrics/record-cursor.ts";
 import { db } from "./client.ts";
 import { expandCategory, type MatchCategory, type MatchCategoryFilter } from "../metrics/category.ts";
 
@@ -31,7 +32,6 @@ export interface PersonalCategoryRecord {
 }
 export interface PersonalScope {
   category?: MatchCategoryFilter;
-  year?: number;
   /**
    * KST 달력 날짜(`YYYY-MM-DD`). **다전제의 첫 경기**를 기준으로 자른다 —
    * 자정을 넘긴 3세트를 중간에서 잘라 "2세트짜리 경기" 로 만들지 않기 위해서다.
@@ -48,10 +48,10 @@ export interface PersonalScope {
  *   그래서 경기 뷰는 보너스까지 내는 match_with_bonus 를 쓰고, 세는 곳에서 set_role 로 거른다.
  * ★ 랜드는 묶음 하나가 한 줄이지만 sets·set_wins 가 곧 그 사람의 판 단위 n승 m패다.
  */
-function groupedMatches(streamerId: string, {category, year, from, to}: PersonalScope) {
+export function personalMatchGroups(streamerId: string, {category, from, to}: PersonalScope) {
   const sql = db();
   return sql`
-    SELECT series_key, category, min(event_name) AS event_name, min(game_creation) AS played_at,
+    SELECT series_key, category, min(event_name) AS event_name, min(game_creation) FILTER (WHERE set_role = 'main') AS played_at,
            count(*) FILTER (WHERE set_role = 'main')::int AS sets,
            count(*) FILTER (WHERE set_role = 'main' AND outcome = 'win')::int AS set_wins,
            min(best_of)::int AS best_of,
@@ -72,16 +72,15 @@ function groupedMatches(streamerId: string, {category, year, from, to}: Personal
           JOIN core_public.match_with_bonus m ON m.match_id = mp.match_id
           LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
          WHERE sm.streamer_id = ${streamerId}::uuid
-           AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM m.game_creation AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
            AND (${expandCategory(category)}::text[] IS NULL OR m.category = ANY(${expandCategory(category)}::text[]))
       ) mine
      GROUP BY series_key, category
     -- 보너스만 남은 묶음(본게임이 다른 분류로 빠진 경우)은 줄로 세우지 않는다.
     HAVING count(*) FILTER (WHERE set_role = 'main') > 0
        AND (${from ?? null}::date IS NULL
-            OR (min(game_creation) AT TIME ZONE 'Asia/Seoul')::date >= ${from ?? null}::date)
+            OR (min(game_creation) FILTER (WHERE set_role = 'main') AT TIME ZONE 'Asia/Seoul')::date >= ${from ?? null}::date)
        AND (${to ?? null}::date IS NULL
-            OR (min(game_creation) AT TIME ZONE 'Asia/Seoul')::date <= ${to ?? null}::date)
+            OR (min(game_creation) FILTER (WHERE set_role = 'main') AT TIME ZONE 'Asia/Seoul')::date <= ${to ?? null}::date)
   `;
 }
 
@@ -94,18 +93,20 @@ export async function listPersonalRecords(streamerId: string, scope: PersonalSco
            sum(CASE WHEN category = 'land' THEN 0 ELSE (set_wins * 2 = sets)::int END)::int AS draws,
            sum(CASE WHEN category = 'land' THEN sets - set_wins ELSE (set_wins * 2 < sets)::int END)::int AS losses,
            sum(sets)::int AS sets, sum(set_wins)::int AS set_wins
-      FROM (${groupedMatches(streamerId, scope)}) games
+      FROM (${personalMatchGroups(streamerId, scope)}) games
      GROUP BY category ORDER BY category
   `;
 }
 
-export async function listPersonalMatches(streamerId: string, scope: PersonalScope & { limit?: number; offset?: number } = {}): Promise<PersonalMatch[]> {
+export async function listPersonalMatches(streamerId: string, scope: PersonalScope & { limit?: number; cursor?: string } = {}): Promise<PersonalMatch[]> {
   const limit = Math.min(101, Math.max(1, scope.limit ?? 21));
-  const offset = Math.max(0, scope.offset ?? 0);
+  const cursor = readRecordCursor(scope.cursor);
   return db()<PersonalMatch[]>`
-    SELECT * FROM (${groupedMatches(streamerId, scope)}) games
+    SELECT * FROM (${personalMatchGroups(streamerId, scope)}) games
+     WHERE (${cursor?.at ?? null}::timestamptz IS NULL OR played_at < ${cursor?.at ?? null}::timestamptz
+       OR (played_at = ${cursor?.at ?? null}::timestamptz AND series_key > ${cursor?.id ?? null}))
      ORDER BY played_at DESC, series_key
-     LIMIT ${limit} OFFSET ${offset}
+     LIMIT ${limit}
   `;
 }
 

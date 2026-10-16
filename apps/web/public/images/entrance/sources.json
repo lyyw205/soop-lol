@@ -1,0 +1,50 @@
+{
+  "logos": {
+    "retrieved_at": "2026-10-13",
+    "fc-online-logo-white.png": {
+      "publisher": "NEXON / Electronic Arts",
+      "source_page": "https://fconline.nexon.com/intro/index",
+      "asset_url": "https://ssl.nexon.com/s2/game/fc/online/event/2023/230921_gnb_i8vc13xq/logo_fc.png",
+      "description": "Official white horizontal EA SPORTS FC ONLINE logo used by Nexon's FC Online introduction page.",
+      "original_dimensions": [
+        364,
+        52
+      ],
+      "modifications": "None. Original PNG copied byte-for-byte; displayed at its original aspect ratio."
+    },
+    "league-of-legends-logo-gold.svg": {
+      "publisher": "Riot Games",
+      "source_page": "https://www.leagueoflegends.com/en-us/league-of-legends-downloads/",
+      "archive_url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news/039a7a75db4ec01820c6289b30258ee03320de22.zip",
+      "archive_name": "LoL_Logo_Gold.zip",
+      "archive_entry": "LoL_Logo_Gold/LoL_Logo_Flat_GOLD.svg",
+      "description": "Official League of Legends gold flat logo from Riot's logo asset package.",
+      "modifications": "None. Original SVG extracted byte-for-byte; displayed at its original aspect ratio."
+    },
+    "soop-seek-stacked.png": {
+      "source": "User-provided download: SOOP SEEK 세로 스택 로고-2.png",
+      "description": "SOOP SEEK vertical lockup, selected for the central brand badge in proposal B.",
+      "original_dimensions": [
+        1254,
+        1254
+      ],
+      "modifications": "None. Original PNG copied byte-for-byte; displayed at its original aspect ratio with CSS multiply blending over the light badge."
+    },
+    "usage": "Official game destination logos and user-provided SOOP SEEK brand logo on the site entrance."
+  },
+  "artwork": {
+    "tool": "Built-in image_gen",
+    "assets": [
+      {
+        "file": "football-cutout.webp",
+        "prompt": "Use case: background-extraction. Edit target: the supplied chrome soccer ball with blue glass orbital ribbon. Remove ONLY the grey studio backdrop and floor, including the floor shadow. Keep the exact chrome football and the entire blue ribbon unchanged, including original reflections, details, colors, proportions, angle and positions. Keep the original landscape framing. The ball and ribbon must be a clean object cutout on a truly transparent background with alpha, no color backdrop, no added elements, no text. Retain the existing blue reflections on the chrome. This will be layered over large typography on a website poster.",
+        "format": "WebP conversion with original alpha preserved"
+      },
+      {
+        "file": "crystal-cutout.webp",
+        "prompt": "Use case: background-extraction. Edit target: the supplied blue crystal with gold orbital rings. Remove ONLY the ivory studio backdrop, floor, caustics on the floor and floor shadow. Keep the exact blue crystal, gold rings, ornate gold base, and small floating shards unchanged, including their reflections, colors, proportions, angle and positions. Keep the original landscape framing. All objects must be a clean cutout on a truly transparent background with alpha, no backdrop, no added objects, no text. This will be layered over large typography on a website poster.",
+        "format": "WebP conversion with original alpha preserved"
+      }
+    ]
+  }
+}

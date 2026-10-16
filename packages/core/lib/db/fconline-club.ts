@@ -10,6 +10,7 @@ import {
   backcastSeries, cardKey, currentValue, decomposeChange, holdingsSeries, shiftDay, squadLabel, unionHoldings,
   type Card, type DayHoldings, type HeldCard, type HoldingRow, type ValueChange, type ValuePoint,
 } from "../metrics/club-value.ts";
+import { resolveClubState, pickRepresentative, type ClubAttempt } from "../metrics/club-state.ts";
 import { db } from "./client.ts";
 
 import type { FcoDivision } from "../games/fconline/club/grades.ts";
@@ -23,10 +24,15 @@ export interface FcoClubAccountSummary {
   teamColors: (FcoTeamColors & { checkedAt: string }) | null;
   nickname: string;
   /** null = 아직 한 번도 조회하지 않았다. missing = 구단주 검색이 "존재하지 않습니다" 를 줬다. */
-  status: "ok" | "missing" | null;
+  status: "ok" | "missing" | "error" | "pending" | null;
+  checked_at: string | null;
+  completed_at: string | null;
+  history_complete: boolean;
+  fresh: boolean;
+  rank_eligible: boolean;
   club_value: number | null;
   captured_at: string | null;
-  /** 공식 구단가치 일별(그날 마지막 조회). 등락 계산용. */
+  /** 공식 구단가치 일별(그날 마지막 성공 조회). 등락 계산용. */
   history: FcoClubPoint[];
   /** 가장 최근 ok 스냅샷의 스쿼드 등록 선수(6칸 합집합). */
   cards: number;
@@ -40,7 +46,7 @@ export interface FcoClubBoardRow {
   name: string;
   image: string | null;
   channel_id: string | null;
-  /** 대표 계정 = 공식 구단가치가 가장 큰 계정. 부계정으로 순위를 매기지 않는다. */
+  /** 대표 계정 = 순위 포함 가능한 공개 계정 중 공식 구단가치 최대. 사람별 한 줄로 표시한다. */
   account: FcoClubAccountSummary;
   accounts: number;
 }
@@ -97,15 +103,15 @@ async function publicAccounts(slug?: string): Promise<AccountRow[]> {
      ORDER BY s.display_name, a.nickname`;
 }
 
-/** 계정마다 KST 하루에 마지막 조회 하나. */
+/** 계정마다 KST 하루에 마지막 성공 조회 하나. */
 async function dailySnapshots(ouids: string[], sinceDay: string): Promise<SnapshotRow[]> {
   if (!ouids.length) return [];
   return db()<SnapshotRow[]>`
     SELECT DISTINCT ON (ouid, day) id::text, ouid, day, status, club_value::text, captured_at::text
       FROM (SELECT *, (captured_at AT TIME ZONE 'Asia/Seoul')::date::text AS day FROM fco_club_snapshot
              WHERE ouid = ANY(${ouids}) AND captured_at >= ${sinceDay}::date - 1) s
-     WHERE day >= ${sinceDay}
-     ORDER BY ouid, day, captured_at DESC`;
+     WHERE day >= ${sinceDay} AND status = 'ok'
+     ORDER BY ouid, day, captured_at DESC, id DESC`;
 }
 
 async function playersOf(snapshotIds: string[]): Promise<Map<string, HoldingRow[]>> {
@@ -123,45 +129,56 @@ async function playersOf(snapshotIds: string[]): Promise<Map<string, HoldingRow[
   return out;
 }
 
-function summarize(nickname: string, rating: FcoClubAccountSummary["rating"], officialRank: FcoClubAccountSummary["officialRank"], teamColors: FcoClubAccountSummary["teamColors"], snaps: SnapshotRow[], players: Map<string, HoldingRow[]>): FcoClubAccountSummary {
-  const latest = snaps.at(-1);
-  const latestOk = [...snaps].reverse().find((s) => s.status === "ok");
+/** 차트 조회 창과 독립적인 최신 조회·최신 성공. */
+async function currentStates(ouids: string[]) {
+  const rows = ouids.length ? await db()<{ouid: string; attempt: ClubAttempt | null; snapshot: SnapshotRow | null}[]>`
+    SELECT a.ouid,
+      CASE WHEN attempt.id IS NULL THEN NULL ELSE jsonb_build_object(
+        'startedAt', attempt.started_at, 'completedAt', attempt.completed_at,
+        'outcome', attempt.outcome, 'legacy', attempt.legacy) END AS attempt,
+      CASE WHEN snapshot.id IS NULL THEN NULL ELSE jsonb_build_object(
+        'id', snapshot.id::text, 'ouid', snapshot.ouid, 'day', (snapshot.captured_at AT TIME ZONE 'Asia/Seoul')::date::text,
+        'status', snapshot.status, 'club_value', snapshot.club_value::text, 'captured_at', snapshot.captured_at) END AS snapshot
+    FROM fco_account a
+    LEFT JOIN LATERAL (SELECT * FROM fco_club_attempt t WHERE t.ouid = a.ouid ORDER BY started_at DESC, id DESC LIMIT 1) attempt ON true
+    LEFT JOIN LATERAL (SELECT * FROM fco_club_snapshot s WHERE s.ouid = a.ouid AND s.status = 'ok'
+      ORDER BY captured_at DESC, id DESC LIMIT 1) snapshot ON true
+    WHERE a.ouid = ANY(${ouids})` : [];
+  return new Map(rows.map(r => [r.ouid, r]));
+}
+function summarize(a: AccountRow, state: Awaited<ReturnType<typeof currentStates>> extends Map<string, infer T> ? T | undefined : never,
+  snaps: SnapshotRow[], players: Map<string, HoldingRow[]>, now: Date): FcoClubAccountSummary {
+  const latestOk = state?.snapshot;
   const cards = latestOk ? unionHoldings(players.get(latestOk.id) ?? []) : [];
   const { value, unpriced } = currentValue(cards);
+  const clubValue = latestOk?.club_value !== null && latestOk?.club_value !== undefined ? Number(latestOk.club_value) : null;
   return {
-    nickname,
-    rating,
-    teamColors,
-    officialRank,
-    status: latest?.status ?? null,
-    club_value: latestOk?.club_value ? Number(latestOk.club_value) : null,
-    captured_at: latest?.captured_at ?? null,
-    history: snaps.filter((s) => s.status === "ok").map((s) => ({ day: s.day, value: Number(s.club_value) })),
-    cards: cards.length,
-    squad_value: value,
-    unpriced,
+    nickname: a.nickname, rating: a.rating, teamColors: a.team_colors, officialRank: a.official_rank,
+    ...resolveClubState({ attempt: state?.attempt ?? null, value: clubValue, valueAt: latestOk?.captured_at ?? null }, now),
+    club_value: clubValue, captured_at: latestOk?.captured_at ?? null,
+    history: snaps.map(s => ({ day: s.day, value: Number(s.club_value) })),
+    cards: cards.length, squad_value: value, unpriced,
   };
 }
-
-const bestAccount = (list: FcoClubAccountSummary[]) =>
-  [...list].sort((a, b) => (b.club_value ?? -1) - (a.club_value ?? -1))[0];
+// 순위 후보가 없을 때는 참고 계정만 돌려준다. rank_eligible=false를 소비처가 보존한다.
+const referenceAccount = (list: FcoClubAccountSummary[]) => pickRepresentative(list)
+  ?? [...list].sort((a,b) => (b.captured_at ?? "").localeCompare(a.captured_at ?? "") || a.nickname.localeCompare(b.nickname, "ko"))[0];
 
 /** 구단가치 순위표 재료. 공식 구단가치 이력은 등락용으로 40일만. */
 export async function listFcoClubBoard(now = new Date()): Promise<FcoClubBoardRow[]> {
   const accounts = await publicAccounts();
   const snaps = await dailySnapshots(accounts.map((a) => a.ouid), shiftDay(kstDateString(now), -40));
-  const latestOkIds = new Map<string, string>();
-  for (const s of snaps) if (s.status === "ok") latestOkIds.set(s.ouid, s.id);   // day 오름차순이라 마지막이 최신
-  const players = await playersOf([...latestOkIds.values()]);
+  const states = await currentStates(accounts.map(a => a.ouid));
+  const players = await playersOf([...states.values()].flatMap(s => s.snapshot ? [s.snapshot.id] : []));
   const byPerson = new Map<string, { row: AccountRow; summaries: FcoClubAccountSummary[] }>();
   for (const a of accounts) {
     const entry = byPerson.get(a.id) ?? { row: a, summaries: [] };
-    entry.summaries.push(summarize(a.nickname, a.rating, a.official_rank, a.team_colors, snaps.filter((s) => s.ouid === a.ouid), players));
+    entry.summaries.push(summarize(a, states.get(a.ouid), snaps.filter((s) => s.ouid === a.ouid), players, now));
     byPerson.set(a.id, entry);
   }
   return [...byPerson.values()].map(({ row, summaries }) => ({
     id: row.id, slug: row.slug, name: row.name, image: row.image, channel_id: row.channel_id,
-    account: bestAccount(summaries), accounts: summaries.length,
+    account: referenceAccount(summaries), accounts: summaries.length,
   }));
 }
 
@@ -193,11 +210,12 @@ export async function getFcoClub(slug: string, days = 365, now = new Date()): Pr
   const since = shiftDay(today, -Math.min(365, Math.max(7, days)));
   const snaps = await dailySnapshots(accounts.map((a) => a.ouid), since);
   const okSnaps = snaps.filter((s) => s.status === "ok");
-  const players = await playersOf(okSnaps.map((s) => s.id));
-  const summaries = accounts.map((a) => ({ ouid: a.ouid, summary: summarize(a.nickname, a.rating, a.official_rank, a.team_colors, snaps.filter((s) => s.ouid === a.ouid), players) }));
-  const best = summaries.find((s) => s.summary === bestAccount(summaries.map((x) => x.summary)))!;
+  const states = await currentStates(accounts.map(a => a.ouid));
+  const players = await playersOf([...new Set([...okSnaps.map(s => s.id), ...[...states.values()].flatMap(s => s.snapshot ? [s.snapshot.id] : [])])]);
+  const summaries = accounts.map((a) => ({ ouid: a.ouid, summary: summarize(a, states.get(a.ouid), snaps.filter((s) => s.ouid === a.ouid), players, now) }));
+  const best = summaries.find((s) => s.summary === referenceAccount(summaries.map((x) => x.summary)))!;
   const mine = okSnaps.filter((s) => s.ouid === best.ouid);
-  const latest = mine.at(-1);
+  const latest = states.get(best.ouid)?.snapshot;
 
   // 넥슨 스쿼드 화면은 "전일 자정 기준" 이고 시세 그래프도 전날까지다 — 조회한 날의 보유는 **전날의 보유**로 놓고
   // 같은 날 시세로 평가한다. 그래야 보유와 시세가 같은 날을 가리키고, 마지막 점이 늘 비지 않는다.
@@ -211,6 +229,7 @@ export async function getFcoClub(slug: string, days = 365, now = new Date()): Pr
   // 시세: 이 계정이 기간 안에 한 번이라도 들고 있던 카드만.
   const wanted = new Map<string, Card>();
   for (const d of dayHoldings) for (const c of d.cards) if (c.grade !== null) wanted.set(cardKey(c), c);
+  for (const c of holdings) if (c.grade !== null) wanted.set(cardKey(c), c);
   const priceTable = new Map<string, number>();
   const cardSeries: Record<string, { day: string; value: number }[]> = {};
   if (wanted.size) {

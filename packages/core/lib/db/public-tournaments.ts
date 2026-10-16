@@ -5,6 +5,7 @@
  *   **해석은 대회 모듈(packages/modules/tournaments)의 것**이다 — core 는 사실과 공개 정책만.
  *   모듈은 계약(core/lib/contract)을 거쳐 이 함수들을 부른다.
  */
+import { TOURNAMENT_KIND } from "../metrics/event.ts";
 import { db } from "./client.ts";
 
 export interface PublicTournamentEventRow {
@@ -16,6 +17,8 @@ export interface PublicTournamentEventRow {
   source_url: string | null;
   starts_at: Date | null;
   ends_at: Date | null;
+  effective_starts_at: Date | null;
+  effective_ends_at: Date | null;
   first_match: Date | null;
   last_match: Date | null;
   team_count: number;
@@ -110,15 +113,15 @@ export async function listPublicTournamentEvents(): Promise<PublicTournamentEven
            WHERE sm.match_id = ANY(ARRAY(SELECT match_id FROM core_public.match WHERE event_id IS NOT NULL))
         ) ids JOIN core_public.streamer s ON s.streamer_id=ids.streamer_id GROUP BY ids.event_id
     )
-    SELECT e.event_id,e.slug,e.name,e.kind,e.organizer,e.source_url,e.starts_at,e.ends_at,
+    SELECT e.event_id,e.slug,e.name,e.kind,e.organizer,e.source_url,e.starts_at,e.ends_at,e.effective_starts_at,e.effective_ends_at,
            g.first_match,g.last_match,COALESCE(t.team_count,0)::int AS team_count,
            COALESCE(g.series_count,0)::int AS series_count,COALESCE(g.set_count,0)::int AS set_count,
            t.winner,COALESCE(t.names,ARRAY[]::text[])||COALESCE(p.names,ARRAY[]::text[]) AS search_names
-      FROM core_public.event e LEFT JOIN games g ON g.event_id=e.event_id
+      FROM core_public.event_dates e LEFT JOIN games g ON g.event_id=e.event_id
       LEFT JOIN teams t ON t.event_id=e.event_id LEFT JOIN people p ON p.event_id=e.event_id
      -- ★ 롤 대회만. FC 대회도 참가 단위를 가진다(0061·0062) — 게임을 안 걸면 FC 대회가 섞인다.
-     WHERE e.game_code = 'lol' AND e.kind = 'tournament' AND (g.event_id IS NOT NULL OR p.event_id IS NOT NULL)
-     ORDER BY COALESCE(e.starts_at,g.first_match) DESC NULLS LAST,e.slug
+     WHERE e.game_code = 'lol' AND e.kind = ${TOURNAMENT_KIND} AND (g.event_id IS NOT NULL OR p.event_id IS NOT NULL)
+     ORDER BY e.effective_starts_at DESC NULLS LAST,e.slug
   `;
 }
 

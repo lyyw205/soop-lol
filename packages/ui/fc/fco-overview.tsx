@@ -1,31 +1,26 @@
 import Link from "next/link";
-import { fcMatchHref, profileHref, type FcoGame, type FcoPerson } from "@soop-lol/core/lib/contract/client";
+import { fcMatchHref, profileHref, type FcoGame, type FcoPerson, type FcoStatLine } from "@soop-lol/core/lib/contract/client";
 import { Avatar } from "../avatar.tsx";
 import { RecordOverviewCard } from "../record-structure.tsx";
 import { fcDate, statsForGames } from "./fco-records.tsx";
 
 /** 대회 링크는 대회 화면을 가진 모듈이 있을 때만 부르는 쪽이 넘긴다. 없으면 이름만 보인다. */
-export function FcoPersonalOverview({ person, games, scopeLabel, eventHref }: {
-  person: FcoPerson; games: FcoGame[]; scopeLabel?: string; eventHref?: (slug: string) => string;
+export function FcoPersonalOverview({ person, stats: input, careerEvents, scopeLabel, eventHref }: {
+  person: FcoPerson; stats: (FcoStatLine & {lastPlayed: string | null}) | null;
+  careerEvents: {slug: string; name: string; games: number}[];
+  scopeLabel?: string; eventHref?: (slug: string) => string;
 }) {
-  const stats = statsForGames(games, person.id);
+  const stats = input ?? { games: 0, wins: 0, draws: 0, losses: 0, goals: 0, shots: 0, shotsOnTarget: 0, passTry: 0, passSuccess: 0, lastPlayed: null };
   const decided = stats.wins + stats.losses;
-  const events = new Map<string, { name: string; count: number }>();
-  for (const game of games) {
-    if (!game.event_slug || !game.event_name) continue;
-    const current = events.get(game.event_slug) ?? { name: game.event_name, count: 0 };
-    current.count++;
-    events.set(game.event_slug, current);
-  }
   return <RecordOverviewCard className="personal-profile-card fc-personal-card" label="개인 프로필 및 전적 요약">
     <div className="personal-profile-portrait"><Avatar name={person.name} src={person.image} channelId={person.channel_id} /></div>
     <header className="personal-profile-identity">
       <p className="personal-profile-accounts"><span>{person.nickname}</span></p>
       <h2>{person.name}</h2>
-      <p className="fc-card-identity-note">FC 온라인 · {scopeLabel ?? `수집한 최근 ${games.length}경기 기준`}</p>
+      <p className="fc-card-identity-note">FC 온라인 · {scopeLabel ?? "전체 기록"}</p>
     </header>
     <div className="personal-stat-grid">
-      <div><small>경기</small><strong>{stats.games}</strong><span>{games[0] ? `최근 ${fcDate(games[0].played_at)}` : "기록 없음"}</span></div>
+      <div><small>경기</small><strong>{stats.games}</strong><span>{stats.lastPlayed ? `최근 ${fcDate(stats.lastPlayed)}` : "기록 없음"}</span></div>
       <div><small>승 · 무 · 패</small><strong className="personal-wdl">{stats.wins}<i> / </i>{stats.draws}<i> / </i>{stats.losses}</strong><span>득점 {stats.goals}골</span></div>
       <div><small>경기 승률</small><strong>{decided ? `${(stats.wins / decided * 100).toFixed(1)}%` : "—"}</strong><span>무승부 제외</span></div>
     </div>
@@ -35,10 +30,10 @@ export function FcoPersonalOverview({ person, games, scopeLabel, eventHref }: {
         <span>패스 성공률 <b>{stats.passTry ? `${Math.round(stats.passSuccess / stats.passTry * 100)}%` : "—"}</b></span></div>
     </div>
     <div className="profile-career profile-info-section">
-      <h3>참가 대회</h3>
-      {events.size ? <div className="fc-card-events">{[...events.entries()].slice(0, 2).map(([slug, event]) =>
-        eventHref ? <Link key={slug} href={eventHref(slug)}>{event.name} <small>{event.count}경기</small></Link>
-          : <span key={slug}>{event.name} <small>{event.count}경기</small></span>)}</div>
+      <h3>참가 CK · 대회 <small>통산</small></h3>
+      {careerEvents.length ? <div className="fc-card-events">{careerEvents.slice(0, 2).map(event =>
+        eventHref ? <Link key={event.slug} href={eventHref(event.slug)}>{event.name} <small>{event.games}경기</small></Link>
+          : <span key={event.slug}>{event.name} <small>{event.games}경기</small></span>)}</div>
         : <p className="profile-info-empty">연결된 대회 경기가 없습니다.</p>}
     </div>
   </RecordOverviewCard>;
@@ -59,7 +54,7 @@ export function FcoVersusOverview({ a, b, games, periodLabel = "수집한 경기
           <span className="arena-disc"><Avatar name={a.name} src={a.image} channelId={a.channel_id} /><i className="arena-person-badge">기준</i></span>
           <strong className="arena-person-name">{a.name}</strong><small>{a.nickname}</small>
         </Link>
-        {swapHref && <Link className="arena-duel-swap" href={swapHref}
+        {swapHref && <Link className="arena-duel-swap" href={swapHref} prefetch={false}
           title="스트리머 순서 바꾸기" aria-label="스트리머 순서 바꾸기">
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2.5 5h9M9 2.5 11.5 5 9 7.5M13.5 11h-9M7 8.5 4.5 11 7 13.5" />

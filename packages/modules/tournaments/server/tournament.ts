@@ -1,3 +1,4 @@
+import { isLaneMatchup } from "@soop-lol/core/lib/contract/client";
 /**
  * 대회 모듈의 해석 — 분류·시리즈 점수·선수 기록. core 에는 사실만 있고 이건 여기 것이다.
  * 순수 함수라 화면(클라이언트 컴포넌트)도 그대로 import 한다.
@@ -7,9 +8,8 @@ import {
   kstDateString, setLabel, type PublicRosterEntry, type PublicTournamentMatchRow,
 } from "@soop-lol/core/lib/contract/client";
 
-export type TournamentCategory = "meljang" | "event" | "ck";
+export type TournamentCategory = "meljang" | "event";
 export function tournamentCategory(slug: string, kind: string): TournamentCategory {
-  if (kind === "ck") return "ck";
   return slug.startsWith("meljang-") && !slug.includes("allstar")
     ? "meljang"
     : "event";
@@ -302,7 +302,7 @@ export function laneDuels(series: TournamentSeries[]): LaneDuel[] {
     const red = set.players.filter((p) => p.team_id === 200);
     for (const x of blue) {
       if (!x.streamer_id || !x.team_position) continue;
-      const y = red.find((p) => p.team_position === x.team_position);
+      const y = red.find((p) => isLaneMatchup({ teamId: x.team_id, teamPosition: x.team_position ?? undefined, individualPosition: x.individual_position ?? undefined }, { teamId: p.team_id, teamPosition: p.team_position ?? undefined, individualPosition: p.individual_position ?? undefined }));
       if (!y?.streamer_id || y.streamer_id === x.streamer_id) continue;
       // 쌍의 순서를 고정해 같은 두 사람이 한 줄로 모이게 한다
       const [p, q] = x.streamer_id < y.streamer_id ? [x, y] : [y, x];

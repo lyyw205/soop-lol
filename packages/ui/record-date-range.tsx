@@ -4,9 +4,8 @@
  * 기간 필터 한 줄 — **시작일 · 종료일 · 적용 · 초기화.** 기간 프리셋은 달력 안에 있다.
  *
  * ★ 왜 값을 직접 안 바꾸고 `onApply` 로 넘기나
- *   같은 UI 를 쓰는 두 화면이 기간을 **다른 곳에 들고 있다** — 개인 기록은 주소
- *   (`?period=&from=&to=`), 상대전적은 컴포넌트 상태다. 어느 쪽인지는 이 칸이 알 바가
- *   아니므로 "이 범위로 정했다" 만 알린다. 두 화면이 생김새를 공유하는 유일한 방법이다.
+ *   개인 기록은 서버 조회, 상대전적은 로컬 필터로 적용하고 둘 다 주소에 남긴다.
+ *   이 칸은 적용할 범위만 알리고 조회 방식은 호출자가 정한다.
  *
  * ★ 적용은 사용자가 누른다
  *   달력에서 프리셋을 고르면 두 칸이 채워지기만 한다. 값을 보고 확인하는 흐름이
@@ -20,14 +19,21 @@ import { DateField } from "./date-field.tsx";
 /** `all` 은 빼 둔다 — 해제는 초기화 단추가 맡는다. 프리셋에 '전체' 를 또 두면 말이 겹친다. */
 const PRESETS = RECORD_PERIODS.filter((p) => p.key !== "all");
 
-export function RecordDateRange({ period, onApply, label = "기간", disabled = false }: {
+type Props = {
   /** 지금 걸려 있는 기간. 칸의 초기값과 초기화 단추의 활성 여부를 여기서 읽는다. */
   period: RecordPeriod;
   /** 범위를 정했을 때. `null` 이면 기간 해제다. */
   onApply: (range: { from: string; to: string } | null) => void;
   label?: string;
   disabled?: boolean;
-}) {
+};
+
+export function RecordDateRange(props: Props) {
+  // 뒤로 가기·탭 이동으로 주소가 바뀌면 입력 초안도 그 범위로 복원한다.
+  return <RecordDateRangeForm key={`${props.period.from ?? ""}:${props.period.to ?? ""}`} {...props} />;
+}
+
+function RecordDateRangeForm({ period, onApply, label = "기간", disabled = false }: Props) {
   const [from, setFrom] = useState(period.from ?? "");
   const [to, setTo] = useState(period.to ?? "");
   const [error, setError] = useState("");

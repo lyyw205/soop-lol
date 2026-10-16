@@ -1,0 +1,15 @@
+{
+  "tool": "Built-in image_gen",
+  "assets": [
+    {
+      "file": "football-cutout.webp",
+      "prompt": "Use case: background-extraction. Edit target: the supplied chrome soccer ball with blue glass orbital ribbon. Remove ONLY the grey studio backdrop and floor, including the floor shadow. Keep the exact chrome football and the entire blue ribbon unchanged, including original reflections, details, colors, proportions, angle and positions. Keep the original landscape framing. The ball and ribbon must be a clean object cutout on a truly transparent background with alpha, no color backdrop, no added elements, no text. Retain the existing blue reflections on the chrome. This will be layered over large typography on a website poster.",
+      "format": "WebP conversion with original alpha preserved"
+    },
+    {
+      "file": "crystal-cutout.webp",
+      "prompt": "Use case: background-extraction. Edit target: the supplied blue crystal with gold orbital rings. Remove ONLY the ivory studio backdrop, floor, caustics on the floor and floor shadow. Keep the exact blue crystal, gold rings, ornate gold base, and small floating shards unchanged, including their reflections, colors, proportions, angle and positions. Keep the original landscape framing. All objects must be a clean cutout on a truly transparent background with alpha, no backdrop, no added objects, no text. This will be layered over large typography on a website poster.",
+      "format": "WebP conversion with original alpha preserved"
+    }
+  ]
+}

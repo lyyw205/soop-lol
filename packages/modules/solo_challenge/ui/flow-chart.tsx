@@ -42,7 +42,7 @@ export function FlowChart({ flow, days, record }: Props) {
   const current = record.current;
   return <div className="sf-card">
     <header className="sf-head">
-      <div><h3>누적 승패</h3><p>{short(flow[0].day)} — {short(flow.at(-1)!.day)} · 수집된 경기 기준</p><div className="sf-total"><b className="sf-win">{record.wins}<small>승</small></b><span>/</span><b className="sf-loss">{record.games - record.wins}<small>패</small></b></div></div>
+      <div><h3>누적 승패</h3><p>{short(flow[0].day)} — {short(flow.at(-1)!.day)} · 같은 팀으로 함께한 경기 기준</p><div className="sf-total"><b className="sf-win">{record.wins}<small>승</small></b><span>/</span><b className="sf-loss">{record.games - record.wins}<small>패</small></b></div></div>
       <div className="sf-switch" aria-label="그래프 경기 범위"><button aria-pressed={!recent} onClick={() => setRecent(false)}>전체 {flow.length}판</button><button aria-pressed={recent} onClick={() => setRecent(true)}>최근 30판</button></div>
     </header>
     <div className="sf-body">
@@ -50,10 +50,10 @@ export function FlowChart({ flow, days, record }: Props) {
         <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`누적 승패 그래프. ${start + 1}번째부터 ${flow.length}번째 경기, 마지막 ${signed(flow.at(-1)!.net)}`}>
           <defs><clipPath id={`${id}-up`}><rect width={W} height={y(0)} /></clipPath><clipPath id={`${id}-down`}><rect y={y(0)} width={W} height={H - y(0)} /></clipPath></defs>
           {[hi, 0, lo].map((t) => <g key={t}><line x1={L} x2={W - R + 10} y1={y(t)} y2={y(t)} className={t === 0 ? "sf-zero" : "sf-grid"} /><text x={L - 9} y={y(t) + 4} textAnchor="end" className="sf-tick">{signed(t)}</text></g>)}
-          <path d={area} fill="#55d5bd" opacity=".065" clipPath={`url(#${id}-up)`} /><path d={area} fill="#f083a2" opacity=".065" clipPath={`url(#${id}-down)`} />
+          <path d={area} fill="var(--result-win, #55d5bd)" opacity=".065" clipPath={`url(#${id}-up)`} /><path d={area} fill="var(--result-loss, #f083a2)" opacity=".065" clipPath={`url(#${id}-down)`} />
           <path d={path} className="sf-line sf-line-win" clipPath={`url(#${id}-up)`} /><path d={path} className="sf-line sf-line-loss" clipPath={`url(#${id}-down)`} />
-          {extrema.map((p, i) => <g key={i}><circle cx={x(p.index)} cy={y(p.net)} r={3} fill={i ? "#efa0b6" : "#8edfcf"} /><text x={Math.max(55, Math.min(W - 45, x(p.index)))} y={y(p.net) + (i ? 20 : -12)} textAnchor="middle" className="sf-extreme">{i ? "최저" : "최고"} {signed(p.net)}</text></g>)}
-          <line x1={x(index)} x2={x(index)} y1={15} y2={H - 35} className="sf-cursor" /><circle cx={x(index)} cy={y(chosen.net)} r={4} fill="#dcc8ff" stroke="#9b7ac7" strokeWidth={2} />
+          {extrema.map((p, i) => <g key={i}><circle cx={x(p.index)} cy={y(p.net)} r={3} fill={i ? "var(--result-loss, #efa0b6)" : "var(--result-win, #8edfcf)"} /><text x={Math.max(55, Math.min(W - 45, x(p.index)))} y={y(p.net) + (i ? 20 : -12)} textAnchor="middle" className="sf-extreme">{i ? "최저" : "최고"} {signed(p.net)}</text></g>)}
+          <line x1={x(index)} x2={x(index)} y1={15} y2={H - 35} className="sf-cursor" /><circle cx={x(index)} cy={y(chosen.net)} r={4} fill="var(--accent-primary, #dcc8ff)" stroke="var(--accent-hover, #9b7ac7)" strokeWidth={2} />
           <text x={W - R + 8} y={y(flow.at(-1)!.net) + 4} className="sf-end">{signed(flow.at(-1)!.net)}</text>
           <rect x={L} width={W - L - R} height={H} fill="transparent" onPointerMove={(event) => { const bounds = event.currentTarget.ownerSVGElement!.getBoundingClientRect(); const sx = (event.clientX - bounds.left) / bounds.width * W; setSelected(Math.max(start, Math.min(flow.length - 1, Math.round(start - 1 + (sx - L) / (W - L - R) * shown.length)))); }} />
         </svg>

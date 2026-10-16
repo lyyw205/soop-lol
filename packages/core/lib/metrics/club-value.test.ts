@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  backcastSeries, changeOver, currentValue, decomposeChange, formatWon, holdingsSeries, shiftDay, unionHoldings,
+  backcastSeries, changeOver, currentValue, decomposeChange, formatWon, holdingsSeries, shiftDay, unionHoldings, valueChangeWithin,
   type HoldingRow, type PriceAt,
 } from "./club-value.ts";
 
@@ -58,11 +58,41 @@ test("변동 분해: 시세 효과 + 교체 효과 = 전체 변화", () => {
 
 test("등락: 기준일 이하 가장 최근 값과, 기록이 모자라면 null", () => {
   const s = [{ day: "2026-09-01", value: 100 }, { day: "2026-09-05", value: 110 }, { day: "2026-09-08", value: 99 }];
-  assert.deepEqual(changeOver(s, 7), { delta: -1, pct: -1, since: "2026-09-01" });
+  assert.deepEqual(changeOver(s, 7), { delta: -1, pct: -1, since: "2026-09-01", until: "2026-09-08" });
   assert.deepEqual(changeOver(s, 1)?.since, "2026-09-05");
   assert.equal(changeOver(s, 30), null, "30일 전 기록이 없으면 0% 가 아니라 모름");
   assert.equal(changeOver(s.slice(0, 1), 1), null);
   assert.equal(shiftDay("2026-03-01", -1), "2026-02-28");
+});
+
+test("최근 7일 수집분: 경계일이 없어도 10월 2일 기록으로 비교 기간을 늘리지 않는다", () => {
+  const series = [
+    { day: "2026-10-02", value: 10 },
+    { day: "2026-10-08", value: 100 },
+    { day: "2026-10-13", value: 120 },
+    { day: "2026-10-14", value: 999 },
+  ];
+  const result = valueChangeWithin(series, 7, "2026-10-13");
+  assert.deepEqual(result.history, series.slice(1, 3), "오래된 기록과 기준일 이후 기록은 차트에서도 제외");
+  assert.deepEqual(result.change, { delta: 20, pct: 20, since: "2026-10-08", until: "2026-10-13" });
+  assert.equal(series.length, 4, "원본 기록은 보존");
+});
+
+test("최근 7일 수집분: 정확히 7일 전 기록이 있으면 그날 대비 하락률을 계산한다", () => {
+  const series = [
+    { day: "2026-10-05", value: 1 },
+    { day: "2026-10-06", value: 100 },
+    { day: "2026-10-08", value: 200 },
+    { day: "2026-10-13", value: 80 },
+  ];
+  assert.deepEqual(valueChangeWithin(series, 7, "2026-10-13").change, { delta: -20, pct: -20, since: "2026-10-06", until: "2026-10-13" });
+});
+
+test("최근 7일 수집분: 오래된 기록뿐이거나 비교할 두 시점이 없으면 등락률을 만들지 않는다", () => {
+  assert.deepEqual(valueChangeWithin([{ day: "2026-10-02", value: 10 }], 7, "2026-10-13"), { history: [], change: null });
+  assert.equal(valueChangeWithin([{ day: "2026-10-02", value: 10 }, { day: "2026-10-13", value: 20 }], 7, "2026-10-13").change, null);
+  assert.equal(valueChangeWithin([{ day: "2026-10-06", value: 0 }, { day: "2026-10-13", value: 20 }], 7, "2026-10-13").change, null);
+  assert.equal(valueChangeWithin([], 7, "2026-10-13").change, null);
 });
 
 test("금액 표기", () => {

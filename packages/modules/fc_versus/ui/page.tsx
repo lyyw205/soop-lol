@@ -3,7 +3,7 @@
  * core 의 FC 공개 조회를 계약으로 읽는다.
  */
 import {
-  fcoMetadata, getFeaturedFcoPair, listFcoPeople, listFcoTopPairs, listFcoVersus,
+  fcoMetadata, listFcoPeople, listFcoTopPairs, listFcoVersus,
 } from "@soop-lol/core/lib/contract";
 import { FcoStatsTable, FcoTournamentPlayers } from "../../../ui/fc/fco-records.tsx";
 import { FcRecordSearch } from "../../../ui/fc/fco-record-search.tsx";
@@ -28,9 +28,8 @@ export function generateMetadata() {
 export default async function FcVersus({ searchParams: sp, roleHref }: Props) {
   const pick = (key: string) => (typeof sp[key] === "string" ? sp[key] as string : undefined);
   const people = await listFcoPeople();
-  const pair = !pick("a") && !pick("b") ? await getFeaturedFcoPair() : null;
-  const a = people.find((person) => person.slug === pick("a") || person.id === pair?.aId);
-  const b = people.find((person) => (person.slug === pick("b") || person.id === pair?.bId) && person.id !== a?.id);
+  const a = people.find((person) => person.slug === pick("a"));
+  const b = people.find((person) => person.slug === pick("b") && person.id !== a?.id);
   const tab: VersusTab = TABS.includes(pick("tab") as VersusTab) ? pick("tab") as VersusTab : "games";
   if (!a || !b) {
     return <RecordLayout sidebar={<aside className="arena-rail record-sidebar" aria-label="스트리머 정보">

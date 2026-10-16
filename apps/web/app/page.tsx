@@ -1,44 +1,59 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { gameHomeHref, recordSearchHref } from "@soop-lol/core/lib/site-paths";
+import { EntranceMotion } from "./entrance-motion";
+import styles from "./entrance.module.css";
 
-import { countFcoPublic } from "@soop-lol/core/lib/db/fconline";
-import { countPublic } from "@soop-lol/core/lib/db/public";
-import { gameHomeHref } from "@soop-lol/core/lib/site-paths";
+export const metadata: Metadata = {
+  title: { absolute: "SOOP SEEK · 스트리머 기록실" },
+  description: "SOOP 스트리머의 FC온라인·리그 오브 레전드 전적, 구단가치, CK·대회 기록을 만나보세요.",
+};
 
-import { PageShell, SiteHeader } from "@/components/public";
+const games = [
+  {
+    id: "fc", href: gameHomeHref("fconline"), label: "FC온라인 메인으로 이동", cta: "메인으로",
+    object: "football-cutout.webp", logo: "fc-online-logo-white.png", logoAlt: "EA SPORTS FC ONLINE",
+    logoWidth: 364, logoHeight: 52, features: ["상대 전적", "구단가치", "CK·대회"],
+  },
+  {
+    id: "lol", href: recordSearchHref("lol"), label: "리그 오브 레전드 전적 검색", cta: "전적 검색",
+    object: "crystal-cutout.webp", logo: "league-of-legends-logo-gold.svg", logoAlt: "리그 오브 레전드",
+    logoWidth: 735.87, logoHeight: 287.4, features: ["상대 전적", "챔피언 기록", "CK·대회"],
+  },
+] as const;
 
-export const dynamic = "force-dynamic";
-
-/**
- * 로비 — 게임과 무관한 공간의 첫 화면(docs/PLATFORM-LAYER-PLAN.md).
- *
- * ★ 숫자는 **게임별로** 쓴다. 롤 경기·조우는 롤 전용 공개 뷰에서 세고, FC 경기는 FC 공개 조건으로 센다.
- *   게임마다 "경기"의 단위가 달라(롤 세트 ↔ FC 한 판) 더한 숫자는 뜻이 없다 — 합계를 내지 않는다.
- * ★ 카드 밖 숫자는 사람 수 하나다. core_public.streamer 는 게임으로 거르지 않는 명부라,
- *   게임별 인원의 합이 아니라 숨기지 않은 **사람** 수다.
- */
-export default async function Lobby() {
-  const [lol, fc] = await Promise.all([countPublic(), countFcoPublic()]);
-  const games = [
-    { href: gameHomeHref("lol"), name: "리그 오브 레전드", tag: "LOL",
-      stats: [["수집 경기", lol.matches], ["스트리머 조우", lol.encounters]] as const },
-    { href: gameHomeHref("fconline"), name: "FC 온라인", tag: "FC",
-      stats: [["수집 경기", fc.matches], ["기록 있는 스트리머", fc.people]] as const },
-  ];
-  return <>
-    <SiteHeader site="platform" />
-    <PageShell>
-      <div className="arena-title"><div>
-        <h1>스트리머 기록실</h1>
-        <p>SOOP 스트리머끼리 누가 누구를 이겼는지 모아 봅니다. 등록 스트리머 <b>{lol.streamers.toLocaleString()}명</b></p>
-      </div></div>
-      <div className="lobby-games">
-        {games.map((g) => <Link key={g.tag} href={g.href} className="arena-panel lobby-game">
-          <span className="lobby-game-tag">{g.tag}</span>
-          <h2>{g.name}</h2>
-          <dl>{g.stats.map(([label, n]) => <div key={label}><dt>{label}</dt><dd>{n.toLocaleString()}</dd></div>)}</dl>
-          <span className="lobby-game-go">기록 보기 →</span>
+/** Game selection only: keep this entrance independent of record/database queries. */
+export default function Lobby() {
+  return <main className={styles.entrance} aria-label="게임 선택">
+    <div className={styles.stage}>
+      <EntranceMotion className={styles.games}>
+        {games.map((game) => <Link key={game.id} href={game.href} className={`${styles.game} ${styles[game.id]}`}
+          aria-label={game.label} data-entrance-game={game.id}>
+          <div className={styles.atmosphere} aria-hidden="true" />
+          <div className={styles.orbits} aria-hidden="true"><i /></div>
+          <div className={styles.objectStage} aria-hidden="true">
+            <img className={styles.object} src={`/images/entrance/${game.object}`} alt="" width={1448} height={1086} fetchPriority="high" />
+          </div>
+          <div className={styles.particles} aria-hidden="true"><i /><i /><i /><i /></div>
+          <div className={styles.info}>
+            <h2 className={styles.gameTitle}>
+              <img className={styles.wordmark} src={`/images/entrance/${game.logo}`} width={game.logoWidth} height={game.logoHeight} alt={game.logoAlt} />
+            </h2>
+            <ul className={styles.features} aria-label={`${game.logoAlt} 주요 기능`}>
+              {game.features.map((feature) => <li key={feature}>{feature}</li>)}
+            </ul>
+            <div className={styles.cta}><span>{game.cta}</span><span className={styles.arrow} aria-hidden="true">↗</span></div>
+          </div>
+          <div className={styles.pointerLight} aria-hidden="true" />
         </Link>)}
-      </div>
-    </PageShell>
-  </>;
+      </EntranceMotion>
+      <header className={styles.brand} aria-label="SOOP SEEK">
+        <div className={styles.halo} aria-hidden="true" />
+        <div className={styles.brandSlot}>
+          <h1 className={styles.brandLogo}><img src="/images/brand/soop-seek-stacked-transparent.png" alt="SOOP SEEK" width={1254} height={1254} fetchPriority="high" /></h1>
+        </div>
+        <p className={styles.description}><strong>SOOP 스트리머 기록실</strong><span>전적부터 CK·대회까지</span></p>
+      </header>
+    </div>
+  </main>;
 }

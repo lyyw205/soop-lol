@@ -1,13 +1,15 @@
 "use client";
 
 import { AdminScrollMemory } from "./AdminScrollMemory";
+import { SiteLogo } from "../site-logo";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { adminLoLCollection, LOL_ADMIN } from "@/lib/admin-lol";
-import { ClipboardCheck, LayoutDashboard, Radio, Trophy, Users, CalendarDays, MessageSquare } from "lucide-react";
+import { ClipboardCheck, LayoutDashboard, Trophy, Users, CalendarDays, MessageSquare, Building2 } from "lucide-react";
 import { Suspense, type ReactNode } from "react";
 
 const NAV = [
+  { href: "/admin/office", label: "운영 오피스", icon: Building2, match: (path: string) => path.startsWith("/admin/office") },
   { href: "/admin", label: "검수 대기", icon: LayoutDashboard, match: (path: string) => path === "/admin" },
   { href: "/admin/ck", label: "협곡 경기", icon: ClipboardCheck, match: (path: string) => path.startsWith("/admin/ck") || path.startsWith("/admin/overview") },
   { href: "/admin/aram", label: "칼바람 경기", icon: ClipboardCheck, match: (path: string) => path.startsWith("/admin/aram") },
@@ -23,15 +25,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const isLoLDetail = pathname.startsWith("/admin/ck/") && pathname !== "/admin/ck/unknown";
   const collection = (isLoLDetail ? adminLoLCollection(params.get("from")) : undefined) ?? adminLoLCollection(pathname);
   const section = collection ? LOL_ADMIN[collection] : undefined;
-  const current = NAV.find((item) => item.match(section?.queue ?? pathname)) ?? NAV[0];
+  const current = NAV.find((item) => item.match(section?.queue ?? pathname)) ?? NAV[1];
 
   return (
     <div className="admin-shell" data-admin-shell>
       <Suspense fallback={null}><AdminScrollMemory /></Suspense>
       <aside className="admin-sidebar" aria-label="관리자 메뉴">
-        <Link href="/admin" className="admin-brand">
-          <span className="admin-brand-mark"><Radio size={15} aria-hidden /></span>
-          <span>SOOP LOL <b>운영 콘솔</b></span>
+        <Link href="/admin" className="admin-brand" aria-label="SOOP SEEK 운영 콘솔">
+          <SiteLogo />
         </Link>
         <nav className="admin-navigation" aria-label="운영 메뉴">
           <p className="admin-nav-group-label">운영</p>
@@ -49,7 +50,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
       <header className="admin-topbar">
         <div>
-          <p className="admin-topbar-eyebrow">SOOP LOL 운영</p>
+          <p className="admin-topbar-eyebrow">운영 콘솔</p>
           <h1>{current.label}</h1>
         </div>
         <Link href="/" className="admin-site-link">사이트 보기 <span aria-hidden>↗</span></Link>

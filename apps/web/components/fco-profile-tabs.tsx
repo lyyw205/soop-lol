@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { eventKindLabel } from "@soop-lol/core/lib/contract/client";
 import { fcMatchHref } from "@soop-lol/core/lib/site-paths";
-import type { FcoGame, FcoPerson } from "@soop-lol/core/lib/db/fconline";
+import type { FcoGame, FcoPerson, FcoProfileEventRecord } from "@soop-lol/core/lib/db/fconline";
 import { kstDateString } from "@soop-lol/core/lib/time";
 import { rawWinRate } from "@soop-lol/core/lib/metrics/affinity";
 import { FCO_MODE_LABEL } from "@soop-lol/core/lib/games/fconline/view";
@@ -55,25 +56,23 @@ export function FcoOpponentHistory({ rows, people, streamerId, streamerSlug, str
   })}</div>;
 }
 
-export interface FcoProfileEventRow {
-  slug: string; name: string; games: number; wins: number; draws: number; losses: number; unknown: number;
-  firstPlayed: string; lastPlayed: string;
-}
+export type FcoProfileEventRow = FcoProfileEventRecord;
 
 export function FcoProfileEventList({ rows }: { rows: FcoProfileEventRow[] }) {
-  if (!rows.length) return <p className="personal-history-empty">연결된 대회 경기가 없습니다.</p>;
+  if (!rows.length) return <p className="personal-history-empty">연결된 CK·대회 경기가 없습니다.</p>;
   return <RecordEventList>{rows.map((row) => {
     const firstDay = kstDateString(new Date(row.firstPlayed));
     const lastDay = kstDateString(new Date(row.lastPlayed));
     return <RecordEventItem key={row.slug}>
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+      <span className="text-xs text-ink-400">{eventKindLabel(row.kind)}</span>
       {fcTournamentHref(row.slug)
         ? <Link className="font-medium text-ink-200" href={fcTournamentHref(row.slug)!}>{row.name} →</Link>
         : <span className="font-medium text-ink-200">{row.name}</span>}
-      <span className="text-[11px] text-ink-400">{firstDay.replaceAll("-", ".")}{firstDay !== lastDay ? ` – ${lastDay.replaceAll("-", ".")}` : ""}</span>
+      <span className="text-[length:var(--type-micro)] text-ink-400">{firstDay.replaceAll("-", ".")}{firstDay !== lastDay ? ` – ${lastDay.replaceAll("-", ".")}` : ""}</span>
     </div>
     <p className="tabular mt-2 text-sm text-ink-300">매치 {row.wins}승{row.draws ? ` ${row.draws}무` : ""} {row.losses}패{row.unknown ? ` · 결과 미상 ${row.unknown}` : ""}
-      <span className="ml-3 text-[11px] text-ink-500">확인된 {row.games}경기</span></p>
+      <span className="ml-3 text-[length:var(--type-micro)] text-ink-500">확인된 {row.games}경기</span></p>
   </RecordEventItem>;
   })}</RecordEventList>;
 }

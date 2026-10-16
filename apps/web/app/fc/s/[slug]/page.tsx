@@ -1,6 +1,8 @@
+import Link from "next/link";
+import { recordCursor } from "@soop-lol/core/lib/metrics/record-cursor";
 import { notFound } from "next/navigation";
 import { profileHref } from "@soop-lol/core/lib/site-paths";
-import { getFcoPerson, listFcoGamesForPerson, listFcoModesForPerson, listFcoPeople, listFcoStreamerGamesForPerson } from "@soop-lol/core/lib/db/fconline";
+import { getFcoPerson, getFcoPersonalSummary, listFcoPersonalEvents, listFcoGamesForPerson, listFcoModesForPerson, listFcoPeople, listFcoStreamerGamesForPerson } from "@soop-lol/core/lib/db/fconline";
 import { FcoMatchList } from "../../../../../../packages/ui/fc/fco-records";
 import { FcRecordSearch } from "../../../../../../packages/ui/fc/fco-record-search";
 import { FcoPersonalOverview } from "../../../../../../packages/ui/fc/fco-overview";
@@ -19,17 +21,16 @@ import { recordPeriodLabel, resolveRecordPeriod } from "@soop-lol/core/lib/metri
 import { FCO_MODE_LABEL } from "@soop-lol/core/lib/games/fconline/view";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: { absolute: "개인기록 · SOOP FC 온라인" } };
+export const metadata = { title: { absolute: "FC 온라인 개인기록 · SOOP SEEK" } };
 
 const TABS = ["games", "opponents", "events", "squad"] as const;
 type ProfileTab = typeof TABS[number];
 
-/** 프로필이 한 번에 집계하는 경기 수의 상한. 넘으면 화면에 '잘렸다'고 표시한다. */
-const FC_PROFILE_GAME_LIMIT = 1000;
+const FC_PROFILE_PAGE_SIZE = 20;
 
 export default async function FcProfile({ params, searchParams }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ tab?: string; sort?: string; mode?: string; period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ tab?: string; sort?: string; mode?: string; cursor?: string; period?: string; from?: string; to?: string }>;
 }) {
   const [{ slug }, sp] = await Promise.all([params, searchParams]);
   const [person, people] = await Promise.all([getFcoPerson(slug), listFcoPeople()]);
@@ -39,17 +40,24 @@ export default async function FcProfile({ params, searchParams }: {
   const mode = sp.mode && modeKeys.includes(sp.mode) ? sp.mode : "all";
   const period = resolveRecordPeriod({ period: sp.period, from: sp.from, to: sp.to });
   const filter = { mode: mode === "all" ? undefined : mode, from: period.from, to: period.to };
-  // ★ 개요·상대 전적·대회·스쿼드가 이 목록으로 집계된다. 상한에 걸리면 **오래된 경기부터 조용히 빠지므로** 걸렸다고 화면에 말한다
-  //   (실측: 경기가 200건을 넘는 스트리머가 이미 여럿이다 — 김민교 500+, 도현 427, 클리드1 335).
-  const [games, streamerGames] = period.error ? [[], []] : await Promise.all([
-    listFcoGamesForPerson(person.id, FC_PROFILE_GAME_LIMIT, filter), listFcoStreamerGamesForPerson(person.id, FC_PROFILE_GAME_LIMIT, filter),
+  const [games, streamerGames, summary, scopedEvents, careerEvents] = await Promise.all([
+    !period.error && tab === "squad" ? listFcoGamesForPerson(person.id, null, filter) : [],
+    !period.error && (tab === "games" || tab === "opponents")
+      ? listFcoStreamerGamesForPerson(person.id, tab === "opponents" ? null : FC_PROFILE_PAGE_SIZE + 1, filter, tab === "games" ? sp.cursor : undefined) : [],
+    !period.error ? getFcoPersonalSummary(person.id, filter) : null,
+    !period.error && tab === "events" ? listFcoPersonalEvents(person.id, filter) : [],
+    listFcoPersonalEvents(person.id),
   ]);
-  const gamesTruncated = games.length >= FC_PROFILE_GAME_LIMIT || streamerGames.length >= FC_PROFILE_GAME_LIMIT;
+  const groups = [...new Set(streamerGames.map(g => g.series_id ?? g.id))];
+  const visibleGroups = new Set(groups.slice(0, FC_PROFILE_PAGE_SIZE));
+  const visibleGames = streamerGames.filter(g => visibleGroups.has(g.series_id ?? g.id));
+  const lastGroup = groups[FC_PROFILE_PAGE_SIZE - 1];
+  const lastGroupAt = streamerGames.filter(g => (g.series_id ?? g.id) === lastGroup).map(g => new Date(g.played_at)).sort((a,b) => +a - +b)[0];
+  const nextCursor = groups.length > FC_PROFILE_PAGE_SIZE ? recordCursor(lastGroupAt, lastGroup) : null;
   const periodLabel = recordPeriodLabel(period);
   const modeLabel = mode === "all" ? "전체 경기" : FCO_MODE_LABEL[mode] ?? `모드 ${mode}`;
 
   const opponents = new Map<string, FcoOpponentRow>();
-  const events = new Map<string, FcoProfileEventRow>();
   for (const game of streamerGames) {
     const mine = game.participants.find((participant) => participant.streamer_id === person.id);
     if (!mine) continue;
@@ -69,27 +77,10 @@ export default async function FcProfile({ params, searchParams }: {
       opponents.set(row.slug, row);
     }
   }
-  for (const game of games) {
-    if (game.event_slug && game.event_name) {
-      const row = events.get(game.event_slug) ?? {
-        slug: game.event_slug, name: game.event_name, games: 0, wins: 0, draws: 0, losses: 0, unknown: 0,
-        firstPlayed: game.played_at, lastPlayed: game.played_at,
-      };
-      const mine = game.participants.find((participant) => participant.streamer_id === person.id);
-      if (!mine) continue;
-      row.games++;
-      if (mine.outcome === "win") row.wins++;
-      if (mine.outcome === "draw") row.draws++;
-      if (mine.outcome === "loss") row.losses++;
-      if (mine.outcome === "unknown") row.unknown++;
-      if (game.played_at < row.firstPlayed) row.firstPlayed = game.played_at;
-      if (game.played_at > row.lastPlayed) row.lastPlayed = game.played_at;
-      events.set(row.slug, row);
-    }
-  }
   const opponentSort = isOpponentSort(sp.sort) ? sp.sort : DEFAULT_OPPONENT_SORT;
   const sortedOpponents = sortOpponents([...opponents.values()], opponentSort);
-  const sortedEvents = [...events.values()].sort((a, b) => b.lastPlayed.localeCompare(a.lastPlayed));
+  // Postgres timestamptz는 드라이버에서 Date로 올 수도 있어 문자열 메서드를 쓰지 않는다.
+  const sortedEvents = scopedEvents;
 
   const hrefFor = (next: { tab?: ProfileTab; mode?: string } = {}) => {
     const nextTab = next.tab ?? tab;
@@ -106,7 +97,7 @@ export default async function FcProfile({ params, searchParams }: {
   const tabs: { key: ProfileTab; label: string; href: string }[] = [
     { key: "games", label: "매치 히스토리", href: hrefFor({ tab: "games" }) },
     { key: "opponents", label: "상대 전적", href: hrefFor({ tab: "opponents" }) },
-    { key: "events", label: "대회", href: hrefFor({ tab: "events" }) },
+    { key: "events", label: "CK · 대회", href: hrefFor({ tab: "events" }) },
     { key: "squad", label: "스쿼드", href: hrefFor({ tab: "squad" }) },
   ];
 
@@ -117,12 +108,16 @@ export default async function FcProfile({ params, searchParams }: {
         value: key, label: FCO_MODE_LABEL[key] ?? `모드 ${key}`, href: hrefFor({ mode: key }),
       }))]}
       trailing={<RecordPeriodFilters key={`${period.key}:${period.from ?? ""}:${period.to ?? ""}`} href={hrefFor()} period={period} />} />
-    <FcoPersonalOverview person={person} games={games} scopeLabel={`${modeLabel} · ${periodLabel} · 수집 경기 ${games.length}건 기준${gamesTruncated ? ` (최근 ${FC_PROFILE_GAME_LIMIT}건까지만 집계 — 더 오래된 경기는 빠져 있다)` : ""}`}
-      eventHref={fcTournamentsIndexHref() ? (slug) => fcTournamentHref(slug)! : undefined} />
+    <FcoPersonalOverview person={person} stats={summary} careerEvents={careerEvents}
+      scopeLabel={`${modeLabel} · ${periodLabel}`} eventHref={fcTournamentsIndexHref() ? (slug) => fcTournamentHref(slug)! : undefined} />
     <div id="record-content"><RecordSectionTabs items={tabs} active={tab} /></div>
     {tab === "games" && <RecordContentPanel className="fc-tab-panel">
-        <h2>스트리머 간 경기 <small>{streamerGames.length}{streamerGames.length >= FC_PROFILE_GAME_LIMIT ? "+" : ""}경기</small></h2>
-        <FcoMatchList games={streamerGames} perspectiveStreamerId={person.id} />
+        <h2>스트리머 간 경기</h2>
+        <FcoMatchList games={visibleGames} perspectiveStreamerId={person.id} />
+        <nav className="personal-pagination" aria-label="경기 이어 보기">
+          {sp.cursor && <Link href={hrefFor()}>처음으로</Link>}
+          {nextCursor && <Link href={`${hrefFor()}${hrefFor().includes("?") ? "&" : "?"}cursor=${encodeURIComponent(nextCursor)}`}>이전 기록 더 보기 →</Link>}
+        </nav>
     </RecordContentPanel>}
     {tab === "opponents" && <RecordContentPanel className="arena-records">
         <OpponentHistoryHeading href={hrefFor({ tab: "opponents" })} period={period}
@@ -130,7 +125,7 @@ export default async function FcProfile({ params, searchParams }: {
         <FcoOpponentHistory rows={sortedOpponents} people={people} streamerId={person.id} streamerSlug={person.slug} streamerName={person.name} />
     </RecordContentPanel>}
     {tab === "events" && <RecordContentPanel>
-        <SectionTitle hint={`${modeLabel} · ${periodLabel} · 확인 경기만 집계`}>대회 성적</SectionTitle>
+        <SectionTitle hint={`${modeLabel} · ${periodLabel} · 확인 경기만 집계`}>CK · 대회 성적</SectionTitle>
         <FcoProfileEventList rows={sortedEvents} />
     </RecordContentPanel>}
     {tab === "squad" && <RecordContentPanel>

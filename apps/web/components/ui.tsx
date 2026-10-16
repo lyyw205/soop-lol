@@ -34,7 +34,7 @@ export function StatTile({ label, value, hint }: { label: string; value: ReactNo
     <div className="rounded-xl border border-ink-800 bg-ink-900/60 px-4 py-3">
       <div className="text-xs text-ink-400">{label}</div>
       <div className="tabular mt-1 text-2xl font-semibold text-ink-200">{value}</div>
-      {hint && <div className="mt-1 text-[11px] text-ink-400">{hint}</div>}
+      {hint && <div className="mt-1 text-[length:var(--type-micro)] text-ink-400">{hint}</div>}
     </div>
   );
 }
@@ -52,7 +52,7 @@ const CONFIDENCE_STYLE: Record<Confidence, { label: string; className: string }>
 export function ConfidenceBadge({ confidence }: { confidence: Confidence }) {
   const style = CONFIDENCE_STYLE[confidence] ?? CONFIDENCE_STYLE.unverified;
   return (
-    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${style.className}`}>
+    <span className={`rounded-full border px-2 py-0.5 text-[length:var(--type-micro)] font-medium ${style.className}`}>
       {style.label}
     </span>
   );
@@ -65,7 +65,7 @@ export function Tag({ children, tone = "neutral" }: { children: ReactNode; tone?
     warn: "border-amber-400/40 bg-amber-400/10 text-amber-300",
   } as const;
   return (
-    <span className={`rounded-md border px-2 py-0.5 text-[11px] ${tones[tone]}`}>{children}</span>
+    <span className={`rounded-md border px-2 py-0.5 text-[length:var(--type-micro)] ${tones[tone]}`}>{children}</span>
   );
 }
 

@@ -1,0 +1,182 @@
+@font-face{font-family:Pretendard;src:url('/fonts/pretendard/PretendardVariable.woff2') format('woff2');font-weight:100 900;font-display:swap}
+:root{font-family:Pretendard,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#f2f5f0;background:#090e10;font-synthesis:none;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}body,h1,h2{margin:0}a{color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent}img{display:block}body{min-width:320px;position:relative}a:focus-visible{outline:3px solid #f7faf0;outline-offset:-8px;z-index:2}
+.entrance{display:grid;grid-template-columns:1fr 1fr;height:100svh;min-height:740px;position:relative;isolation:isolate;overflow:hidden}
+.game{--dx:0px;--dy:0px;--x:50%;--y:50%;--accent:#04e45f;position:relative;isolation:isolate;overflow:hidden;display:flex;justify-content:center;align-items:flex-end;min-width:0}
+.game-lol{--accent:#d6b779}
+.atmosphere{position:absolute;inset:0;z-index:-3;background:radial-gradient(ellipse at 36% 42%,#164534 0%,#0b211c 29%,#080e0e 73%)}
+.game-lol .atmosphere{background:radial-gradient(ellipse at 67% 38%,#162e47 0%,#101e2e 31%,#0a1018 73%)}
+.object-stage{position:absolute;inset:0;z-index:-1;pointer-events:none;animation:object-enter 1.6s cubic-bezier(.15,.75,.2,1) both}
+.game-lol .object-stage{animation-delay:.12s}
+.object{position:absolute;width:118%;height:67%;object-fit:contain;top:9%;left:-16%;transform:translate(var(--dx),var(--dy)) rotate(-7deg);transition:transform 1.1s cubic-bezier(.16,1,.3,1);filter:hue-rotate(290deg) saturate(.74) brightness(.88) drop-shadow(0 24px 48px #0008)}
+.game-lol .object{height:69%;width:117%;left:0;top:6%;transform:translate(var(--dx),var(--dy)) rotate(9deg);filter:brightness(.83) saturate(.82) drop-shadow(0 30px 45px #0008)}
+.game-info{position:relative;width:370px;max-width:calc(100% - 110px);padding-bottom:54px;animation:info-enter 1.2s .15s both}
+.fc-title,.lol-title{height:102px;display:flex;align-items:center;min-width:0}
+.game-wordmark{display:block;max-width:100%;height:auto;object-fit:contain;object-position:left center}
+.fc-title .game-wordmark{width:310px}
+.lol-title .game-wordmark{width:220px}
+.game-cta{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #f1fff228;padding-top:22px;font-size:13px;font-weight:550;letter-spacing:.1px}
+.game-lol .game-cta{border-color:#d6b77935}
+.arrow{font:400 30px/1 Arial,sans-serif;display:grid;place-items:center;width:49px;height:49px;background:var(--accent);color:#082116;transition:transform .4s,background .4s,border-radius .4s}
+.game-lol .arrow{background:#d6b77915;color:#e4c793;border:1px solid #d6b77968}
+.pointer-light{position:absolute;inset:0;pointer-events:none;z-index:1;opacity:0;background:radial-gradient(400px circle at var(--x) var(--y),#c3ffe70d,transparent 80%);transition:opacity .6s}
+.brand-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:280px;height:240px;z-index:5;display:grid;place-items:center;text-align:center;isolation:isolate}
+.brand-slot{position:relative;width:100%;min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:25px 8px;gap:18px}
+.brand-slot h1{font:800 91px/.95 Pretendard,sans-serif;letter-spacing:-.065em;padding-right:.065em;color:#f1f3eb}
+.brand-note{font-size:10px;letter-spacing:2px;font-weight:450;color:#a7b4ab}
+.brand-axis{position:absolute;left:50%;top:calc(-50svh + 50%);height:100svh;width:1px;z-index:-2;background:linear-gradient(transparent,#d0d9d31c 23%,transparent 39%,transparent 61%,#d0d9d326 77%,transparent);pointer-events:none}
+.brand-halo{position:absolute;inset:-100px -130px;z-index:-1;background:radial-gradient(ellipse,#090e10 10%,#090e10dd 30%,#090e1059 58%,transparent 73%);pointer-events:none}
+.crop{position:absolute;height:9px;width:9px;color:#a5b8ab55;pointer-events:none}
+.crop-one{top:9px;left:0;border-top:1px solid;border-left:1px solid}.crop-two{bottom:9px;right:0;border-bottom:1px solid;border-right:1px solid}
+.geometry{position:absolute;z-index:-2;pointer-events:none}
+.pitch{height:220px;width:370px;top:24%;left:9%;border:1px solid #87e7bd20;transform:perspective(650px) rotateX(57deg) rotateZ(-14deg)}
+.pitch:before{content:'';position:absolute;top:0;bottom:0;left:50%;border-left:1px solid #87e7bd20}
+.pitch:after{content:'';position:absolute;top:50%;left:50%;width:85px;height:85px;transform:translate(-50%,-50%);border:1px solid #87e7bd20;border-radius:50%}
+.pitch i,.pitch b{position:absolute;width:50px;height:112px;left:-1px;top:50%;transform:translateY(-50%);border:1px solid #87e7bd20}
+.pitch b{left:auto;right:-1px}
+.rune{height:470px;width:470px;left:18%;top:12%;border-radius:50%;border:1px solid #dccca523}
+.rune:before,.rune:after,.rune i{content:'';position:absolute;inset:16px;border-radius:50%;border:1px solid #dccca519}
+.rune:after{inset:-20px;border-style:dashed;animation:rotate-ring 120s linear infinite}
+.rune i{inset:75px;border-radius:0;transform:rotate(45deg);border-color:#dccca513}
+.particles{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.particles i{height:2px;width:2px;background:var(--accent);box-shadow:0 0 11px var(--accent);border-radius:50%;left:24%;top:22%;position:absolute;animation:float-particle 7s ease-in-out infinite alternate}
+.particles i:nth-child(2){left:75%;top:57%;animation-delay:-2s;opacity:.4}.particles i:nth-child(3){left:11%;top:65%;animation-delay:-5s}.particles i:nth-child(4){left:53%;top:74%;animation-delay:-3s;opacity:.45}
+
+/* A: uninterrupted worlds fade into an open, quiet brand center. */
+.stage .entrance:after{content:'';position:absolute;inset:0;pointer-events:none;z-index:-1;background:linear-gradient(90deg,transparent 30%,#090e1066 40%,#090e10c9 49%,#090e10c9 51%,#090e1066 60%,transparent 70%)}
+.stage .game-fc{padding-right:76px}.stage .game-lol{padding-left:76px}
+.stage .game-fc:after,.stage .game-lol:after{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,transparent 60%,#090e10 100%)}
+.stage .game-lol:after{background:linear-gradient(-90deg,transparent 60%,#090e10 100%)}
+.stage .brand-center{top:47%}
+.stage .brand-center:after{content:'';position:absolute;width:40px;height:1px;bottom:-25px;background:linear-gradient(90deg,#04e45f,#5c9bc3,#d6b779);opacity:.65}
+
+/* B: two inset art windows meet beneath a luminous circular brand. */
+.orbit{background:#0b0f11;padding:28px}
+.orbit .entrance{height:calc(100svh - 56px);min-height:700px;gap:10px;border-radius:20px}
+.orbit .game{border:1px solid #b0c4b528;border-radius:16px}
+.orbit .game-fc .atmosphere{background:radial-gradient(ellipse at 24% 38%,#175541,#0b3027 38%,#0b1717 81%)}
+.orbit .game-lol .atmosphere{background:radial-gradient(ellipse at 72% 38%,#244565,#132c43 39%,#101823 81%)}
+.orbit .object{width:130%;height:73%;left:-27%;top:4%;transform:translate(var(--dx),var(--dy)) rotate(-15deg);filter:hue-rotate(290deg) saturate(.75) brightness(.9) drop-shadow(0 30px 40px #0005)}
+.orbit .game-lol .object{width:134%;height:82%;left:-1%;top:0;transform:translate(var(--dx),var(--dy)) rotate(20deg);filter:brightness(.85) saturate(.8) drop-shadow(0 30px 40px #0005)}
+.orbit .game-info{max-width:calc(100% - 88px);width:100%;padding-bottom:40px}
+.orbit .game-fc .game-info{padding-right:100px}.orbit .game-lol .game-info{padding-left:100px}
+.orbit .fc-title,.orbit .lol-title{height:104px}
+.orbit .game-cta{padding-top:18px}
+.orbit .arrow{border-radius:50%;width:44px;height:44px;font-size:26px}
+.orbit .brand-center{width:246px;height:246px;top:47%;border-radius:50%;background:linear-gradient(140deg,#fbfcf4,#dce5dd);color:#182b27;border:8px solid #101b1b;box-shadow:0 0 0 1px #f4ffe024,0 0 0 15px #0a161b88,0 30px 70px #0007}
+.orbit .brand-slot{min-height:0;height:100%;gap:15px;padding-bottom:18px}
+.orbit .brand-slot h1{font-size:73px;color:#19372c}
+.orbit .brand-note{color:#7b8980;font-size:9px}
+.orbit .brand-halo{inset:-36px;border-radius:50%;border:1px solid #e3f7ea26;background:none}
+.orbit .brand-halo:before,.orbit .brand-halo:after{content:'';position:absolute;height:5px;width:5px;border-radius:50%;background:#d6ddd5;top:50%;left:-3px;box-shadow:0 0 13px #b8ddc1}
+.orbit .brand-halo:after{left:auto;right:-3px;background:#e8d5b1;box-shadow:0 0 13px #d6b779}
+.orbit .brand-axis{opacity:.6}
+.orbital-lines{position:absolute;z-index:-2;width:1100px;height:360px;border:1px solid #c2e8d12b;border-radius:50%;top:20%;left:-300px;transform:rotate(-27deg);pointer-events:none}
+.orbital-lines:before,.orbital-lines i{content:'';position:absolute;inset:18px;border:1px solid #c2e8d113;border-radius:50%}
+.orbital-lines i{inset:-50px;border-color:#c2e8d10c}
+.game-lol .orbital-lines{transform:rotate(27deg);left:auto;right:-300px;border-color:#d6c5a127}
+.outer-mark{position:absolute;z-index:3;width:7px;height:7px;border:1px solid #a0b1a66b;pointer-events:none}.mark-tl{top:10px;left:10px}.mark-br{bottom:10px;right:10px}
+
+/* C: a light brand monolith, flanked by two monumental game objects. */
+.monolith{--brand-width:clamp(240px,23vw,360px);background:#e9e9df}
+.monolith .entrance{gap:var(--brand-width)}
+.monolith .game-fc .atmosphere{background:radial-gradient(ellipse at 15% 35%,#276c4a,#184e36 48%,#0b2c25 100%)}
+.monolith .game-lol .atmosphere{background:radial-gradient(ellipse at 85% 35%,#325d89,#193755 48%,#102438 100%)}
+.monolith .brand-center{width:var(--brand-width);height:100%;top:0;transform:translateX(-50%);background:#e9e9df;color:#23372d;box-shadow:0 0 80px #0002}
+.monolith .brand-slot{width:calc(100% - 42px);min-height:210px;gap:24px}
+.monolith .brand-slot h1{font-size:clamp(72px,7.5vw,110px);color:#20362b}
+.monolith .brand-note{color:#748474;font-size:10px}
+.monolith .crop{color:#536b5640}
+.monolith-mark{position:absolute;left:50%;transform:translateX(-50%);font:300 20px Arial,sans-serif;color:#61775d80}.monolith-mark.top{top:38px}.monolith-mark.bottom{bottom:38px}
+.monolith .object{width:171%;height:78%;left:-48%;top:4%;transform:translate(var(--dx),var(--dy)) rotate(-15deg);filter:hue-rotate(290deg) saturate(.72) brightness(.89) drop-shadow(0 25px 35px #0005)}
+.monolith .game-lol .object{width:192%;height:89%;left:-39%;top:-1%;transform:translate(var(--dx),var(--dy)) rotate(12deg);filter:brightness(.91) saturate(.72) drop-shadow(0 30px 40px #0005)}
+.monolith .game-info{max-width:calc(100% - 80px);width:100%;padding-bottom:49px}
+.monolith .fc-title,.monolith .lol-title{height:98px}
+.monolith .game-cta{padding-top:20px}
+.monolith .arrow{width:47px;height:47px;border-radius:50%;color:#e4f1e4;background:transparent;border:1px solid #d4efdc77}
+.monolith .game-lol .arrow{color:#eedbb9;border-color:#dfcaa175}
+.back-logo{position:absolute;z-index:-2;top:24%;left:3%;width:110%;height:auto;opacity:.07;pointer-events:none}
+.game-lol .back-logo{top:17%;left:0;width:110%;opacity:.1}
+
+@media(hover:hover) and (pointer:fine){
+  .game:hover .object{transform:translate(calc(var(--dx) - 3px),calc(var(--dy) - 9px)) rotate(-10deg) scale(1.035)}
+  .game-lol:hover .object{transform:translate(calc(var(--dx) + 3px),calc(var(--dy) - 9px)) rotate(13deg) scale(1.035)}
+  .game:hover .pointer-light{opacity:1}.game:hover .arrow{transform:translate(3px,-3px);border-radius:50%;background:#e9faed;color:#0b3923}.game-lol:hover .arrow{background:#e0c797;color:#182837}
+}
+@keyframes object-enter{from{opacity:0;transform:translateY(25px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes info-enter{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes float-particle{from{opacity:.2;transform:translateY(8px)}to{opacity:.8;transform:translateY(-13px)}}
+@keyframes rotate-ring{to{transform:rotate(360deg)}}
+
+@media(min-width:1800px){
+  .game-info{width:450px;padding-bottom:76px}.fc-title,.lol-title{height:130px}.fc-title .game-wordmark{width:350px}.lol-title .game-wordmark{width:260px}
+  .brand-center{width:330px}.brand-slot h1{font-size:106px}.brand-slot{min-height:210px}
+  .stage .game-fc{padding-right:100px}.stage .game-lol{padding-left:100px}
+  .orbit{padding:40px}.orbit .entrance{height:calc(100svh - 80px)}.orbit .brand-center{width:280px;height:280px}.orbit .brand-slot h1{font-size:83px}
+  .orbit .game-info{max-width:calc(100% - 120px);padding-bottom:60px}.orbit .fc-title,.orbit .lol-title{height:125px}
+  .monolith .fc-title,.monolith .lol-title{height:125px}.monolith .game-info{max-width:calc(100% - 120px);padding-bottom:65px}
+}
+@media(max-width:1100px){
+  .entrance{min-height:660px}.game-info{width:290px;max-width:calc(100% - 60px);padding-bottom:38px}.fc-title,.lol-title{height:90px}.fc-title .game-wordmark{width:250px}.lol-title .game-wordmark{width:190px}
+  .stage .game-fc{padding-right:55px}.stage .game-lol{padding-left:55px}
+  .brand-center{width:210px;height:210px}.brand-slot h1{font-size:72px}.brand-slot{min-height:160px}.brand-note{font-size:9px}
+  .rune{width:350px;height:350px;top:20%;left:15%}.pitch{width:270px;height:180px;top:29%;left:5%}
+  .game-cta{font-size:12px;padding-top:17px}.arrow{width:43px;height:43px;font-size:27px}
+  .orbit{padding:22px}.orbit .entrance{height:calc(100svh - 44px);min-height:660px;gap:8px}
+  .orbit .brand-center{width:198px;height:198px;border-width:7px}.orbit .brand-slot h1{font-size:59px}.orbit .brand-note{font-size:8px}.orbit .brand-halo{inset:-23px}
+  .orbit .game-info{max-width:calc(100% - 54px);padding-bottom:32px}.orbit .game-fc .game-info{padding-right:35px}.orbit .game-lol .game-info{padding-left:35px}
+  .orbit .fc-title,.orbit .lol-title{height:90px}
+  .monolith{--brand-width:22vw}.monolith .brand-slot{width:calc(100% - 26px);min-height:180px}.monolith .brand-slot h1{font-size:6.5vw}.monolith .brand-note{font-size:8px}
+  .monolith .game-info{max-width:calc(100% - 52px);padding-bottom:36px}.monolith .fc-title,.monolith .lol-title{height:85px}
+  .monolith .object{top:5%;height:74%}.monolith .game-lol .object{top:6%;height:75%}
+}
+@media(max-width:800px) and (min-width:701px){
+  .stage .game-fc{padding-right:36px}.stage .game-lol{padding-left:36px}
+  .game-info{max-width:calc(100% - 44px)}.fc-title .game-wordmark{width:210px}.lol-title .game-wordmark{width:170px}
+  .brand-center{width:175px}.brand-slot h1{font-size:60px}.brand-slot{min-height:140px}.brand-halo{inset:-80px -75px}
+  .orbit .brand-center{width:175px;height:175px}.orbit .brand-slot h1{font-size:52px}
+  .orbit .game-fc .game-info{padding-right:0}.orbit .game-lol .game-info{padding-left:10px}
+  .monolith .game-info{max-width:calc(100% - 36px)}
+}
+@media(max-width:700px){
+  body{min-width:320px}.entrance{grid-template-columns:1fr;grid-template-rows:1fr 1fr;height:100svh;min-height:800px}
+  .game{justify-content:flex-start;align-items:flex-end;padding:0 27px!important}
+  .game-info{width:100%;max-width:none;padding:0 0 30px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+  .fc-title,.lol-title{height:auto;flex:1}.fc-title .game-wordmark{width:210px}.lol-title .game-wordmark{width:165px}
+  .game-cta{border:0!important;padding:0;font-size:10px;flex-direction:column-reverse;gap:9px;white-space:nowrap}.arrow{width:38px;height:38px;font-size:24px}
+  .object{width:94%;height:90%;top:-11%;left:-10%;transform:translate(var(--dx),var(--dy)) rotate(-8deg)}
+  .game-lol .object{width:99%;height:105%;top:0;left:21%;transform:translate(var(--dx),var(--dy)) rotate(17deg)}
+  .atmosphere{background:radial-gradient(ellipse at 37% 32%,#194a36,#0a221b 42%,#080f10 90%)}
+  .game-lol .atmosphere{background:radial-gradient(ellipse at 80% 40%,#204063,#101e30 40%,#090f17 90%)}
+  .brand-center{top:50%;width:210px;height:90px;transform:translate(-50%,-50%)}
+  .brand-slot{min-height:0;padding:12px 10px;gap:6px;height:100%}.brand-slot h1{font-size:51px}.brand-note{font-size:7px;letter-spacing:1.5px}
+  .brand-halo{inset:-23px -70px;background:radial-gradient(ellipse,#090e10 15%,#090e10ea 35%,#090e1055 61%,transparent 77%)}
+  .brand-axis{top:50%;left:calc(50% - 50vw);width:100vw;height:1px;background:linear-gradient(90deg,transparent,#d0d9d326 25%,transparent 34%,transparent 66%,#d0d9d326 75%,transparent)}
+  .crop{height:6px;width:6px;opacity:.5}.crop-one{top:9px;left:14px}.crop-two{bottom:9px;right:14px}
+  .pitch{width:210px;height:140px;left:15%;top:22%;opacity:.6}.rune{height:260px;width:260px;left:27%;top:18%;opacity:.7}
+  .stage .brand-center{top:50%}.stage .brand-center:after{display:none}
+  .stage .entrance:after{display:none}.stage .game-fc:after{background:linear-gradient(180deg,transparent 63%,#090e10 100%)}.stage .game-lol:after{background:linear-gradient(0deg,transparent 74%,#090e10 100%)}
+  .stage .game-fc .game-info{padding-bottom:57px}.stage .game-lol .game-info{padding-bottom:25px}
+  .orbit{padding:14px}.orbit .entrance{height:calc(100svh - 28px);min-height:780px;gap:10px;border-radius:14px}
+  .orbit .game{border-radius:12px;padding-inline:23px!important}.orbit .game-info{max-width:none;padding:0 0 21px!important}
+  .orbit .game-fc .game-info{padding-bottom:60px!important}.orbit .fc-title,.orbit .lol-title{height:auto}
+  .orbit .game-cta{padding-top:0}.orbit .arrow{width:36px;height:36px;font-size:23px}
+  .orbit .object{width:95%;height:99%;left:-12%;top:-14%;transform:translate(var(--dx),var(--dy)) rotate(-17deg)}
+  .orbit .game-lol .object{width:112%;height:110%;left:12%;top:-4%;transform:translate(var(--dx),var(--dy)) rotate(23deg)}
+  .orbit .brand-center{top:50%;width:136px;height:136px;border:6px solid #111d20;box-shadow:0 0 0 1px #e3eddf22,0 0 0 8px #0a171bb3,0 15px 40px #0005}
+  .orbit .brand-slot{padding:0 0 5px;gap:8px}.orbit .brand-slot h1{font-size:41px}.orbit .brand-note{font-size:6px;letter-spacing:1px}.orbit .brand-halo{inset:-17px}.orbit .brand-axis{top:50%;height:1px}
+  .orbital-lines{height:220px;width:720px;top:14%;left:-220px}.game-lol .orbital-lines{right:-270px;top:22%}.outer-mark{width:4px;height:4px}.mark-tl{top:5px;left:5px}.mark-br{bottom:5px;right:5px}
+  .monolith{--brand-height:118px}.monolith .entrance{gap:var(--brand-height);min-height:820px}.monolith .brand-center{height:var(--brand-height);width:100%;top:50%;transform:translate(-50%,-50%);box-shadow:0 0 50px #0002}
+  .monolith .brand-slot{width:220px;min-height:0;gap:8px;height:93px;padding:6px 0}.monolith .brand-slot h1{font-size:56px}.monolith .brand-note{font-size:7px}.monolith .crop{opacity:1}
+  .monolith-mark{top:50%!important;bottom:auto!important;transform:translateY(-50%);font-size:16px}.monolith-mark.top{left:25px}.monolith-mark.bottom{left:auto;right:25px}
+  .monolith .game-info{max-width:none;padding-bottom:22px}.monolith .fc-title,.monolith .lol-title{height:auto}.monolith .game-cta{padding:0}.monolith .arrow{width:37px;height:37px}
+  .monolith .object{width:115%;height:112%;top:-22%;left:-25%;transform:translate(var(--dx),var(--dy)) rotate(-17deg)}.monolith .game-lol .object{width:119%;height:127%;top:-20%;left:5%;transform:translate(var(--dx),var(--dy)) rotate(15deg)}
+  .back-logo{left:10%;top:21%;width:100%}.game-lol .back-logo{top:7%;left:4%;width:100%}
+}
+@media(max-width:370px){
+  .game{padding-inline:22px!important}.fc-title .game-wordmark{width:195px}.lol-title .game-wordmark{width:155px}.game-info{gap:15px}.orbit .game{padding-inline:20px!important}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  .object{--dx:0px!important;--dy:0px!important}
+}

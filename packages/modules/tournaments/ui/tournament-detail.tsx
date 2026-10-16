@@ -21,7 +21,7 @@ import {
   championById,
   championIconPath,
   kstPlayedAt,
-  placementRank,
+  placementRank, classifyTeamStage, TEAM_STAGE_LABEL,
   profileHref,
 } from "@soop-lol/core/lib/contract/client";
 import { tournamentsIndexHref } from "./paths.ts";
@@ -61,6 +61,10 @@ const rankedTeams = (data: TournamentDetail) =>
     const rank = (t: TournamentTeam) => t.rank ?? placementRank(t.placement) ?? 99;
     return rank(a) - rank(b);
   });
+const teamStage = (data: TournamentDetail, team: TournamentTeam) => classifyTeamStage({
+  rank: team.rank, placement: team.placement,
+  rounds: data.series.filter(series => series.aId === team.id || series.bId === team.id).map(series => series.round),
+});
 /**
  * 대회 안내 사실(수기, core event_fact)은 구역으로 나뉜다. 아래 셋은 각 탭이 제자리에 끼워 그리고,
  * 나머지 구역은 [대회 안내] 탭이 구역마다 표 하나로 그린다.
@@ -309,11 +313,9 @@ function Sources({ data }: { data: TournamentDetail }) {
  */
 function TeamResults({ data }: { data: TournamentDetail }) {
   const ranked = rankedTeams(data);
-  // 순위 표기가 하나도 없는 대회는 본선/예선을 가를 수 없다 — 전부 보인다
-  const known = ranked.some((t) => t.placement);
-  const isQualifier = (t: TournamentTeam) => known && (!t.placement || stageLabel(t.placement) === "예선");
-  const finals = ranked.filter((t) => !isQualifier(t));
-  const qualifiers = ranked.filter(isQualifier)
+  const finals = ranked.filter(t => teamStage(data, t) === "finals");
+  const unknown = ranked.filter(t => teamStage(data, t) === "unknown");
+  const qualifiers = ranked.filter(t => teamStage(data, t) === "qualifiers")
     .sort((a, b) => (a.voteRank ?? 999) - (b.voteRank ?? 999) || a.name.localeCompare(b.name, "ko"));
   const voted = qualifiers.some((t) => t.voteRank != null);
   const [more, setMore] = useState(false);
@@ -342,7 +344,7 @@ function TeamResults({ data }: { data: TournamentDetail }) {
     <section className="tp-section tp-team-results">
       <SectionHeading
         title="참가 팀"
-        subtitle={known && qualifiers.length ? `본선 ${finals.length}팀 · 전체 ${ranked.length}팀` : `총 ${ranked.length}팀`}
+        subtitle={`본선 ${finals.length}팀 · 예선 ${qualifiers.length}팀 · 미확인 ${unknown.length}팀`}
         action={
           <Link className="tp-text-link" href={tournamentHref(data.event.slug, "teams")}>
             전체 참가 명단 자세히 <ArrowRight size={14} />
@@ -351,6 +353,7 @@ function TeamResults({ data }: { data: TournamentDetail }) {
       />
       <div className="tp-team-results-list">
         {finals.map((t) => row(t, false))}
+        {unknown.length > 0 && <><h3 className="tp-footnote">미확인</h3>{unknown.map(t => row(t, false))}</>}
         {more && qualifiers.map((t) => row(t, true))}
       </div>
       {/* 버튼은 늘 목록 끝 — 펼치면 예선 팀(투표 순위순)이 이어 붙고 버튼은 그 아래로 간다 */}
@@ -745,14 +748,15 @@ function Teams({ data }: { data: TournamentDetail }) {
   const voted = data.teams.some((t) => t.voteRank != null);
   const rated = data.teams.some((t) => t.members.some((m) => m.rating));
   const ranked = rankedTeams(data);
-  const known = ranked.some((x) => x.placement);
-  const qualifier = (t: TournamentTeam) => known && (!t.placement || stageLabel(t.placement) === "예선");
   const byVote = (a: TournamentTeam, b: TournamentTeam) => (a.voteRank ?? 999) - (b.voteRank ?? 999) || a.name.localeCompare(b.name, "ko");
-  const finals = ranked.filter((t) => !qualifier(t));
-  const qualifiers = ranked.filter(qualifier).sort(byVote);
-  const groups: { title: string | null; teams: TournamentTeam[] }[] = qualifiers.length
-    ? [{ title: `본선 ${finals.length}팀`, teams: finals }, { title: `예선 ${qualifiers.length}팀${qualifiers.some((t) => t.voteRank != null) ? " · 투표 순위순" : ""}`, teams: qualifiers }]
-    : [{ title: null, teams: voted ? [...data.teams].sort(byVote) : ranked }];
+  const finals = ranked.filter(t => teamStage(data, t) === "finals");
+  const qualifiers = ranked.filter(t => teamStage(data, t) === "qualifiers").sort(byVote);
+  const unknown = ranked.filter(t => teamStage(data, t) === "unknown");
+  const groups = [
+    { title: `본선 ${finals.length}팀`, teams: finals },
+    { title: `예선 ${qualifiers.length}팀`, teams: qualifiers },
+    { title: `미확인 ${unknown.length}팀`, teams: unknown },
+  ].filter(group => group.teams.length > 0);
   /** label = 포지션 라벨(이름 위). 포지션 미확인 줄에서는 라벨이 없다 */
   const person = (m: TournamentTeam["members"][number], label?: string) => (
     <Link key={m.id} href={profileHref("lol", m.slug)} className="tp-team-slot-person">
@@ -773,7 +777,7 @@ function Teams({ data }: { data: TournamentDetail }) {
   const card = (t: TournamentTeam, index: number, isQualifier: boolean) => {
     const stage = stageLabel(t.placement ?? undefined);
     const badge = isQualifier ? (t.voteRank != null ? `투표 ${t.voteRank}위` : "예선")
-      : t.placement ?? (voted && t.voteRank != null ? `투표 ${t.voteRank}위` : `${index + 1}`);
+      : t.placement ?? (voted && t.voteRank != null ? `투표 ${t.voteRank}위` : TEAM_STAGE_LABEL[teamStage(data, t)]);
     const unplaced = t.members.filter((m) => !m.position);
     return (
       <li key={t.id} className="tp-team-card">

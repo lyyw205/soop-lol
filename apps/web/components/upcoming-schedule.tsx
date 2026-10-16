@@ -1,3 +1,4 @@
+import { profileScheduleQuery, type SiteGame } from "@soop-lol/core/lib/site-paths";
 import Link from "next/link";
 
 import { listUpcomingScheduleFor } from "@soop-lol/core/lib/db/schedule-public";
@@ -12,8 +13,8 @@ import { roleHref } from "@/lib/module-links";
  * ★ 편성표 모듈이 없으면 그리지 않는다 — core 는 모듈 이름을 모르고 역할('schedule')로 묻는다.
  * ★ 다가오는 일정이 없으면 null(칸이 비면 ProfileSidebar 가 빈 칸으로 둔다).
  */
-export async function UpcomingSchedule({ slug }: { slug: string }) {
-  const all = roleHref("schedule", {}, { s: slug });
+export async function UpcomingSchedule({ slug, site }: { slug: string; site: SiteGame }) {
+  const all = roleHref("schedule", {}, profileScheduleQuery(site, slug));
   if (!all) return null;
   const now = new Date();
   const rows = await listUpcomingScheduleFor(slug, now);
@@ -27,7 +28,7 @@ export async function UpcomingSchedule({ slug }: { slug: string }) {
       <ul>
         {rows.map((e) => {
           const state = entryState(e.status);
-          const href = roleHref("schedule", { id: e.schedule_id });
+          const href = roleHref("schedule", { id: e.schedule_id }, profileScheduleQuery(site, slug));
           const body = <>
             <span className="upcoming-when">{md(e.next.on_date)} · {slotTimeLabel(time(e.next))}</span>
             <strong>{e.title}</strong>

@@ -56,3 +56,21 @@ export function withinRecordPeriod(at: Date | string, period: RecordPeriod): boo
   const day = kstDateString(new Date(at));
   return (!period.from || day >= period.from) && (!period.to || day <= period.to);
 }
+
+/** 날짜 정밀도가 date인 기록도 저장된 KST 달력 날짜로 비교한다. 시각을 추정하지 않는다.
+ * 관계·게임 종류로 고른 경기들을 묶은 뒤, 첫 경기일로 전체 묶음을 포함/제외한다. */
+export function filterSeriesPeriod<T>(rows: readonly T[], period: RecordPeriod, key: (row:T)=>string, at:(row:T)=>Date|string): T[] {
+  const starts = new Map<string,Date>();
+  for (const row of rows) {
+    const value = new Date(at(row));
+    const previous = starts.get(key(row));
+    if (!previous || value < previous) starts.set(key(row),value);
+  }
+  return rows.filter(row=>withinRecordPeriod(starts.get(key(row))!,period));
+}
+/** 표시 상한은 묶음 수다. 반환한 묶음 안의 세트는 전부 보존한다. */
+export function takeSeries<T>(rows: readonly T[], limit:number, key:(row:T)=>string): {rows:T[]; truncated:boolean} {
+  const keys=[...new Set(rows.map(key))];
+  const visible=new Set(keys.slice(0,limit));
+  return {rows: rows.filter(row=>visible.has(key(row))),truncated:keys.length>limit};
+}

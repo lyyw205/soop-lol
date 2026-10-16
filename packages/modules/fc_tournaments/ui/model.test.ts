@@ -11,7 +11,7 @@ function side(id: string | null, side_no: number, outcome: FcoParticipant["outco
 }
 const game = (id: string, ...participants: FcoParticipant[]): FcoGame => ({
   id, provider_id: `p-${id}`, played_at: "2026-08-25T08:00:00Z", mode_key: "40", event_id: "e", event_name: "e",
-  event_slug: "e", series_id: null, series_game_no: null, best_of: null, participants,
+  event_kind: "tournament", event_slug: "e", series_id: null, series_game_no: null, best_of: null, participants,
 });
 
 test("기록은 이름순이고(순위가 아니다) 표시 점수로 득실을 센다", () => {

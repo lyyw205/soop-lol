@@ -41,8 +41,8 @@ export function ClubValueChart({ clubName, estimatedHistory, collectedHistory, p
   clubName: string; estimatedHistory: ChartPoint[]; collectedHistory: ChartPoint[]; players: ChartPlayer[]; summary: ReactNode;
 }) {
   const areaId = useId();
-  const [range, setRange] = useState<(typeof RANGES)[number]>(90);
-  const [hover, setHover] = useState<number | null>(null);
+  const [range, setRange] = useState<(typeof RANGES)[number]>(7);
+  const [hover, setHover] = useState<{ day: string; key: string | null } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(760);
@@ -60,7 +60,7 @@ export function ClubValueChart({ clubName, estimatedHistory, collectedHistory, p
     window.addEventListener("resize", update);
     return () => { ro.disconnect(); window.removeEventListener("resize", update); };
   }, []);
-  const { W, H, PAD, narrow } = layout(width, viewportHeight);
+  const { W, H, PAD } = layout(width, viewportHeight);
   const compare = players.length > 0;
 
   const view = useMemo(() => {
@@ -94,15 +94,35 @@ export function ClubValueChart({ clubName, estimatedHistory, collectedHistory, p
 
   if (!view) return <div className="cv-chart">{summary}<div className="fc-empty">아직 표시할 가치 기록이 없습니다.</div></div>;
   const { drawn, days, x, y, path, ticks, ends } = view;
-  const hoverDay = hover === null ? null : days[hover];
+  const hoverDay = hover && days.includes(hover.day) ? hover.day : null;
+  const hoverRows = drawn.flatMap((line) => {
+    const point = line.points.find((p) => p.day === hoverDay);
+    if (!point || (line.key === "estimate" && collectedHistory.some(p => p.day === hoverDay))) return [];
+    return [{ line, point }];
+  });
+  // A large comparison follows the nearest line instead of filling the panel with 20 prices.
+  const tooltipRows = hoverRows.length > 3 ? hoverRows.filter(({ line }) => line.key === hover?.key) : hoverRows;
+  const tooltipWidth = Math.min(304, W - 16);
+  const tooltipLeft = hoverDay ? Math.max(8, Math.min(W - tooltipWidth - 8,
+    x(hoverDay) < W / 2 ? x(hoverDay) + 12 : x(hoverDay) - tooltipWidth - 12)) : 8;
 
   function onMove(event: React.PointerEvent<SVGSVGElement>) {
     const box = svgRef.current?.getBoundingClientRect();
     if (!box) return;
     const px = (event.clientX - box.left) / box.width * W;
+    const py = (event.clientY - box.top) / box.height * H;
     let best = 0;
     for (let i = 1; i < days.length; i++) if (Math.abs(x(days[i]) - px) < Math.abs(x(days[best]) - px)) best = i;
-    setHover(best);
+    const day = days[best];
+    let key: string | null = null, distance = Infinity;
+    for (const line of drawn) {
+      const point = line.points.find(p => p.day === day);
+      if (point && Math.abs(y(point.value) - py) < distance) {
+        key = line.key;
+        distance = Math.abs(y(point.value) - py);
+      }
+    }
+    setHover({ day, key });
   }
 
   const labelDays = [days[0], days[Math.floor(days.length / 2)], days.at(-1)!].filter((d, i, all) => all.indexOf(d) === i);
@@ -114,11 +134,13 @@ export function ClubValueChart({ clubName, estimatedHistory, collectedHistory, p
         {RANGES.map((r) => <button key={r} type="button" aria-pressed={range === r} onClick={() => { setRange(r); setHover(null); }}>{r}일</button>)}
       </div>
     </div>
-    {!compare && <p className="cv-estimate-note" title="연한 점선은 현재 선수의 과거 시세 추정, 진한 실선·점은 저장된 스쿼드의 해당 날짜 시세 합산입니다. 홈페이지 스쿼드는 전일 기준이며, 창고 자산과 시세 미확인 선수는 포함하지 않습니다.">점선: 과거 추정 · 실선/진한 점: 수집 스쿼드</p>}
+    {compare
+      ? <p className="cv-estimate-note" title="차트는 날짜별 시세 기록입니다. 아래 목록의 스쿼드 현재가와 기준 시점·가격이 다를 수 있습니다.">일별 시세 · {days.at(-1)!.slice(5).replace("-", ".")}까지</p>
+      : <p className="cv-estimate-note" title="연한 점선은 현재 선수의 과거 시세 추정, 진한 실선·점은 저장된 스쿼드의 해당 날짜 시세 합산입니다. 홈페이지 스쿼드는 전일 기준이며, 창고 자산과 시세 미확인 선수는 포함하지 않습니다.">점선: 과거 추정 · 실선: 수집 스쿼드</p>}
     <div className="cv-plot" ref={plotRef}>
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} role="img"
         aria-label={compare ? `선수 가치, 최근 ${range}일` : `${clubName} 스쿼드 가치 추정 및 수집 기록, 최근 ${range}일`}
-        onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
+        onPointerMove={onMove} onPointerLeave={() => setHover(null)} onPointerCancel={() => setHover(null)}>
         <defs>
           <linearGradient id={areaId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={CLUB_COLOR} stopOpacity=".16" />
@@ -152,17 +174,14 @@ export function ClubValueChart({ clubName, estimatedHistory, collectedHistory, p
           })}
         </g>}
       </svg>
-      {/* 좁은 화면은 띄우지 않고 차트 아래 고정 칸으로 — 떠 있는 상자가 칸 밖으로 잘린다. */}
-      {hoverDay && <div className={`cv-tooltip${narrow ? " cv-tooltip-static" : ""}${drawn.length > 8 ? " cv-tooltip-many" : ""}`} style={narrow ? undefined : x(hoverDay) < W / 2
-        ? { left: `calc(${x(hoverDay) / W * 100}% + 10px)` }
-        : { right: `calc(${100 - x(hoverDay) / W * 100}% + 10px)` }}>
-        <strong>{hoverDay}</strong>
-        {drawn.map((l) => {
-          const p = l.points.find((q) => q.day === hoverDay);
-          if (!p || (l.key === "estimate" && collectedHistory.some(q => q.day === hoverDay))) return null;
-          return <span key={l.key}><i className={`cv-key${l.dashed ? " cv-key-dashed" : ""}`} style={{ borderTopColor: l.color }} />
-            {l.name} {p.label}{p.missing > 0 ? ` · ${p.missing}장 시세 미확인` : ""}</span>;
-        })}
+      {hoverDay && tooltipRows.length > 0 && <div className="cv-tooltip" role="tooltip" style={{ left: tooltipLeft, width: tooltipWidth }}>
+        <time dateTime={hoverDay}>{hoverDay.replaceAll("-", ".")}</time>
+        {tooltipRows.map(({ line, point }) => <div className="cv-tooltip-row" key={line.key}>
+          <i className={`cv-key${line.dashed ? " cv-key-dashed" : ""}`} style={{ borderTopColor: line.color }} />
+          <span className="cv-tooltip-name">{compare ? line.name : line.key === "estimate" ? "추정 합계" : "스쿼드 합계"}</span>
+          <strong>{point.label}</strong>
+          {point.missing > 0 && <small>시세 미확인 {point.missing}장 제외</small>}
+        </div>)}
       </div>}
     </div>
       {compare && <div className="cv-legend cv-chart-selection" tabIndex={0} aria-label="차트에 표시한 선수">

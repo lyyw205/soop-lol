@@ -1,4 +1,5 @@
 "use client";
+import { SortHeader } from "../../../packages/ui/sort-header";
 
 import { useState } from "react";
 
@@ -97,12 +98,8 @@ export function FcoSquadUsageTable({ windows }: { windows: SquadWindow[] }) {
       <th scope="col" className="record-col-rank">#</th>
       {COLUMNS.map((col) => {
         const on = sort?.key === col.key;
-        const th = <th key={col.key} scope="col" className={col.className}
-          aria-sort={on ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"}>
-          <button type="button" className="fc-sort" data-dir={on ? sort!.dir : undefined} onClick={() => cycle(col.key, col.text)}>
-            {col.label}<i aria-hidden="true" />
-          </button>
-        </th>;
+        const th = <SortHeader key={col.key} className={col.className} label={col.label}
+          direction={on ? sort!.dir : undefined} controlClassName="fc-sort" onClick={() => cycle(col.key,col.text)}>{col.label}</SortHeader>;
         // 사용률 앞에는 막대 칸(정렬 없음)이 있다
         return col.key === "usage"
           ? [<th key="bar" scope="col" className="fc-squad-usage-bar"><span className="sr-only">출전 비중 막대</span></th>, th]

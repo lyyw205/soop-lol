@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Trophy } from "lucide-react";
 
 export type RecordChampion = { id: number; name: string; image?: string; games: number };
-export type RecordAward = { id: string; title: string; placement: string | null; year: number; team: string | null };
+export type RecordAward = { id: string; title: string; placement: string | null; year?: number; team: string | null };
 
 /** Same career data in a sidebar or an integrated profile card. */
 export function RecordChampions({ champions, href, layout = "rail" }: {
@@ -27,7 +27,7 @@ export function RecordAwards({ awards, href, layout = "rail" }: {
     {awards.map((a) => <Link className={layout === "rail" ? "arena-award" : "profile-award"} key={a.id} href={href}>
       {layout === "rail" ? <span className="arena-award-icon"><Trophy size={17} /></span>
         : <span className="profile-award-rank" data-place={a.placement}>{a.placement ?? "수상"}</span>}
-      <span><strong>{layout === "rail" && a.placement ? `${a.placement} · ` : ""}{a.title}</strong><small>{a.year} · {a.team ?? "대회 기록"}</small></span>
+      <span><strong>{layout === "rail" && a.placement ? `${a.placement} · ` : ""}{a.title}</strong><small>{a.year ?? "일정 미확인"} · {a.team ?? "대회 기록"}</small></span>
     </Link>)}
   </div>;
 }

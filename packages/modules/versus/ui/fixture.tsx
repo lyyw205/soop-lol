@@ -19,6 +19,6 @@ export function Portrait({ person }: { person: FixturePerson }) {
 export function FixturePersonView({ person, badge, linked = false, profileHref }: { person: FixturePerson; badge?: string; linked?: boolean; profileHref?: string }) {
   return <div className="arena-person">
     <span className="arena-disc">{badge && <em className="arena-person-badge">{badge}</em>}<Portrait person={person} /></span>
-    {linked ? <Link className="arena-person-name" href={profileHref ?? personHref("lol", person.slug)}>{person.display_name}</Link> : <span className="arena-person-name">{person.display_name}</span>}
+    {linked ? <Link prefetch={false} className="arena-person-name" href={profileHref ?? personHref("lol", person.slug)}>{person.display_name}</Link> : <span className="arena-person-name">{person.display_name}</span>}
   </div>;
 }

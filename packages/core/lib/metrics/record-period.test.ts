@@ -73,3 +73,15 @@ test("★ 연도 필터는 날짜 범위가 아니라 '2026년' 으로 읽힌다
   // resolveRecordPeriod 가 연도를 범위로 바꾸는데 문구 만드는 쪽이 그 key 를 몰랐다.
   assert.equal(recordPeriodLabel(resolveRecordPeriod({ year: 2026 }, NOW)), "2026년");
 });
+
+test('연말 다전제와 표시 상한: 날짜로 세트를 잘라내지 않는다', async () => {
+  const {filterSeriesPeriod,takeSeries} = await import('./record-period.ts');
+  const rows = [{id:'cross',at:'2025-12-31T14:59:00Z'}, {id:'cross',at:'2025-12-31T15:01:00Z'},
+    ...Array.from({length:1005},(_,i)=>({id:`new-${i}`,at:'2026-10-13T00:00:00Z'}))];
+  const key = (r:typeof rows[number])=>r.id, at=(r:typeof rows[number])=>r.at;
+  assert.equal(filterSeriesPeriod(rows,resolveRecordPeriod({year:2025}),key,at).length,2);
+  assert.equal(filterSeriesPeriod(rows,resolveRecordPeriod({year:2026}),key,at).length,1005);
+  const page=takeSeries(rows,1,key);
+  assert.equal(page.rows.length,2);
+  assert.equal(page.truncated,true);
+});

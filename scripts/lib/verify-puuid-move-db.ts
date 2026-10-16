@@ -94,3 +94,39 @@ export async function verifyNameHistoryDb(check: Check): Promise<void> {
     JSON.stringify(movedNames));
   check("옛 puuid 의 이력은 남지 않는다", (await names(p)).length === 0);
 }
+
+/**
+ * 이름 자동 연결은 DB 에서 찾는 이름만 거른다(known-names normNameSql) — TS normName 과 SQL 정규화가 같아야
+ * 붙어야 할 자리를 놓치지 않는다(2026-10-12 전송량 개선). 공백·구두점·전각·특수 공백·대소문자를 같은 값으로 접는지 본다.
+ */
+export async function verifyNormNameSqlDb(check: Check): Promise<void> {
+  const { db } = await import("../../packages/core/lib/db/client.ts");
+  const { normName, NORM_NAME_STRIP_RE, DB_SAFE_NAME, knownNameOwnersInTx } = await import("../../packages/core/lib/db/known-names.ts");
+  const sql = db();
+  console.log("\n▸ 이름 정규화 — TS·SQL 같은 값");
+  // 로캘과 무관한 글자(DB_SAFE_NAME)로 접히는 이름은 SQL 정규화가 normName 과 같아야 한다 — 그때만 DB 에서 거른다.
+  const samples = ["쑤셔 쑤셔", "쑤셔-쑤셔", "Hide.on_bush", "ＡＢＣ　ｄｅ", "a\u00a0b", "a\u2028b", "a\ufeffb", "a\u1680b", "굴 하나 먹자", "ＫＩＮＧ", "\u212Aelvin", "火影 ナルト"];
+  const [r] = await sql<{ n: string[] }[]>`
+    SELECT array_agg(lower(regexp_replace(normalize(x, NFKC), ${NORM_NAME_STRIP_RE}, '', 'g')) ORDER BY o) AS n
+      FROM unnest(${samples}::text[]) WITH ORDINALITY u(x, o)`;
+  const unsafe = samples.filter((s) => !DB_SAFE_NAME.test(normName(s)));
+  check("표본은 모두 DB 에서 거르는 이름이다", unsafe.length === 0, unsafe.join(", "));
+  const diff = samples.filter((s, i) => normName(s) !== r.n[i]);
+  check("SQL 정규화가 normName 과 같다(로캘 무관 글자)", diff.length === 0, diff.map((s) => JSON.stringify(s)).join(", "));
+
+  // 붙은 자리의 화면 이름과 공백·구두점만 다른 이름으로 찾아도 그 사람이 나온다(DB 에서 거른 뒤에도).
+  const [seat] = await sql<{ name: string; sid: string }[]>`
+    SELECT observed_name AS name, streamer_id::text AS sid FROM match_participant
+     WHERE observed_name IS NOT NULL AND streamer_id IS NOT NULL LIMIT 1`;
+  check("붙은 자리가 있다(검증 전제)", !!seat);
+  if (seat) {
+    const variant = ` ${seat.name.split("").join(" ")}.`;
+    const owners = await sql.begin((tx) => knownNameOwnersInTx(tx, [variant]));
+    check("변형 이름도 DB 에서 걸러 찾는다", owners.get(normName(variant)) === seat.sid, `${seat.name} → ${JSON.stringify([...owners])}`);
+    // 로캘마다 대소문자 규칙이 다른 글자(그리스 문자)는 전체를 받아 TS 로 거른다 — C 로캘에서도 찾는다.
+    await sql`UPDATE match_participant SET observed_name = 'ΣΑΣ' WHERE observed_name = ${seat.name} AND streamer_id = ${seat.sid}::uuid`;
+    const greek = await sql.begin((tx) => knownNameOwnersInTx(tx, ["σας"]));
+    check("로캘에 기대는 글자는 전체를 받아 찾는다", greek.get(normName("σας")) === seat.sid, JSON.stringify([...greek]));
+    await sql`UPDATE match_participant SET observed_name = ${seat.name} WHERE observed_name = 'ΣΑΣ' AND streamer_id = ${seat.sid}::uuid`;
+  }
+}

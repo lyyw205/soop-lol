@@ -1,0 +1,34 @@
+{
+  "soop-seek-horizontal.png": {
+    "source": "User-provided download: SOOP SEEK 아이콘과 대형 워드마크-1.png",
+    "description": "Horizontal counterpart to the stacked SOOP SEEK logo used on the entrance.",
+    "original_dimensions": [2172, 724],
+    "modifications": "Original PNG copied byte-for-byte. Next Image serves optimized sizes; CSS hides the outer whitespace and displays a light monochrome lockup on dark backgrounds."
+  },
+  "soop-seek-navy-horizontal.png": {
+    "source": "User-provided download: 딥 네이비 SOOP SEEK 로고-1.png",
+    "description": "Original deep navy horizontal lockup with the selected owl-binocular symbol; retained as the source for the transparent version.",
+    "original_dimensions": [2172, 724],
+    "modifications": "Original PNG copied byte-for-byte."
+  },
+  "soop-seek-navy-stacked.png": {
+    "source": "User-provided download: 딥 네이비 SOOP SEEK 로고-2.png",
+    "description": "Original matching deep navy stacked lockup; retained as the source for the transparent version.",
+    "original_dimensions": [1254, 1254],
+    "modifications": "Original PNG copied byte-for-byte."
+  },
+  "soop-seek-horizontal-transparent.png": {
+    "source": "Background extraction from soop-seek-navy-horizontal.png using built-in image_gen.",
+    "description": "Transparent horizontal logo used by the shared SiteLogo in navigation, content, and admin.",
+    "dimensions": [2172, 724],
+    "modifications": "White background and negative spaces replaced with alpha transparency. Generated output copied byte-for-byte; CSS renders a light monochrome version for dark UI without a background plate.",
+    "prompt_file": "background-removal-prompts.json"
+  },
+  "soop-seek-stacked-transparent.png": {
+    "source": "Background extraction from soop-seek-navy-stacked.png using built-in image_gen.",
+    "description": "Transparent stacked logo used in the central entrance badge.",
+    "dimensions": [1254, 1254],
+    "modifications": "White background and negative spaces replaced with alpha transparency. Generated output copied byte-for-byte; CSS renders a light monochrome version for the dark badge.",
+    "prompt_file": "background-removal-prompts.json"
+  }
+}

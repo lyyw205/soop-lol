@@ -10,6 +10,8 @@
  * 같은 자격으로 core 를 읽는 소비자다.
  */
 
+import { TOURNAMENT_KIND, isTitle, isRunnerUp } from "../metrics/event.ts";
+import { personalMatchGroups } from "./personal.ts";
 import { db } from "./client.ts";
 import type { MatchOutcome } from "./types.ts";
 import { expandCategory, type MatchCategoryFilter } from "../metrics/category.ts";
@@ -74,7 +76,7 @@ export async function listStreamerCards(opts: { q?: string } = {}): Promise<Stre
                FROM core_public.event_team_member tm
                JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
                JOIN core_public.event e ON e.event_id = tm.event_id AND e.game_code = 'lol'
-              WHERE tm.streamer_id = s.streamer_id AND t.placement_rank = 1
+              WHERE tm.streamer_id = s.streamer_id AND e.kind = ${TOURNAMENT_KIND} AND t.placement_rank = 1
            ) tt ON true
       -- 대표 계정은 **본계 우선**이다. 부계정이 대표로 뜨면 같은 사람을 못 알아본다.
       LEFT JOIN LATERAL (
@@ -177,8 +179,8 @@ export async function listChampionRecords(
   const sql = db();
   const cats = expandCategory(category);
   return sql<ChampionRecord[]>`
-    WITH mine AS (
-      SELECT mp.match_id, mp.team_id, mp.team_position, mp.champion_id, mp.champion_name,
+    WITH eligible AS (${personalMatchGroups(streamerId, {category, from, to})}), mine AS (
+      SELECT mp.match_id, mp.team_id, core_public.resolve_position(mp.team_position, mp.individual_position) AS team_position, mp.champion_id, mp.champion_name,
              mp.outcome, mp.kills, mp.deaths, mp.assists, mp.cs, m.game_duration,
              -- ★ 분자와 분모가 같은 판을 센다. 셋을 다 읽은 판만 평균에 넣는다(0020 ⑧).
              (mp.kills IS NOT NULL AND mp.deaths IS NOT NULL AND mp.assists IS NOT NULL) AS kda_read
@@ -188,10 +190,7 @@ export async function listChampionRecords(
         JOIN core_public.match m ON m.match_id = mp.match_id
        WHERE sm.streamer_id = ${streamerId}::uuid
          AND (${cats}::text[] IS NULL OR m.category = ANY(${cats}::text[]))
-         AND (${from ?? null}::date IS NULL
-              OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date >= ${from ?? null}::date)
-         AND (${to ?? null}::date IS NULL
-              OR (m.game_creation AT TIME ZONE 'Asia/Seoul')::date <= ${to ?? null}::date)
+         AND m.match_id = ANY(ARRAY(SELECT unnest(match_ids) FROM eligible))
     ),
     totals AS (
       SELECT champion_id,
@@ -222,7 +221,7 @@ export async function listChampionRecords(
         JOIN core_public.match_participant foe
           ON foe.match_id = me.match_id
          AND foe.team_id <> me.team_id
-         AND foe.team_position = me.team_position
+         AND core_public.resolve_position(foe.team_position, foe.individual_position) = me.team_position
        WHERE me.team_position IS NOT NULL AND me.team_position <> ''
        GROUP BY me.champion_id, foe.champion_id
     )
@@ -347,103 +346,18 @@ export async function listChampions(
   `;
 }
 
-/**
- * 상대 전적 — 이 프로필의 훅이다.
- *
- * 상대편으로 만난 것과 같은 팀으로 만난 것을 **섞지 않는다.**
- * 같은 팀 승리를 상대전적에 넣으면 "이겼다"의 뜻이 달라진다.
- *
- * ★ `limit` 은 **화면에 몇 명 보일지가 아니라 안전 상한**이다.
- *   정렬(판수·최신·승률)은 `metrics/opponents.ts` 가 TS 에서 한다 — 승률 정렬이
- *   베이지안 축소를 거쳐야 하고 그 계산은 `affinity.ts` 한 곳에만 두기로 했기 때문이다.
- *   여기서 20 명으로 잘라 버리면 "가장 많이 만난 20명을 승률로 정렬한 것" 이 되어
- *   정렬이 조용히 거짓말을 한다. 그래서 넉넉히 받아 가고, 자르는 건 정렬 뒤에 한다.
- *   (상한에 걸릴 만큼 상대가 많으면 많이 만난 쪽부터 남는다 — 아래 ORDER BY)
- */
-export async function listOpponents(
-  streamerId: string,
-  opts: { limit?: number; year?: number; category?: MatchCategoryFilter } = {},
-): Promise<OpponentRow[]> {
-  const { limit = 300, year, category } = opts;
-  const sql = db();
-  return sql<OpponentRow[]>`
-    WITH e AS (
-      SELECT CASE WHEN streamer_a_id = ${streamerId}::uuid THEN streamer_b_id ELSE streamer_a_id END AS other_id,
-             CASE WHEN streamer_a_id = ${streamerId}::uuid THEN a_outcome ELSE b_outcome END = 'win' AS me_win,
-             relation, is_lane_matchup, game_creation,
-             -- ★ 매치 단위. 랜드는 묶음이 아니라 판마다 매치 하나다(match-tally.ts 와 같은 규칙, 0080).
-             CASE WHEN category = 'land' THEN match_id ELSE series_key END AS series_key
-        FROM core_public.streamer_encounter
-       WHERE (streamer_a_id = ${streamerId}::uuid OR streamer_b_id = ${streamerId}::uuid)
-         AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM game_creation AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
-         AND (${expandCategory(category)}::text[] IS NULL OR category = ANY(${expandCategory(category)}::text[]))
-    ),
-    -- 시리즈로 접는다. 다전제는 세트 과반을 이긴 쪽이 그 매치의 승자다.
-    per_series AS (
-      SELECT other_id, relation, series_key,
-             count(*)::int                       AS sets,
-             count(*) FILTER (WHERE me_win)::int AS my_sets,
-             -- 한 시리즈의 모든 세트가 맞라인이면 그 경기를 맞라인 경기로 본다.
-             -- 세트마다 라인을 바꿔 붙은 경우까지 맞라인이라 부르면 뜻이 흐려진다.
-             bool_and(is_lane_matchup)           AS all_lane
-        FROM e GROUP BY other_id, relation, series_key
-    ),
-    by_set AS (
-      SELECT other_id,
-             count(*) FILTER (WHERE relation = 'opponent')::int              AS vs_sets,
-             count(*) FILTER (WHERE relation = 'opponent' AND me_win)::int   AS vs_set_wins,
-             count(*) FILTER (WHERE relation = 'ally')::int                  AS ally_sets,
-             count(*) FILTER (WHERE relation = 'ally' AND me_win)::int       AS ally_set_wins,
-             count(*) FILTER (WHERE is_lane_matchup)::int                    AS lane_sets,
-             count(*) FILTER (WHERE is_lane_matchup AND me_win)::int         AS lane_set_wins,
-             max(game_creation)                                             AS last_met
-        FROM e GROUP BY other_id
-    ),
-    by_match AS (
-      SELECT other_id,
-             -- ★ 2세트제 조별리그(2014~2017)는 1:1 무승부가 있다. 진 게 아니므로
-             --    패로 세지 않고 따로 센다. my_sets * 2 = sets 이면 무승부다.
-             count(*) FILTER (WHERE relation = 'opponent')::int                          AS vs_matches,
-             count(*) FILTER (WHERE relation = 'opponent' AND my_sets * 2 > sets)::int    AS vs_match_wins,
-             count(*) FILTER (WHERE relation = 'opponent' AND my_sets * 2 = sets)::int    AS vs_match_draws,
-             count(*) FILTER (WHERE relation = 'ally')::int                               AS ally_matches,
-             count(*) FILTER (WHERE relation = 'ally' AND my_sets * 2 > sets)::int        AS ally_match_wins,
-             count(*) FILTER (WHERE relation = 'ally' AND my_sets * 2 = sets)::int         AS ally_match_draws,
-             count(*) FILTER (WHERE all_lane)::int                                        AS lane_matches,
-             count(*) FILTER (WHERE all_lane AND my_sets * 2 > sets)::int                 AS lane_match_wins,
-             count(*) FILTER (WHERE all_lane AND my_sets * 2 = sets)::int                 AS lane_match_draws
-        FROM per_series GROUP BY other_id
-    )
-    SELECT s.streamer_id, s.slug, s.display_name, s.profile_image_url,
-           (SELECT channel_id FROM core_public.streamer_channel c WHERE c.streamer_id = s.streamer_id
-             AND c.platform = 'soop' ORDER BY is_primary DESC LIMIT 1) AS channel_id,
-           b.vs_sets, b.vs_set_wins, b.ally_sets, b.ally_set_wins,
-           b.lane_sets, b.lane_set_wins, b.last_met,
-           m.vs_matches, m.vs_match_wins, m.vs_match_draws,
-           m.ally_matches, m.ally_match_wins, m.ally_match_draws,
-           m.lane_matches, m.lane_match_wins, m.lane_match_draws
-      FROM by_set b
-      JOIN by_match m ON m.other_id = b.other_id
-      JOIN core_public.streamer s ON s.streamer_id = b.other_id
-     ORDER BY (b.vs_sets + b.ally_sets) DESC, b.last_met DESC
-     LIMIT ${limit}
-  `;
-}
-
-
 // ── 대회 ─────────────────────────────────────────────────────────────
 
 export interface EventRecord {
   event_slug: string;
   event_name: string;
-  starts_at: Date;
+  starts_at: Date | null;
+  kind: string;
   team_name: string | null;
   position: string | null;
   /** 출처가 쓴 그대로의 순위 표기. 모르면 null — 지어내지 않는다. */
   placement: string | null;
   placement_rank: number | null;
-  /** false 면 올스타전·이벤트 매치 — 우승 집계에서 뺀다(0052). 목록에는 그대로 나온다. */
-  counts_toward_titles: boolean;
   matches: number;
   match_wins: number;
   /** 무승부. 2세트제 조별리그가 1:1 로 끝난 경기 (2014~2017). */
@@ -471,7 +385,7 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
         FROM core_public.streamer_match sm
         JOIN core_public.match_participant mp ON mp.match_id = sm.match_id AND mp.participant_id = sm.participant_id
         JOIN core_public.match m ON m.match_id = mp.match_id
-       WHERE sm.streamer_id = ${streamerId}::uuid AND m.source = 'manual'
+       WHERE sm.streamer_id = ${streamerId}::uuid AND m.category = 'tournament'
     ),
     per_series AS (
       SELECT event_id, series_key,
@@ -488,8 +402,8 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
              sum(set_wins)::int                                    AS set_wins
         FROM per_series GROUP BY event_id
     )
-    SELECT e.slug AS event_slug, e.name AS event_name, e.starts_at,
-           t.name AS team_name, tm.position, t.placement, t.placement_rank, e.counts_toward_titles,
+    SELECT e.slug AS event_slug, e.name AS event_name, e.effective_starts_at AS starts_at, e.kind,
+           t.name AS team_name, tm.position, t.placement, t.placement_rank,
            COALESCE(a.matches, 0)     AS matches,
            COALESCE(a.match_wins, 0)  AS match_wins,
            COALESCE(a.match_draws, 0) AS match_draws,
@@ -497,12 +411,12 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
            COALESCE(a.set_wins, 0)   AS set_wins
       FROM core_public.event_team_member tm
       JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
-      JOIN core_public.event e ON e.event_id = tm.event_id
+      JOIN core_public.event_dates e ON e.event_id = tm.event_id
       LEFT JOIN agg a ON a.event_id = tm.event_id
      -- ★ 롤 프로필의 대회 이력이다. FC 대회 참가 단위가 섞이지 않게 게임을 건다(0062).
-     WHERE tm.streamer_id = ${streamerId}::uuid AND e.game_code = 'lol'
-       AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.starts_at) = ${year ?? null}::int)
-     ORDER BY e.starts_at DESC
+     WHERE tm.streamer_id = ${streamerId}::uuid AND e.game_code = 'lol' AND e.kind = ${TOURNAMENT_KIND}
+       AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.effective_starts_at AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
+     ORDER BY e.effective_starts_at DESC NULLS LAST, e.slug
   `;
 }
 
@@ -510,7 +424,7 @@ export async function listStreamerEvents(streamerId: string, year?: number): Pro
 export async function listStreamerYears(streamerId: string): Promise<number[]> {
   const sql = db();
   const rows = await sql<{ y: number }[]>`
-    SELECT DISTINCT EXTRACT(YEAR FROM game_creation)::int AS y
+    SELECT DISTINCT EXTRACT(YEAR FROM game_creation AT TIME ZONE 'Asia/Seoul')::int AS y
       FROM core_public.streamer_encounter
      WHERE streamer_a_id = ${streamerId}::uuid OR streamer_b_id = ${streamerId}::uuid
      ORDER BY y DESC
@@ -535,46 +449,6 @@ export interface OpponentGame {
   category?: string | null;
 }
 
-/**
- * 상대 전적 카드를 펼쳤을 때 보여줄 경기 목록. **세트 한 판이 한 줄**이다.
- *
- * 매치 단위 목록은 화면에서 series_key 로 접어 만든다 — 여기서 미리 접어 버리면
- * '세트로 보기' 탭에서 다시 펼칠 수가 없다. 한 번 가져와 두 가지로 보여준다.
- *
- * 승률 숫자만으로는 "언제 붙은 건데?" 를 답할 수 없다. 2020년 한 판과
- * 2026년 열 판이 같은 줄에 뭉쳐 있으면 뜻이 흐려진다.
- */
-export async function listOpponentGames(
-  streamerId: string,
-  year?: number,
-  /**
-   * 경기 분류 필터 (`solo` · `ck` · `tournament` …). 'all' 이거나 없으면 전부.
-   * 분류 규칙은 core 의 matchCategory() 하나이고, 여기서는 이미 계산돼 저장된
-   * `category` 컬럼만 본다 — 질의마다 다시 판정하면 규칙이 두 벌이 된다.
-   */
-  category?: MatchCategoryFilter,
-): Promise<OpponentGame[]> {
-  const sql = db();
-  return sql<OpponentGame[]>`
-    SELECT CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.streamer_b_id
-                ELSE se.streamer_a_id END                       AS other_id,
-           se.match_id, se.series_key, se.series_game_no, se.best_of,
-           se.relation, se.source, se.category, se.is_lane_matchup,
-           se.game_creation                                     AS played_at,
-           CASE WHEN se.streamer_a_id = ${streamerId}::uuid THEN se.a_outcome
-                ELSE se.b_outcome END                           AS me_outcome,
-           ev.name                                              AS event_name
-      FROM core_public.streamer_encounter se
-      JOIN core_public.match m ON m.match_id = se.match_id
-      LEFT JOIN core_public.event ev ON ev.event_id = m.event_id
-     WHERE (se.streamer_a_id = ${streamerId}::uuid OR se.streamer_b_id = ${streamerId}::uuid)
-       AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM se.game_creation AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
-       AND (${expandCategory(category)}::text[] IS NULL OR se.category = ANY(${expandCategory(category)}::text[]))
-     ORDER BY se.game_creation DESC, se.series_game_no DESC
-  `;
-}
-
-
 export interface PlacementTally {
   key: string;
   label: string;
@@ -583,13 +457,11 @@ export interface PlacementTally {
 
 /** 순위 요약 한 덩어리. 화면 쪽에서 프로퍼티로 받으려면 이름이 있어야 한다. */
 export interface PlacementSummary {
-  /** 정규 대회만(올스타전·이벤트 매치 제외, 0052). */
+  /** 모든 대회의 순위(올스타전 포함, 2026-10-13 결정). */
   buckets: PlacementTally[];
   unknown: number;
   /** 참가 대회 수 — 올스타전·이벤트 매치 포함(참가는 참가다). */
   total: number;
-  /** 올스타전·이벤트 매치의 우승·준우승. 우승 숫자에 섞지 않고 따로 보여 준다. */
-  exhibition: { champion: number; runnerup: number };
 }
 
 /**
@@ -603,30 +475,21 @@ export async function summarizePlacements(
   year?: number,
 ): Promise<PlacementSummary> {
   const sql = db();
-  const rows = await sql<{ placement_rank: number | null; counts_toward_titles: boolean }[]>`
-    SELECT t.placement_rank, e.counts_toward_titles
+  const rows = await sql<{ kind: string; placement_rank: number | null }[]>`
+    SELECT e.kind, t.placement_rank
       FROM core_public.event_team_member tm
       JOIN core_public.event_team t ON t.event_team_id = tm.event_team_id
-      JOIN core_public.event e ON e.event_id = tm.event_id
-     WHERE tm.streamer_id = ${streamerId}::uuid AND e.game_code = 'lol'
-       AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.starts_at) = ${year ?? null}::int)
+      JOIN core_public.event_dates e ON e.event_id = tm.event_id
+     WHERE tm.streamer_id = ${streamerId}::uuid AND e.game_code = 'lol' AND e.kind = ${TOURNAMENT_KIND}
+       AND (${year ?? null}::int IS NULL OR EXTRACT(YEAR FROM e.effective_starts_at AT TIME ZONE 'Asia/Seoul') = ${year ?? null}::int)
   `;
-  // ★ 올스타전·이벤트 매치는 우승 숫자에서 뺀다(0052, 사용자 결정 2026-10-01). 참가 수(total)에는 넣는다.
-  const titled = rows.filter((r) => r.counts_toward_titles);
-  const exhibit = rows.filter((r) => !r.counts_toward_titles);
-  const buckets = PLACEMENT_BUCKETS.map((b) => ({
-    key: b.key as string,
-    label: b.label as string,
-    count: titled.filter((r) => r.placement_rank != null && b.match(r.placement_rank)).length,
-  }));
   return {
-    buckets,
-    unknown: titled.filter((r) => placementBucket(r.placement_rank) === null).length,
+    buckets: PLACEMENT_BUCKETS.map(b => ({ key: b.key, label: b.label,
+      count: rows.filter(r => b.key === "champion" ? isTitle(r) : b.key === "runnerup" ? isRunnerUp(r)
+        : r.placement_rank != null && b.match(r.placement_rank)).length,
+    })),
+    unknown: rows.filter(r => placementBucket(r.placement_rank) === null).length,
     total: rows.length,
-    exhibition: {
-      champion: exhibit.filter((r) => r.placement_rank === 1).length,
-      runnerup: exhibit.filter((r) => r.placement_rank === 2).length,
-    },
   };
 }
 

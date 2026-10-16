@@ -1,3 +1,4 @@
+import { applyFcoMatchContext } from "../packages/core/lib/games/fconline/context.ts";
 /**
  * 대진(칸·화살표·결정)을 실제 Postgres(PGlite)에서 끝까지 돌린다. docs/TOURNAMENT-FORMAT-PLAN.md
  *
@@ -24,7 +25,7 @@ const server = new PGLiteSocketServer({ db: database, port, host: "127.0.0.1" })
 await server.start();
 process.env.DATABASE_URL = `postgres://postgres@127.0.0.1:${port}/postgres`;
 const { db, closeDb } = await import("../packages/core/lib/db/client.ts");
-const { linkFcoAccount, saveFcoMatch, linkFcoMatchToEvent } = await import("../packages/core/lib/games/fconline/ingest.ts");
+const { linkFcoAccount, saveFcoMatch } = await import("../packages/core/lib/games/fconline/ingest.ts");
 const { applyBracketSpec, getEventBracket } = await import("../packages/core/lib/db/event-bracket.ts");
 const { resolveBracket, displayRank, rankText } = await import("../packages/core/lib/tournament/bracket.ts");
 const { listPublicTournamentEvents } = await import("../packages/core/lib/db/public-tournaments.ts");
@@ -89,13 +90,12 @@ try {
     const at = new Date(Date.UTC(2026, 7, 25, 8, minute));
     await saveFcoMatch({ matchId: id, matchDate: at.toISOString().slice(0, 19).replace("T", " "), matchType: 40,
       matchInfo: [side(w, "승", ws), side(l, "패", ls)] } as Parameters<typeof saveFcoMatch>[0]);
-    await linkFcoMatchToEvent({ providerMatchId: id, eventSlug: "2026-mini-ppuchamps", eventName: "N커넥트 미니 뿌챔스 싸워",
-      sourceUrl: "https://pick.sooplive.com/daily/view/182785" });
+    await applyFcoMatchContext({ provider_match_id: id, conclusion: "event", event: { slug: "2026-mini-ppuchamps", name: "N커넥트 미니 뿌챔스 싸워", kind: "tournament", source_url: "https://pick.sooplive.com/daily/view/182785" } });
   }
   // 다른 대회 경기 하나(연결 거부 검사용)
   await saveFcoMatch({ matchId: "other-event-game", matchDate: "2026-08-26 10:00:00", matchType: 40,
     matchInfo: [side("imyujin", "승", 1), side("dohyun", "패", 0)] } as Parameters<typeof saveFcoMatch>[0]);
-  await linkFcoMatchToEvent({ providerMatchId: "other-event-game", eventSlug: "other-cup", eventName: "다른 대회", sourceUrl: "https://example.com/x" });
+  await applyFcoMatchContext({ provider_match_id: "other-event-game", conclusion: "event", event: { slug: "other-cup", name: "다른 대회", kind: "tournament", source_url: "https://example.com/x" } });
   const [{ id: eventId }] = await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = '2026-mini-ppuchamps'`;
   const [{ id: otherEventId }] = await sql<{ id: string }[]>`SELECT id FROM event WHERE slug = 'other-cup'`;
   check(`준비: 경기 ${Object.keys(GAMES).length}판, 참가자 ${people.length}명`, true);

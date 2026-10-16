@@ -1,0 +1,22 @@
+{
+  "imageGeneration": {
+    "tool": "Built-in image_gen",
+    "images": [
+      {
+        "file": "stadium.png",
+        "prompt": "Use case: stylized-concept. Asset type: website hero backdrop for a premium FC Online football statistics website. Create a breathtaking photorealistic stadium at night, ultra wide cinematic panoramic composition, viewed from just above the pitch near the center line. A huge modern oval roof, pristine dark blue sky, intense cool white-blue floodlights around the upper rim, luminous cobalt electric blue reflections and subtle volumetric atmosphere. Football pitch and tiny geometric field markings along the bottom third. Deep ink blue navy shadows; crisp electric ultramarine highlights. The entire left half must stay very dark and visually calm to host a large white headline and search UI. Stadium floodlights converge toward the RIGHT where the main visual focus is. No people in foreground, no players, no text, no logos, no watermark, no UI, no lettering. Art direction: luxury Champions League broadcast photography, dramatic architectural precision, not videogame cartoon, not green tinted. Landscape 16:9, high detail."
+      },
+      {
+        "file": "chrome-ball.png",
+        "prompt": "Use case: product-mockup. Asset type: premium sports editorial website hero artwork. An oversized sculptural polished liquid-chrome soccer ball floating in a pure very light grey studio (#f3f4f6), center-right composition, low three-quarter camera angle, visually spectacular mirrored metal pentagonal and hexagonal panels with micro brushed edges. One seamless ribbon of saturated international Klein blue curves around and behind the sphere as a fast swoosh, like a flexible acrylic racetrack, casts a sharp blue caustic onto the light floor. Strong directional studio lighting, crisp beautiful diffuse contact shadow, striking minimal brutalist sports editorial aesthetic. Ball occupies 65 percent of image width, has substantial physical volume, fully in frame. Clean high key white monochrome with cobalt blue as only accent. No letters, no text, no logos, no watermark, no UI, no human. Landscape 4:3."
+      }
+    ]
+  },
+  "portraits": "Public streamer profile photos from existing site records. Original identity and aspect ratio preserved.",
+  "data": "Snapshot of existing public FC Online records, 2026-10-13. All values, change rates and scores come from the repository's public data readers.",
+  "font": {
+    "name": "Barlow Condensed",
+    "source": "https://github.com/google/fonts/tree/main/ofl/barlowcondensed",
+    "license": "OFL-Barlow.txt"
+  }
+}

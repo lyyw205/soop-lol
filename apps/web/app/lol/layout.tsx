@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/public";
 
 export const metadata: Metadata = {
-  // ★ absolute: 레이아웃 기본 제목에도 부모(로비)의 템플릿이 씌워져 "… · SOOP" 이 한 번 더 붙는다.
-  title: { absolute: "SOOP LOL — 스트리머 롤 전적", template: "%s · SOOP LOL" },
+  // 부모의 제목 템플릿으로 사이트명이 중복되지 않도록 기본 제목은 absolute를 쓴다.
+  title: { absolute: "리그 오브 레전드 · SOOP SEEK", template: "%s · LOL · SOOP SEEK" },
   description: "SOOP 스트리머들의 롤 커리어와 스트리머 간 상대전적·맞라인 전적·상성을 모아 봅니다.",
 };
 

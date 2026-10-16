@@ -19,12 +19,11 @@ export interface CamOptions {
   /** 보기 화면의 재생 대기(버퍼)를 0으로. 원본은 링크 옵션(&buffer)으로만 정한다. */
   lowLatency: boolean;
 }
-export const DEFAULT_OPTIONS: CamOptions = { quality: "720", audio: false, lowLatency: true };
+export const DEFAULT_OPTIONS: CamOptions = { quality: "1080", audio: false, lowLatency: true };
 
 const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"; // 헷갈리는 l·o·0·1 은 뺀다
 /**
  * 추측하기 어려운 이름표. 보기 링크를 아는 사람은 누구나 볼 수 있으므로 길이가 곧 보안이다.
- * 8자 = 32^8 ≈ 1조 가지. 더 길면 8명 초대 문구가 디스코드 한 메시지(2,000자)를 넘는다.
  */
 export const CAM_ID_LENGTH = 8;
 export function newCamId(random: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): string {
@@ -34,6 +33,7 @@ export const isCamId = (id: unknown): id is string => typeof id === "string" && 
 
 /** 방 안의 한 사람. 이름표를 미리 정해 두면 보기 명단을 방에 들어오기 전에 만들 수 있다. */
 export interface RoomSeat { id: string; name: string }
+export const namedSeats = (seats: RoomSeat[]): RoomSeat[] => seats.filter((seat) => seat.name.trim());
 export const seatName = (s: RoomSeat, i: number) => s.name.trim() || `참가자 ${i + 1}`;
 
 /** 시작 — 그 사람만 연다. 화면 공유 버튼 없이 카메라만 고르고 시작을 누른다. */
@@ -51,7 +51,8 @@ export function watchLink(room: string, seat: RoomSeat, seats: RoomSeat[], o: Ca
   const url = new URL(VDO_BASE);
   url.searchParams.set("scene", "");
   url.searchParams.set("room", room);
-  url.searchParams.set("view", seats.filter((s) => s.id !== seat.id).map((s) => s.id).join(","));
+  // 상대가 없을 때 빈 view가 전체 방을 표시하지 않도록 생성 ID와 겹치지 않는 이름표를 쓴다.
+  url.searchParams.set("view", namedSeats(seats).filter((s) => s.id !== seat.id).map((s) => s.id).join(",") || `empty-${room}`);
   url.searchParams.set("clean", ""); // cleanoutput 의 원본 줄임 표기 — 초대 문구 길이 때문
   if (o.lowLatency) url.searchParams.set("buffer", "0");
   if (!o.audio) url.searchParams.set("noaudio", "");
@@ -63,12 +64,14 @@ const tidy = (url: URL) => url.toString().replace(/=(?=&|$)/g, "").replace(/%2C/
 
 /** 단톡방·디스코드에 그대로 붙여 넣을 초대 문구. 사람마다 자기 링크 두 개. */
 export function inviteText(room: string, seats: RoomSeat[], o: CamOptions): string {
+  const participants = namedSeats(seats);
+  if (!participants.length) return "";
   const lines = [
-    "[캠 합방] 자기 이름 아래 링크 두 개만 쓰세요",
-    "① 시작: 열고 카메라를 고른 뒤 시작을 누르세요. 이 창은 켜 두세요.",
-    "② 보기: 다른 사람 캠이 한 화면에 나옵니다. 방송 도구에서 이 창을 캡처하세요.",
-    "⚠ 링크는 방송에 안 잡힐 때 열고, ② 창은 주소창이 안 나오게 영상 부분만 잘라 띄우세요.",
+    "[캠 합방] 본인 링크 사용",
+    "내 캠 켜기: START 후 창 유지",
+    "다른 사람 캠 보기: 방송에 캡처",
+    "⚠ 링크·주소창 노출 주의",
   ];
-  seats.forEach((s, i) => lines.push("", `■ ${seatName(s, i)}`, `① ${startLink(room, s, o)}`, `② ${watchLink(room, s, seats, o)}`));
+  participants.forEach((s, i) => lines.push("", `■ ${seatName(s, i)}`, `내 캠 켜기: ${startLink(room, s, o)}`, `다른 사람 캠 보기: ${watchLink(room, s, participants, o)}`));
   return lines.join("\n");
 }

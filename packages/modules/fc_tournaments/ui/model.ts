@@ -1,3 +1,4 @@
+import { fcoPlayerAppearance } from "@soop-lol/core/lib/contract/client";
 /**
  * FC 대회 화면의 해석 — 참가자 성적·상대 전적표·하이라이트·선수 카드 기록.
  * core 에는 경기 사실만 있고 이건 이 모듈 것이다. 순수 함수라 테스트가 그대로 부른다.
@@ -116,6 +117,8 @@ export function cardRecords(games: FcoGame[]): CardRecord[] {
       const playerId = fcoNumber(player.spId);
       if (!playerId) continue;
       const status = player.status && typeof player.status === "object" ? player.status as Record<string, unknown> : {};
+      const { appeared, rating } = fcoPlayerAppearance(status);
+      if (!appeared) continue;
       const key = `${p.streamer_id}:${playerId}`;
       const row = rows.get(key) ?? {
         key, playerId, streamer: p.streamer_name ?? p.nickname, slug: p.streamer_slug,
@@ -126,7 +129,7 @@ export function cardRecords(games: FcoGame[]): CardRecord[] {
       row.assists += fcoNumber(status.assist);
       row.passes += fcoNumber(status.passSuccess);
       row.passTry += fcoNumber(status.passTry);
-      if (typeof status.spRating === "number" && status.spRating > 0) { row.ratingSum += status.spRating; row.rated++; }
+      if (rating !== null) { row.ratingSum += rating; row.rated++; }
       rows.set(key, row);
     }
   }
@@ -169,6 +172,5 @@ export function highlights(games: FcoGame[], people: Entrant[], cards: CardRecor
   };
 }
 
-const KIND_LABEL: Record<string, string> = { tournament: "대회", showmatch: "이벤트 매치", ck: "내전", scrim: "스크림" };
-export const kindLabel = (kind: string) => KIND_LABEL[kind] ?? "기타";
+export { eventKindLabel as kindLabel } from "@soop-lol/core/lib/contract/client";
 export const outcomeLabel = (o: Outcome) => o === "win" ? "승" : o === "loss" ? "패" : o === "draw" ? "무" : "?";

@@ -1,3 +1,4 @@
+import { fcoPlayerAppearance } from "@soop-lol/core/lib/contract/client";
 import Link from "next/link";
 import { Fragment } from "react";
 import {
@@ -33,7 +34,7 @@ export function FcoMatchList({ games, perspectiveStreamerId, rowIdPrefix }: { ga
         dateTime={kstDateString(new Date(game.played_at))} title={fcDate(game.played_at)} result={result}
         date={showDate ? <><span className="personal-match-date-year">{date.slice(0, 5)}</span>{date.slice(5)}</> : <span className="sr-only">{date}</span>}>
         <div className="personal-match-detail">
-          <Link className="arena-match-toggle personal-match-toggle fc-history-link" href={fcMatchHref(game.provider_id)}>
+          <Link className="arena-match-toggle personal-match-toggle fc-history-link" href={fcMatchHref(game.provider_id)} prefetch={false}>
             <span className="record-match-event" title={game.event_name ?? "일반 경기"}><span className="record-match-clip">{game.event_name ?? "일반 경기"}</span></span>
             <span className="personal-match-teams"><span className="record-match-clip">{a?.streamer_name ?? a?.nickname ?? "미확인"}</span>
               <strong>{a?.score_display ?? a?.goals ?? "?"}<i>:</i>{b?.score_display ?? b?.goals ?? "?"}</strong>
@@ -119,6 +120,8 @@ export function FcoTournamentPlayers({ games, names, emptyMessage = "선수별 �
       const playerId = fcoNumber(player.spId);
       if (!playerId) continue;
       const status = player.status && typeof player.status === "object" ? player.status as Record<string,unknown> : {};
+      const { appeared, rating } = fcoPlayerAppearance(status);
+      if (!appeared) continue;
       const key = `${participant.streamer_id}:${playerId}`;
       const line = rows.get(key) ?? {
         streamer: participant.streamer_name ?? participant.nickname,
@@ -130,7 +133,7 @@ export function FcoTournamentPlayers({ games, names, emptyMessage = "선수별 �
       line.assists += fcoNumber(status.assist);
       line.passes += fcoNumber(status.passSuccess);
       line.passTry += fcoNumber(status.passTry);
-      if (typeof status.spRating === "number") { line.rating += status.spRating; line.rated++; }
+      if (rating !== null) { line.rating += rating; line.rated++; }
       rows.set(key, line);
     }
   }

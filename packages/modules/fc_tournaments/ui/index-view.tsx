@@ -18,7 +18,7 @@ export interface IndexEntry {
   champion: string | null;
 }
 
-const year = (e: IndexEntry) => eventYear(e.event, e.games);
+const year = (e: IndexEntry) => eventYear(e.event);
 const goalsOf = (games: FcoGame[]) => games.reduce((n, g) => n + g.participants.reduce((m, p) => m + (sideScore(p) ?? 0), 0), 0);
 
 export function IndexView({ entries, q, year: wantedYear }: { entries: IndexEntry[]; q: string; year: string }) {
@@ -44,11 +44,11 @@ export function IndexView({ entries, q, year: wantedYear }: { entries: IndexEntr
   return <>
     <div className="ft-page-title">
       <div>
-        <p className="ft-eyebrow">TOURNAMENTS & EVENTS</p>
+        <p className="ft-eyebrow">TOURNAMENTS</p>
         <h1>대회<span>.</span></h1>
         <p>스트리머끼리 붙은 FC 온라인 대회 — 누가 누구를 이겼는지, 경기마다의 스코어와 기록.</p>
       </div>
-      <span>{entries.length}개의 대회·이벤트</span>
+      <span>{entries.length}개의 대회</span>
     </div>
     <div className="ft-index-toolbar">
       <nav className="ft-category-tabs" aria-label="대회 연도">
@@ -74,7 +74,7 @@ export function IndexView({ entries, q, year: wantedYear }: { entries: IndexEntr
         <strong className="ft-featured-label">LATEST</strong>
         <span className="ft-featured-track" aria-hidden="true"><i /></span>
         <div className="ft-featured-card">
-          <TournamentHero compact event={latest.event} games={latest.games} people={latest.people}
+          <TournamentHero compact event={latest.event} people={latest.people}
             champion={latest.champion ? { name: latest.champion } : null}
             numbers={{ people: latest.people.length, games: latest.games.length, goals: goalsOf(latest.games) }} />
         </div>
@@ -86,7 +86,7 @@ export function IndexView({ entries, q, year: wantedYear }: { entries: IndexEntr
             <ul>{group.map((e) => <li key={e.event.id}>
               <Link className="ft-catalog-row" href={eventHref(e.event.slug)}>
                 <span className="ft-catalog-title"><small>{kindLabel(e.event.kind)}</small><b>{e.event.name}</b></span>
-                <span>{eventPeriod(e.event, e.games).text}</span>
+                <span>{eventPeriod(e.event).text}</span>
                 <span>{e.event.organizer ?? "주최 미확인"}</span>
                 <span className="ft-catalog-faces">
                   {e.people.slice(0, 6).map((p) => <Person key={p.key} entrant={p} size="sm" />)}

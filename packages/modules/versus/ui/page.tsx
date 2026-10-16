@@ -1,6 +1,6 @@
 /**
  * 상대전적 모듈 UI. 주소 하나(module.json)가 두 화면을 맡는다 —
- * 아무것도 안 고르면 **선택기 + 많이 붙은 쌍**, 둘을 고르면 **상세**.
+ * 아무것도 안 고르면 **빈 선택기**, 둘을 고르면 **상세**.
  *
  * ★ 왜 경로 하나인가
  *   두 사람은 경로 칸이 아니라 쿼리스트링 `?a=&b=` 로 받는다 — 순서 바꾸기·필터가
@@ -13,12 +13,11 @@
 
 import {
   getPublicStreamer, listEncountersBetween, listMatchRosters, listPublicStreamerOptions,
-  type PublicEncounter, isMatchCategoryFilter, resolveRecordPeriod,
+  type PublicEncounter, readRecordScope,
 } from "@soop-lol/core/lib/contract";
 
 import { VersusDetail, type VersusSet } from "./detail.tsx";
 import { VersusPicker } from "./picker.tsx";
-import { topPairs } from "../server/index.ts";
 import { ProfileSidebar } from "./sidebar.tsx";
 import { RecordLayout } from "../../../ui/record-layout.tsx";
 
@@ -55,20 +54,15 @@ function asSeen(g: PublicEncounter, flip: boolean): VersusSet {
 export default async function VersusModulePage(
   { searchParams }: { searchParams: Record<string, string | string[] | undefined> },
 ) {
-  const categoryInput = one(searchParams.category);
-  const category = categoryInput && isMatchCategoryFilter(categoryInput) ? categoryInput : "all";
-  const relation = one(searchParams.relation) === "ally" ? "a" : one(searchParams.relation) === "lane" ? "l" : "o";
-  const datePeriod = resolveRecordPeriod({from:one(searchParams.from),to:one(searchParams.to)});
-  const yearInput = one(searchParams.year);
-  const year = yearInput && /^\d{4}$/.test(yearInput) ? Number(yearInput) : undefined;
-  let aSlug = one(searchParams.a)?.trim();
-  let bSlug = one(searchParams.b)?.trim();
-  // 홈과 모듈 첫 화면에서는 기록이 가장 많은 실제 쌍을 먼저 보여준다.
-  if (!aSlug && !bSlug) {
-    const [featured] = await topPairs(1);
-    aSlug = featured?.a_slug;
-    bSlug = featured?.b_slug;
+  const query = new URLSearchParams();
+  for (const [key,value] of Object.entries(searchParams)) {
+    const v = one(value); if (v !== undefined) query.set(key,v);
   }
+  const {category, period} = readRecordScope(query);
+  const year = period.key === "year" && period.from ? Number(period.from.slice(0,4)) : undefined;
+  // 홈과 모듈 첫 화면은 빈 선택기로 연다. 사용자가 지정한 a/b만 선택한다.
+  const aSlug = one(searchParams.a)?.trim();
+  const bSlug = one(searchParams.b)?.trim();
 
   const [x, y] = await Promise.all([
     aSlug ? getPublicStreamer(aSlug) : null,
@@ -83,10 +77,10 @@ export default async function VersusModulePage(
       <RecordLayout sidebar={x ? <ProfileSidebar person={x} /> : <aside className="arena-rail"><section className="arena-panel"><h2>스트리머 정보</h2><p className="text-xs text-ink-400">스트리머를 선택하면 프로필과 수상 경력을 함께 볼 수 있습니다.</p></section></aside>}>
         <VersusPicker options={options} a={x?.slug} b={y?.slug} category={category} year={year} />
         {x && y && x.streamer_id === y.streamer_id && (
-          <p className="mt-2 text-[11px] text-amber-300">같은 사람 둘을 고를 수는 없습니다.</p>
+          <p className="mt-2 text-[length:var(--type-micro)] text-amber-300">같은 사람 둘을 고를 수는 없습니다.</p>
         )}
         {notFound.length > 0 && (
-          <p className="mt-2 text-[11px] text-amber-300">
+          <p className="mt-2 text-[length:var(--type-micro)] text-amber-300">
             찾지 못했습니다: {notFound.join(", ")} — 목록에서 골라 주세요.
           </p>
         )}
@@ -106,7 +100,7 @@ export default async function VersusModulePage(
 
   return (
     <RecordLayout sidebar={<ProfileSidebar person={x} exclude={[x.slug, y.slug]} />}>
-      <VersusDetail key={`detail-${x.slug}-${y.slug}-${category}-${year ?? "all"}-${relation}-${datePeriod.from ?? ""}-${datePeriod.to ?? ""}`} x={x} y={y} sets={sets} rosters={rosters} options={options} initialCategory={category} initialYear={year} initialRelation={relation} initialDatePeriod={datePeriod} />
+      <VersusDetail key={`detail-${x.slug}-${y.slug}`} x={x} y={y} sets={sets} rosters={rosters} options={options} />
     </RecordLayout>
   );
 }

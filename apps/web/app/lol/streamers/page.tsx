@@ -1,3 +1,4 @@
+import { SortHeader } from "../../../../../packages/ui/sort-header";
 import Link from "next/link";
 import { profileHref, streamersHref } from "@soop-lol/core/lib/site-paths";
 import type { ReactNode } from "react";
@@ -59,22 +60,6 @@ export default async function StreamersPage({
     if (next.sort) { params.set("sort", next.sort); params.set("dir", next.dir!); }
     return streamersHref(params);
   }
-  function SortHeader({ column, children, className }: { column: StreamerSort; children: ReactNode; className?: string }) {
-    const on = sort === column;
-    return (
-      <th scope="col" className={className} aria-sort={on ? (dir === "asc" ? "ascending" : "descending") : "none"}>
-        <Link className="record-sort" href={sortHref(column)} scroll={false}
-          aria-label={`${typeof children === "string" ? children : column} 정렬 — ${on ? (dir === "desc" ? "오름차순으로" : "해제") : "내림차순으로"}`}>
-          {children}
-          {/* ▲▼ 는 Pretendard 서브셋에 없다 — 화살표는 인라인 SVG 로 그린다. */}
-          <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" data-on={on || undefined}
-            fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            {on && dir === "asc" ? <path d="M6 9.5V3M3.2 5.8 6 3l2.8 2.8" /> : <path d="M6 2.5V9m-2.8-2.8L6 9l2.8-2.8" />}
-          </svg>
-        </Link>
-      </th>
-    );
-  }
 
   return (
     <>
@@ -128,9 +113,9 @@ export default async function StreamersPage({
               <thead>
                 <tr>
                   <th scope="col" className="record-col-rank"><span className="sr-only">순위</span>#</th>
-                  <SortHeader column="name" className="record-col-name">스트리머</SortHeader>
+                  <SortHeader label="스트리머" href={sortHref("name")} direction={sort === "name" ? dir : undefined} className="record-col-name">스트리머</SortHeader>
                   <th scope="col">방송 채널</th>
-                  <SortHeader column="tier">티어</SortHeader>
+                  <SortHeader label="티어" href={sortHref("tier")} direction={sort === "tier" ? dir : undefined}>티어</SortHeader>
                   <th scope="col">게임 계정</th>
                   <th scope="col">우승</th>
                 </tr>

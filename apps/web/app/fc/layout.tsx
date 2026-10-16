@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { PageShell, SiteHeader } from "@/components/public";
 
 export const metadata: Metadata = {
-  // ★ absolute: 레이아웃 기본 제목에도 부모(로비)의 템플릿이 씌워져 "… · SOOP" 이 한 번 더 붙는다.
-  title: { absolute: "SOOP FC 온라인", template: "%s · SOOP FC 온라인" },
+  // 부모의 제목 템플릿으로 사이트명이 중복되지 않도록 기본 제목은 absolute를 쓴다.
+  title: { absolute: "FC 온라인 · SOOP SEEK", template: "%s · FC 온라인 · SOOP SEEK" },
   description: "SOOP 스트리머의 FC 온라인 개인기록, 상대전적, 대회와 경기 분석",
 };
 

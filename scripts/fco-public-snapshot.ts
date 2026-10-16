@@ -1,3 +1,4 @@
+import { applyFcoMatchContext } from "../packages/core/lib/games/fconline/context.ts";
 /**
  * FC 공개 조회 결과의 스냅샷 — 마이그레이션·조회 쿼리를 고치기 전후에 **결과가 한 글자도 안 바뀌었는지** 비교한다.
  * (docs/FCO-SCREEN-MATCH-DESIGN.md §3.5)
@@ -50,7 +51,7 @@ const { db, closeDb } = await import("../packages/core/lib/db/client.ts");
 const R = await import("../packages/core/lib/db/fconline.ts");
 
 if (mode === "fixture") {
-  const { linkFcoAccount, saveFcoMatch, linkFcoMatchToEvent } = await import("../packages/core/lib/games/fconline/ingest.ts");
+  const { linkFcoAccount, saveFcoMatch } = await import("../packages/core/lib/games/fconline/ingest.ts");
   const sql = db();
   await sql`INSERT INTO streamer (slug, display_name) VALUES ('alpha-fc','알파'),('beta-fc','베타'),('gamma-fc','감마'),('delta-fc','델타')`;
   for (const [s, o, n] of [["alpha-fc", "alpha-ouid", "알파감독"], ["beta-fc", "beta-ouid", "베타감독"], ["gamma-fc", "gamma-ouid", "감마감독"], ["delta-fc", "delta-ouid", "델타감독"]]) {
@@ -78,8 +79,8 @@ if (mode === "fixture") {
     game("snap-7", "2026-09-23 12:00:00", 40, A("패", 1), D("승", 2)),
   ];
   for (const g of games) await saveFcoMatch(g);
-  for (const id of ["snap-1", "snap-2"]) await linkFcoMatchToEvent({ providerMatchId: id, eventSlug: "snap-cup", eventName: "스냅컵", sourceUrl: "https://example.com/snap" });
-  await linkFcoMatchToEvent({ providerMatchId: "snap-5", eventSlug: "snap-cup-2", eventName: "스냅컵 2", sourceUrl: "https://example.com/snap2" });
+  for (const id of ["snap-1", "snap-2"]) await applyFcoMatchContext({ provider_match_id: id, conclusion: "event", event: { slug: "snap-cup", name: "스냅컵", kind: "tournament", source_url: "https://example.com/snap" } });
+  await applyFcoMatchContext({ provider_match_id: "snap-5", conclusion: "event", event: { slug: "snap-cup-2", name: "스냅컵 2", kind: "tournament", source_url: "https://example.com/snap2" } });
   // 숨긴 사람·숨긴 계정 — 가림이 그대로인지도 본다
   await sql`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'gamma-fc'`;
   await sql`UPDATE streamer_fco_account SET visibility = 'hidden' WHERE ouid = 'delta-ouid'`;

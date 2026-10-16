@@ -8,12 +8,20 @@
  *   (docs/CK-COLLECTION.md §3.5-2). 랜드 한 줄은 판 수만큼의 매치다 — 4승 6패면 매치 4승 6패.
  *   묶음 키를 판으로 쪼개면 화면이 판마다 한 줄이 되고(실제로 그랬다), 그대로 두고 과반으로 세면
  *   "랜드 10판 = 1패" 가 된다. 그래서 묶음은 그대로 두고 **세는 규칙**만 여기서 가른다.
- *   SQL 쪽(listOpponents, listPersonalRecords)도 같은 규칙이다 — 바꿀 땐 같이 바꾼다.
+ *   SQL 쪽(listOpponentSummaries, listPersonalRecords)도 같은 규칙이다 — 바꿀 땐 같이 바꾼다.
  */
 export interface GroupResult { sets: number; wins: number; land: boolean }
 export interface MatchTally { matches: number; wins: number; draws: number; losses: number }
 
 export const isLandCategory = (category: string | null | undefined) => category === "land";
+
+export type MatchOutcomeKind = "win" | "draw" | "loss" | "record";
+/** 랜드는 팀 단위 판정 없이 판별 전적만 가진다. */
+export function matchOutcome(wins: number, sets: number, land = false): MatchOutcomeKind {
+  if (land) return "record";
+  const tally = tallyGroup({ wins, sets, land });
+  return tally.draws ? "draw" : tally.wins ? "win" : "loss";
+}
 
 export function tallyGroup({ sets, wins, land }: GroupResult): MatchTally {
   if (land) return { matches: sets, wins, draws: 0, losses: sets - wins };

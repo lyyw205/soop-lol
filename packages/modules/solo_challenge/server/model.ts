@@ -71,8 +71,6 @@ export interface ChallengeView {
   records: RecordRow[];
   record: { games: number; wins: number; bestWinStreak: number; worstLoseStreak: number; remakes: number; current: Run | null };
   coPlayers: CoPlayer[];
-  /** 랭크 스냅샷 기준 시즌 판 수(Riot) — 수집한 판 수와 다르면 수집이 밀린 것 */
-  riotGames: number | null;
 }
 
 const pct = (v: number | undefined) => (v == null ? 0 : v * 100);
@@ -114,7 +112,7 @@ export function buildChallenge(
   for (const l of lineups) (lineupBy.get(l.match_id) ?? lineupBy.set(l.match_id, []).get(l.match_id)!).push(l);
   const memberStreamer = new Map(rows.map((r) => [r.streamer_id, idx.get(r.puuid)!]));
 
-  const games: GameRow[] = [...byMatch.values()].map((ps) => {
+  const allGames: GameRow[] = [...byMatch.values()].map((ps) => {
     const first = ps[0];
     const lines: (Line | null)[] = def.members.map(() => null);
     for (const p of ps) {
@@ -128,11 +126,12 @@ export function buildChallenge(
         items: p.items ?? [], spells: [p.summoner1_id, p.summoner2_id], keystone: p.keystone_id, subStyle: p.sub_style_id,
       };
     }
-    const win = first.outcome === "win";
+    const together = def.members.every(member => ps.some(p => p.puuid === member.puuid)) && new Set(ps.map(p => p.team_id)).size === 1;
+    const win = together && ps.every(p => p.outcome === "win");
     const g: GameRow = {
       matchId: first.match_id, at: first.game_creation.toISOString(), day: kstDateString(first.game_creation),
       minutes: Math.round(first.game_duration / 60), seconds: first.game_duration, win, surrender: !!first.ended_in_surrender,
-      lines, together: ps.length >= 2 && new Set(ps.map((p) => p.team_id)).size === 1, teamId: first.team_id,
+      lines, together, teamId: first.team_id,
       lineup: (lineupBy.get(first.match_id) ?? []).map((l) => ({
         teamId: l.team_id, champId: l.champion_id, name: l.display_name, slug: l.slug,
         member: l.streamer_id ? memberStreamer.get(l.streamer_id) ?? null : null, kills: l.kills, deaths: l.deaths, assists: l.assists,
@@ -142,6 +141,8 @@ export function buildChallenge(
     g.tags = gameTags(g, def.members);
     return g;
   }).sort((a, b) => a.at.localeCompare(b.at));
+
+  const games = allGames.filter(game => game.together);
 
   // ── 흐름(누적 승−패)·연승
   let net = 0, run = 0, best = 0, worst = 0;
@@ -198,13 +199,11 @@ export function buildChallenge(
     if (s.teamId === g.teamId) e.ally++; else e.enemy++;
   }
 
-  const riot = members.map((m) => (m.rank?.wins ?? 0) + (m.rank?.losses ?? 0));
   return {
     def, goalAbs, floorAbs, members, stats, games, flow, days,
-    records: buildRecords(def, games, rows, best, worst),
+    records: buildRecords(def, allGames, rows, best, worst),
     record: { games: games.length, wins: games.filter((g) => g.win).length, bestWinStreak: best, worstLoseStreak: -worst, remakes: remakes.size, current: runsOf(games).at(-1) ?? null },
     coPlayers: [...coMap.values()].sort((a, b) => b.ally + b.enemy - (a.ally + a.enemy)),
-    riotGames: riot.some((n) => n > 0) ? Math.max(...riot) : null,
   };
 }
 

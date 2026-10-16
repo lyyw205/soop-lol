@@ -1,0 +1,21 @@
+/* Shared record surfaces. Semantic roles are supplied by record-theme.css;
+   fallbacks keep the original comparison palette and FC surfaces unchanged. */
+.record-workspace .fc-empty {
+  background-color: var(--surface-card, var(--surface-panel));
+  border-color: var(--border-default, var(--surface-border));
+}
+.record-search-options {
+  border-color: var(--border-default, var(--surface-border));
+}
+.record-search-field input {
+  background-color: var(--surface-input, var(--surface-panel));
+}
+.record-search-options,
+.record-workspace :is(.match-details, .opponent-history-expanded) {
+  background-color: var(--surface-card, var(--surface-panel));
+  border-color: var(--border-default, var(--surface-border));
+}
+.record-workspace .match-details-team {
+  background-color: var(--surface-raised, var(--surface-panel-soft));
+  border-color: var(--border-default, var(--surface-border));
+}

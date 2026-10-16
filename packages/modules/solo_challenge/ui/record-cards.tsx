@@ -6,9 +6,9 @@ import { challengeHref } from "./paths.ts";
 import "./record-cards.css";
 
 const HIGHLIGHTS = ["kills", "solo", "kda"];
-const tone = (key: string) => ["deaths", "shortLoss", "streakL"].includes(key) ? "#f19aa9"
-  : ["steal", "plates"].includes(key) ? "#7ccbb7"
-  : ["long", "shortWin"].includes(key) ? "#a3bce2" : "#d8b58e";
+const tone = (key: string) => ["deaths", "shortLoss", "streakL"].includes(key) ? "var(--result-loss, #f19aa9)"
+  : ["steal", "plates"].includes(key) ? "var(--result-win, #7ccbb7)"
+  : ["long", "shortWin"].includes(key) ? "var(--result-win, #a3bce2)" : "var(--accent-primary, #d8b58e)";
 function dateText(iso: string | null) {
   if (!iso) return "";
   const d = new Date(Date.parse(iso) + 9 * 3600_000);
@@ -79,7 +79,7 @@ function LowerRecords({ view, champOf }: { view: ChallengeView; champOf: (r: Rec
           <div className="sr-time-heading"><h3>경기 시간</h3><span>0 – {axisMinutes}분</span></div>
           <div className="sr-time-axis"><div className="sr-time-rail" aria-hidden="true" />{times.map((r) => {
             const position = seconds(r) / (axisMinutes * 60) * 100;
-            return <RecordShell key={r.key} record={r} view={view} newTab className={`sr-time-marker${r.key === "shortLoss" ? " sr-below" : ""}${position > 85 ? " sr-at-end" : ""}`} style={{ left: `${position}%`, "--sr-tone": r.key === "shortWin" ? "#7ccbb7" : tone(r.key) } as CSSProperties}>
+            return <RecordShell key={r.key} record={r} view={view} newTab className={`sr-time-marker${r.key === "shortLoss" ? " sr-below" : ""}${position > 85 ? " sr-at-end" : ""}`} style={{ left: `${position}%`, "--sr-tone": r.key === "shortWin" ? "var(--result-win, #7ccbb7)" : tone(r.key) } as CSSProperties}>
               <span className="sr-time-detail">{icon(r)}<span>{[r.who, r.champ, extra(r)].filter(Boolean).join(" · ")}</span></span>
               <h4>{r.label}</h4>{value(r)}<span className="sr-time-dot" aria-hidden="true" />
             </RecordShell>;

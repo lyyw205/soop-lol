@@ -15,7 +15,7 @@ export function RecordSectionTabs({ items, active, label = "기록 분류" }: {
   label?: string;
 }) {
   return <nav className="profile-section-tabs record-section-tabs" aria-label={label}>
-    {items.map((item) => <Link key={item.key} href={item.href} scroll={false}
+    {items.map((item) => <Link key={item.key} href={item.href} scroll={false} prefetch={false}
       aria-current={active === item.key ? "page" : undefined}>{item.label}</Link>)}
   </nav>;
 }
@@ -44,7 +44,7 @@ export function RecordTimelineYear({ year, label = "참여 경기" }: { year: st
 
 export function RecordTimelineRow({ id, dateTime, date, title, result, children }: {
   id?: string; dateTime: string; date: ReactNode; title?: string;
-  result?: "win" | "loss" | "draw" | "unknown";
+  result?: "win" | "loss" | "draw" | "unknown" | "record";
   children: ReactNode;
 }) {
   return <div id={id} className="arena-match-row personal-timeline-row" data-result={result}>

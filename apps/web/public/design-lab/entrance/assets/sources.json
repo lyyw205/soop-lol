@@ -1,0 +1,35 @@
+{
+  "football-cutout.webp": {
+    "file": "/design-lab/entrance/assets/football-cutout.webp",
+    "type": "Background removal from existing generated chrome football, alpha preserved",
+    "tool": "Built-in image_gen",
+    "prompt_manifest": "/design-lab/entrance/assets/cutout-prompts.json"
+  },
+  "crystal-cutout.webp": {
+    "file": "/design-lab/entrance/assets/crystal-cutout.webp",
+    "type": "Background removal from original generated nexus crystal concept, alpha preserved",
+    "tool": "Built-in image_gen",
+    "prompt_manifest": "/design-lab/entrance/assets/cutout-prompts.json"
+  },
+  "nexus-crystal.png": {
+    "file": "/design-lab/entrance/assets/nexus-crystal.png",
+    "type": "Original AI-generated concept artwork, not an official Riot asset",
+    "tool": "Built-in image_gen, imagegen skill",
+    "prompt": "Use case: stylized-concept.\nAsset type: a premium 3D hero artwork for the League of Legends half of a two-game website entrance, paired with a polished chrome soccer ball on the FC Online half.\nPrimary request: an ornate blue nexus crystal artifact, floating above a soft warm ivory studio floor. One large long faceted sapphire and cyan crystal, point upward, suspended through two sculptural, partially broken, thin brushed antique gold orbital rings. Gold elegant angular fantasy machinery at crystal base, a few very tiny floating crystal fragments. A monumental beautiful luxury sculpture, not a game screenshot.\nComposition: landscape 4:3, object prominent centered slightly right, clean light ivory background filling the frame, soft contact shadow, no horizon. Whole object visible with comfortable clear space all around. Crystal occupies 65% image height. Camera slightly below the object for grandeur, 80mm product lens.\nStyle: exceptionally high-end photorealistic Octane 3D collectible, crisp refraction inside blue crystal, architectural gold detail, subtle light caustics, very refined complex asymmetric silhouette.\nPalette: rich royal blue glass, cyan core, muted antique gold, pale warm offwhite backdrop.\nConstraints: no typography, no logos, no letters, no watermarks, no interface, no people. Avoid purple, cartoon style, cheap neon outlines, overcomplicated clutter, oversaturated gold."
+  },
+  "/images/fc/home-stadium.png": {
+    "type": "Existing AI-generated stadium",
+    "provenance": "/design-lab/fc-home/assets/sources.json"
+  },
+  "/design-lab/fc-home/assets/chrome-ball.png": {
+    "type": "Existing AI-generated chrome football; green color treatment uses CSS",
+    "provenance": "/design-lab/fc-home/assets/sources.json"
+  },
+  "/images/arena/Ahri.jpg": "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/Ahri_0.jpg",
+  "/images/arena/LeeSin.jpg": "https://ddragon.leagueoflegends.com/cdn/img/champion/splash/LeeSin_0.jpg",
+  "fonts": [
+    "/fonts/pretendard/PretendardVariable.woff2",
+    "/fonts/barlow/barlow-800.ttf"
+  ],
+  "notes": "Local entrance design proposals only. Navigation destinations: /fc/search and /lol. No production route changes. Source artwork is decorative, not match data."
+}

@@ -1,0 +1,21 @@
+.logo {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: var(--site-logo-width, 196px);
+  height: var(--site-logo-height, 36px);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+/* 투명 PNG의 여백과 비율을 유지하고 어두운 UI에는 밝은 단색으로 표시한다. */
+.logo img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  transform: translate(-50%, -50%);
+  filter: brightness(0) invert(.92);
+}

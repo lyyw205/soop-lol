@@ -27,20 +27,16 @@ export function FcoVersusSidebar({ person, games, people, topPairs, opponentId, 
       <div className="arena-mini-stats">
         <div><strong>{games.length}</strong><small>맞대결</small></div>
         <div><strong>{results.filter((result) => result.outcome === "win").length}</strong><small>승리</small></div>
-        <div><strong>{events.length}</strong><small>참가 대회</small></div>
+        <div><strong>{events.length}</strong><small>연결된 행사</small></div>
       </div>
       <Link className="arena-panel-link" href={profileHref("fconline", person.slug)}>개인 기록 보기　→</Link>
     </section>
     <section className="arena-panel">
-      <h2>연결된 대회</h2>
+      <h2>연결된 행사</h2>
       {events.length ? <ul className="fc-sidebar-events">{events.slice(0, 4).map((event) =>
         <li key={event.slug}>{eventHref(event.slug)
           ? <Link href={eventHref(event.slug)!}>{event.name} →</Link> : event.name}</li>)}</ul>
-        : <p className="text-xs text-ink-400">확인해 연결한 대회 경기가 없습니다.</p>}
-    </section>
-    <section className="arena-panel">
-      <h2>핵심 선수 <small className="record-sidebar-note">시세 TOP 5</small></h2>
-      <p className="text-xs text-ink-400">선수 시세 데이터가 연결되면 가격순 TOP 5가 표시됩니다.</p>
+        : <p className="text-xs text-ink-400">확인해 연결한 행사 경기가 없습니다.</p>}
     </section>
     <section className="arena-panel arena-pairs-sidebar" aria-label={`${person.name}의 자주 만난 상대`}>
       <h2>자주 만난 매치업 <small className="record-sidebar-note">경기 기준</small></h2>

@@ -1,0 +1,122 @@
+/* Public record themes: define roles here, never component selectors.
+ * Components consume these roles. Their literal fallbacks preserve the original
+ * FC and unthemed surfaces until those areas migrate to this contract.
+ * `--surface-panel/soft/border` and `--color-*` below bridge existing shared UI.
+ */
+/* Geometry is shared independently of each area’s color palette. */
+html:has([data-site-theme]),
+html:has(.fc-site) {
+  /* Cam-sharing geometry: sharp containers and controls, smaller inset corners.
+   * Shared by LoL, common tools and FC. Circles/switches stay round. */
+  --radius-ui: 3px;
+  --radius-input: 2px;
+  --radius-detail: 2px;
+  --radius: 3px;
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 3px;
+  --radius-lg: 3px;
+  --radius-xl: 3px;
+  --radius-2xl: 3px;
+
+}
+
+/* The server-rendered header owns the palette. :has applies it before hydration
+ * and automatically clears it on navigation to FC, without browser preferences. */
+html:has([data-site-theme="lol"]),
+html:has([data-site-theme="shared"]) {
+  /* Surfaces */
+  --surface-base: #0d0e14;
+  --surface-card: #15161e;
+  --surface-inset: #1c1d28;
+  --surface-input: #1c1d28;
+  --surface-raised: #1c1d28;
+  --surface-nav: #15161e;
+  --surface-hover: #222335;
+  --surface-active: #222335;
+
+  /* Reading hierarchy: never derive ordinary text from the accent. */
+  --text-primary: #e8e8ea;
+  --text-secondary: #a8a8bc;
+  --text-muted: #8585a0;
+  --text-on-accent: #000000;
+  --badge-text: var(--text-primary);
+  --badge-border: var(--text-muted);
+
+  /* Borders and interactive accents */
+  --border-default: #2a2b3d;
+  --border-subtle: #2a2b3d;
+  --border-strong: #41435b;
+  --border-accent: var(--accent-primary);
+  --accent-primary: #c8aa6e;
+  --accent-hover: #d3bb8b;
+  --accent-dim: color-mix(in srgb, var(--accent-primary) 11%, transparent);
+  --accent-border-dim: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+
+  /* Result and team colors follow the shared reference palette. */
+  --result-win: #5b9bd5;
+  --result-win-strong: #5b9bd5;
+  --result-win-bg: rgba(91, 155, 213, .08);
+  --result-win-border: rgba(91, 155, 213, .2);
+  --result-loss: #e84057;
+  --result-loss-strong: #e84057;
+  --result-loss-bg: rgba(232, 64, 87, .08);
+  --result-loss-border: rgba(232, 64, 87, .2);
+  --result-draw: var(--text-secondary);
+  --result-draw-bg: var(--surface-card);
+  --result-draw-border: var(--border-default);
+  --team-blue: var(--result-win);
+  --team-blue-strong: var(--result-win);
+  --team-blue-bg: var(--result-win-bg);
+  --team-blue-border: var(--result-win-border);
+  --team-red: var(--result-loss);
+  --team-red-strong: var(--result-loss);
+  --team-red-bg: var(--result-loss-bg);
+  --team-red-border: var(--result-loss-border);
+  --kda-good: #c8963c;
+  --kda-great: #7ec8d8;
+  --kda-perfect: #88d4a0;
+  --status-live: #88d4a0;
+  --status-warning: #c8963c;
+
+  /* Artwork has its own contrast layer; photos/platform marks keep their colors. */
+  --overlay-backdrop: rgba(0, 0, 0, .72);
+  --text-on-art: #cdd0df;
+  --art-surface: #19191940;
+  --art-disc-bg: #ffffff13;
+  --art-disc-border: #ffffff55;
+  --art-divider: #ffffff30;
+  --art-profile-overlay: linear-gradient(90deg, #0d0e14e6, #0d0e1499 48%, #0d0e14b3), linear-gradient(0deg, #0d0e14f2 8%, #0d0e144d 76%);
+  --art-fixture-overlay: linear-gradient(90deg, #0d0e14cc, #0d0e1499 50%, #0d0e14cc), linear-gradient(0deg, #0d0e14e6, #0d0e1433 85%);
+
+  /* Compatibility bridges. New CSS should reference the roles above directly. */
+  --surface-panel: var(--surface-card);
+  --surface-panel-soft: var(--surface-raised);
+  --surface-border: var(--border-default);
+  --color-ink-950: var(--surface-base);
+  --color-ink-900: var(--surface-card);
+  --color-ink-800: var(--surface-raised);
+  --color-ink-700: var(--border-default);
+  --color-ink-600: var(--text-muted);
+  --color-ink-500: var(--text-muted);
+  --color-ink-400: var(--text-secondary);
+  --color-ink-300: var(--text-secondary);
+  --color-ink-200: var(--text-primary);
+  --color-ink-100: var(--text-primary);
+  --color-accent-300: var(--badge-text);
+  --color-accent-400: var(--badge-text);
+  --color-accent-500: var(--badge-border);
+  --color-accent-600: var(--badge-border);
+  --color-win: var(--result-win-strong);
+  --color-lose: var(--result-loss-strong);
+}
+
+/* LoL uses the official homepage gold; common tools use a pale blue. */
+html:has([data-site-theme="lol"]) {
+  --accent-primary: #c8aa6e;
+  --accent-hover: #d3bb8b;
+}
+html:has([data-site-theme="shared"]) {
+  --accent-primary: #acc8ed;
+  --accent-hover: #bad5f7;
+}

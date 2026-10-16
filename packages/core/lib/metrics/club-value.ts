@@ -177,13 +177,26 @@ export function decomposeChange(prev: DayHoldings, cur: DayHoldings, priceAt: Pr
  * 등락 — 기준일(day 에서 n일 전) 이하의 가장 최근 값과 비교한다. 그런 값이 없으면 null
  * (기록이 그만큼 쌓이지 않았다 — 0% 로 쓰지 않는다, 원칙 3).
  */
-export function changeOver(series: { day: string; value: number }[], days: number): { delta: number; pct: number; since: string } | null {
+export function changeOver(series: { day: string; value: number }[], days: number): { delta: number; pct: number; since: string; until: string } | null {
   if (series.length < 2) return null;
   const last = series.at(-1)!;
   const cutoff = shiftDay(last.day, -days);
   const base = [...series].reverse().find((p) => p.day <= cutoff);
   if (!base || base.value <= 0) return null;
-  return { delta: last.value - base.value, pct: (last.value - base.value) / base.value * 100, since: base.day };
+  return { delta: last.value - base.value, pct: (last.value - base.value) / base.value * 100, since: base.day, until: last.day };
+}
+
+/** 최근 n일 안의 수집분만 비교한다. 시작일이 미수집이어도 기간 밖 기록으로 늘리지 않는다.
+ * series는 날짜 오름차순. 화면에는 change.since부터 history의 마지막 날까지를 실제 비교 기간으로 표시한다. */
+export function valueChangeWithin(series: { day: string; value: number }[], days: number, endDay: string): {
+  history: { day: string; value: number }[];
+  change: ReturnType<typeof changeOver>;
+} {
+  const startDay = shiftDay(endDay, -days);
+  const history = series.filter(p => p.day >= startDay && p.day <= endDay).sort((a,b) => a.day.localeCompare(b.day));
+  const first = history[0], last = history.at(-1);
+  if (!first || !last || first.day === last.day) return { history, change: null };
+  return { history, change: first.value > 0 ? { delta: last.value - first.value, pct: (last.value - first.value) / first.value * 100, since: first.day, until: last.day } : null };
 }
 
 /** "2026-10-02" ± n일. */
@@ -207,3 +220,6 @@ export function formatWon(value: number): string {
   if (man > 0) return `${sign}${n(man)}만${rest ? ` ${n(rest)}` : ""}`;
   return `${sign}${n(rest)}`;
 }
+
+/** 구단가치 최근 7일. 메인·순위·상세가 같은 달력 경계를 쓴다. */
+export const change7d = (series: { day: string; value: number }[], today: string) => valueChangeWithin(series, 7, today);

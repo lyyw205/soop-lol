@@ -25,6 +25,19 @@ type Tx = postgres.TransactionSql | postgres.Sql;
 export const normName = (s: string | null | undefined): string =>
   String(s ?? "").normalize("NFKC").replace(/[\s\-_.]+/gu, "").toLowerCase();
 
+/**
+ * normName 과 같은 정규화를 SQL 로 — 이름 전체를 받아 오지 않고 DB 에서 찾는 이름만 거르려고 쓴다(전송량, 2026-10-12).
+ * ★ JS 의 \s 중 NFKC 뒤에도 남는 공백(U+1680·U+2028·U+2029·U+FEFF)은 직접 적었다(나머지 특수 공백은 NFKC 가 보통 공백으로 바꾼다).
+ * ★ SQL lower() 는 DB 로캘을 따른다 — 운영(Supabase)은 İ·Σ 까지 JS 와 같았지만 C 로캘(PGlite)은 ASCII 만 바꾼다.
+ *   그래서 찾는 이름이 로캘과 무관한 글자(DB_SAFE_NAME)로만 돼 있을 때만 DB 에서 거르고, 아니면 예전처럼 전체를 받아 TS 로 거른다.
+ *   걸러 온 줄도 normName 으로 다시 확인한다. 대조는 verify:db(verifyNormNameSqlDb).
+ */
+export const NORM_NAME_STRIP_RE = String.raw`[\s\u1680\u2028\u2029\ufeff_.-]+`;
+export const normNameSql = (sql: Tx, column: string) =>
+  sql`lower(regexp_replace(normalize(${sql(column)}, NFKC), ${NORM_NAME_STRIP_RE}, '', 'g'))`;
+/** 정규화한 이름이 이 글자들로만 돼 있으면 어느 로캘에서도 SQL 정규화가 normName 과 같다(대소문자가 없거나 ASCII). */
+export const DB_SAFE_NAME = /^[a-z0-9\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]*$/u;
+
 /** 정규화한 이름 → 확정된 사람 id. 요청한 이름만 담는다. */
 export async function knownNameOwnersInTx(tx: Tx, names: Iterable<string>): Promise<Map<string, string>> {
   const want = new Set([...names].map(normName).filter(Boolean));
@@ -35,19 +48,24 @@ export async function knownNameOwnersInTx(tx: Tx, names: Iterable<string>): Prom
   const unowned = new Map<string, number>();          // 이름 → 주인 없는 계정 수
   const add = (m: Map<string, Set<string>>, k: string, v: string) => { if (!m.has(k)) m.set(k, new Set()); m.get(k)!.add(v); };
 
+  // 찾는 이름만 DB 에서 거른다 — 예전엔 붙은 자리 이름·라이엇 이름 전체(약 0.1MB)를 저장마다 받았다.
+  // 로캘에 따라 SQL 정규화가 달라질 수 있는 글자가 섞이면 전체를 받는다(위 DB_SAFE_NAME).
+  const wanted = [...want];
+  const inDb = wanted.every((w) => DB_SAFE_NAME.test(w));
+  const only = (column: string) => inDb ? tx`AND ${normNameSql(tx, column)} = ANY(${wanted})` : tx``;
   for (const r of await tx<{ name: string; sid: string }[]>`
     SELECT DISTINCT observed_name AS name, streamer_id::text AS sid FROM match_participant
-     WHERE observed_name IS NOT NULL AND streamer_id IS NOT NULL`) {
+     WHERE observed_name IS NOT NULL AND streamer_id IS NOT NULL ${only("observed_name")}`) {
     const k = normName(r.name); if (want.has(k)) add(seats, k, r.sid);
   }
   for (const r of await tx<{ name: string; sid: string | null }[]>`
     SELECT ra.game_name AS name, sa.streamer_id::text AS sid FROM riot_account ra
       LEFT JOIN streamer_account sa ON sa.puuid = ra.puuid AND sa.active_to IS NULL
-     WHERE ra.game_name IS NOT NULL
+     WHERE ra.game_name IS NOT NULL ${only("ra.game_name")}
     UNION ALL
     SELECT n.game_name, sa.streamer_id::text FROM riot_account_name n
       LEFT JOIN streamer_account sa ON sa.puuid = n.puuid AND sa.active_to IS NULL
-     WHERE n.game_name IS NOT NULL`) {
+     WHERE n.game_name IS NOT NULL ${only("n.game_name")}`) {
     const k = normName(r.name); if (!want.has(k)) continue;
     if (r.sid) add(owned, k, r.sid); else unowned.set(k, (unowned.get(k) ?? 0) + 1);
   }

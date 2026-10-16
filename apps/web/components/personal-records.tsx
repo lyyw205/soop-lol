@@ -1,3 +1,4 @@
+import { isLaneMatchup } from "@soop-lol/core/lib/contract/client";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { RecordOverviewCard, RecordTimeline, RecordTimelineRow, RecordTimelineYear } from "../../../packages/ui/record-structure";
 import type { PublicRosterEntry } from "@soop-lol/core/lib/contract";
@@ -9,7 +10,7 @@ import { CATEGORY_LABEL, RIFT_MATCH_CATEGORIES, expandCategory, type MatchCatego
 import { rawWinRate } from "@soop-lol/core/lib/metrics/affinity";
 import { isStandaloneSet, setLabel } from "@soop-lol/core/lib/metrics/set-label";
 import { kstDateString } from "@soop-lol/core/lib/time";
-import { formatBadge, isRepeatedDate, matchOutcome, OUTCOME_LABEL } from "../../../packages/ui/match-row-model";
+import { formatBadge, isRepeatedDate, matchOutcome, matchOutcomeLabel } from "../../../packages/ui/match-row-model";
 import type { PersonalCategoryRecord, PersonalMatch } from "@soop-lol/core/lib/db/personal";
 import type { HrefFor } from "./profile";
 
@@ -76,8 +77,8 @@ export function PersonalMatchHistory({ matches, rosters, streamerId, streamerNam
   let previousDate = "";
   return <RecordTimeline>
     {matches.map((m) => {
-      const result = matchOutcome(m.set_wins, m.sets);
-      const resultLabel = OUTCOME_LABEL[result];
+      const result = matchOutcome(m.set_wins, m.sets, m.category === "land");
+      const resultLabel = matchOutcomeLabel(m.set_wins, m.sets, m.category === "land");
       const date = kstDateString(m.played_at).replaceAll("-", ".");
       const matchYear = date.slice(0, 4);
       const showYear = previousYear !== matchYear;
@@ -104,7 +105,7 @@ export function PersonalMatchHistory({ matches, rosters, streamerId, streamerNam
           if (player.team_name) (sameTeam ? ownTeams : otherTeams).add(player.team_name);
           // ★ 맞라인 = 다른 팀 + **같은 포지션**. core 의 isLaneMatchup() 과 같은 규칙이고,
           //   포지션이 비어 있으면(판독 실패) 아무것도 세지 않는다 — 원칙 10.
-          if (!sameTeam && me.team_position && player.team_position === me.team_position) {
+          if (isLaneMatchup({ teamId: me.team_id, teamPosition: me.team_position ?? undefined, individualPosition: me.individual_position ?? undefined }, { teamId: player.team_id, teamPosition: player.team_position ?? undefined, individualPosition: player.individual_position ?? undefined })) {
             const name = player.display_name ?? player.observed_name;
             if (name) laneRivals.set(name, (laneRivals.get(name) ?? 0) + 1);
           }

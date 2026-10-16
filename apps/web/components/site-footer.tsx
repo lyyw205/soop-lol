@@ -1,13 +1,14 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { gameHomeHref, type SiteGame } from "@soop-lol/core/lib/site-paths";
+import { gameHomeHref, lobbyHref, type SiteGame } from "@soop-lol/core/lib/site-paths";
 
 /**
- * 데이터 출처 고지는 그 화면에 나오는 게임 것을 쓴다. 로비는 두 게임 숫자를 같이 보여주므로 둘 다 쓴다.
+ * 게임 선택만 있는 입구에는 푸터를 두지 않는다. 기록 화면의 고지는 해당 게임 것을 쓴다.
  */
 export function SiteFooter() {
   const pathname = usePathname();
+  if (pathname === lobbyHref()) return null;
   const inside = (game: SiteGame) => pathname === gameHomeHref(game) || pathname.startsWith(`${gameHomeHref(game)}/`);
   const fc = !inside("lol");
   const lol = !inside("fconline");

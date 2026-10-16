@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { matchModuleRoute } from "@soop-lol/modules/registry";
 import { moduleUi } from "@soop-lol/modules/ui";
+import { navigationSite } from "@soop-lol/core/lib/site-paths";
 
 import { SiteHeader } from "@/components/public";
 import { roleHref } from "@/lib/module-links";
@@ -29,7 +30,9 @@ async function resolve(props: Props) {
   const hit = matchModuleRoute((await props.params).path);
   const load = hit?.module.site === "platform" ? moduleUi(hit.module.name) : undefined;
   if (!hit || !load) return null;
-  return { params: hit.params, searchParams: await props.searchParams, ui: await load() };
+  const query = await props.searchParams;
+  const site = navigationSite(query);
+  return { params: hit.params, searchParams: { ...query, site }, site, ui: await load() };
 }
 
 export async function generateMetadata(props: Props) {
@@ -43,11 +46,11 @@ export default async function ModuleRoutePage(props: Props) {
   if (!r) notFound();
   const View = r.ui.default;
   return (
-    <>
-      <SiteHeader site="platform" />
+    <div>
+      <SiteHeader site={r.site} theme="shared" />
       <main className="arena-shell">
         <View params={r.params} searchParams={r.searchParams} roleHref={roleHref} />
       </main>
-    </>
+    </div>
   );
 }
