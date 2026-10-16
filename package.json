@@ -72,7 +72,6 @@
     "ck:link-known": "node --env-file-if-exists=apps/web/.env.local scripts/ck-link-known.ts",
     "//ops:usage": "★ 운영 DB 점검 — 잠금(기본값·출처·Supabase 관리 상태)·용량(템플릿 포함 10진 MB)·물리 디스크·큰 표·증가 속도. --gate 는 조사 세션 전 관문(멈춤=3), --record 는 정기 기록. 관리 API 토큰은 ~/.config/soop-lol/ops.env.",
     "ops:usage": "node --env-file-if-exists=apps/web/.env.local --env-file-if-exists=$HOME/.config/soop-lol/ops.env scripts/ops-usage.ts",
-    "trim:participant-detail": "node --env-file-if-exists=apps/web/.env.local scripts/trim-participant-detail.ts",
     "ck:name": "node --env-file-if-exists=apps/web/.env.local scripts/ck-name.ts",
     "ck:dedupe": "node --env-file-if-exists=apps/web/.env.local scripts/ck-dedupe.ts",
     "//ck:scan": "★ 한 채널의 픽셀 거름망을 진단한다. 저장하지 않는다. ⚠ 거름망은 **추가로 볼 자리를 제안하는 신호**지 탐색 범위를 깎는 조건이 아니다 — 실측 오탐 67%.",
