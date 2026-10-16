@@ -94,10 +94,10 @@
 
 /* 세트·시리즈 전적(RecordPair) — 칸의 작은 span 규칙이 부품 글자까지 줄이지 않게 되돌린다. */
 .personal-profile-card .personal-stat-grid .record-pair { margin-top: 7px; }
-.personal-profile-card .personal-stat-grid .record-pair dd { font-size: 15px; }
+.personal-profile-card .personal-stat-grid .record-pair dd { font-size: var(--type-body); }
 .personal-profile-card .personal-stat-grid .record-pair span.record-pair-part { font-size: inherit; color: var(--text-primary, #e4ebf3); }
 .personal-profile-card .personal-stat-grid .record-pair span.record-pair-part[data-part="unknown"] { color: var(--text-muted, #8a99ab); }
-.personal-profile-card .personal-stat-grid .record-pair dt { font-size: 10px; }
+.personal-profile-card .personal-stat-grid .record-pair dt { font-size: var(--type-micro); }
 @media (max-width: 640px) {
-  .personal-profile-card .personal-stat-grid .record-pair dd { font-size: 12px; }
+  .personal-profile-card .personal-stat-grid .record-pair dd { font-size: var(--type-meta); }
 }

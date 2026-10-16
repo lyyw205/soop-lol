@@ -67,7 +67,7 @@ export async function listStreamerCards(opts: { q?: string } = {}): Promise<Stre
   const sql = db();
   const q = opts.q?.trim();
   // ★ 화면이 쓰는 칸만 읽는다. 예전엔 경기 수·조우 수도 사람마다 셌는데 목록 화면은 둘 다 쓰지 않았다(카드 시절의 흔적).
-  //   게다가 core_public.match_participant 의 streamer_id 는 COALESCE 계산값이라 인덱스를 못 탄다 — 한 명 세는 데 9.6초,
+  //   게다가 옛 참가자 공개 뷰의 streamer_id 는 COALESCE 계산값이라 인덱스를 못 탄다 — 한 명 세는 데 9.6초,
   //   공개 큐 1.6만 경기가 처음 들어온 날(2026-10-02) 820명분이 문장 시간 제한에 걸려 목록이 500 이었다.
   return sql<StreamerCard[]>`
     SELECT s.streamer_id, s.slug, s.display_name, s.aliases, s.is_pro, s.team_name, s.profile_image_url,
