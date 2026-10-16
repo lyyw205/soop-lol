@@ -260,7 +260,7 @@ export { getPublicScheduleEntry, listPublicSchedule, listPublicScheduleChanges, 
 export type { PublicScheduleChange, PublicScheduleEntry, PublicScheduleSlot, PublicScheduleQuery } from "../db/schedule-public.ts";
 export {
   addDays, daysBetween, entryPeriod, entryState, kstClock, kstDayStart, slotPhase, slotTimeLabel,
-  ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL, SCHEDULE_KIND_LABEL, SCHEDULE_ROLE_LABEL,
+  ENTRY_STATE_LABEL, SCHEDULE_GAME_LABEL, scheduleFormatLabel, scheduleFormatOptionLabel, scheduleFormats, SCHEDULE_ROLE_LABEL,
   SCHEDULE_GAMES, describeChange,
 } from "../metrics/schedule.ts";
 export type { EntryState, ScheduleGame, SlotPhase } from "../metrics/schedule.ts";
