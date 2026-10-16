@@ -6,7 +6,8 @@
 | --- | --- |
 | `record-layout.tsx` | 화면 제목, 본문·우측 컬럼 배치 |
 | `record-search.tsx` | 개인 기록/상대전적 검색과 대상 선택 |
-| `record-filters.tsx` | 카테고리·연도 컨트롤과 링크형 어댑터 |
+| `record-filters.tsx` | 롤 맵 탭(협곡/칼바람)·진행 방식 선택(`전체` + format.ts 칩 순서)·기간 자리와 링크형 어댑터 |
+| `record-pair.tsx` | 세트·시리즈 전적을 늘 나란히 — `tally` 결과를 통째로 받는다. 승·무·패·미상을 숨기지 않는다(`record-pair-model.ts`) |
 | `record-sidebar.tsx` | 프로필, 수상 경력, 모스트 챔피언 표시 |
 | `record-profile-info.tsx` | 개인 프로필 카드와 상대전적 사이드바에서 공유하는 챔피언·수상 목록 |
 | `avatar.tsx` | 프로필 이미지, 방송국 이미지 URL, 이미지 실패 대체 표시 |
