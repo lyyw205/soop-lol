@@ -37,6 +37,7 @@ SOOP 스트리머들의 롤 데이터를 모아 **커리어**와 **스트리머 
 | FC 온라인 — 구단가치·스쿼드·시세(공식 홈페이지) | 2026-10-02 첫 수집(16계정, 카드 379장). 주기 실행은 서버 배포 때(구단 2시간 · 시세 하루 1회). 그 전엔 손으로 `worker -- fco-club` | [docs/FCO-CLUB-VALUE-PLAN.md](docs/FCO-CLUB-VALUE-PLAN.md) |
 | **롤 공개 큐 — Riot API(지명 수집)** | 전원 수집은 없앴다(2026-10-16 사용자 결정, 0089). 경기 기록은 지명(0090 — 목적 하나 + 사람 + 큐 + 기간, 사람의 연결 계정 전부)만 — 첫 지명은 솔랭 도전 `ttgyo-duo`. 다루기는 `npm run collect`. 랭크 점수는 연결 계정 전원 매일. Riot 키 상태는 docs/SETUP.md §1 | [docs/COLLECTION-DESIGNATION-PLAN.md](docs/COLLECTION-DESIGNATION-PLAN.md) |
 | **커뮤니티 — 회원·글·댓글·신고** | **코드 완성·합침**(2026-10-08). 운영 DB 적용 완료(0081·0082 — 다음 마이그레이션 번호는 0091 — 2026-10-16 0088·0089·0090 적용) · **공개 전** — 로그인 앱(카카오·구글) 미등록 · 정리 타이머는 가입을 열 때 설치 · 운영 DB 에 미리보기 샘플 글 — 가입 열기 전 `scripts/community-samples.ts --remove` · 플랫폼 모듈 `community` + 기록은 core | [docs/COMMUNITY-PLAN.md](docs/COMMUNITY-PLAN.md) |
+| **사용자 제보** | **1단계 코드 완성**(2026-10-16, 0093) — 로그인 회원의 경기 고치기. 기존 검수 경로로 바로 반영 + **확인 전** 표시(목록에 보이고 집계에서 빠짐), 운영자가 확인·반려(되돌리기). 중복 막기 네 겹. 공개는 로그인 앱 등록 뒤 | [docs/USER-SUBMISSION-PLAN.md](docs/USER-SUBMISSION-PLAN.md) |
 | 롤 내전 — 토너먼트 코드 | 미시작. Production Key 가 필요하고 그 심사 요건이 "동작하는 사이트"라 **배포(M4) 뒤에만** 가능하다. VOD 판독과는 별개 경로다 | [docs/TOURNAMENT-CODE.md](docs/TOURNAMENT-CODE.md) |
 
 시한부인 것 (Riot 수집을 돌릴 때):
@@ -95,6 +96,7 @@ npm run worker -- rank | live | backfill | derive
 5. **집계는 원본에서 뷰로 계산한다 — 저장된 파생 사본을 두지 않는다.** 원본은 `match`·`match_participant`.
    조우·챔피언 통계 파생 표는 0089 에서 없앴다(원본과 다른 길로 만들어져 숨긴 계정이 새던 구조). 공개 집계는
    `core_public.versus_set`·`versus_pair_set` + `metrics/tally.ts` 만 — 운영 규모 실측 질의당 200ms 이하. 느려지면 색인 → 그래도면 물질화 뷰 하나.
+   **확인 전(회원 제보가 바꾸고 운영자가 아직 안 본) 판은 세지 않는다** — 집계 뷰가 빼고 `tally`·`counted` 가 뺀다. 목록은 `*_row` 뷰(`listed`)로 보이게만 한다. 화면이 pending 으로 직접 거르지 않는다(`verify:modules`).
 6. **계산식은 `packages/core`가 단일 출처다.** 웹과 워커가 같은 함수를 쓴다.
    상성지수·`lp_absolute`·맞라인 판정을 양쪽에 따로 구현하면 반드시 어긋난다.
 7. **내전 집계와 개인 기록을 섞지 않는다.** `match.scope`(versus = 시리즈 안 내전 세트 / personal = 지명한 개인 기록)로 갈린다.
