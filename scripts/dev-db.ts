@@ -68,7 +68,6 @@ if (process.env.DEV_DB_SEED !== "0") {
     INSERT INTO career_event (streamer_id, title, placement, role)
     SELECT s.id, '2026 SOOP 멸망전', '준우승', '선수' FROM streamer s WHERE s.slug = 'sample_b';
 
-    INSERT INTO ingest_cursor (puuid) VALUES (repeat('a', 78)), (repeat('b', 78));
   `);
 
   await seedCkReview();

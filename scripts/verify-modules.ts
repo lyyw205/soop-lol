@@ -478,6 +478,8 @@ console.log("\n  [옛 분류 체계 금지]");
   for (const file of files) {
     const lines = readFileSync(join(ROOT, file), "utf8").split("\n");
     lines.forEach((line, i) => {
+      // 주석 줄은 건너뛴다 — 옛 이름이 왜 없어졌는지 설명하는 이력은 남아야 한다. 코드·SQL 문자열만 본다.
+      if (/^\s*(\/\/|\*|\/\*|#|--)/.test(line)) return;
       for (const [re, why] of FORBIDDEN) if (re.test(line)) check(`${file}:${i + 1}: ${re.exec(line)![0]}`, false, why);
     });
   }

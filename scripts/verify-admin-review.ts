@@ -23,7 +23,7 @@ try {
     sides: [{ nickname: '검수 A', score: 2, streamerSlug: 'admin-a', basis: 'manual' }, { nickname: '검수 B', score: 1, streamerSlug: 'admin-b', basis: 'manual' }], evidence: [{ observed: 'fixture' }] });
   const current = async (id = ids[0]) => (await B.buildMatchUnits([id]))[0];
   let m = await current();
-  await C.applyFcoMatchContext({ provider_match_id: ids[0], conclusion: 'casual', note: 'test', expectedVersion: m.context_version });
+  await C.applyFcoMatchContext({ provider_match_id: ids[0], conclusion: 'unresolved', note: 'test', expectedVersion: m.context_version });
   m = await current();
   await B.setFcoMatchCompleted(ids[0], true, m.review_version);
   assert.equal((await current()).context.judgment?.created_by, 'auto');
@@ -41,7 +41,7 @@ try {
   const before = await sql`SELECT count(*)::int n FROM review_change WHERE entity = 'classification'`;
   await assert.rejects(C.applyFcoMatchContexts([
     { provider_match_id: ids[0], conclusion: 'unresolved', note: 'first write' },
-    { provider_match_id: ids[1], conclusion: 'casual', note: '' },
+    { provider_match_id: ids[1], conclusion: 'unresolved', note: '' },
   ]), /note/);
   assert.equal((await sql`SELECT count(*)::int n FROM review_change WHERE entity = 'classification'`)[0].n, before[0].n, 'bulk failure rolls back every match');
   const session = (await SS.listFcoSessions()).find(s => s.match_ids.includes(ids[0]))!;

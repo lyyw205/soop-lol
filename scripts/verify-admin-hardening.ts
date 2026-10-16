@@ -23,7 +23,7 @@ try {
   await saveFcoMatch(detail);
   const id = 'fco:hard';
   const row = async () => (await sql`SELECT review_version, review_completed_at, reviewed_at, context_review_version, context_review_completed_at FROM match WHERE match_id = ${id}`)[0];
-  await C.applyFcoMatchContext({ provider_match_id: id, conclusion: 'casual', note: 'fixture' });
+  await C.applyFcoMatchContext({ provider_match_id: id, conclusion: 'unresolved', note: 'fixture' });
   await C.approveFcoContext(id, (await row()).context_review_version);
   await B.setFcoMatchCompleted(id, true, (await row()).review_version);
   const before = await row();

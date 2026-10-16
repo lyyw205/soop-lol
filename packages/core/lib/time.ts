@@ -16,7 +16,7 @@ export function kstDateString(at: Date): string {
   return new Date(at.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
 }
 
-/** KST 기준 연도. champion_stat.season 라벨에 쓴다. */
+/** KST 기준 연도. 화면의 연도 표시에 쓴다. */
 export function kstYear(at: Date): number {
   return new Date(at.getTime() + KST_OFFSET_MS).getUTCFullYear();
 }

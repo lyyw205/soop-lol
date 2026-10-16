@@ -41,7 +41,7 @@ const byId = new Map<number, Champion>(CHAMPIONS.map((c) => [c.id, c]));
 
 /**
  * 한글(또는 영문) 이름으로 챔피언을 찾는다. **모르면 `null`** — 0 이나 추측을 돌려주지 않는다.
- * 0 은 '모른다' 라는 뜻으로 이미 쓰이고 있어서(champion_stat 이 걸러낸다),
+ * 0 은 '모른다' 라는 뜻으로 이미 쓰이고 있어서(챔피언 집계가 걸러낸다),
  * 여기서 0 을 내면 오타가 '알 수 없는 챔피언' 으로 조용히 저장된다.
  */
 export function championByName(name: string): Champion | null {
