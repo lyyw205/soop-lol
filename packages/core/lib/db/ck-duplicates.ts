@@ -48,8 +48,70 @@ type Tx = postgres.TransactionSql;
 /** 같은 날짜 판정이 24시간을 넘지 않으므로 그 안에서만 짝을 본다(시각 순서로 — 경기 ID 순서가 아니다). */
 const PAIR_HORIZON_MS = 26 * 3600_000;
 
+/**
+ * DB 에서 먼저 거르는 짝의 하한 — 판정(isDuplicateGame)이 참이려면 두 경기가 (승패·챔피언) 묶음이나
+ * (승패·K/D/A) 묶음을 **이만큼 이상 공유해야 한다.** 이름 무관 일치 8개는 (승패·챔피언) 8개를 품고,
+ * 사람 대응 일치 6개(kda·champ)는 1:1 대응이라 같은 묶음 공유 수를 넘을 수 없다. 그래서 이 조건으로 거르면
+ * 판정이 참인 짝을 하나도 놓치지 않는다 — 최종 판정은 아래 TS 가 그대로 한다.
+ */
+const PREFILTER_SHARED_MIN = 6;
+
+/** DB 가 고른 후보 짝 — 시각 순서(앞 경기 a, 뒤 경기 b). 판정 전 단계라 검증에서도 쓴다. */
+export async function listDuplicatePairCandidates(): Promise<{ a: string; b: string }[]> {
+  const sql = db();
+  // 짝을 볼 대상 — 공개 수기 LoL 경기, 그리고 숨겼지만 근거가 남고 아직 합치지 않은 경기.
+  const eligible = sql`
+    m.game_code = 'lol' AND m.source = 'manual'
+    AND (m.visibility = 'public'
+      OR ((EXISTS (SELECT 1 FROM match_evidence_frame f WHERE f.match_id = m.match_id)
+           OR EXISTS (SELECT 1 FROM match_pov v WHERE v.match_id = m.match_id))
+          AND NOT EXISTS (SELECT 1 FROM review_change c WHERE c.match_id = m.match_id AND c.field = 'merged_into')))`;
+  return sql<{ a: string; b: string }[]>`
+    WITH m AS (
+      SELECT m.match_id, m.game_creation, m.game_duration, m.visibility = 'public' AS public FROM match m
+       WHERE ${eligible} AND EXISTS (SELECT 1 FROM match_participant p WHERE p.match_id = m.match_id)
+    ), k AS (
+      SELECT p.match_id, 'c' AS t, (p.outcome = 'win')::text || '|' || p.champion_id AS key, count(*) AS n
+        FROM match_participant p JOIN m ON m.match_id = p.match_id
+       WHERE p.outcome IN ('win', 'loss') AND p.champion_id > 0
+       GROUP BY 1, 2, 3
+      UNION ALL
+      SELECT p.match_id, 'k', (p.outcome = 'win')::text || '|' || p.kills || '/' || p.deaths || '/' || p.assists, count(*)
+        FROM match_participant p JOIN m ON m.match_id = p.match_id
+       WHERE p.outcome IN ('win', 'loss') AND p.kills IS NOT NULL AND p.deaths IS NOT NULL AND p.assists IS NOT NULL
+       GROUP BY 1, 2, 3
+    ), near AS (
+      -- 예전 반복문과 같은 짝: 시각 순서(같으면 경기 ID 순서)로 앞뒤, 26시간 안, 한쪽은 공개, 길이를 알면 ±2초.
+      SELECT a.match_id AS a, b.match_id AS b, a.game_creation AS at_a, b.game_creation AS at_b
+        FROM m a JOIN m b
+          ON (a.game_creation, a.match_id) < (b.game_creation, b.match_id)
+         AND b.game_creation - a.game_creation <= ${`${PAIR_HORIZON_MS / 1000} seconds`}::interval
+         AND (a.public OR b.public)
+         AND NOT (a.game_duration IS NOT NULL AND b.game_duration IS NOT NULL AND abs(a.game_duration - b.game_duration) > 2)
+    ), shared AS (
+      -- 묶음 종류별 공유 수(같은 묶음이 여럿이면 적은 쪽 개수만큼 — bagOverlap 과 같은 셈)
+      SELECT n.a, n.b, n.at_a, n.at_b, ka.t, sum(least(ka.n, kb.n)) AS s
+        FROM near n
+        JOIN k ka ON ka.match_id = n.a
+        JOIN k kb ON kb.match_id = n.b AND kb.t = ka.t AND kb.key = ka.key
+       GROUP BY n.a, n.b, n.at_a, n.at_b, ka.t
+    )
+    SELECT a, b FROM shared
+     GROUP BY a, b, at_a, at_b
+    HAVING max(s) >= ${PREFILTER_SHARED_MIN}
+     ORDER BY at_a, a, at_b, b`;
+}
+
+/**
+ * ★ 전송량 (2026-10-12) — 예전엔 대상 수기 경기 전체(1,765경기 × 10명, 약 3.6MB)를 받아 JS 에서 짝을 지었다.
+ *   검수 화면을 열 때마다·ck:record --todo 마다 그만큼 나갔다(Free 전송량 5GB/월 초과). 이제 DB 가 위 하한으로
+ *   후보 짝만 고르고, 그 짝에 든 경기의 참가자만 받는다. 판정·출력 순서는 예전과 같다(운영 데이터로 대조함).
+ */
 export async function listDuplicateSuspects(): Promise<DuplicateSuspect[]> {
   const sql = db();
+  const pairs = await listDuplicatePairCandidates();
+  if (!pairs.length) return [];
+  const ids = [...new Set(pairs.flatMap((p) => [p.a, p.b]))];
   const rows = await sql<Row[]>`
     SELECT m.match_id, m.game_duration, m.game_creation, m.game_creation_precision, m.visibility = 'public' AS public,
            jsonb_agg(jsonb_build_object(
@@ -60,32 +122,24 @@ export async function listDuplicateSuspects(): Promise<DuplicateSuspect[]> {
            ) ORDER BY p.participant_id) AS participants
       FROM match m JOIN match_participant p ON p.match_id = m.match_id
       LEFT JOIN streamer_account sa ON sa.puuid = p.puuid AND sa.active_to IS NULL
-     WHERE m.game_code = 'lol' AND m.source = 'manual'
-       AND (m.visibility = 'public'
-         OR ((EXISTS (SELECT 1 FROM match_evidence_frame f WHERE f.match_id = m.match_id)
-              OR EXISTS (SELECT 1 FROM match_pov v WHERE v.match_id = m.match_id))
-             AND NOT EXISTS (SELECT 1 FROM review_change c WHERE c.match_id = m.match_id AND c.field = 'merged_into')))
-     GROUP BY m.match_id, m.game_duration, m.game_creation, m.game_creation_precision, m.visibility
-     ORDER BY m.game_creation, m.match_id`;
+     WHERE m.match_id = ANY(${ids})
+     GROUP BY m.match_id, m.game_duration, m.game_creation, m.game_creation_precision, m.visibility`;
+  const byId = new Map(rows.map((r) => [r.match_id, r]));
   const distinct = await sql<{ match_id: string; other: string }[]>`
     SELECT match_id, jsonb_array_elements_text(after) AS other
-      FROM review_change WHERE field = 'distinct_from' AND jsonb_typeof(after) = 'array'`;
+      FROM review_change WHERE field = 'distinct_from' AND jsonb_typeof(after) = 'array' AND match_id = ANY(${ids})`;
   const confirmedDifferent = new Set(distinct.flatMap((d) => [`${d.match_id}|${d.other}`, `${d.other}|${d.match_id}`]));
   const out: DuplicateSuspect[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const a = rows[i];
-    for (let j = i + 1; j < rows.length; j++) {
-      const b = rows[j];
-      if (b.game_creation.getTime() - a.game_creation.getTime() > PAIR_HORIZON_MS) break;
-      if (!a.public && !b.public) continue;
-      if (confirmedDifferent.has(`${a.match_id}|${b.match_id}`)) continue;
-      if (!withinDuplicateWindow({ at: a.game_creation, precision: a.game_creation_precision },
-        { at: b.game_creation, precision: b.game_creation_precision })) continue;
-      const counts = { ...duplicateParticipantCounts(a.participants, b.participants), blind: blindOverlap(a.participants, b.participants) };
-      if (!isDuplicateGame(a.game_duration, b.game_duration, counts)) continue;
-      out.push({ a: a.match_id, b: b.match_id, played_at: a.game_creation, ...counts, duration_a: a.game_duration, duration_b: b.game_duration,
-        hidden: a.public ? (b.public ? null : b.match_id) : a.match_id });
-    }
+  for (const pair of pairs) {
+    const a = byId.get(pair.a), b = byId.get(pair.b);
+    if (!a || !b) continue;
+    if (confirmedDifferent.has(`${a.match_id}|${b.match_id}`)) continue;
+    if (!withinDuplicateWindow({ at: a.game_creation, precision: a.game_creation_precision },
+      { at: b.game_creation, precision: b.game_creation_precision })) continue;
+    const counts = { ...duplicateParticipantCounts(a.participants, b.participants), blind: blindOverlap(a.participants, b.participants) };
+    if (!isDuplicateGame(a.game_duration, b.game_duration, counts)) continue;
+    out.push({ a: a.match_id, b: b.match_id, played_at: a.game_creation, ...counts, duration_a: a.game_duration, duration_b: b.game_duration,
+      hidden: a.public ? (b.public ? null : b.match_id) : a.match_id });
   }
   return out;
 }

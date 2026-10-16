@@ -108,8 +108,10 @@ API 경기 목록이 아니라 **VOD 를 받아** 그 안의 FC 경기를 찾는
 
 ## 음성 원문 — 기능을 켠 VOD
 
-`npm run ck:listen -- status --vod <번호>` 가 `active:true` 면 적용한다(롤 조사와 같은 스위치). 백필 실행기가 Claude 시작 전에 VOD 전체를
-전사해 둔다 — FC 방송은 FC 구간이 VOD 의 91~94% 라 구간만 고르지 않는다. 롤이 이미 전사한 VOD 는 같은 원문을 그대로 쓴다.
+`npm run ck:listen -- status --vod <번호>` 가 `active:true` 면 적용한다(롤 조사와 같은 스위치). 백필 실행기가 Claude 시작 전에
+**첫 FC 활동 30분 전부터 마지막 경기 끝까지**(`prepare --plan fc`, +5분 여유) 전사해 둔다 — 그 사이는 경기 내부까지 통째로라
+아래 필수 창은 항상 들어 있다. 그 밖(방송 앞부분 잡담·마지막 경기 뒤)이 필요하면 `npm run ck:listen -- prepare --vod N --between a:b`
+로 그 범위만 더 준비한 뒤 읽는다(차례를 기다릴 수 있다). 롤이 이미 전사한 VOD 는 같은 원문을 그대로 쓴다.
 **명령(read·페이지·ack·search)과 해석 원칙은 [공통 절차](../ck-local/listen.md)를 따른다.** 읽는 시점과 기록만 아래 FC 규칙이다.
 
 1. **필수 — 경기 앞 대화와 경기 사이 대화.** 첫 경기는 시작 전 30분(`read --vod N --before <첫 경기 시작초>`), 다음 경기부터는
@@ -129,6 +131,11 @@ API 경기 목록이 아니라 **VOD 를 받아** 그 안의 FC 경기를 찾는
    ```
 6. **도장** — `fco:context scan … --listen-read <ack 한 패킷ID,…>` 가 읽은 범위를 `transcript_read` 에, `asr` 를 `signals` 에 넣는다
    (ack 안 한 패킷이면 저장 전에 거부한다). 못 읽은 범위·사유는 `--listen-note "구간과 사유"`.
+   **`--status done` 은 관문을 거친다**(2026-10-14) — 이 VOD 의 화면 경기(`fcs:<vod>@<결과 화면초>`)로 필수 창의 바닥을 계산해
+   (`requiredFcWindows`: 킥오프가 결과 화면 9~15분 전 어디든 반드시 읽게 되는 부분, 경기가 없으면 `fc.json` 첫 FC 구간 앞 30분),
+   지금까지의 `transcript_read` 가 덮지 않으면 DB 에 쓰기 전에 거부하고 읽을 `--between` 을 알려 준다(아직 전사 전인 자리면
+   먼저 `prepare --between` 할 범위도 알려 준다). 전사에 실패한 자리만
+   `--listen-note` 를 붙여 넘어간다. 키워드 검색·샘플은 읽은 것으로 치지 않는다 — 경고만 하던 때 음성을 건너뛰고 done 을 찍은 VOD 가 나왔다.
 7. **준비 종료 코드가 실패여도 이미 전사된 원문은 읽는다.** 실패는 "이번에 새로 전사하지 못했다"는 뜻이지 원문이 없다는 뜻이 아니다.
    `status` 의 `coverage` 안에 든 필수 창은 위 1·2 대로 읽고, `missing` 에 걸린 부분만 확인 불가로 `--listen-note` 에 적는다.
    `missing` 은 무음이 아니다. 필수 창이 전부 `missing` 이면 사유를 남기고 화면 조사로 진행한다 — 음성이 없다고 FC 조사를 멈추지 않는다.

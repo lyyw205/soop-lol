@@ -46,12 +46,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import {
-  assertCandidateMatchesExistInTx, evidenceFrameIdsByPathInTx, findMatchesAround, getLeadWorkspace,
+  assertCandidateMatchesExistInTx, evidenceFrameIdsByPathInTx, findMatchesAround, getLeadSummary,
   linkParticipantsInTx, listEvidenceFramesInTx, markLeadScanInTx, mergeLeadCandidatesInTx,
   recordEvidenceFramesInTx, streamerIdBySlug, streamerIdBySlugInTx, upsertEventLeadInTx,
   upsertMatchFromScanInTx, lockCkMatchWritesInTx,
 } from "@soop-lol/core/lib/db/ck";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
+import { noteWriteBlocked } from "@soop-lol/core/lib/db/write-block";
 import { submitMatchPovInTx } from "@soop-lol/core/lib/db/ck-pov";
 import { resolveChampion } from "@soop-lol/core/lib/db/participant";
 import { knownNameOwnersInTx, normName } from "@soop-lol/core/lib/db/known-names";
@@ -851,13 +852,14 @@ try {
   // ★ 반영 결과를 **되읽어** 확인한다 (§3-D — 처리 응답을 확인하고, 실패를 성공으로 적지 않는다).
   //   그리고 미해결 후보를 끝에 다시 보여준다. 이게 다음 조사의 출발점이다.
   for (const leadId of touchedLeads) {
-    const ws = await getLeadWorkspace(leadId);
+    // 개수만 되읽는다 — 작업 화면 전체(getLeadWorkspace)를 받으면 저장마다 수백 KB 가 나갔다(전송량).
+    const ws = await getLeadSummary(leadId);
     if (!ws) { console.log(`⚠ 반영 뒤 단서를 되읽지 못했다: ${leadId}`); continue; }
-    const hidden = supersededIds(ws.candidates);
-    const open = ws.candidates.filter((c) => c.conclusion === "unresolved" && !hidden.has(c.id));
-    const unread = ws.frames.filter((f) => !f.read_at).length;
+    const candidates = Array.isArray(ws.lead.raw?.candidates) ? ws.lead.raw.candidates : [];
+    const hidden = supersededIds(candidates);
+    const open = candidates.filter((c) => c.conclusion === "unresolved" && !hidden.has(c.id));
     console.log(`\n${ws.lead.title}`);
-    console.log(`  프레임 ${ws.frames.length}장 (안 읽음 ${unread}) · 후보 ${ws.candidates.length} · 경기 ${ws.matches.length}`);
+    console.log(`  프레임 ${ws.frames}장 (안 읽음 ${ws.unread}) · 후보 ${candidates.length} · 경기 ${ws.matches}`);
 
     // ★ done 으로 저장했는데 요청 범위가 영상 끝까지 안 닿으면 셸은 이 VOD 를 partial 로 읽어 다시 연다.
     //   요청 범위는 실행기(준비 단계)가 정한다 — 세션이 못 고친다. 조용히 두지 않고 비 0 으로 끝낸다.
@@ -886,6 +888,8 @@ try {
     console.log(`\n검수: /admin/ck  — 들어간 경기는 이미 공개다. 틀린 것만 고치거나 빼면 된다.`);
   }
 } catch (error) {
+  // 쓰기가 막혀 실패했으면 표시를 남긴다 — 조사 실행기가 이 세션을 멈추고 새 세션을 띄우지 않는다(db/write-block.ts).
+  if (noteWriteBlocked(error, "ck:merge")) console.error("✖ 운영 DB 쓰기가 막혔다(읽기 전용·디스크 부족) — npm run ops:usage 로 확인");
   // 위에 찍힌 "단서 · 경기" 줄은 시도한 기록일 뿐이다. 커밋 전에 실패했으면 전부 되돌려졌다.
   if (!committed) {
     console.error(`\n✖ 반영하지 않았다 — 파일 전체를 되돌렸다. ${error.message}`);

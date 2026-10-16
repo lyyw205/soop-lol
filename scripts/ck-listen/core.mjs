@@ -60,6 +60,83 @@ export function before(start, previousEnd) {
   const from = previousEnd ?? Math.max(0, start - LOOKBACK_SECONDS);
   return merge([[from, start]]);
 }
+const intersect = (a, b) => subtract(a, subtract(a, b));
+// FC 한 판의 벽시계 길이 — 결과 화면에서 킥오프까지(docs/FCO-TIME-SAMPLES.md: 보통 9~12분, 연장·승부차기는 15분까지).
+// 스킬의 읽기 계획은 "결과 화면 −12분"을 시작으로 쓰고, 관문은 이 범위 어디에 킥오프가 있어도 반드시 읽게 되는 바닥만 검사한다.
+export const FC_MATCH_SECONDS = { min: 540, max: 900 };
+/**
+ * FC done 관문의 필수 음성 창 — 결과 화면 초(경기 끝)만 알 때.
+ * 첫 경기: [킥오프−30분, 킥오프] 를 가능한 모든 킥오프에 대해 겹친 [끝−9분−30분, 끝−15분].
+ * 다음 경기: [직전 결과 화면, 킥오프] 의 바닥 [직전 끝, 끝−15분]. 스킬의 −12분 계획(before)은 항상 이 바닥을 덮는다.
+ * 저장한 경기가 없으면 FC 화면이 처음 나온 지점 앞 30분(남의 경기 시청 등 — 화면만으로 닫지 않는다, 스킬 음성 7).
+ */
+export function requiredFcWindows(resultSecs, { firstFcScreen } = {}) {
+  const ends = [...new Set(resultSecs.filter((s) => Number.isFinite(s) && s >= 0))].sort((a, b) => a - b);
+  if (!ends.length) return Number.isFinite(firstFcScreen) && firstFcScreen > 0 ? before(firstFcScreen) : [];
+  const out = [];
+  let previous = null;
+  for (const end of ends) {
+    const from = previous ?? Math.max(0, end - FC_MATCH_SECONDS.min - LOOKBACK_SECONDS);
+    const to = end - FC_MATCH_SECONDS.max;
+    if (to > from) out.push([from, to]);
+    previous = Math.max(previous ?? 0, end);
+  }
+  return out.length ? merge(out) : [];
+}
+/**
+ * 받아쓰기 준비 범위 — 화면 지도에서 경기 활동이 있는 구간을 찾아 [첫 활동 −30분, 마지막 활동 끝] (+여유)만 받는다.
+ * 준비 시간의 대부분이 영상 조각 받기라, 경기 전 긴 잡담·마지막 경기 뒤는 받지 않는다(롤·FC 모두 약 절반, 2026-10-14 실측).
+ * ★ 경기 사이(지도가 경기라고 본 구간 포함)는 통째로 받는다. 지도의 경기·결과 화면에는 관전·다시보기 같은 남의 경기가
+ *   섞여 있어서, 그 내부를 빼면 세션이 "본인 경기 사이"로 읽어야 할 대화를 놓친다(경기 사이만 받으면 FC 관문 필수 창의 22%,
+ *   롤 세션 기록의 13% 가 빠졌다). 앞·뒤만 자르면 필수 창(첫 경기 앞 30분·경기 사이)은 항상 이 범위 안이다.
+ * 지도가 없으면 null — 호출자는 예전처럼 VOD 전체를 준비한다. 경기도 FC 화면도 없으면 [] — 준비할 것이 없다.
+ * 세션이 이 밖의 범위가 필요하면 prepare --between 으로 그 범위만 더 준비한다.
+ */
+export const PREPARE_MARGIN_SECONDS = 300;
+// 결과 화면만 보이고 경기 화면이 안 잡힌 롤 경기의 시작 — 긴 경기(약 50분)도 덮는다.
+const LOL_GAME_MAX_SECONDS = 3000;
+export function prepareRanges(root, vod, game) {
+  vod = vodKey(vod);
+  const local = join(root, "out/ck", vod, "local");
+  let activity, total;
+  if (game === "fc") {
+    const fc = json(join(local, "fc.json"));
+    const probe = json(join(root, "out/ck", vod, "probe.json"));
+    if (!fc || !Array.isArray(fc.results) || !probe?.total_sec) return null;
+    activity = [...fc.results.map(Number).map((end) => [end - FC_MATCH_SECONDS.max, end]), ...(fc.blocks ?? []).map((b) => [b.from, b.to])];
+    total = probe.total_sec;
+  } else if (game === "lol") {
+    const scan = json(join(local, "scan.json"));
+    if (!scan || String(scan.vod_id) !== vod || !Array.isArray(scan.map) || !(scan.total_sec > 0)) return null;
+    activity = [...scan.map.filter((x) => x.label === "ingame").map((x) => [x.from, x.to]),
+      ...(scan.candidates ?? []).map((c) => [c.from - LOL_GAME_MAX_SECONDS, c.to])];
+    total = scan.total_sec;
+  } else throw new Error("--plan: lol 또는 fc");
+  activity = activity.filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && b >= a);
+  if (!activity.length) return [];
+  const from = Math.max(0, Math.min(...activity.map(([a]) => a)) - LOOKBACK_SECONDS - PREPARE_MARGIN_SECONDS);
+  const to = Math.min(total, Math.max(...activity.map(([, b]) => b)) + PREPARE_MARGIN_SECONDS);
+  return to > from ? [[from, to]] : [];
+}
+/**
+ * done 도장 관문 — 필수 창 중 읽은 범위(transcript_read)에 없는 것을 둘로 가른다.
+ *   unavailable: 전사를 시도했는데 확보하지 못한 자리(failures, 전사 범위 밖) — 확인 불가 사유를 적으면 넘어간다.
+ *   unread: 전사돼 있거나 시도조차 안 한 자리 — 읽기 전에는 done 이 아니다. 그중 전사 안 된 자리는 unprepared(먼저 prepare --between).
+ */
+export function listenGate(root, vod, { required, read }) {
+  const notRead = required.length ? missingRanges(required, read) : [];
+  if (!notRead.length || !config(root, vod).active) return { unread: [], unavailable: [], unprepared: [] };
+  let failed = [], covered = [];
+  try {
+    const ctx = context(root, vod);
+    covered = coverage(ctx);
+    failed = merge(ctx.data.failures.map((f) => f.range).filter(([a, b]) => b > a));
+  } catch { /* 시간축·전사가 없다 = 시도하지 않았다 */ }
+  const unavailable = intersect(subtract(notRead, covered), failed).filter(([a, b]) => b - a >= GAP_TOLERANCE);
+  const unread = missingRanges(notRead, unavailable);
+  // unread 중 전사조차 안 된 자리 — 준비는 화면 지도의 필수 창만 하므로, 세션이 저장한 경기가 지도와 다르면 생긴다.
+  return { unread, unavailable, unprepared: missingRanges(unread, covered) };
+}
 export function context(root, vod) {
   vod = vodKey(vod);
   const base = join(root, "out/ck", vod, "listen");

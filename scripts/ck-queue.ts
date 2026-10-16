@@ -10,14 +10,15 @@
  *   npm run ck:queue -- snapshot|settle --key fc:<slug> --state <s.json>          # FC 세션 전후 · settle 0 진척 · 4 진척 없음
  *   npm run ck:queue -- reopen --vods <번호,…> --reason <왜> --state <s.json> [--apply]   # 끝난 롤 조사를 다시 연다(기본은 미리보기)
  *
- * `scripts/ck-auto.sh`(매일 아침 타이머)가 부른다. 대상 선정 상태는 --state 파일 하나다. DB 에 쓰는 건 access(접근 기록)·reopen(조사 다시 열기)뿐이다.
+ * `scripts/ck-auto.sh --poll`(매시간 타이머)이 plan --enqueue로 발견 목록을 보존한다.
+ * 대상 선정 상태는 --state 파일 하나다. DB 에 쓰는 건 access(접근 기록)·reopen(조사 다시 열기)뿐이다.
  *
  * ★ 매일 조사와 백필은 다른 일이다
  *   매일 조사 = 와치리스트 채널의 새 VOD 를 빠짐없이 따라간다. 백필 = 사용자가 정한 과거 기간을 메운다.
  *   예전엔 "최근 3일 + 기간 밖 running 전부" 를 집어서 ① PC·타이머가 3일 넘게 쉬면 그 사이 VOD 가 영영
  *   빠졌고(9/28~10/8 공백이 그렇게 생겼다) ② 백필이 보류한 VOD 까지 매 회차 다시 열었다.
  *   그래서 대상은 **채널의 "마지막으로 조사를 끝낸 VOD" 이후**이고, 백필의 running 은 줍지 않는다.
- *   매일 조사가 손댔다 못 끝낸 VOD 만 상태 파일(pending)로 기억해 다음 날 잇는다.
+ *   자동 조사가 발견한 미완료 VOD는 조사 시작 전부터 pending으로 기억해 다음 회차가 잇는다.
  *
  * ★ 완료 판정은 `vodWork`(core/metrics/ck-vod-status) 하나다 — 백필과 같은 함수라 한쪽이 끝낸 VOD 를
  *   다른 쪽이 다시 보지 않는다. 카테고리로 거르지 않는다(토크로 켜고 내전하는 방송이 있다).
@@ -33,19 +34,21 @@
 
 import { listWatched } from "@soop-lol/core/lib/db/watchlist";
 import { closeDb, db } from "@soop-lol/core/lib/db/client";
+import { noteWriteBlocked } from "@soop-lol/core/lib/db/write-block";
 import { listFcoContextQueue } from "@soop-lol/core/lib/games/fconline/context";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { kstDate, makeOpt } from "./lib/cli.mjs";
 import { CK_RECENT_DAYS, recentFrom, titleExclusion, vodWork, type VodReason } from "@soop-lol/core/lib/metrics/ck-vod-status";
 import { kstDateString } from "@soop-lol/core/lib/time";
 import { listBroadcasts } from "./lib/soop-vod.mjs";
-import { backfillContext, recordVodAccess, savedPovCounts, vodRaws } from "@soop-lol/core/lib/db/ck-backfill";
+import { backfillContext, lastFinishedScans, recordVodAccess, savedPovCounts, vodRaws } from "@soop-lol/core/lib/db/ck-backfill";
 import { madeProgress, progressKind, type VodWork } from "@soop-lol/core/lib/metrics/ck-vod-status";
 import { advanceGuard, guardBlocked, parseGuard, MAX_NO_OUTCOME_SESSIONS, type BackfillGuard } from "./lib/ck-backfill-guard.ts";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { rememberPending, vodTime, type PendingVod } from "./lib/ck-auto-queue.ts";
 
 const argv = process.argv.slice(2);
 const COMMAND = argv[0] && !argv[0].startsWith("--") ? argv[0] : "plan";
@@ -62,8 +65,8 @@ const GUARD_DIR = "out/ck/auto/guards";
 const TODAY = kstDate(0);
 
 interface State {
-  /** 매일 조사가 손댔지만 아직 안 끝난 VOD — 마지막 조사 지점과 상관없이 다음 날 잇는다. */
-  pending: Record<string, { channel_id: string; since: string }>;
+  /** 발견했지만 아직 안 끝난 VOD — 마지막 조사 지점이 앞서가도 잊지 않는다. */
+  pending: Record<string, PendingVod>;
   /** 연속 진척 없음 횟수. STALL_LIMIT 에 닿으면 건너뛴다. */
   stall: Record<string, { count: number; last: string }>;
   /** 세션 직전의 지문(snapshot). settle 이 비교한다. */
@@ -77,7 +80,9 @@ function loadState(): State {
 function saveState(s: State) {
   if (!STATE_PATH) return;
   mkdirSync(dirname(STATE_PATH), { recursive: true });
-  writeFileSync(STATE_PATH, JSON.stringify(s, null, 2));
+  const tmp = `${STATE_PATH}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(s, null, 2));
+  renameSync(tmp, STATE_PATH);
 }
 function writeOut(payload: unknown) {
   if (!WRITE) return;
@@ -103,16 +108,8 @@ async function plan(): Promise<number> {
   });
   const channels = watch.map((w) => w.channel_id!);
 
-  // 마지막 조사 지점 = 조사 도장이 있고 vodWork 가 할 일 없음으로 보는 VOD 중 가장 늦은 것.
-  const scanned = await sql<{ source_key: string; channel_id: string; observed_at: Date; raw: Record<string, any> }[]>`
-    SELECT source_key, channel_id, observed_at, raw FROM event_lead
-     WHERE source = 'vod_title' AND channel_id = ANY(${channels}) AND raw ? 'scan'`;
-  const mark = new Map<string, Date>();
-  for (const l of scanned) {
-    if (vodWork(l.raw, null).reason !== null) continue;
-    const prev = mark.get(l.channel_id);
-    if (!prev || l.observed_at > prev) mark.set(l.channel_id, l.observed_at);
-  }
+  // 마지막 조사 지점 = 조사 도장이 있고 vodWork 가 할 일 없음으로 보는 VOD 중 가장 늦은 것(채널마다 최신부터 몇 개씩만 받는다).
+  const mark = await lastFinishedScans(channels);
 
   const floor = kstDate(MAX_LOOKBACK);
   const truncated: string[] = [], clipped: string[] = [];
@@ -148,17 +145,25 @@ async function plan(): Promise<number> {
     const work = vodWork(byKey.get(it.key)?.raw, duration_sec);
     if (!work.reason) { done++; delete state.pending[it.key]; rmGuard(it.title_no); return; }
     if (guardBlocked(readGuard(it.title_no), work)) { skippedStall.push(`${it.key}(${it.streamer})`); return; }
-    queue.push({ ...it, reason: work.reason });
+    const item = { ...it, reason: work.reason };
+    queue.push(item);
+    if (argv.includes("--enqueue")) rememberPending(state.pending, { ...item, duration_sec }, TODAY);
   };
   for (const { duration_sec, ...v } of found) consider({ key: `vod:${v.title_no}`, ...v }, duration_sec);
   for (const key of orphanKeys) {
     const l = byKey.get(key);
     const w = watch.find((x) => x.channel_id === (l?.channel_id ?? state.pending[key].channel_id));
-    if (!l || !w) { delete state.pending[key]; continue; }  // 와치리스트에서 빠졌거나 단서가 없다
+    const saved = state.pending[key].item;
+    if (!w || (!l && !saved)) { delete state.pending[key]; continue; }
+    if (saved) {
+      consider({ ...saved, streamer: w.display_name, slug: w.slug }, saved.duration_sec ?? null);
+      continue;
+    }
+    if (!l) continue;
     consider({ key, title_no: Number(key.slice(4)), channel_id: l.channel_id, streamer: w.display_name, slug: w.slug,
       title: l.title, ended_at: l.observed_at.toISOString(), hours: 0, category: null }, null);
   }
-  queue.sort((a, b) => a.ended_at.localeCompare(b.ended_at));  // 오래된 것부터
+  queue.sort((a, b) => vodTime(a.ended_at) - vodTime(b.ended_at));  // 오래된 것부터
   saveState(state);
 
   console.log(`롤 와치리스트 ${watch.length}명 · VOD ${found.length}개(+이어받기 ${orphanKeys.length}) · 조사 끝 ${done} · 제목으로 제외 ${excluded} · 큐 ${queue.length}`);
@@ -253,7 +258,7 @@ async function finish(): Promise<number> {
  */
 async function reopen(): Promise<number> {
   const reason = opt("--reason", "").trim();
-  const vods = opt("--vods", "").split(",").map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0);
+  const vods = String(opt("--vods", "")).split(",").map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0);
   if (!reason || !vods.length || !STATE_PATH) throw new Error("--vods <번호,…> · --reason · --state 가 필요하다");
   const apply = argv.includes("--apply");
   const keys = vods.map((v) => `vod:${v}`);
@@ -346,6 +351,10 @@ try {
     if (!KEY || !STATE_PATH) throw new Error(`${COMMAND} 에는 --key 와 --state 가 필요하다`);
     code = COMMAND === "snapshot" ? await snapshot() : await settle();
   } else throw new Error(`알 수 없는 명령: ${COMMAND} (plan|fc|begin|finish|access|reopen|snapshot|settle)`);
+} catch (e) {
+  // 진척 도장을 못 쓰는 것도 쓰기 실패다 — 표시를 남겨 다음 세션을 막는다.
+  noteWriteBlocked(e, `ck:queue ${COMMAND}`);
+  throw e;
 } finally {
   await closeDb();
 }

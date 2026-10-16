@@ -125,7 +125,7 @@ export async function findVods(channelId, { since, onlyCk = true, maxPages = 30 
  *
  *     chapi /api/<ch>/vods/all          이 함수 (/vod/all/streamer)
  *     ─────────────────────────────     ──────────────────────────────
- *     클립·하이라이트까지 전부 섞임        **본방만**
+ *     클립·하이라이트까지 전부 섞임        거의 본방(클립이 드물게 섞인다 — file_type)
  *     10,000 건에서 잘린다(하드 상한)      5,272 건 = 9년치가 다 나온다
  *     그래서 6개월치밖에 못 본다           2017-06-24 부터 있다
  *     날짜·키워드 필터 없음               startDate·endDate·keyword 를 서버가 받는다
@@ -181,6 +181,8 @@ export async function listBroadcasts(channelId, { from = "", to = "", keyword = 
         category: u.vodCategory ?? null,
         views: v.count?.readCnt ?? 0,
         url: `https://vod.sooplive.com/player/${v.titleNo}`,
+        // REVIEW = 본방 다시보기. CLIP 도 드물게 섞인다(2026-10-15 실측: 두치와뿌꾸 2분 클립) — 클립은 방송 시작 시각이 없다.
+        file_type: u.fileType ?? null,
       });
     }
     const pages = j?.meta?.totalPages ?? 1;

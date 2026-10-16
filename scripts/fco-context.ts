@@ -510,14 +510,37 @@ async function scanCommand() {
   }
   const ranges = (v?: string) => (v ?? "").split(",").filter(Boolean).map((r) => r.split("-").map(Number) as [number, number]);
   // 음성 원문 열람 기록 — 롤 ck:local --finish 와 같은 함수. ack 안 한 패킷이면 DB 에 쓰기 전에 거부한다.
-  const { scanListen } = await import("./ck-listen/core.mjs");
+  const { scanListen, listenGate, requiredFcWindows } = await import("./ck-listen/core.mjs");
   const listen = scanListen(process.cwd(), String(vod), { read: option("listen-read")?.split(",").filter(Boolean), note: option("listen-note") });
   for (const line of listen.warnings) console.log(line);
-  const note = [option("note"), ...listen.notes].filter(Boolean).join("\n") || undefined;
+  const gateNotes: string[] = [];
   const { markLeadScan, upsertEventLead } = await import("@soop-lol/core/lib/db/ck");
   const { vodWork } = await import("@soop-lol/core/lib/metrics/ck-vod-status");
   const span = await vodSpan(vod);
-  const [lead] = await db()<{ id: string }[]>`SELECT id FROM event_lead WHERE source = 'vod_title' AND source_key = ${`vod:${vod}`}`;
+  const [lead] = await db()<{ id: string; read: [number, number][] | null }[]>`
+    SELECT id, raw->'fco_scan'->'transcript_read' AS read FROM event_lead WHERE source = 'vod_title' AND source_key = ${`vod:${vod}`}`;
+  // ★ done 관문 — 저장한 경기 앞·사이 대화(필수 창)를 읽기 전에는 done 이 아니다. 경고만 하던 시절엔 세션이 음성을 건너뛰고
+  //   done 을 찍었고(2026-10-13 백필 40개 중 여러 건), done 은 다시 큐에 들지 않아 놓친 대회 단서가 영구히 묻혔다.
+  //   경기는 이 VOD 의 화면 경기(fcs:<vod>@<결과 화면초>)로 안다 — 백필은 찾은 경기를 전부 screen 으로 저장한다.
+  if (status === "done") {
+    const screens = await db()<{ match_id: string }[]>`SELECT match_id FROM match WHERE match_id LIKE ${`fcs:${vod}@%`}`;
+    // 경기가 없을 때의 기준점 — FC 판별기 지도(fc.json)의 첫 FC 구간. 지도가 없으면 기준점도 없다.
+    const fcMap = `out/ck/${vod}/local/fc.json`;
+    const firstFcScreen = existsSync(fcMap) ? JSON.parse(readFileSync(fcMap, "utf8")).blocks?.[0]?.from : undefined;
+    const required = requiredFcWindows(screens.map((r) => Number(r.match_id.split("@")[1])), { firstFcScreen });
+    const gate = listenGate(process.cwd(), String(vod), { required, read: [...(lead?.read ?? []), ...listen.transcript_read] });
+    const fmt = (rs: number[][]) => rs.map(([a, b]) => `${Math.floor(a)}:${Math.ceil(b)}`).join(",");
+    if (gate.unread.length) {
+      throw new Error(`done 거부 — 경기 앞·사이 필수 음성 창을 읽지 않았다: ${fmt(gate.unread)} (경기 ${screens.length}판의 결과 화면 기준).\n`
+        + (gate.unprepared.length ? `  그중 ${fmt(gate.unprepared)} 는 아직 전사 전이다 — 먼저 npm run ck:listen -- prepare --vod ${vod} --between ${fmt(gate.unprepared)} 로 준비한다.\n` : "")
+        + `  npm run ck:listen -- read --vod ${vod} --between ${fmt(gate.unread)} 로 읽고 ack 한 뒤 --listen-read 로 다시 찍는다. 이번에 못 끝내면 --status running.`);
+    }
+    if (gate.unavailable.length) {
+      if (!option("listen-note")) throw new Error(`done 거부 — 필수 음성 창 ${fmt(gate.unavailable)} 는 전사에 실패했다. --listen-note 로 확인 불가 사유를 남기고 다시 찍는다.`);
+      gateNotes.push(`필수 음성 창 중 전사 실패(확인 불가): ${fmt(gate.unavailable)}`);
+    }
+  }
+  const note = [option("note"), ...listen.notes, ...gateNotes].filter(Boolean).join("\n") || undefined;
   // FC 만 있는 VOD 는 롤 조사 단서가 없을 수 있다 — 같은 키의 VOD 단서를 만든다(롤 도장은 비어 있어 롤 큐 판정에 영향 없다).
   const title = lead ? null : (await (await import("./lib/soop-vod.mjs")).vodDetail(vod))?.title ?? `vod:${vod}`;
   const leadId = lead?.id ?? await upsertEventLead({

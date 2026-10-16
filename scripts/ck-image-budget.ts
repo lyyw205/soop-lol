@@ -1,5 +1,6 @@
 /** 백필 전용 훅과 감시 실행기. PermissionRequest를 기본 거부와 결합해 훅 실패도 거부한다. */
-import {readFileSync,writeFileSync,renameSync,appendFileSync,mkdirSync,realpathSync} from 'node:fs';
+import {readFileSync,writeFileSync,renameSync,appendFileSync,mkdirSync,realpathSync,existsSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
 import {resolve,dirname,join,relative} from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
@@ -61,6 +62,9 @@ async function hook() {
   console.log(JSON.stringify({hookSpecificOutput:{hookEventName:event,decision:allow?{behavior:'allow'}:{behavior:'deny',message:reason}}}));
 }
 
+// 운영 DB 쓰기 실패 표시 — core 의 WRITE_BLOCK_FLAG 와 같은 파일(health.test.ts 가 확인). 이 스크립트는 테스트에서
+// 임시 폴더로 복사돼 돌아서 core 를 import 하지 않고 자기 위치 기준으로 찾는다.
+export const WRITE_BLOCK_FLAG=fileURLToPath(new URL('../out/ops/write-blocked.json',import.meta.url));
 async function run() {
   const statePath=resolve(opt('--state')),output=resolve(opt('--output')),vod=Number(opt('--vod'));
   const split=args.indexOf('--');if(split<0)throw new Error('Claude 인자 필요');
@@ -101,6 +105,8 @@ async function run() {
       const current=parseBudget(JSON.parse(readFileSync(statePath,'utf8')));
       if(current.error)terminate('image_guard_failure');
       if(current.flushAt!==null && (Date.now()-current.flushAt>current.flushMs || current.flushCalls>current.maxFlushCalls))terminate('image_flush_timeout');
+      // 운영 DB 쓰기가 막혔다(ck:merge 등이 남긴 표시) — 더 조사해도 저장할 수 없으니 세션을 멈춘다.
+      if(existsSync(WRITE_BLOCK_FLAG))terminate('write_blocked');
     }catch{terminate('image_guard_failure');}
   },250);
   const lines=createInterface({input:child.stdout!});
@@ -117,7 +123,7 @@ async function run() {
     code,session_id:state.sessionId,images:end.images,bytes:end.bytes,actual_images:end.actualImages,actual_bytes:end.actualBytes,
     unique_images:Object.keys(end.reads).length,repeats:Object.values(end.reads).reduce((n,c)=>n+Math.max(0,c-1),0),stream:streamPath});
   // usage가 없으면 성공 결과를 꾸미지 않는다. 강제 종료는 호출자가 DB 확인 후 재개한다.
-  process.exitCode=stopped==='image_flush_timeout'?20:stopped?1:code;
+  process.exitCode=stopped==='image_flush_timeout'?20:stopped==='write_blocked'?21:stopped?1:code;
 }
 try {
   if(mode==='hook')await hook();

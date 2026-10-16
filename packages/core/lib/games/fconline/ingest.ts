@@ -1,5 +1,4 @@
 import { db } from "../../db/client.ts";
-import { isHumanExcluded } from "./context.ts";
 import type { FcoMatchDetail, FcoMatchPlayer } from "./types.ts";
 import type postgres from "postgres";
 
@@ -118,48 +117,5 @@ export async function linkFcoAccount(input: {
       UPDATE fco_match_participant SET streamer_id = ${owners[0].id}
        WHERE ouid = ${input.ouid}
     `;
-  });
-}
-
-/**
- * 대회 경기는 사람이 확인한 matchId만 연결한다. 다른 대회와의 충돌은 거부한다.
- * ★ 사람(admin)이 이 행사에서 뺀 경기는 거부한다 — 되살리려면 force 로 **명시**한다(그러면 admin 의 include 결정을 남겨 공개 값과 결정 이력이 맞는다).
- *   이 함수는 구형 직접 연결 명령(fco:link-event)의 몸체다. 새 연결은 applyFcoMatchContext 를 쓴다.
- */
-export async function linkFcoMatchToEvent(input: {
-  providerMatchId: string; eventSlug: string; eventName: string;
-  sourceUrl: string; force?: boolean;
-}): Promise<void> {
-  if (!input.sourceUrl.trim()) throw new Error("대회 경기 연결에는 확인 근거 URL이 필요합니다.");
-  const sql = db();
-  await sql.begin(async (tx) => {
-    const game = await tx<{ match_id: string; event_id: string | null; series_id: string | null }[]>`
-      SELECT m.match_id, m.event_id, m.series_id FROM match m
-      JOIN fco_match_detail d ON d.match_id = m.match_id
-      WHERE d.provider_match_id = ${input.providerMatchId} AND m.game_code = 'fconline'
-    `;
-    if (!game[0]) throw new Error("먼저 해당 FC 온라인 경기를 수집해야 합니다.");
-    if (game[0].series_id) throw new Error("시리즈에 속한 경기는 시리즈 event를 연결해야 합니다.");
-    const existing = await tx<{ id: string; game_code: string }[]>`
-      SELECT id, game_code FROM event WHERE slug = ${input.eventSlug}
-    `;
-    if (existing[0]?.game_code === "lol") throw new Error("이 slug는 LOL 대회가 사용하고 있습니다.");
-    const event = await tx<{ id: string }[]>`
-      INSERT INTO event (slug, name, kind, game_code, source_url)
-      VALUES (${input.eventSlug}, ${input.eventName}, 'tournament', 'fconline', ${input.sourceUrl})
-      ON CONFLICT (slug) DO UPDATE SET
-        name = EXCLUDED.name, source_url = COALESCE(event.source_url, EXCLUDED.source_url)
-      RETURNING id
-    `;
-    if (game[0].event_id && game[0].event_id !== event[0].id) {
-      throw new Error("경기가 이미 다른 대회에 연결돼 있습니다.");
-    }
-    if (await isHumanExcluded(tx, event[0].id, game[0].match_id)) {
-      if (!input.force) throw new Error("사람이 이 행사에서 제외한 경기다 — 다시 붙이지 않는다. 의도한 것이면 force 로 명시한다.");
-      await tx`INSERT INTO fco_event_match_decision (event_id, match_id, decision, note, created_by)
-               VALUES (${event[0].id}::uuid, ${game[0].match_id}, 'include', '직접 연결 명령(force)으로 다시 포함', 'admin')`;
-    }
-    await tx`UPDATE match SET event_id = ${event[0].id}, source_url = ${input.sourceUrl}
-              WHERE match_id = ${game[0].match_id}`;
   });
 }

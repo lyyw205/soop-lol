@@ -42,9 +42,13 @@ export const SHORT_AUDIO_TOLERANCE = 1;
 const MAX_CONSECUTIVE_FAILURES = 3;
 // A block-like response from the video CDN (403/429/503) stops the prepare at once and leaves a marker.
 // For an hour no prepare downloads; after that the interval is forced back to the default 700 ms until a
-// person deletes the marker — a faster SOOP_HLS_INTERVAL_MS is a trial and must not keep hammering after a block.
+// person deletes the marker — the faster prepare interval must not keep hammering after a block.
 export const BLOCK_STATUS = /HLS (?:세그먼트|재생목록) HTTP (403|429|503)\b/;
 export const BLOCK_COOLDOWN_SECONDS = 3600;
+// 음성 준비의 영상 조각 간격 기본값. 준비 시간의 대부분이 이 간격이다(2시간 VOD 인식 32초 · 받기 약 15분).
+// 시험 단계(500 → 300)와 FC 백필 수십 VOD 를 300 으로 받는 동안 차단·누락 0 이라 롤 자동 조사도 같은 값을 쓴다(2026-10-14).
+// 바꿀 때는 CK_LISTEN_HLS_INTERVAL_MS, 차단 의심이면 위 표시가 700 으로 되돌린다.
+export const LISTEN_HLS_INTERVAL_MS = 300;
 const blockMarker = (root) => join(root, ".local/ck-listen/hls-block.json");
 const lockWaitDefault = () => {
   const v = Number(process.env.CK_LISTEN_LOCK_WAIT_SECONDS ?? 3600);
@@ -71,8 +75,8 @@ export async function prepare(root, vod, requested, { ifEnabled = false, source 
   const missing = missingRanges(requested, coverage(ctx));
   if (!missing.length) return { ...status(ctx), reused: true, requested_missing: [] };
   const control = join(root, ".local/ck-listen"); mkdirSync(control, { recursive: true });
-  // 음성 준비만의 영상 서버 간격 — 이 프로세스 안에서만 바꾼다(사진 뽑기 등 다른 받기는 기본값 그대로). 차단 표시가 있으면 아래에서 700 으로 되돌린다.
-  if (process.env.CK_LISTEN_HLS_INTERVAL_MS) process.env.SOOP_HLS_INTERVAL_MS = process.env.CK_LISTEN_HLS_INTERVAL_MS;
+  // 음성 준비만의 영상 서버 간격 — 이 프로세스 안에서만 바꾼다(사진 뽑기 등 다른 받기는 기본 700 그대로). 차단 표시가 있으면 아래에서 700 으로 되돌린다.
+  process.env.SOOP_HLS_INTERVAL_MS = process.env.CK_LISTEN_HLS_INTERVAL_MS || String(LISTEN_HLS_INTERVAL_MS);
   const block = existsSync(blockMarker(root)) ? JSON.parse(readFileSync(blockMarker(root), "utf8")) : null;
   if (block) {
     const left = BLOCK_COOLDOWN_SECONDS - (Date.now() - Date.parse(block.at)) / 1000;
@@ -154,11 +158,31 @@ async function prepareLocked(ctx, requested, { ifEnabled, source, lockWaitSecond
           const opened = !file ? new Error("HLS 파일 없음") : await cancellable(source.hlsSegments(file, { prefer: "audio" })).catch((error) => error);
           if (opened instanceof Error) { if (!stopped) badParts.set(p.part.index, String(opened.message).replace(/https?:\/\/\S+/g, "[URL]").slice(0, 120)); throw opened; }
           const length = opened.segs.at(-1)?.start + opened.segs.at(-1)?.dur;
+          let audioLength = p.part.length_sec;
           if (!Number.isFinite(length) || Math.abs(length - p.part.length_sec) > 2) {
-            badParts.set(p.part.index, "현재 HLS 길이가 probe 시간축과 다르다");
-            throw new Error("현재 HLS 길이가 probe 시간축과 다르다");
+            // 음성 전용 트랙이 없으면 최저 화질 재생목록에서 소리를 받는데, 그 목록은 끝 조각만 짧을 수 있다
+            // (208915313: 1,379조각 중 마지막만 6→4초, 나머지 시각은 1080p 와 같다). 길이 합만 보고 파일 전체를 버리면
+            // VOD 음성이 통째로 빠진다 — 시간축(1080p)과 조각 시각이 맞으면 짧은 끝만 확보 실패로 남긴다.
+            const ref = !Number.isFinite(length) || length > p.part.length_sec ? null
+              : await cancellable(source.hlsSegments(file, { prefer: "video" })).catch(() => null);
+            const refLength = ref ? ref.segs.at(-1)?.start + ref.segs.at(-1)?.dur : NaN;
+            const aligned = ref && Math.abs(refLength - p.part.length_sec) <= 2
+              && opened.segs.every((s, k) => ref.segs[k] && Math.abs(s.start - ref.segs[k].start) < GAP_TOLERANCE);
+            if (!aligned) {
+              badParts.set(p.part.index, "현재 HLS 길이가 probe 시간축과 다르다");
+              throw new Error("현재 HLS 길이가 probe 시간축과 다르다");
+            }
+            audioLength = length;
           }
-          playlists.set(p.part.index, opened);
+          playlists.set(p.part.index, { ...opened, audioEnd: p.part.offset_sec + audioLength });
+        }
+        const audioEnd = playlists.get(p.part.index).audioEnd;
+        if (p.at + p.span - audioEnd >= GAP_TOLERANCE) {
+          ctx.data.failures.push({ range: [Math.max(p.at, audioEnd), p.at + p.span], reason: "음성 재생목록이 영상보다 짧다",
+            detail: `f${p.part.index} 음성 재생목록 끝 ${audioEnd.toFixed(2)}초 — 그 뒤는 소리 조각이 없다` });
+          save(ctx.file, ctx.data);
+          if (audioEnd - p.at < GAP_TOLERANCE) continue;
+          p.span = audioEnd - p.at;
         }
         const fetchStart = Date.now();
         const got = await cancellable(source.segmentsSpan(playlists.get(p.part.index), p.at - p.part.offset_sec, p.span));

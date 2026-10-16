@@ -1,3 +1,5 @@
+import { boardGate } from "./soop-board-gate.mjs";
+
 /**
  * SOOP 으로 나가는 **유일한 관문**. 레이트리밋이 여기 한 곳에 있다.
  *
@@ -53,7 +55,9 @@ const TIMEOUT_MS = Number.isFinite(rawTimeout) && rawTimeout >= 1000 ? rawTimeou
  *   vod-archive — HLS 세그먼트. 6MB 짜리라 회수는 적어도 무겁다
  */
 const MIN_INTERVAL = {
-  "api-channel.sooplive.com": 6000,
+  "api-channel.sooplive.com": 20000,
+  "stimg.sooplive.com": 1000,
+  "stimg.afreecatv.com": 1000,
   "gpapi.sooplive.com": 1000,
   "sch.sooplive.co.kr": 800,
   "chapi.sooplive.co.kr": 400,
@@ -127,15 +131,21 @@ export function soopFetch(url, init) {
     // ★ 타임아웃은 선택이 아니다. 이 게이트는 호스트별로 **직렬**이라, 응답 없는
     //   요청 하나가 그 호스트 큐를 영구히 막는다 — 무인으로 도는 밤 작업이
     //   조용히 멈춘 채 아침을 맞는다. 끊고 다음으로 넘어가는 편이 언제나 낫다.
-    const res = await fetch(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(TIMEOUT_MS) });
-    // ★ 본문을 여기서 끝까지 읽는다.
-    //   fetch 는 **응답 헤더**가 오면 resolve 한다 — 6MB 세그먼트나 10MB 채팅은
-    //   그 뒤로도 한참 내려온다. 헤더에서 체인을 풀면 다음 요청이 전송 중에 겹쳐
-    //   나가고, 파일 머리말이 약속한 "호스트당 한 번에 하나"가 거짓이 된다.
-    //   지금은 호출부가 우연히 순차적이라 안 깨질 뿐이라, 게이트가 직접 보장한다.
-    //   (버퍼를 들고 새 Response 를 만들어 돌려주므로 호출부 사용법은 그대로다)
-    const body = await res.arrayBuffer();
-    return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    const request = async () => {
+      const res = await fetch(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(TIMEOUT_MS) });
+      // ★ 본문을 여기서 끝까지 읽는다.
+      //   fetch 는 **응답 헤더**가 오면 resolve 한다 — 6MB 세그먼트나 10MB 채팅은
+      //   그 뒤로도 한참 내려온다. 헤더에서 체인을 풀면 다음 요청이 전송 중에 겹쳐
+      //   나가고, 파일 머리말이 약속한 "호스트당 한 번에 하나"가 거짓이 된다.
+      //   지금은 호출부가 우연히 순차적이라 안 깨질 뿐이라, 게이트가 직접 보장한다.
+      //   (버퍼를 들고 새 Response 를 만들어 돌려주므로 호출부 사용법은 그대로다)
+      const body = await res.arrayBuffer();
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    };
+    // 게시판은 다른 수집 프로세스와도 요청 간격·차단 후 대기를 공유한다.
+    return host === "api-channel.sooplive.com"
+      ? boardGate(request, { interval: Math.max(20000, intervalFor(host)) })
+      : request();
   });
   // 실패해도 체인이 끊기면 안 된다 — 다음 요청이 영원히 안 나간다.
   gate.chain = run.then(() => undefined, () => undefined);

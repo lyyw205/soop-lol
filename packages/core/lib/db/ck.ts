@@ -1739,6 +1739,22 @@ export async function getLeadWorkspace(leadId: string, opts: { records?: boolean
   return { lead, frames, matches, candidates: opts.records === false ? [] : lead.raw.candidates ?? [], reviews, streamers, events };
 }
 
+/**
+ * 단서 하나의 개수 요약 — 저장 뒤 되읽기(ck:merge)용.
+ * ★ 전송량 (2026-10-12) — 작업 화면(getLeadWorkspace)은 스트리머·대회 전체와 경기·참가자·프레임·검수 기록 행을 다 싣는다.
+ *   개수만 찍으려고 그걸 받아 저장마다 수백 KB 가 나갔다. 경기 수는 작업 화면과 같은 정의(lead_match 뷰 · LoL)다.
+ */
+export async function getLeadSummary(leadId: string): Promise<{ lead: EventLeadRow; frames: number; unread: number; matches: number } | null> {
+  const lead = await getEventLead(leadId);
+  if (!lead) return null;
+  const [c] = await db()<{ frames: number; unread: number; matches: number }[]>`
+    SELECT (SELECT count(*)::int FROM match_evidence_frame WHERE lead_id = ${lead.id}::uuid) AS frames,
+           (SELECT count(*)::int FROM match_evidence_frame WHERE lead_id = ${lead.id}::uuid AND read_at IS NULL) AS unread,
+           (SELECT count(*)::int FROM lead_match lm JOIN match m ON m.match_id = lm.match_id
+             WHERE lm.lead_id = ${lead.id}::uuid AND m.game_code = 'lol') AS matches`;
+  return { lead, ...c };
+}
+
 // ── 미확인 참가자 — 「조사해서 채울 목록」 ───────────────────────────
 
 /**

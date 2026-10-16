@@ -5,7 +5,7 @@
 
 ## 준비와 적용 상태
 
-`npm run ck:listen -- status --vod N`으로 `active`, `coverage`, `missing`, `failures`를 확인한다. 준비는 한 번에 하나만 돌고, 다른 준비가 돌면 차례를 기다린다(기본 최대 60분, `CK_LISTEN_LOCK_WAIT_SECONDS`). VOD 끝 소리가 1초 미만 짧으면 무음으로 채우고(`pieces[].padded_seconds`), 조각 하나가 실패해도 나머지 조각·다음 분할 파일은 계속 전사한다(연속 3조각 실패면 멈춘다). **준비 종료 코드가 실패(1)나 부분(2)이어도 `coverage` 안의 원문은 읽는다** — `missing`만 확인 불가다. 자동·백필 실행기는 Claude 시작 전에 준비한다. 수동 조사에서 활성화돼 있고 준비가 필요하면 화면 준비가 끝난 뒤 `npm run ck:listen -- prepare --vod N --if-enabled`를 **직렬로** 실행한다. 이미 준비가 실패한 세션에서는 무조건 재시도하지 않는다. 성공한 부분과 확인 불가 사유를 활용한다.
+`npm run ck:listen -- status --vod N`으로 `active`, `coverage`, `missing`, `failures`를 확인한다. 준비는 한 번에 하나만 돌고, 다른 준비가 돌면 차례를 기다린다(기본 최대 60분, `CK_LISTEN_LOCK_WAIT_SECONDS`). VOD 끝 소리가 1초 미만 짧으면 무음으로 채우고(`pieces[].padded_seconds`), 조각 하나가 실패해도 나머지 조각·다음 분할 파일은 계속 전사한다(연속 3조각 실패면 멈춘다). **준비 종료 코드가 실패(1)나 부분(2)이어도 `coverage` 안의 원문은 읽는다** — `missing`만 확인 불가다. 자동·백필 실행기는 Claude 시작 전에 준비한다 — **화면 지도의 첫 경기 30분 전부터 마지막 경기 끝까지**(`prepare --plan lol`, +5분 여유)만. 그 사이는 경기 내부까지 통째로라 첫 경기 앞 30분·경기 사이는 항상 들어 있다. 그 밖(지도가 놓친 앞쪽 경기, 마지막 경기 뒤 마무리 등)이 필요하면 `npm run ck:listen -- prepare --vod N --between 시작초:끝초`로 그 범위만 더 준비한다(차례를 기다릴 수 있다). 지도에 경기가 하나도 없으면 미리 준비하지 않는다. 수동 조사에서 활성화돼 있고 준비가 필요하면 화면 준비가 끝난 뒤 `npm run ck:listen -- prepare --vod N --if-enabled`를 **직렬로** 실행한다. 이미 준비가 실패한 세션에서는 무조건 재시도하지 않는다. 성공한 부분과 확인 불가 사유를 활용한다.
 
 `active:false`면 이 필수 절차를 적용하지 않는다. 명시적인 시험용 prepare/read는 off에서도 가능하다. 전체 VOD 전사와 실제 열람은 다르다. 준비·다운로드 성공을 `transcript_read`에 쓰지 않는다.
 

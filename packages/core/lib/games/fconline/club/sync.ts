@@ -5,7 +5,7 @@
  * 세 가지를 뭉개지 않는다:
  *   ok      — ① 한 행 + ② 6칸을 한 트랜잭션으로. 칸 하나라도 못 받으면 아무것도 쓰지 않는다(반쪽 보유는 합집합을 속인다)
  *   missing — 구단주 검색이 "존재하지 않습니다" 를 줬다. 확인했는데 없다는 사실이라 행으로 남긴다
- *   error   — 조회 실패·형식 변경·신원 불일치. 행을 만들지 않고 이유를 돌려준다
+ *   error   — 조회 실패·형식 변경·신원 불일치. 시도 결과만 남기고 마지막 성공은 보존한다
  */
 
 import { db } from "../../../db/client.ts";
@@ -39,40 +39,51 @@ export async function syncClub(site: ClubSite, names: ClubNicknameSource | null,
   const [account] = await sql<{ nickname: string }[]>`SELECT nickname FROM fco_account WHERE ouid = ${ouid}`;
   if (!account) return { outcome: "error", ouid, nickname: null, reason: "fco_account 에 없는 계정" };
 
+  const [attempt] = await sql<{ id: string; started_at: Date }[]>`
+    INSERT INTO fco_club_attempt (ouid) VALUES (${ouid}) RETURNING id::text, started_at`;
+  const fail = async (code: string, reason: string): Promise<ClubSyncResult> => {
+    await sql`UPDATE fco_club_attempt SET completed_at = clock_timestamp(), outcome = 'error', failure_code = ${code}
+               WHERE id = ${attempt.id}`;
+    return { outcome: "error", ouid, nickname, reason };
+  };
   // 감독명은 바뀐다. 옛 이름으로 찾으면 그 이름을 새로 쓴 남이 걸린다 — 조회 직전에 넥슨 API 로 갱신한다.
   let nickname = account.nickname;
+  try {
   if (names) {
     let basic: FcoUserBasic | null;
     try { basic = await names.userBasic(ouid); } catch (e) {
-      return { outcome: "error", ouid, nickname, reason: `감독명 갱신 실패: ${errorText(e)}` };
+      return await fail("nickname_lookup", `감독명 갱신 실패: ${errorText(e)}`);
     }
-    if (!basic) return { outcome: "error", ouid, nickname, reason: "넥슨 API 가 이 ouid 를 모른다" };
+    if (!basic) return await fail("unknown_account", "넥슨 API 가 이 ouid 를 모른다");
     if (basic.nickname !== nickname) {
       await sql`UPDATE fco_account SET nickname = ${basic.nickname}, seen_at = now() WHERE ouid = ${ouid}`;
       nickname = basic.nickname;
     }
   }
 
-  try {
     const profile = await site.profile(nickname);
     if (profile.kind === "missing") {
-      await sql`INSERT INTO fco_club_snapshot (ouid, status, nickname) VALUES (${ouid}, 'missing', ${nickname})`;
+      await sql.begin(async tx => {
+        const [snapshot] = await tx<{id: string}[]>`INSERT INTO fco_club_snapshot (ouid, status, nickname, captured_at)
+          VALUES (${ouid}, 'missing', ${nickname}, ${attempt.started_at}) RETURNING id::text`;
+        await tx`UPDATE fco_club_attempt SET completed_at = clock_timestamp(), outcome = 'missing', snapshot_id = ${snapshot.id} WHERE id = ${attempt.id}`;
+      });
       return { outcome: "missing", ouid, nickname };
     }
     // 구단주 검색은 대소문자를 무시한다 — `뀨뀨RR` 로 `뀨뀨rr` 이 나온다. 정확히 같은 사람만 받는다.
     if (profile.nickname !== null && profile.nickname !== nickname) {
-      return { outcome: "error", ouid, nickname, reason: `구단주 검색이 다른 감독명 "${profile.nickname}" 을 줬다` };
+      return await fail("identity_mismatch", `구단주 검색이 다른 감독명 "${profile.nickname}" 을 줬다`);
     }
     // 같은 ouid 의 회원번호가 바뀌었다면 감독명이 남에게 넘어간 것이다.
     const [previous] = await sql<{ nexon_sn: string }[]>`
       SELECT nexon_sn::text FROM fco_club_snapshot
        WHERE ouid = ${ouid} AND status = 'ok' ORDER BY captured_at DESC LIMIT 1`;
     if (previous && Number(previous.nexon_sn) !== profile.sn) {
-      return { outcome: "error", ouid, nickname, reason: `회원번호가 ${previous.nexon_sn} → ${profile.sn} 로 바뀌었다` };
+      return await fail("identity_mismatch", `회원번호가 ${previous.nexon_sn} → ${profile.sn} 로 바뀌었다`);
     }
     const tooltip = await site.tooltip(profile.sn);
     if (tooltip.nickname !== nickname) {
-      return { outcome: "error", ouid, nickname, reason: `툴팁 감독명 "${tooltip.nickname}" 이 다르다` };
+      return await fail("identity_mismatch", `툴팁 감독명 "${tooltip.nickname}" 이 다르다`);
     }
     const squads: { teamType: 0 | 1; slot: 1 | 2 | 3; squad: Squad }[] = [];
     for (const { teamType, slot } of SQUAD_SLOTS) {
@@ -81,8 +92,8 @@ export async function syncClub(site: ClubSite, names: ClubNicknameSource | null,
 
     const snapshotId = await sql.begin(async (tx) => {
       const [row] = await tx<{ id: string }[]>`
-        INSERT INTO fco_club_snapshot (ouid, status, nickname, nexon_sn, club_value)
-        VALUES (${ouid}, 'ok', ${nickname}, ${profile.sn}, ${tooltip.clubValue}) RETURNING id::text`;
+        INSERT INTO fco_club_snapshot (ouid, status, nickname, nexon_sn, club_value, captured_at)
+        VALUES (${ouid}, 'ok', ${nickname}, ${profile.sn}, ${tooltip.clubValue}, ${attempt.started_at}) RETURNING id::text`;
       for (const { teamType, slot, squad } of squads) {
         await tx`
           INSERT INTO fco_squad_snapshot (snapshot_id, team_type, slot, total_price, coach_id)
@@ -93,12 +104,13 @@ export async function syncClub(site: ClubSite, names: ClubNicknameSource | null,
           spid: p.spid, grade: p.grade, price: p.price, name: p.name, season: p.season, ovr: p.ovr,
         })))}`;
       }
+      await tx`UPDATE fco_club_attempt SET completed_at = clock_timestamp(), outcome = 'ok', snapshot_id = ${row.id} WHERE id = ${attempt.id}`;
       return row.id;
     });
     const cards = new Set(squads.flatMap(({ squad }) => squad.players.map((p) => `${p.spid}:${p.grade}`))).size;
     return { outcome: "ok", ouid, nickname, snapshotId, clubValue: tooltip.clubValue, cards };
   } catch (e) {
-    return { outcome: "error", ouid, nickname, reason: errorText(e) };
+    return await fail("fetch_error", errorText(e));
   }
 }
 
@@ -143,11 +155,12 @@ export async function syncCardPrices(
   const sql = db();
   const today = kstDateString(now);
   const result: CardPriceSyncResult = { cards: cards.length, fresh: 0, fetched: 0, inserted: 0, revised: 0, errors: [] };
+  // "오늘 받았나" 는 카드별 수집 기록 한 줄로 본다(0084). 카드마다 묻지 않고 한 번에 받는다.
+  const fresh = new Set((await sql<{ k: string }[]>`
+    SELECT spid::text || '/' || grade AS k FROM fco_card_price_fetch
+     WHERE (fetched_at AT TIME ZONE 'Asia/Seoul')::date = ${today}::date`).map((r) => r.k));
   for (const card of cards) {
-    const [seen] = await sql<{ last: string | null }[]>`
-      SELECT (max(fetched_at) AT TIME ZONE 'Asia/Seoul')::date::text AS last
-        FROM fco_card_price_daily WHERE spid = ${card.spid} AND grade = ${card.grade}`;
-    if (seen?.last === today) { result.fresh++; continue; }
+    if (fresh.has(`${card.spid}/${card.grade}`)) { result.fresh++; continue; }
     let points;
     try { points = (await site.priceGraph(card.spid, card.grade, today)).points; } catch (e) {
       result.errors.push(`${card.spid}/${card.grade}: ${errorText(e)}`);
@@ -155,19 +168,24 @@ export async function syncCardPrices(
     }
     result.fetched++;
     if (!points.length) continue;
-    const before = new Map((await sql<{ day: string; price: string }[]>`
-      SELECT day::text, price::text FROM fco_card_price_daily WHERE spid = ${card.spid} AND grade = ${card.grade}`)
-      .map((r) => [r.day, Number(r.price)]));
-    for (const p of points) {
-      if (!before.has(p.day)) result.inserted++;
-      else if (before.get(p.day) !== p.price) result.revised++;
-    }
-    // 바뀌지 않은 행도 fetched_at 을 새로 찍는다 — "오늘 받았나" 를 이 칸으로 판단한다.
+    // ★ 새 날짜와 값이 바뀐 날짜만 쓴다 — 같은 값을 다시 쓰면 매일 30만 줄 넘는 새 줄 버전과 WAL 이 쌓였다(0084).
+    //   비교는 DB 가 하고 쓴 줄만 돌려준다 — 이력 전체를 받아 와 비교하면 그게 하루 약 14MB 전송이었다.
     // ★ 시각은 위의 today 와 같은 now 를 쓴다. DB now() 를 쓰면 판단(now)과 기록(DB 시계)의 기준이 갈려,
     //   now 를 주입한 검증에서 "오늘 받은 카드" 를 못 알아봤다(verify:fco-club).
-    await sql`
-      INSERT INTO fco_card_price_daily ${sql(points.map((p) => ({ spid: card.spid, grade: card.grade, day: p.day, price: p.price, fetched_at: now })))}
-      ON CONFLICT (spid, grade, day) DO UPDATE SET price = EXCLUDED.price, fetched_at = EXCLUDED.fetched_at`;
+    await sql.begin(async (tx) => {
+      const written = await tx<{ inserted: boolean }[]>`
+        INSERT INTO fco_card_price_daily (spid, grade, day, price, fetched_at)
+        SELECT ${card.spid}::bigint, ${card.grade}::smallint, v.day, v.price, ${now}::timestamptz
+          FROM jsonb_to_recordset(${tx.json(points as never)}) AS v(day date, price bigint)
+          LEFT JOIN fco_card_price_daily d ON d.spid = ${card.spid} AND d.grade = ${card.grade} AND d.day = v.day
+         WHERE d.price IS DISTINCT FROM v.price
+        ON CONFLICT (spid, grade, day) DO UPDATE SET price = EXCLUDED.price, fetched_at = EXCLUDED.fetched_at
+        RETURNING (xmax = 0) AS inserted`;
+      for (const w of written) w.inserted ? result.inserted++ : result.revised++;
+      await tx`
+        INSERT INTO fco_card_price_fetch (spid, grade, fetched_at) VALUES (${card.spid}, ${card.grade}, ${now})
+        ON CONFLICT (spid, grade) DO UPDATE SET fetched_at = EXCLUDED.fetched_at`;
+    });
   }
   return result;
 }

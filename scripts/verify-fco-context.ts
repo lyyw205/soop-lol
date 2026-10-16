@@ -561,7 +561,6 @@ try {
   }
 
   console.log("\n▸ 사람이 제외한 경기는 어느 경로로도 되살아나지 않는다 (직접 연결·시리즈·다른 세트)");
-  const { linkFcoMatchToEvent } = await import("../packages/core/lib/games/fconline/ingest.ts");
   await saveFcoMatch(detailOf("ex-1", "2026-09-28 10:00:00", ["ouid-a", "ouid-b"]));
   await saveFcoMatch(detailOf("ex-2", "2026-09-28 10:20:00", ["ouid-a", "ouid-b"]));
   await saveFcoMatch(detailOf("ex-3", "2026-09-28 10:40:00", ["ouid-a", "ouid-b"]));
@@ -571,10 +570,6 @@ try {
   await decideFcoEventMatch({ eventId: exEventId, providerMatchId: "ex-1", decision: "exclude", note: "대회 밖 경기" }, { createdBy: "admin" });
   const evOf = async (id: string) => (await sql<{ event_id: string | null; series_id: string | null }[]>`SELECT event_id, series_id FROM match WHERE match_id = ${`fco:${id}`}`)[0];
   check("준비: admin 이 제외하면 행사에서 빠진다", (await evOf("ex-1")).event_id === null);
-
-  // ① 직접 연결 명령(구형)
-  await assert.rejects(() => linkFcoMatchToEvent({ providerMatchId: "ex-1", eventSlug: "ex-cup", eventName: "제외컵", sourceUrl: "https://example.com/ex" }), /사람이 이 행사에서 제외/);
-  check("★★ 직접 연결 명령도 사람의 제외를 우회하지 못한다", (await evOf("ex-1")).event_id === null);
 
   // ② 단독 연결·시리즈 경로(자동)
   const viaEvent = await applyFcoMatchContext({ provider_match_id: "ex-1", conclusion: "event", event: exEvent });
@@ -604,7 +599,7 @@ try {
   await applyFcoMatchContext({ provider_match_id: "ex-1", conclusion: "event", event: exEvent, series: { id: "ex-s2", game_no: 1 } }, { createdBy: "admin" });
   check("admin 이 명시적으로 다시 포함하면 연결된다",
     (await sql<{ event_id: string | null }[]>`SELECT event_id FROM match_series WHERE id = 'ex-s2'`)[0].event_id === exEventId);
-  await linkFcoMatchToEvent({ providerMatchId: "ex-2", eventSlug: "ex-cup", eventName: "제외컵", sourceUrl: "https://example.com/ex" }).catch(() => undefined);
+  await applyFcoMatchContext({ provider_match_id: "ex-2", conclusion: "event", event: { slug: "ex-cup", name: "제외컵", kind: "tournament", source_url: "https://example.com/ex" } }).catch(() => undefined);
 
   if (failures) { console.error(`\n${failures}개 실패.`); process.exitCode = 1; }
   else console.log("\nFC 맥락 계약 검증 전부 통과.");

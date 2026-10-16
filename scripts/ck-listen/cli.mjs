@@ -1,8 +1,8 @@
 import { join } from "node:path";
-import { acknowledge, before, config, configure, context, loadPacket, packet, ranges, readPage, status, vodKey } from "./core.mjs";
+import { acknowledge, before, config, configure, context, loadPacket, packet, prepareRanges, ranges, readPage, status, vodKey } from "./core.mjs";
 
 const ROOT = join(import.meta.dirname, "../..");
-const usage = `ck:listen prepare --vod N [--between 시작초:끝초] [--if-enabled]
+const usage = `ck:listen prepare --vod N [--between 시작초:끝초 | --plan lol|fc] [--if-enabled]  # --plan: 화면 지도의 경기 앞·사이(+5분)만
 ck:listen read --vod N (--before 경기시작초 [--previous-end 직전종료초] | --between 시작초:끝초 | --packet ID) [--page N]
 ck:listen ack --vod N --packets ID[,ID]  # 모든 페이지를 실제로 읽은 뒤
 ck:listen status --vod N
@@ -15,7 +15,7 @@ export async function main(args, root = ROOT) {
   if (command === "help") { console.log(usage); return; }
   const opts = {};
   const flags = {
-    prepare: ["--vod", "--between", "--if-enabled"], read: ["--vod", "--before", "--previous-end", "--between", "--packet", "--page"],
+    prepare: ["--vod", "--between", "--plan", "--if-enabled"], read: ["--vod", "--before", "--previous-end", "--between", "--packet", "--page"],
     ack: ["--vod", "--packets", "--packet"], status: ["--vod"], search: ["--vod", "--text", "--page"], config: ["--vod"],
   };
   if (!flags[command]) throw new Error(usage);
@@ -33,7 +33,17 @@ export async function main(args, root = ROOT) {
   if (!vod) throw new Error("--vod 필요");
   if (command === "prepare") {
     const { prepare } = await import("./prepare.mjs");
-    const result = await prepare(root, vod, opts["--between"] ? ranges(opts["--between"]) : undefined, { ifEnabled: !!opts["--if-enabled"] });
+    if (opts["--between"] && opts["--plan"]) throw new Error("--between 과 --plan 중 하나만");
+    // --plan: 화면 지도로 계산한 필수 창만. 지도가 없으면 예전처럼 VOD 전체, 경기·FC 화면이 없으면 받을 것이 없다.
+    let requested = opts["--between"] ? ranges(opts["--between"]) : undefined;
+    if (opts["--plan"]) {
+      const planned = prepareRanges(root, vod, opts["--plan"]);
+      const seconds = (planned ?? []).reduce((sum, [a, b]) => sum + b - a, 0);
+      console.error(`LISTEN PLAN ${opts["--plan"]}: ${planned === null ? "화면 지도 없음 — VOD 전체" : planned.length ? `${planned.map(([a, b]) => `${Math.floor(a)}:${Math.ceil(b)}`).join(",")} (${Math.round(seconds / 60)}분)` : "경기·화면 없음 — 받을 구간 없음"}`);
+      if (planned?.length === 0) { console.log(`LISTEN: ${JSON.stringify({ vod, plan: opts["--plan"], planned: [], skipped: "no-games" })}`); return; }
+      requested = planned ?? undefined;
+    }
+    const result = await prepare(root, vod, requested, { ifEnabled: !!opts["--if-enabled"] });
     const { packets, ...compact } = result;
     console.log(`LISTEN: ${JSON.stringify(compact)}`);
     if (result.requested_missing?.length) process.exitCode = 2;
