@@ -406,7 +406,7 @@ console.log("\n  [역방향 의존]");
 // 이 셋은 같은 정보(날짜·대회명·스코어·승패·다전제 형식)를 서로 다른 배치로 그린다.
 // 배치가 다른 건 의도지만 **문구가 다른 건 언제나 사고였다.** 실제로 겪은 것:
 //   · 한 화면만 `bestOfLabel` 을 직접 불러, 형식을 모르는 줄에서 그 화면만 칸이 비었다
-//   · 승패 판정식이 세 벌로 복사돼 있었다
+//   · 승패 판정식이 세 벌로 복사돼 있었다(지금은 core 의 tally 하나 — 화면은 OUTCOME_LABEL 로 글자만)
 // ★ 모듈 쪽 화면은 그 모듈이 있을 때만 본다. 모듈을 지웠다고 검사가 죽으면 5조 위반이다.
 console.log("\n  [공유 표시 규칙]");
 const present = (rel: string) => {
@@ -432,8 +432,11 @@ for (const rel of ROW_SCREENS) {
   // bestOfLabel 은 형식을 모르면 빈 문자열이라, 화면이 직접 부르면 그 화면만 칸이 빈다.
   check(`${rel}: bestOfLabel 을 직접 부르지 않는다`, !has("bestOfLabel"),
     has("bestOfLabel") ? "formatBadge 를 거쳐야 한다" : "");
-  check(`${rel}: 승패를 matchOutcome 으로 정한다`, has("matchOutcome"),
-    has("matchOutcome") ? "" : "판정식을 이 파일에서 다시 쓰고 있다");
+  // 줄의 승패는 core 가 정한 시리즈 결과(tally 규칙)다. 화면은 글자만 붙인다 — 다수결을 다시 쓰면 판정이 두 벌이 된다.
+  check(`${rel}: 승패 글자를 OUTCOME_LABEL 로 낸다`, has("OUTCOME_LABEL"),
+    has("OUTCOME_LABEL") ? "" : "match-row-model 의 OUTCOME_LABEL 을 거치지 않는다");
+  check(`${rel}: 다수결을 다시 계산하지 않는다`, !/wins\s*\*\s*2|\bmajority\b/.test(src),
+    "세트 다수결은 metrics/tally.ts 하나다");
 }
 
 // 왼쪽에 날짜 칸을 세우는 타임라인은 '같은 날은 맨 위 한 번만' 규칙을 같이 쓴다.

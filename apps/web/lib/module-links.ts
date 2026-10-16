@@ -10,14 +10,6 @@
 import { routeHref, type HrefQuery } from "@soop-lol/core/lib/site-paths";
 import { moduleProviding } from "@soop-lol/modules/registry";
 
-/** 두 스트리머의 상대전적 화면. 그 역할을 채우는 모듈이 없으면 null. */
-export function versusHref(aSlug: string, bSlug: string, scope: { category?: string; year?: number; relation?: "ally" | "lane"; from?: string; to?: string } = {}): string | null {
-  return roleHref("versus", {}, {
-    a: aSlug, b: bSlug, category: scope.category === "all" ? undefined : scope.category,
-    year: scope.year, relation: scope.relation, from: scope.from, to: scope.to,
-  });
-}
-
 /** 상대전적 첫 화면(선택기). 없으면 null. */
 export const versusIndexHref = (): string | null => roleHref("versus");
 
