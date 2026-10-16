@@ -62,8 +62,8 @@ try {
   assert.equal(r1.status, "created");
   const id1 = (r1 as { match_id: string }).match_id;
   assert.equal(id1, "fcs:900001@3600");
-  const m1 = (await sql`SELECT source, origin, visibility, game_code, mode_key, source_url FROM match WHERE match_id = ${id1}`)[0];
-  assert.deepEqual({ ...m1 }, { source: "manual", origin: "vod_scan", visibility: "hidden", game_code: "fconline", mode_key: null, source_url: "https://vod.sooplive.com/player/900001" });
+  const m1 = (await sql`SELECT collected_via, visibility, game_code, mode_key, source_url FROM match WHERE match_id = ${id1}`)[0];
+  assert.deepEqual({ ...m1 }, { collected_via: "vod", visibility: "hidden", game_code: "fconline", mode_key: null, source_url: "https://vod.sooplive.com/player/900001" });
   assert.equal((await sql`SELECT 1 FROM fco_match_detail WHERE match_id = ${id1}`).length, 0, "화면 경기에 가짜 원본(detail)을 만들지 않는다");
   const p1 = await sql`SELECT side_no, ouid, nickname, streamer_id IS NOT NULL AS has_streamer, identity_basis, outcome, goals, score_display FROM fco_match_participant WHERE match_id = ${id1} ORDER BY side_no`;
   assert.deepEqual(p1.map((r) => ({ ...r })), [
@@ -135,7 +135,7 @@ try {
   const r9 = await S.saveFcoScreenMatch(input(900008, 77, new Date(old.getTime() + 90_000), { streamerSlug: "alpha-fc", basis: "vod_owner" }, {}));
   assert.equal(r9.status, "linked");
   assert.equal((r9 as { link_to: string }).link_to, id1);
-  assert.equal((r9 as { link_to_source: string }).link_to_source, "manual");
+  assert.equal((r9 as { link_to_via: string }).link_to_via, "vod");
   assert.equal((await sql`SELECT count(*)::int AS n FROM fco_context_evidence WHERE match_id = ${id1}`)[0].n, 2, "두 VOD 의 근거가 정본 경기에 모인다");
 
   // 10) 참가자 구분 키

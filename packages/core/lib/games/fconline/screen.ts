@@ -1,8 +1,10 @@
 /**
  * 넥슨 API 없이 VOD 결과 화면으로만 아는 FC 경기의 저장·합침 (docs/FCO-SCREEN-MATCH-DESIGN.md).
  *
- * ★ 이 파일은 API 경로(ingest.ts·sync.ts)를 건드리지 않는다. 화면 경기는 match.source='manual' + origin='vod_scan',
- *   처음엔 visibility='hidden'(검수 전)이다. fco_match_detail 행이 없고 ouid 가 NULL 이라 기존 공개 조회에는 구조상 안 나온다.
+ * ★ 이 파일은 API 경로(ingest.ts·sync.ts)를 건드리지 않는다. 화면 경기는 match.collected_via='vod'(어떻게 알았나 — 분류가 아니다),
+ *   처음엔 visibility='hidden'(검수 전)이다. 공개 뷰는 공개 경기만 고르므로 숨긴 동안 어디에도 안 나온다.
+ * ★ 분류 자리는 넥슨 경기와 같은 규칙이다(classify.ts placeFcoMatchAutoInTx) — 두 사람 판이면 (두 사람, 날짜) 자동 묶음, 아니면 개인 기록.
+ *   넥슨 경기와 합치면(연결) 시리즈·행사는 넥슨 쪽이 가진다 — 화면 판이 이미 실제 행사에 있었으면 그 행사를 넥슨 판으로 넘긴다(linkScreenTo).
  * ★ 화면에서 못 읽은 값은 NULL 이다 — 스코어를 못 읽었으면 outcome 은 unknown, 같은 점수는 승부차기 가능성이 있어 unknown 이다.
  *
  * 규칙 (설계 §3.4, Codex 검토로 R1 을 바꿨다 — 설계 §12)
@@ -13,7 +15,9 @@
  *   R3  애매하면(조건 하나 부족·후보 둘 이상) 연결하지 않고 needs_review 로 두고 findFcoScreenSuspects() 에 올린다 — 먼저 찾은 것을 고르지 않는다.
  */
 import type postgres from "postgres";
+import { moveSeriesInTx, placeSingleSetInTx } from "../../db/classification.ts";
 import { db } from "../../db/client.ts";
+import { placeFcoMatchAutoInTx } from "./classify.ts";
 
 /** 화면 시각의 오차 범위. 결과 화면이 뜬 시각 ≈ 경기 종료 시각이다(FCO-TIME-SAMPLES.md). */
 export const SCREEN_TIME_TOLERANCE_SEC = 180;
@@ -21,6 +25,8 @@ export const SCREEN_TIME_TOLERANCE_SEC = 180;
 export const FCO_API_WINDOW_DAYS = 30;
 
 export type FcoScreenBasis = "vod_owner" | "manual";
+/** match.collected_via — 넥슨 기록(api)인가 화면 판독(vod)인가. */
+export type FcoCollectedVia = "api" | "vod" | "manual";
 export interface FcoScreenSideInput {
   /** 화면에 보인 이름 그대로. */
   nickname: string;
@@ -49,7 +55,7 @@ export type FcoScreenResult =
   /** expect_api: 최근 30일 안이고 등록 계정이 있어 자동 수집이 곧 같은 경기를 가져올 수 있다(오면 reconcile 이 연결한다). */
   | { status: "created" | "updated"; match_id: string; expect_api: boolean }
   /** 같은 경기의 기존 기록(API 또는 다른 화면 경기)에 연결했다. 이 화면 경기는 숨긴 채 남고 근거는 그쪽으로 복사됐다. */
-  | { status: "linked"; match_id: string; link_to: string; link_to_source: string }
+  | { status: "linked"; match_id: string; link_to: string; link_to_via: FcoCollectedVia }
   /** 후보가 둘 이상이거나 조건 하나가 모자라 연결하지 않았다. 검수 대기. */
   | { status: "needs_review"; match_id: string; candidates: string[] }
   | { status: "protected"; match_id: string; reason: string };
@@ -194,7 +200,7 @@ const sigOf = (at: Date | string, sides: { key: string; score: number | null; na
   ({ at: new Date(at).getTime(), sides: [sides[0], sides[1]] });
 
 /** 화면 경기 → 같은 경기의 기존 기록 연결. 숨기고(지우지 않는다), 근거를 그쪽으로 복사한다. 이미 연결돼 있으면 아무것도 안 한다. */
-export async function linkScreenTo(tx: Tx, screenId: string, targetId: string, basis: Record<string, unknown>, decidedBy: "auto" | "admin"): Promise<void> {
+export async function linkScreenTo(tx: postgres.TransactionSql, screenId: string, targetId: string, basis: Record<string, unknown>, decidedBy: "auto" | "admin"): Promise<void> {
   await tx`INSERT INTO fco_screen_link (screen_match_id, api_match_id, basis, decided_by)
            VALUES (${screenId}, ${targetId}, ${tx.json(basis as postgres.JSONValue)}, ${decidedBy})
            ON CONFLICT (screen_match_id) DO NOTHING`;
@@ -204,6 +210,35 @@ export async function linkScreenTo(tx: Tx, screenId: string, targetId: string, b
     SELECT ${targetId}, evidence_key, kind, vod_title_no, channel_id, at_sec, end_sec, url, observed, why, frame_path, role, created_by
       FROM fco_context_evidence WHERE match_id = ${screenId}
     ON CONFLICT (match_id, evidence_key) DO NOTHING`;
+  await carryScreenEventInTx(tx, screenId, targetId, decidedBy);
+}
+
+/**
+ * 합친 뒤 행사는 넥슨(대상) 쪽이 가진다. 화면 판이 이미 **실제 행사**에 한 판짜리로 있었고(30일 이전 대회를 화면으로 먼저 찾은 경우)
+ * 대상이 아직 실제 행사 밖(묶음·개인 기록)이면 그 행사를 대상에게 넘긴다 — 안 넘기면 숨긴 화면 판만 행사에 남아 공개 대회에서 그 판이 빠진다.
+ * 대상이 이미 다른 실제 행사에 있거나 화면 판이 여러 세트 시리즈에 있으면 손대지 않는다(어느 쪽이 맞는지는 사람이 본다).
+ * 사람이 그 행사에서 뺀 판이면 자동 연결은 넘기지 않는다(제외 보호).
+ */
+async function carryScreenEventInTx(tx: postgres.TransactionSql, screenId: string, targetId: string, actor: "auto" | "admin"): Promise<void> {
+  const [from] = await tx<{ event_id: string; sets: number }[]>`
+    SELECT ms.event_id, (SELECT count(*)::int FROM match x WHERE x.series_id = ms.id) AS sets
+      FROM match m JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+      JOIN event e ON e.id = ms.event_id AND NOT e.auto_bucket
+     WHERE m.match_id = ${screenId}`;
+  if (!from || from.sets !== 1) return;
+  const [to] = await tx<{ series_id: string | null; real: boolean; sets: number }[]>`
+    SELECT m.series_id, COALESCE(NOT e.auto_bucket, false) AS real,
+           (SELECT count(*)::int FROM match x WHERE x.series_id = m.series_id) AS sets
+      FROM match m LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+      LEFT JOIN event e ON e.id = ms.event_id
+     WHERE m.match_id = ${targetId} FOR UPDATE OF m`;
+  if (!to || to.real || (to.series_id && to.sets !== 1)) return;
+  if (actor === "auto") {
+    const blocked = await tx`SELECT 1 FROM event_exclusion WHERE event_id = ${from.event_id}::uuid AND match_id = ${targetId} AND decided_by = 'admin'`;
+    if (blocked.length) return;
+  }
+  if (to.series_id) await moveSeriesInTx(tx, { series_id: to.series_id, event_id: from.event_id, actor });
+  else await placeSingleSetInTx(tx, { match_id: targetId, game_code: "fconline", event_id: from.event_id, actor });
 }
 
 /**
@@ -218,9 +253,9 @@ export async function saveFcoScreenMatch(input: FcoScreenMatchInput): Promise<Fc
   const outcomes = screenOutcomes(input.sides);
   const sql = db();
   return sql.begin(async (tx): Promise<FcoScreenResult> => {
-    const existing = await tx<{ reviewed_at: Date | null; source: string; game_code: string }[]>`
-      SELECT reviewed_at, source, game_code FROM match WHERE match_id = ${matchId} FOR UPDATE`;
-    if (existing[0] && (existing[0].game_code !== "fconline" || existing[0].source !== "manual")) {
+    const existing = await tx<{ reviewed_at: Date | null; collected_via: FcoCollectedVia; game_code: string }[]>`
+      SELECT reviewed_at, collected_via, game_code FROM match WHERE match_id = ${matchId} FOR UPDATE`;
+    if (existing[0] && (existing[0].game_code !== "fconline" || existing[0].collected_via !== "vod")) {
       throw new Error(`${matchId} 는 화면 경기가 아니다`);
     }
     if (existing[0]?.reviewed_at) return { status: "protected", match_id: matchId, reason: "검수된 경기라 덮어쓰지 않는다" };
@@ -231,8 +266,8 @@ export async function saveFcoScreenMatch(input: FcoScreenMatchInput): Promise<Fc
 
     // ① 관측 보존 — 무엇이 이미 있든 먼저 숨긴 채 저장한다.
     await tx`
-      INSERT INTO match (match_id, game_code, mode_key, game_creation, source, origin, source_url, visibility)
-      VALUES (${matchId}, 'fconline', ${input.modeKey ?? null}, ${endedAt}, 'manual', 'vod_scan',
+      INSERT INTO match (match_id, game_code, mode_key, game_creation, collected_via, scope, source_url, visibility)
+      VALUES (${matchId}, 'fconline', ${input.modeKey ?? null}, ${endedAt}, 'vod', 'personal',
               ${`https://vod.sooplive.com/player/${input.vodTitleNo}`}, 'hidden')
       ON CONFLICT (match_id) DO UPDATE SET game_creation = EXCLUDED.game_creation, mode_key = EXCLUDED.mode_key`;
     await tx`DELETE FROM fco_match_participant WHERE match_id = ${matchId}`;
@@ -249,22 +284,24 @@ export async function saveFcoScreenMatch(input: FcoScreenMatchInput): Promise<Fc
                 ${input.atSec}, ${ev.observed}, ${ev.why ?? null}, ${ev.frame_path ?? null}, 'result', 'auto')
         ON CONFLICT (match_id, evidence_key) DO UPDATE SET observed = EXCLUDED.observed, why = EXCLUDED.why, frame_path = EXCLUDED.frame_path`;
     }
+    // 분류 자리 — 넥슨 경기와 같은 규칙. 다시 읽어 사람이 바뀌었으면 자동 묶음 사이에서만 옮긴다(실제 행사는 안 건드린다).
+    await placeFcoMatchAutoInTx(tx, matchId);
 
     // ② 같은 경기 후보 — API 경기와 (이미 연결돼 사라진 것을 뺀) 다른 화면 경기.
     const linkedAlready = await tx<{ api_match_id: string }[]>`SELECT api_match_id FROM fco_screen_link WHERE screen_match_id = ${matchId}`;
     if (linkedAlready[0]) {
       // 다시 불러도 같다 — 새 근거만 연결 대상으로 복사한다.
       await linkScreenTo(tx, matchId, linkedAlready[0].api_match_id, {}, "auto");
-      const src = (await tx<{ source: string }[]>`SELECT source FROM match WHERE match_id = ${linkedAlready[0].api_match_id}`)[0]?.source ?? "?";
-      return { status: "linked", match_id: matchId, link_to: linkedAlready[0].api_match_id, link_to_source: src };
+      const via = (await tx<{ collected_via: FcoCollectedVia }[]>`SELECT collected_via FROM match WHERE match_id = ${linkedAlready[0].api_match_id}`)[0]?.collected_via ?? "vod";
+      return { status: "linked", match_id: matchId, link_to: linkedAlready[0].api_match_id, link_to_via: via };
     }
-    const near = await tx<{ match_id: string; source: string; game_creation: Date }[]>`
-      SELECT m.match_id, m.source, m.game_creation FROM match m
+    const near = await tx<{ match_id: string; collected_via: FcoCollectedVia; game_creation: Date }[]>`
+      SELECT m.match_id, m.collected_via, m.game_creation FROM match m
        WHERE m.game_code = 'fconline' AND m.match_id <> ${matchId}
          AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
          AND m.game_creation BETWEEN ${new Date(endedAt.getTime() - SCREEN_TIME_TOLERANCE_SEC * 3000)}
                                  AND ${new Date(endedAt.getTime() + SCREEN_TIME_TOLERANCE_SEC * 3000)}`;
-    const verdicts: { id: string; source: string; v: "same" | "maybe"; at: number }[] = [];
+    const verdicts: { id: string; via: FcoCollectedVia; v: "same" | "maybe"; at: number }[] = [];
     for (const cand of near) {
       const parts = await tx<{ nickname: string; streamer_id: string | null; ouid: string | null; score: number | null }[]>`
         SELECT nickname, streamer_id, ouid, coalesce(score_display, goals) AS score
@@ -272,14 +309,14 @@ export async function saveFcoScreenMatch(input: FcoScreenMatchInput): Promise<Fc
       if (parts.length !== 2) continue;
       const candSig = sigOf(cand.game_creation, parts.map((p) => ({ key: p.streamer_id ?? `name:${normalizeName(p.nickname)}`, score: p.score, name: p.nickname })));
       const v = compareMatches(sig, candSig);
-      if (v !== "no") verdicts.push({ id: cand.match_id, source: cand.source, v, at: candSig.at });
+      if (v !== "no") verdicts.push({ id: cand.match_id, via: cand.collected_via, v, at: candSig.at });
     }
 
     // ③ 후보가 정확히 하나이고 세 조건이 모두 맞을 때만 연결. 그 밖에는 먼저 찾은 것을 고르지 않고 검수 대기.
     if (verdicts.length === 1 && verdicts[0].v === "same") {
       const t = verdicts[0];
       await linkScreenTo(tx, matchId, t.id, { participants: "same", time_gap_sec: Math.round(Math.abs(sig.at - t.at) / 1000), score: "same" }, "auto");
-      return { status: "linked", match_id: matchId, link_to: t.id, link_to_source: t.source };
+      return { status: "linked", match_id: matchId, link_to: t.id, link_to_via: t.via };
     }
     if (verdicts.length > 0) return { status: "needs_review", match_id: matchId, candidates: verdicts.map((x) => x.id) };
 
@@ -306,7 +343,7 @@ async function loadScreenRows(tx: Tx, where: "pending" | "all"): Promise<ScreenR
                                               'score', coalesce(p.score_display, p.goals)) ORDER BY p.side_no)
               FROM fco_match_participant p WHERE p.match_id = m.match_id) AS parts
       FROM match m
-     WHERE m.game_code = 'fconline' AND m.source = 'manual' AND m.origin = 'vod_scan'
+     WHERE m.game_code = 'fconline' AND m.collected_via = 'vod'
        AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
        ${where === "pending" ? tx`AND m.reviewed_at IS NULL` : tx``}`;
 }
@@ -354,7 +391,7 @@ async function reconcileInTx(tx: postgres.TransactionSql): Promise<{ linked: { s
                                                   'score', coalesce(p.score_display, p.goals)) ORDER BY p.side_no)
                   FROM fco_match_participant p WHERE p.match_id = m.match_id) AS parts
           FROM match m
-         WHERE m.game_code = 'fconline' AND m.source = 'provider_api'
+         WHERE m.game_code = 'fconline' AND m.collected_via = 'api'
            AND m.game_creation BETWEEN ${new Date(sig.at - SCREEN_TIME_TOLERANCE_SEC * 3000)} AND ${new Date(sig.at + SCREEN_TIME_TOLERANCE_SEC * 3000)}`;
       // 같은 경기 후보 — 넥슨 기록, 그리고 **다른 방송의 화면 기록**(같은 경기를 두 스트리머가 찍은 경우).
       // 화면 기록끼리는 방송 번호가 더 작은(먼저 방송한) 쪽을 정본으로 둔다 — 서로를 가리키지 않게 한 방향만.
@@ -365,7 +402,7 @@ async function reconcileInTx(tx: postgres.TransactionSql): Promise<{ linked: { s
                                                   'score', coalesce(p.score_display, p.goals)) ORDER BY p.side_no)
                   FROM fco_match_participant p WHERE p.match_id = m.match_id) AS parts
           FROM match m
-         WHERE m.game_code = 'fconline' AND m.source = 'manual' AND m.origin = 'vod_scan' AND m.match_id LIKE 'fcs:%'
+         WHERE m.game_code = 'fconline' AND m.collected_via = 'vod' AND m.match_id LIKE 'fcs:%'
            AND m.match_id <> ${s.match_id}
            AND split_part(split_part(m.match_id, ':', 2), '@', 1)::bigint < ${Number(myVod ?? 0)}
            AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
@@ -386,7 +423,7 @@ async function reconcileInTx(tx: postgres.TransactionSql): Promise<{ linked: { s
   }
 }
 
-export interface FcoScreenSuspect { screen_match_id: string; other_match_id: string; other_source: string; verdict: "maybe" | "ambiguous" }
+export interface FcoScreenSuspect { screen_match_id: string; other_match_id: string; other_via: FcoCollectedVia; verdict: "maybe" | "ambiguous" }
 
 /**
  * R3 — 합치지 않았지만 같은 경기일 수 있는 쌍(API·화면 모두). 검수 화면이 읽는다.
@@ -399,8 +436,8 @@ export async function findFcoScreenSuspects(): Promise<FcoScreenSuspect[]> {
   const out: FcoScreenSuspect[] = [];
   for (const s of screens) {
     const sig = rowSig(s);
-    const others = await sql<(ScreenRow & { source: string })[]>`
-      SELECT m.match_id, m.game_creation, m.source,
+    const others = await sql<(ScreenRow & { collected_via: FcoCollectedVia })[]>`
+      SELECT m.match_id, m.game_creation, m.collected_via,
              (SELECT json_agg(json_build_object('nickname', p.nickname, 'streamer_id', p.streamer_id, 'ouid', p.ouid,
                                                 'score', coalesce(p.score_display, p.goals)) ORDER BY p.side_no)
                 FROM fco_match_participant p WHERE p.match_id = m.match_id) AS parts
@@ -411,7 +448,7 @@ export async function findFcoScreenSuspects(): Promise<FcoScreenSuspect[]> {
     const hits = others.filter((o) => o.parts?.length === 2).map((o) => ({ o, v: compareMatches(sig, rowSig(o)) })).filter((x) => x.v !== "no");
     for (const { o, v } of hits) {
       if (v === "same" && hits.length === 1) continue; // 하나뿐인 same 은 연결 대상이지 의심이 아니다
-      out.push({ screen_match_id: s.match_id, other_match_id: o.match_id, other_source: o.source, verdict: v === "same" ? "ambiguous" : "maybe" });
+      out.push({ screen_match_id: s.match_id, other_match_id: o.match_id, other_via: o.collected_via, verdict: v === "same" ? "ambiguous" : "maybe" });
     }
   }
   return out;

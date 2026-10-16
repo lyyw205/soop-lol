@@ -23,7 +23,8 @@ async function main() {
       FROM match m
       JOIN fco_match_detail d ON d.match_id = m.match_id
       JOIN fco_match_participant p ON p.match_id = m.match_id
-      LEFT JOIN event e ON e.id = m.event_id
+      LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+      LEFT JOIN event e ON e.id = ms.event_id AND NOT e.auto_bucket
      WHERE m.game_code = 'fconline'
        AND m.game_creation >= (${from}::date::timestamp AT TIME ZONE 'Asia/Seoul')
        AND m.game_creation < ((${to}::date + interval '1 day')::timestamp AT TIME ZONE 'Asia/Seoul')
@@ -32,7 +33,7 @@ async function main() {
          JOIN streamer s ON s.id = mine.streamer_id
          WHERE mine.match_id = m.match_id AND s.slug = ${streamer ?? null}
        ))
-     GROUP BY d.provider_match_id, m.match_id, e.name
+     GROUP BY d.provider_match_id, m.match_id, e.id
      ORDER BY m.game_creation, d.provider_match_id
   `;
   if (!rows.length) console.log("해당 기간에 수집된 FC 온라인 경기가 없습니다.");

@@ -1,4 +1,4 @@
-import { fcoPlayerAppearance } from "@soop-lol/core/lib/contract/client";
+import { fcoPlayerAppearance, pairSetOutcome, tally, type Tally } from "@soop-lol/core/lib/contract/client";
 /**
  * FC 대회 화면의 해석 — 참가자 성적·상대 전적표·하이라이트·선수 카드 기록.
  * core 에는 경기 사실만 있고 이건 이 모듈 것이다. 순수 함수라 테스트가 그대로 부른다.
@@ -9,6 +9,7 @@ import { fcoPlayerAppearance } from "@soop-lol/core/lib/contract/client";
  * ★ 미연결 상대(ouid 가 'unlinked:…')는 신원을 모르므로 성적·전적표에서 뺀다 — 같은 사람인지
  *   알 수 없는 칸을 한 줄로 합치면 없는 사람의 기록이 생긴다.
  */
+import { recordText as recordCountsText } from "../../../ui/record-pair-model.ts";
 import { addFcoStats, EMPTY_FCO_STATS, fcoNumber, type FcoGame, type FcoParticipant, type FcoStatLine } from "@soop-lol/core/lib/contract";
 
 export type Outcome = FcoParticipant["outcome"];
@@ -32,9 +33,13 @@ export interface Entrant {
   image: string | null;
   channelId: string | null;
   games: number;
+  /** 세트·시리즈 기록 — 세는 규칙은 core 의 tally 하나다. 아래 wins·draws·losses·unknown 은 그 세트 값이다(표 칸용). */
+  record: Tally;
   wins: number;
   draws: number;
   losses: number;
+  /** 결과 미상 세트 — 숨기지 않는다. */
+  unknown: number;
   /** 화면 점수 기준 득점·실점 */
   goalsFor: number;
   goalsAgainst: number;
@@ -48,6 +53,7 @@ const linked = (p: FcoParticipant) => p.streamer_id != null;
 /** 참가자별 기록. **이름순** — 순위가 아니다(파일 머리 주석). */
 export function entrants(games: FcoGame[], people: Map<string, PersonInfo> = new Map()): Entrant[] {
   const rows = new Map<string, Entrant>();
+  const sets = new Map<string, { series_id: string; outcome: Outcome }[]>();
   for (const game of games) {
     for (const p of game.participants) {
       if (!linked(p)) continue;
@@ -56,12 +62,10 @@ export function entrants(games: FcoGame[], people: Map<string, PersonInfo> = new
       const row = rows.get(p.streamer_id!) ?? {
         key: p.streamer_id!, slug: p.streamer_slug, name: p.streamer_name ?? p.nickname,
         image: info?.image ?? null, channelId: info?.channel_id ?? null,
-        games: 0, wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0, form: [], stats: EMPTY_FCO_STATS,
+        games: 0, record: tally([]), wins: 0, draws: 0, losses: 0, unknown: 0, goalsFor: 0, goalsAgainst: 0, form: [], stats: EMPTY_FCO_STATS,
       };
       row.games++;
-      if (p.outcome === "win") row.wins++;
-      else if (p.outcome === "draw") row.draws++;
-      else if (p.outcome === "loss") row.losses++;
+      (sets.get(row.key) ?? sets.set(row.key, []).get(row.key)!).push({ series_id: game.series_id ?? game.id, outcome: p.outcome });
       row.goalsFor += sideScore(p) ?? 0;
       row.goalsAgainst += sideScore(rival) ?? 0;
       row.form.push(p.outcome);
@@ -69,12 +73,19 @@ export function entrants(games: FcoGame[], people: Map<string, PersonInfo> = new
       rows.set(row.key, row);
     }
   }
+  for (const row of rows.values()) {
+    row.record = tally(sets.get(row.key) ?? []);
+    ({ win: row.wins, draw: row.draws, loss: row.losses, unknown: row.unknown } = row.record.sets);
+  }
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
 
 export interface H2HResult { gameId: string; providerId: string; own: number | null; rival: number | null; outcome: Outcome }
 
-/** 상대 전적표. matrix.get(a)?.get(b) 는 a 입장에서 본 b 와의 경기들(경기 순서). */
+/**
+ * 상대 전적표. matrix.get(a)?.get(b) 는 a 입장에서 본 b 와의 경기들(경기 순서).
+ * ★ 칸의 결과는 두 사람의 결과 짝으로 정한다(pairSetOutcome) — 양쪽 몰수패는 무, 그래서 a 칸과 b 칸이 언제나 거울이다.
+ */
 export function headToHead(games: FcoGame[]): Map<string, Map<string, H2HResult[]>> {
   const matrix = new Map<string, Map<string, H2HResult[]>>();
   for (const game of games) {
@@ -83,7 +94,7 @@ export function headToHead(games: FcoGame[]): Map<string, Map<string, H2HResult[
     for (const [own, rival] of [[a, b], [b, a]] as const) {
       const row = matrix.get(own.streamer_id!) ?? new Map<string, H2HResult[]>();
       const cell = row.get(rival.streamer_id!) ?? [];
-      cell.push({ gameId: game.id, providerId: game.provider_id, own: sideScore(own), rival: sideScore(rival), outcome: own.outcome });
+      cell.push({ gameId: game.id, providerId: game.provider_id, own: sideScore(own), rival: sideScore(rival), outcome: pairSetOutcome(own.outcome, rival.outcome) });
       row.set(rival.streamer_id!, cell);
       matrix.set(own.streamer_id!, row);
     }
@@ -172,5 +183,7 @@ export function highlights(games: FcoGame[], people: Entrant[], cards: CardRecor
   };
 }
 
-export { eventKindLabel as kindLabel } from "@soop-lol/core/lib/contract/client";
+export { formatLabel } from "@soop-lol/core/lib/contract/client";
+/** 세트 기록 한 줄 — 문구 규칙은 공용 기록 부품의 것(미상이 있으면 늘 보인다, 승+무+패+미상 = 판 수). */
+export const recordText = (e: Pick<Entrant, "record">) => recordCountsText(e.record.sets);
 export const outcomeLabel = (o: Outcome) => o === "win" ? "승" : o === "loss" ? "패" : o === "draw" ? "무" : "?";

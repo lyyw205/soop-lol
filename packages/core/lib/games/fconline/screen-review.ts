@@ -13,6 +13,7 @@
 import type postgres from "postgres";
 
 import { db } from "../../db/client.ts";
+import { placeFcoMatchAutoInTx } from "./classify.ts";
 import { linkScreenTo, resolveSide, screenOutcomes, type ResolvedSide } from "./screen.ts";
 
 type ResolvedSideBasis = ResolvedSide["basis"];
@@ -30,7 +31,7 @@ async function lockScreen(tx: Sql, matchId: string, expectedVersion: number) {
   if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0) throw new Error("검수 기준값이 없습니다. 새로고침해 주세요.");
   const [cur] = await tx<{ review_version: number; review_completed_at: Date | null; reviewed_at: Date | null }[]>`
     SELECT review_version, review_completed_at, reviewed_at FROM match
-     WHERE match_id = ${matchId} AND game_code = 'fconline' AND source = 'manual' AND origin = 'vod_scan' FOR UPDATE`;
+     WHERE match_id = ${matchId} AND game_code = 'fconline' AND collected_via = 'vod' FOR UPDATE`;
   if (!cur) throw new Error("화면 경기를 찾지 못했습니다.");
   if (cur.review_version !== expectedVersion) throw new Error("경기 값이 바뀌었습니다. 새로고침 후 다시 확인해 주세요.");
   return cur;
@@ -102,6 +103,8 @@ export async function updateScreenSides(matchId: string, expectedVersion: number
       await log(tx, matchId, "participant", key, "identity_basis", b.identity_basis, r.basis);
       await log(tx, matchId, "participant", key, "outcome", b.outcome, outs[i]);
     }
+    // 사람이 바뀌었으면 자동 묶음 사이에서만 자리를 맞춘다(실제 행사에 있는 판은 그대로 — classify.ts).
+    await placeFcoMatchAutoInTx(tx, matchId);
     // The participant trigger invalidates actual value changes from every write path.
     // A no-op save keeps completion intact; manual edits remain protected.
     const [saved] = await tx<{ review_version: number; review_completed_at: Date | null }[]>`

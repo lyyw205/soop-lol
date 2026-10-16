@@ -9,22 +9,22 @@ import { adminHref, adminPage } from "@/lib/admin-navigation";
 
 export const metadata = { title: "FC 경기 검수" };
 export const dynamic = "force-dynamic";
-type Row = { key: string; href: string; title: string; date: string; total: number; done: number; context: string; contextPending: boolean; investigated: boolean; casual: boolean };
+type Row = { key: string; href: string; title: string; date: string; total: number; done: number; context: string; contextPending: boolean; investigated: boolean; personal: boolean };
 const eventRow = (u: FcoReviewUnit): Row => {
   const included = u.matches.filter(m => m.decision === "include");
   return { key: u.id, href: `/admin/fco/event-${u.event!.id}`, title: u.title,
     date: u.matches.at(-1)?.played_at ?? "", total: included.length, done: included.filter(m => m.value_completed).length,
     context: `포함 ${included.length} · 제외 ${u.matches.filter(m => m.decision === "exclude").length} · 미정 ${u.matches.filter(m => !m.decision).length}`,
-    contextPending: !u.confirmed, investigated: true, casual: false };
+    contextPending: !u.confirmed, investigated: true, personal: false };
 };
 const sessionRow = (s: FcoSession): Row => ({ key: s.id, href: `/admin/fco/session/${encodeURIComponent(s.id)}`, title: s.title, date: s.from,
   total: s.total, done: s.completed, context: s.kind === "meet" ? `분류 확정 ${s.context_completed}/${s.total}` : "일반 유저전",
-  contextPending: s.kind === "meet" && s.context_completed < s.total, investigated: s.investigated, casual: s.kind !== "meet" });
+  contextPending: s.kind === "meet" && s.context_completed < s.total, investigated: s.investigated, personal: s.kind !== "meet" });
 
 export default async function FcoReviewListPage({ searchParams }: { searchParams: Promise<{ view?: string; who?: string; vod?: string; q?: string; page?: string }> }) {
   const params = await searchParams;
   const { who = "", vod = "", q = "" } = params;
-  const view = ["priority", "general", "pending", "context", "confirmed", "todo", "all", "casual", "clues"].includes(params.view ?? "") ? params.view! : "priority";
+  const view = ["priority", "general", "pending", "context", "confirmed", "todo", "all", "personal", "clues"].includes(params.view ?? "") ? params.view! : "priority";
   const page = adminPage(params.page), size = 50;
   const [units, sessions, clues, priorities] = await Promise.all([getFcoReviewWorkspace({ onlyEvents: true }), listFcoSessions(), listFcoCrossClues({ who, vod, q }), listFcoReviewPriorities()]);
   const people = [...new Map([...sessions.flatMap(s => s.people), ...units.flatMap(u => u.matches.flatMap(m => m.participants.filter(p => p.slug).map(p => ({ slug: p.slug!, name: p.name }))))].map(p => [p.slug, p.name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
@@ -41,9 +41,9 @@ export default async function FcoReviewListPage({ searchParams }: { searchParams
     priority: rows.filter(r => r.urgent.length > 0), general: rows.filter(r => r.general.length > 0),
     pending: rows.filter(r => r.done < r.total), context: rows.filter(r => r.contextPending),
     confirmed: rows.filter(r => r.total > 0 && r.done === r.total), todo: rows.filter(r => !r.investigated),
-    all: rows, casual: rows.filter(r => r.casual),
+    all: rows, personal: rows.filter(r => r.personal),
   };
-  const tabs = [["priority", "우선 검수"], ["general", "일반 검수"], ["pending", "미검수 전체"], ["context", "대회·분류 대기"], ["confirmed", "경기값 완료"], ["todo", "조사 필요"], ["all", "전체"], ["casual", "일반 유저전"], ["clues", "교차 단서"]];
+  const tabs = [["priority", "우선 검수"], ["general", "일반 검수"], ["pending", "미검수 전체"], ["context", "대회·분류 대기"], ["confirmed", "경기값 완료"], ["todo", "조사 필요"], ["all", "전체"], ["personal", "일반 유저전(개인 기록)"], ["clues", "교차 단서"]];
   const tabCount = (key: string) => key === "clues" ? `${clues.length}단서`
     : key === "priority" || key === "general"
       ? `${new Set(groups[key].flatMap(r => key === "priority" ? r.urgent : r.general)).size}경기 · ${groups[key].length}묶음`
@@ -71,7 +71,7 @@ export default async function FcoReviewListPage({ searchParams }: { searchParams
     </li>)}</ul> : <ul className="divide-y divide-ink-800">{visible.map(r => <li key={r.key} className="flex flex-wrap items-center gap-3 py-3 text-xs">
       <div className="min-w-0 flex-1"><Link href={adminHref(r.href, { from: href, match: view === 'priority' ? r.urgent[0] : view === 'general' ? r.general[0] : undefined })} className="block break-words text-sm text-ink-200 hover:text-accent-400">{r.title}</Link><p className="mt-1 text-ink-400">{kstPlayedAt(new Date(r.date), "datetime")} · {r.context}</p>{view === 'priority' && <p className="mt-1 text-amber-300">{r.reasons.join(' · ')}</p>}</div>
       <span className={r.done === r.total && r.total ? "text-win" : "text-ink-300"}>경기값 {r.done}/{r.total}</span>
-      <span className={r.contextPending ? "text-amber-400" : "text-ink-400"}>{r.casual ? "분류 대상 아님" : r.contextPending ? "대회·분류 대기" : "대회·분류 확정"}</span>
+      <span className={r.contextPending ? "text-amber-400" : "text-ink-400"}>{r.personal ? "분류 대상 아님(개인 기록)" : r.contextPending ? "대회·분류 대기" : "대회·분류 확정"}</span>
     </li>)}</ul>}
     <AdminPagination href={href} page={page} total={total} size={size} unit={view === "clues" ? "단서" : "묶음"} />
   </Card>;

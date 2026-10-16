@@ -85,7 +85,7 @@ export function FcoScoreboard({ sides, date, mode, event }: Props) {
     <div className="fc-sb2-pitch" aria-hidden="true" />
 
     <div className="fc-sb2-body">
-      <p className="fc-sb2-kicker">{event ?? "일반 경기"} <span>·</span> {mode}</p>
+      <p className="fc-sb2-kicker">{event ? <>{event} <span>·</span> </> : null}{mode}</p>
 
       {/* 프로필 줄과 득점자 줄을 나눈다. 한 칸에 묶으면 골이 많은 쪽이 길어지면서 점수가 한쪽으로 쏠린다. */}
       <div className="fc-sb2-main">

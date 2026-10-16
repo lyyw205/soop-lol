@@ -5,7 +5,7 @@
  *   방송을 기준으로 묶으면 같은 경기를 방송마다 다시 보게 된다(스맵임 vs 서도일을 두 방송에서, 시청한 김민교 vs 이상호를 세 방송에서).
  *
  *   묶는 순서
- *     1. 대회(행사)에 붙은 경기 → 대회 단위(여기서 다루지 않는다 — 기존 대회 단위)
+ *     1. 실제 행사에 붙은 경기 → 행사 단위(여기서 다루지 않는다). 자동 미분류 묶음에 있는 판은 행사가 아니라 여기서 본다
  *     2. 두 칸 다 스트리머        → 그 두 사람의 대전
  *     3. 한 칸만 스트리머         → 그 스트리머의 「일반 유저전」
  *     4. 둘 다 스트리머가 아님     → 두 닉네임의 대전(사람을 붙이면 2·3 으로 옮겨 간다)
@@ -16,11 +16,14 @@
  *     · 화면 기록이 정본인 경기 · VOD 로 본 넥슨 경기(상대가 일반 유저여도) · 스트리머끼리 넥슨 경기
  *     (VOD 로 본 적 없는 일반 유저전 넥슨 경기는 넣지 않는다 — 예전 맥락 검수와 같다)
  *
- * ★ 묶음은 저장하지 않고 매번 계산한다(마이그레이션 없음). 사람을 붙이거나 경기가 이어지면 다음에 열 때 맞는 대전으로 옮겨 간다.
+ * ★ 대전은 저장하지 않고 매번 계산한다 — **검수 화면의 표시일 뿐 분류의 저장 규칙이 아니다**(40분 간격은 들어온 순서에 따라 갈린다).
+ *   분류의 그릇은 (두 사람, 날짜) 자동 묶음이고(classify.ts), 대전은 그 묶음 안의 판을 나눠 보여 준다(docs/CLASSIFICATION-REDESIGN-PLAN.md §3.4).
  */
 
 import { db } from "../../db/client.ts";
+import { FCO_CONTEXT_NOTE_FIELD } from "./classify.ts";
 import { OBS_CTE } from "./match-units.ts";
+import type { FcoCollectedVia } from "./screen.ts";
 
 export const SESSION_GAP_MIN = 40;
 
@@ -53,7 +56,7 @@ export interface FcoSession {
 }
 
 interface Row {
-  match_id: string; source: string; game_creation: Date; review_completed_at: Date | null; context_review_completed_at: Date | null; investigated: boolean;
+  match_id: string; collected_via: FcoCollectedVia; game_creation: Date; review_completed_at: Date | null; context_review_completed_at: Date | null; investigated: boolean;
   parts: { nickname: string; streamer_id: string | null; slug: string | null; name: string | null }[] | null;
   owners: { slug: string; name: string }[] | null;
   vods: string[] | null;
@@ -68,18 +71,20 @@ async function loadCandidates(): Promise<Row[]> {
     cand AS (
       SELECT m.match_id FROM match m
         LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
+        LEFT JOIN event e ON e.id = ms.event_id
        WHERE m.game_code = 'fconline'
-         AND COALESCE(ms.event_id, m.event_id) IS NULL
+         AND (e.id IS NULL OR e.auto_bucket)
          AND NOT EXISTS (SELECT 1 FROM fco_screen_link l WHERE l.screen_match_id = m.match_id)
-         AND (   (m.source = 'manual' AND m.origin = 'vod_scan')
+         AND (   m.collected_via = 'vod'
               OR EXISTS (SELECT 1 FROM obs WHERE obs.canon = m.match_id)
-              OR (m.source = 'provider_api' AND (SELECT count(*) FROM fco_match_participant p JOIN streamer s ON s.id = p.streamer_id AND s.visibility = 'public'
+              OR (m.collected_via = 'api' AND (SELECT count(*) FROM fco_match_participant p JOIN streamer s ON s.id = p.streamer_id AND s.visibility = 'public'
                                                   WHERE p.match_id = m.match_id) >= 2))
     )
-    SELECT m.match_id, m.source, m.game_creation, m.review_completed_at, m.context_review_completed_at,
+    SELECT m.match_id, m.collected_via, m.game_creation, m.review_completed_at, m.context_review_completed_at,
            (EXISTS (SELECT 1 FROM fco_context_evidence e WHERE e.match_id = m.match_id)
-            OR EXISTS (SELECT 1 FROM fco_match_context c WHERE c.match_id = m.match_id)
-            OR m.source = 'manual') AS investigated,
+            OR EXISTS (SELECT 1 FROM review_change rc WHERE rc.match_id = m.match_id AND rc.entity = 'classification'
+                         AND rc.field = '${FCO_CONTEXT_NOTE_FIELD}')
+            OR m.collected_via = 'vod') AS investigated,
            -- 사람: 정본 칸에 없으면 이어진 시점(화면 기록)이 같은 닉네임 칸에 붙인 사람을 쓴다.
            --   예) 정본(스맵임 방송)은 「불꽃열정」이 누군지 모르는데, 서도일 방송 기록은 「불꽃열정 = 서도일(방송 주인)」을 안다.
            --   읽기만 이렇게 본다 — 정본 칸을 고치지 않는다(넥슨 기록 칸은 계정 연결로만 사람이 정해진다).
@@ -141,7 +146,7 @@ export async function listFcoSessions(): Promise<FcoSession[]> {
         people: [...people].map(([slug, name]) => ({ slug, name })),
         from: cur[0].game_creation.toISOString(), to: cur[cur.length - 1].game_creation.toISOString(),
         total: cur.length, completed: cur.filter((r) => r.review_completed_at).length,
-        api: cur.filter((r) => r.source === "provider_api").length,
+        api: cur.filter((r) => r.collected_via === "api").length,
         investigated: cur.some((r) => r.investigated), match_ids: cur.map((r) => r.match_id),
         vods: [...new Set(cur.flatMap((r) => r.vods ?? []))].sort(),
       });

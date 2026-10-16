@@ -79,8 +79,8 @@ if (mode === "fixture") {
     game("snap-7", "2026-09-23 12:00:00", 40, A("패", 1), D("승", 2)),
   ];
   for (const g of games) await saveFcoMatch(g);
-  for (const id of ["snap-1", "snap-2"]) await applyFcoMatchContext({ provider_match_id: id, conclusion: "event", event: { slug: "snap-cup", name: "스냅컵", kind: "tournament", source_url: "https://example.com/snap" } });
-  await applyFcoMatchContext({ provider_match_id: "snap-5", conclusion: "event", event: { slug: "snap-cup-2", name: "스냅컵 2", kind: "tournament", source_url: "https://example.com/snap2" } });
+  for (const id of ["snap-1", "snap-2"]) await applyFcoMatchContext({ provider_match_id: id, conclusion: "event", event: { slug: "snap-cup", name: "스냅컵", format: "tournament", source_url: "https://example.com/snap" } });
+  await applyFcoMatchContext({ provider_match_id: "snap-5", conclusion: "event", event: { slug: "snap-cup-2", name: "스냅컵 2", format: "tournament", source_url: "https://example.com/snap2" } });
   // 숨긴 사람·숨긴 계정 — 가림이 그대로인지도 본다
   await sql`UPDATE streamer SET visibility = 'hidden' WHERE slug = 'gamma-fc'`;
   await sql`UPDATE streamer_fco_account SET visibility = 'hidden' WHERE ouid = 'delta-ouid'`;

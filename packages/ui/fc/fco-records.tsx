@@ -2,8 +2,8 @@ import { fcoPlayerAppearance } from "@soop-lol/core/lib/contract/client";
 import Link from "next/link";
 import { Fragment } from "react";
 import {
-  addFcoStats, EMPTY_FCO_STATS, fcMatchHref, fcoNumber, FCO_MODE_LABEL, kstDateString, profileHref,
-  type FcoGame, type FcoParticipant, type FcoStatLine,
+  addFcoStats, EMPTY_FCO_STATS, fcMatchHref, fcoNumber, FCO_MODE_LABEL, formatLabel, kstDateString, pairSetOutcome, profileHref,
+  type FcoGame, type FcoParticipant, type FcoStatLine, type Outcome,
 } from "@soop-lol/core/lib/contract/client";
 import { RecordTimeline, RecordTimelineRow, RecordTimelineYear } from "../record-structure.tsx";
 
@@ -14,7 +14,18 @@ export function fcDate(date: string): string {
   }).format(new Date(date));
 }
 
-export function FcoMatchList({ games, perspectiveStreamerId, rowIdPrefix }: { games: FcoGame[]; perspectiveStreamerId?: string; rowIdPrefix?: string }) {
+/**
+ * 한 줄 = 한 세트. 결과는 기준 스트리머의 결과, 상대(opponentStreamerId)를 주면 두 사람의 결과 짝(pairSetOutcome — 양쪽 몰수패는 무)이다.
+ * 행사 칸은 확인된 것만 단다 — 실제 행사 이름, 없으면 진행 방식 라벨, 분류 전이면 비운다("일반 경기" 같은 지어낸 라벨을 쓰지 않는다).
+ */
+export function fcoSetOutcome(game: FcoGame, streamerId: string, opponentStreamerId?: string): Outcome {
+  const mine = game.participants.find((p) => p.streamer_id === streamerId)?.outcome ?? "unknown";
+  if (!opponentStreamerId) return mine;
+  return pairSetOutcome(mine, game.participants.find((p) => p.streamer_id === opponentStreamerId)?.outcome ?? "unknown");
+}
+export const fcoEventLabel = (game: FcoGame) => game.event_name ?? (game.format ? formatLabel(game.format) : null);
+
+export function FcoMatchList({ games, perspectiveStreamerId, opponentStreamerId, rowIdPrefix }: { games: FcoGame[]; perspectiveStreamerId?: string; opponentStreamerId?: string; rowIdPrefix?: string }) {
   if (games.length === 0) return <div className="fc-empty">스트리머 간 FC 온라인 경기 기록이 없습니다.</div>;
   let previousYear = "";
   let previousDate = "";
@@ -27,7 +38,8 @@ export function FcoMatchList({ games, perspectiveStreamerId, rowIdPrefix }: { ga
     previousYear = year;
     previousDate = date;
     const perspective = game.participants.find((participant) => participant.streamer_id === perspectiveStreamerId);
-    const result = perspective?.outcome ?? "unknown";
+    const result = perspectiveStreamerId ? fcoSetOutcome(game, perspectiveStreamerId, opponentStreamerId) : "unknown";
+    const label = fcoEventLabel(game);
     return <Fragment key={game.id}>
       {showYear && <RecordTimelineYear year={year} />}
       <RecordTimelineRow id={rowIdPrefix ? `${rowIdPrefix}${game.id}` : undefined}
@@ -35,7 +47,7 @@ export function FcoMatchList({ games, perspectiveStreamerId, rowIdPrefix }: { ga
         date={showDate ? <><span className="personal-match-date-year">{date.slice(0, 5)}</span>{date.slice(5)}</> : <span className="sr-only">{date}</span>}>
         <div className="personal-match-detail">
           <Link className="arena-match-toggle personal-match-toggle fc-history-link" href={fcMatchHref(game.provider_id)} prefetch={false}>
-            <span className="record-match-event" title={game.event_name ?? "일반 경기"}><span className="record-match-clip">{game.event_name ?? "일반 경기"}</span></span>
+            <span className="record-match-event" title={label ?? undefined}><span className="record-match-clip">{label ?? ""}</span></span>
             <span className="personal-match-teams"><span className="record-match-clip">{a?.streamer_name ?? a?.nickname ?? "미확인"}</span>
               <strong>{a?.score_display ?? a?.goals ?? "?"}<i>:</i>{b?.score_display ?? b?.goals ?? "?"}</strong>
               <span className="record-match-clip">{b?.streamer_name ?? b?.nickname ?? "미확인"}</span></span>

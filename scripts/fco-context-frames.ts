@@ -53,7 +53,7 @@ try {
   const sql = db();
   const rows = await sql<{ match_id: string }[]>`
     SELECT match_id FROM match
-     WHERE game_code = 'fconline' AND source = 'manual' AND origin = 'vod_scan' AND match_id LIKE 'fcs:%'`;
+     WHERE game_code = 'fconline' AND collected_via = 'vod' AND match_id LIKE 'fcs:%'`;
   const byVod = new Map<string, number[]>();
   for (const { match_id } of rows) {
     const m = /^fcs:(\d+)@(\d+)$/.exec(match_id);

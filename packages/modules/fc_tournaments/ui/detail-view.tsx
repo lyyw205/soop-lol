@@ -15,7 +15,7 @@ import {
 } from "@soop-lol/core/lib/contract";
 import { PlayersTable } from "./players-table.tsx";
 import {
-  cardRecords, entrants, headToHead, highlights, isLevelDecided, MIN_RATED_GAMES, outcomeLabel, sideScore,
+  cardRecords, entrants, headToHead, highlights, isLevelDecided, MIN_RATED_GAMES, outcomeLabel, recordText, sideScore,
   type CardRecord, type Entrant, type Highlights,
 } from "./model.ts";
 import { MatchBoard, MatchCard, type BoardMatch } from "./match-board.tsx";
@@ -157,7 +157,7 @@ function FinalSlot({ slot, view }: { slot: BoardSlot; view: View }) {
         return <div className={`ft-final-side ${side?.won ? "ft-final-side-win" : ""}`} key={e?.id ?? i}>
           <Person entrant={{ name: e?.name ?? "미정", image: e?.image ?? null, channelId: e?.channelId ?? null }} size="lg" />
           <strong>{e?.slug ? <Link href={profileHref("fconline", e.slug)}>{e.name}</Link> : e?.name ?? "미정"}</strong>
-          <small>{side?.won ? "우승" : e ? "준우승" : ""}{rec ? ` · 기록된 경기 ${rec.wins}승 ${rec.draws}무 ${rec.losses}패` : ""}</small>
+          <small>{side?.won ? "우승" : e ? "준우승" : ""}{rec ? ` · 기록된 경기 ${recordText(rec)}` : ""}</small>
         </div>;
       })}
       <div className="ft-final-numbers">
@@ -206,7 +206,7 @@ function LastMatch({ match, view }: { match: BoardMatch; view: View }) {
         return <div className={`ft-final-side ${side.outcome === "win" ? "ft-final-side-win" : ""}`} key={side.key + i}>
           <Person entrant={{ name: side.name, image: side.image, channelId: side.channelId }} size="lg" />
           <strong>{e?.slug ? <Link href={profileHref("fconline", e.slug)}>{side.name}</Link> : side.name}</strong>
-          <small>{e ? `대회 ${e.wins}승 ${e.draws}무 ${e.losses}패` : "미연결 계정"}</small>
+          <small>{e ? `대회 ${recordText(e)}` : "미연결 계정"}</small>
         </div>;
       })}
       <div className="ft-final-numbers">
@@ -286,7 +286,7 @@ function HeadToHead({ view }: { view: View }) {
             </Link>)}
           </td>;
         })}
-        <td className="ft-h2h-total">{row.wins}승 {row.draws}무 {row.losses}패</td>
+        <td className="ft-h2h-total">{recordText(row)}</td>
       </tr>)}</tbody>
     </table>
   </div>;
@@ -302,7 +302,7 @@ function Standings({ view }: { view: View }) {
           <Person entrant={p} />
           <span className="ft-standings-details">
             <strong>{p.name}</strong>
-            <small>{p.wins}승 {p.draws}무 {p.losses}패 · 득실 {signed(gd(p))}</small>
+            <small>{recordText(p)} · 득실 {signed(gd(p))}</small>
           </span>
           <ChevronRight size={14} />
         </Link>
@@ -402,7 +402,7 @@ function Records({ view }: { view: View }) {
             <tbody>{view.people.map((p) => <tr key={p.key}>
               <th scope="row"><span className="ft-table-person"><Person entrant={p} size="sm" />
                 {p.slug ? <Link href={profileHref("fconline", p.slug)}>{p.name}</Link> : p.name}</span></th>
-              <td>{p.games}</td><td>{p.wins}-{p.draws}-{p.losses}</td><td>{p.goalsFor}</td>
+              <td>{p.games}</td><td>{p.wins}-{p.draws}-{p.losses}{p.unknown ? ` (미상 ${p.unknown})` : ""}</td><td>{p.goalsFor}</td>
               <td>{p.stats.shots}</td><td>{p.stats.shotsOnTarget} <small>({pct(p.stats.shotsOnTarget, p.stats.shots)})</small></td>
               <td>{pct(p.stats.passSuccess, p.stats.passTry)}</td>
               <td>{p.stats.games ? `${Math.round(p.stats.possessionTotal / p.stats.games)}%` : "—"}</td>

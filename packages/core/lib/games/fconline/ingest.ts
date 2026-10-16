@@ -1,4 +1,5 @@
 import { db } from "../../db/client.ts";
+import { placeFcoMatchAutoInTx } from "./classify.ts";
 import type { FcoMatchDetail, FcoMatchPlayer } from "./types.ts";
 import type postgres from "postgres";
 
@@ -25,7 +26,11 @@ function displayScore(player: FcoMatchPlayer): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : goals(player);
 }
 
-/** 제공자 원본과 조회용 요약을 같은 트랜잭션에서 기록한다. 1:1 외 모드는 별도 모델이 필요하다. */
+/**
+ * 제공자 원본과 조회용 요약을 같은 트랜잭션에서 기록한다. 1:1 외 모드는 별도 모델이 필요하다.
+ * ★ 수집 경로는 분류를 정하지 않는다(collected_via='api' 는 "어떻게 알았나"일 뿐). 판은 개인 기록으로 들어오고,
+ *   공개 연결된 스트리머 두 사람의 판이면 그 (두 사람, 날짜) 자동 미분류 묶음으로 간다(classify.ts). 재수집은 이미 시리즈에 있는 판을 옮기지 않는다.
+ */
 export async function saveFcoMatch(detail: FcoMatchDetail): Promise<"saved" | "unsupported"> {
   if (detail.matchInfo.length !== 2 || detail.matchInfo.some((p) => !p.ouid) || new Set(detail.matchInfo.map(p => p.ouid)).size !== 2) return "unsupported";
   const sql = db();
@@ -39,9 +44,9 @@ export async function saveFcoMatch(detail: FcoMatchDetail): Promise<"saved" | "u
       throw new Error("같은 경기 ID를 다른 게임이 사용하고 있습니다.");
     }
     await tx`
-      INSERT INTO match (match_id, game_code, mode_key, game_mode, game_creation, source)
+      INSERT INTO match (match_id, game_code, mode_key, game_mode, game_creation, collected_via, scope)
       VALUES (${id}, 'fconline', ${String(detail.matchType)}, ${String(detail.matchType)},
-              ${playedAt}, 'provider_api')
+              ${playedAt}, 'api', 'personal')
       ON CONFLICT (match_id) DO UPDATE SET
         game_creation = EXCLUDED.game_creation, mode_key = EXCLUDED.mode_key
       WHERE match.game_code = 'fconline'
@@ -81,11 +86,15 @@ export async function saveFcoMatch(detail: FcoMatchDetail): Promise<"saved" | "u
           match_info = EXCLUDED.match_info
       `;
     }
+    await placeFcoMatchAutoInTx(tx, id);
   });
   return "saved";
 }
 
-/** 계정 귀속은 명시적인 입력으로만 확정한다. 기존 경기에도 연결을 반영한다. */
+/**
+ * 계정 귀속은 명시적인 입력으로만 확정한다. 기존 경기에도 연결을 반영한다.
+ * 연결로 두 사람 판이 된 개인 기록 판은 그 묶음으로 옮긴다 — 같은 규칙(placeFcoMatchAutoInTx)이라 수집 순서와 무관하다.
+ */
 export async function linkFcoAccount(input: {
   streamerSlug: string; ouid: string; nickname: string; level: number | null; sourceUrl?: string;
 }): Promise<void> {
@@ -113,9 +122,13 @@ export async function linkFcoAccount(input: {
       ON CONFLICT (ouid) DO UPDATE SET
         source_url = COALESCE(EXCLUDED.source_url, streamer_fco_account.source_url)
     `;
-    await tx`
+    const touched = await tx<{ match_id: string }[]>`
       UPDATE fco_match_participant SET streamer_id = ${owners[0].id}
        WHERE ouid = ${input.ouid}
+      RETURNING match_id
     `;
+    for (const { match_id } of [...touched].sort((a, b) => a.match_id.localeCompare(b.match_id))) {
+      await placeFcoMatchAutoInTx(tx, match_id);
+    }
   });
 }

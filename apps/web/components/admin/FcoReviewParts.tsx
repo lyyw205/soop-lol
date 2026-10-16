@@ -10,7 +10,7 @@ import { IDLE, type ActionState } from "@/lib/action-state";
 import { decideMatchAction, reviewToggleAction, setClassAction, updateEventAction } from "@/app/admin/fco/actions";
 import { AdminHistory } from "./AdminHistory";
 import { useReviewDraft } from "./use-review-draft";
-import { EVENT_KIND_LABEL } from "@/lib/admin-labels";
+import { FORMATS_BY_GAME, formatChipLabel } from "@soop-lol/core/lib/metrics/format";
 
 /**
  * FC 검수 부품 — 분류(맥락) 컨트롤 · 대회 탭 · 대회 포함/제외 결정. 작업대는 FcoMatchWorkbench 하나이고 이 부품들을 쓴다.
@@ -38,15 +38,16 @@ export function Result({ state }: { state: ActionState }) {
  *   ② 분류 토글 — 고를 수 있는 모든 분류를 한 줄에. 고르면 필요한 입력이 아래에 열린다.
  * 토글·검색 목록의 모양은 CK 판독 검수의 ck-review-winner-toggle / ck-champion-suggestions 를 쓴다.
  */
+// ★ 분류 = 이 판이 어느 진행 방식의 행사 소속인가(format.ts). 미해결은 분류가 아니라 남은 질문 메모다 — 판은 분류 전 그대로.
+//   친선은 사람만 정한다(자동 조사는 못 낸다) — 고르면 그날 두 사람의 친선 행사로 옮긴다.
 const CLASS_OPTIONS = [
-  { key: "unresolved", label: "미해결", hint: "더 봐야 한다 — 남은 질문을 남긴다" },
-  { key: "casual", label: "단순 친선", hint: "행사가 아니라고 판단했다" },
-  { key: "ck", label: EVENT_KIND_LABEL.ck, hint: "승패·보상이 걸린 스트리머 매치" },
-  { key: "tournament", label: EVENT_KIND_LABEL.tournament, hint: "공식 대회" },
-  { key: "showmatch", label: EVENT_KIND_LABEL.showmatch, hint: "보여주기용 기획 경기" },
-  { key: "scrim", label: EVENT_KIND_LABEL.scrim, hint: "대회 준비 연습게임" },
-  { key: "other", label: EVENT_KIND_LABEL.other, hint: "위 어디에도 안 맞는 행사" },
+  { key: "unresolved", label: "미해결", hint: "더 봐야 한다 — 남은 질문을 남긴다(분류 전 그대로)" },
+  { key: "friendly", label: formatChipLabel("friendly"), hint: "방송으로 확인한 친선 — 그날 두 사람의 친선 행사로 옮긴다(사람만)" },
+  { key: "tournament", label: formatChipLabel("tournament"), hint: "대회" },
+  { key: "ck", label: formatChipLabel("ck"), hint: "스트리머 간 내전(보상 무관)" },
+  { key: "concept", label: formatChipLabel("concept"), hint: "정해진 형식 밖의 특별한 컨셉 경기" },
 ] as const;
+const EVENT_CLASSES: readonly string[] = ["tournament", "ck", "concept"];
 
 /**
  * 분류·승인 컨트롤이 읽는 최소 모양. 맥락 검수 단위(FcoReviewUnit)도, 화면 경기 작업대도 이 모양을 채워 같은 컨트롤을 쓴다.
@@ -56,7 +57,7 @@ export interface ReviewControlsUnit {
   kind: FcoReviewUnit["kind"];
   status: FcoReviewUnit["status"];
   confirmed: boolean;
-  event: { id: string; kind: string; name: string; organizer: string | null; source_url: string | null } | null;
+  event: { id: string; format: FcoEventOption["format"]; name: string; organizer: string | null; source_url: string | null } | null;
   judgment: { judgment: string; note: string; created_by: string } | null;
   matches: { provider_match_id: string; context_version: number; participants: { name: string }[] }[];
 }
@@ -80,9 +81,9 @@ export function FcoReviewControls({
   const setQuery = (query: string) => setDraft(old => ({ ...old, query }));
   const setCreating = (next: boolean | ((v: boolean) => boolean)) => setDraft(old => ({ ...old, creating: typeof next === "function" ? next(old.creating) : next }));
   const field = (key: "note" | "slug" | "name" | "organizer" | "source_url") => ({ value: draft[key], onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(old => ({ ...old, [key]: e.target.value })) });
-  const current = unit.status === "event" ? (unit.event?.kind ?? null) : unit.judgment?.judgment ?? null;
+  const current = unit.status === "event" ? (unit.event?.format ?? null) : unit.judgment ? "unresolved" : null;
 
-  const isEventClass = !!picked && picked !== "unresolved" && picked !== "casual";
+  const isEventClass = EVENT_CLASSES.includes(picked);
   const matches = eventOptions.filter((o) => {
     const q = query.trim().toLowerCase();
     return !q || o.name.toLowerCase().includes(q) || (o.slug ?? "").toLowerCase().includes(q);
@@ -97,7 +98,7 @@ export function FcoReviewControls({
         <h4 className="text-[11px] font-semibold text-ink-400">
           분류 {targetMatch && unit.kind === "event" && <span className="text-ink-600">— {targetMatch.participants.map((p) => p.name).join(" vs ")} 경기에 적용</span>}
         </h4>
-        <div className="ck-review-winner-toggle" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+        <div className="ck-review-winner-toggle" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
           {CLASS_OPTIONS.map((option) => (
             <button key={option.key} type="button" title={option.hint}
               aria-pressed={picked ? picked === option.key : current === option.key}
@@ -115,18 +116,18 @@ export function FcoReviewControls({
         </p>
       </div>
 
-      {/* 미해결·단순 친선 — 근거 메모는 선택(비우면 「검수자 판단(메모 없음)」으로 남는다). */}
-      {(picked === "unresolved" || picked === "casual") && (
+      {/* 미해결 — 메모는 선택(비우면 「검수자 판단(메모 없음)」으로 남는다). 친선 — 확인만 누른다. */}
+      {(picked === "unresolved" || picked === "friendly") && (
         <form action={setClass} className="grid gap-2 rounded-lg border border-ink-800 bg-ink-900/40 p-3">
           {(targets ?? [targetMatch?.provider_match_id ?? ""]).map((id) => <input key={id} type="hidden" name="provider_match_id" value={id} />)}
           <input type="hidden" name="context_versions" value={JSON.stringify(base.versions)} />
           <input type="hidden" name="target" value={picked} />
-          <label className="block text-[11px] text-ink-400">
-            {picked === "unresolved" ? "남은 질문 (선택)" : "그렇게 본 근거 (선택)"}
+          {picked === "unresolved" ? <label className="block text-[11px] text-ink-400">
+            남은 질문 (선택)
             <textarea name="note" {...field("note")} rows={2}
               className="mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1.5 text-sm text-ink-200"
-              placeholder={picked === "unresolved" ? "예: 상대 채널 VOD 미확인 — 다른 POV 필요" : "예: 본인 방송에서 '오늘은 몸풀기' 발언 확인"} />
-          </label>
+              placeholder="예: 상대 채널 VOD 미확인 — 다른 POV 필요" />
+          </label> : <p className="text-[11px] text-ink-400">방송으로 친선임을 확인했을 때만 누른다 — 「단서 없음」은 친선의 근거가 아니다.</p>}
           <div className="flex items-center gap-3">
             <button type="submit" disabled={classPending}
               className="rounded-md border border-accent-600/40 bg-accent-600/10 px-3 py-1.5 text-xs text-accent-400 hover:bg-accent-600/20">
@@ -155,7 +156,7 @@ export function FcoReviewControls({
                     data-selected={unit.event?.id === option.id ? "" : undefined}
                     style={{ gridTemplateColumns: "minmax(0,1fr) auto", width: "100%" }}>
                     <span className="truncate">{option.name}</span>
-                    <small>{EVENT_KIND_LABEL[option.kind] ?? option.kind} · {option.games}경기</small>
+                    <small>{formatChipLabel(option.format)} · {option.games}경기</small>
                   </button>
                 </form>
               ))}
@@ -201,7 +202,7 @@ export function FcoReviewControls({
 }
 
 /** 대회 후보 경기의 상태 — 큐와 [경기] 탭이 같은 말을 쓴다. */
-export function decisionBadge(m: FcoReviewUnit["matches"][number]): { text: string; cls: string } {
+export function decisionBadge(m: Pick<FcoReviewUnit["matches"][number], "decision" | "decision_by">): { text: string; cls: string } {
   if (m.decision === "include") return m.decision_by === "admin"
     ? { text: "포함 확정", cls: "text-accent-400" } : { text: "포함 (조사)", cls: "text-ink-300" };
   if (m.decision === "exclude") return m.decision_by === "admin"
@@ -214,11 +215,11 @@ const inputCls = "mt-1 w-full rounded border border-ink-700 bg-ink-900 px-2 py-1
 /** [대회] 탭 — 행사 정보·후보 요약·일괄 승인. */
 export function EventTab({ unit, children }: { unit: FcoReviewUnit; children?: React.ReactNode }) {
   const ev = unit.event!;
-  const { draft, base, setDraft, reset, dirty } = useReviewDraft(`fco-event:${ev.id}`, { name: ev.name, kind: ev.kind, organizer: ev.organizer ?? "", source_url: ev.source_url ?? "", version: ev.admin_version });
+  const { draft, base, setDraft, reset, dirty } = useReviewDraft(`fco-event:${ev.id}`, { name: ev.name, format: ev.format, organizer: ev.organizer ?? "", source_url: ev.source_url ?? "", version: ev.admin_version });
   const [saved, save, saving] = useActionState(async (prev: ActionState, form: FormData) => {
     const result = await updateEventAction(prev, form); if (result.ok) reset(); return result;
   }, IDLE);
-  const field = (key: "name" | "kind" | "organizer" | "source_url") => ({ value: draft[key], onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDraft(old => ({ ...old, [key]: e.target.value })) });
+  const field = (key: "name" | "format" | "organizer" | "source_url") => ({ value: draft[key], onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDraft(old => ({ ...old, [key]: e.target.value })) });
   const [review, toggle, reviewing] = useActionState(reviewToggleAction, IDLE);
   const inc = unit.matches.filter((m) => m.decision === "include").length;
   const exc = unit.matches.filter((m) => m.decision === "exclude").length;
@@ -260,9 +261,9 @@ export function EventTab({ unit, children }: { unit: FcoReviewUnit; children?: R
         <label className="block text-[11px] text-ink-400">이름
           <input name="name" {...field("name")} className={inputCls} /></label>
         <div className="grid grid-cols-2 gap-2">
-          <label className="block text-[11px] text-ink-400">종류
-            <select name="kind" {...field("kind")} className={inputCls}>
-              {["ck", "tournament", "showmatch", "scrim", "other"].map((k) => <option key={k} value={k}>{EVENT_KIND_LABEL[k] ?? k}</option>)}
+          <label className="block text-[11px] text-ink-400">진행 방식
+            <select name="format" {...field("format")} className={inputCls}>
+              {FORMATS_BY_GAME.fconline.map((k) => <option key={k} value={k}>{formatChipLabel(k)}</option>)}
             </select></label>
           <label className="block text-[11px] text-ink-400">주최
             <input name="organizer" {...field("organizer")} className={inputCls} /></label>
@@ -285,16 +286,17 @@ export function EventTab({ unit, children }: { unit: FcoReviewUnit; children?: R
 }
 
 /**
- * 대회 포함/제외 결정 — 고른 경기 한 판을 이 대회에 넣을지·뺄지, 브래킷 번호·이름표. 저장하면 곧바로 공개에 반영된다.
+ * 대회 포함/제외 결정 — 고른 경기 한 판을 이 대회에 넣을지·뺄지. 저장하면 곧바로 공개에 반영된다(빼면 그날 두 사람 묶음으로).
+ * 대진 위치는 대진표(event_bracket)와 시리즈의 라운드명이 맡는다 — 옛 브래킷 번호·이름표 칸은 없어졌다.
  * matchRef 는 넥슨 번호 또는 내부 match_id(화면 기록 정본) — 저장 함수가 둘 다 받는다.
  */
-export function EventDecision({ unit, match, matchRef }: { unit: FcoReviewUnit; match: Pick<FcoReviewUnit["matches"][number], "decision" | "decision_by" | "decision_note" | "bracket_no" | "bracket_label" | "context_version">; matchRef: string }) {
-  const { draft, base, setDraft, reset, dirty } = useReviewDraft(`fco-decision:${unit.event!.id}:${matchRef}`, { decision: match.decision ?? "include", bracket_no: String(match.bracket_no ?? ""), bracket_label: match.bracket_label ?? "", note: match.decision_note ?? "", version: match.context_version });
+export function EventDecision({ unit, match, matchRef }: { unit: FcoReviewUnit; match: Pick<FcoReviewUnit["matches"][number], "decision" | "decision_by" | "decision_note" | "context_version">; matchRef: string }) {
+  const { draft, base, setDraft, reset, dirty } = useReviewDraft(`fco-decision:${unit.event!.id}:${matchRef}`, { decision: match.decision ?? "include", note: match.decision_note ?? "", version: match.context_version });
   const [state, decide, deciding] = useActionState(async (prev: ActionState, form: FormData) => { const result = await decideMatchAction(prev, form); if (result.ok) reset(); return result; }, IDLE);
   const picked = draft.decision;
   const setPicked = (decision: "include" | "exclude") => setDraft(old => ({ ...old, decision }));
-  const field = (key: "bracket_no" | "bracket_label" | "note") => ({ value: draft[key], onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft(old => ({ ...old, [key]: e.target.value })) });
-  const badge = decisionBadge(match as FcoReviewUnit["matches"][number]);
+  const field = (key: "note") => ({ value: draft[key], onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft(old => ({ ...old, [key]: e.target.value })) });
+  const badge = decisionBadge(match);
   return (
   <form action={decide} className="grid gap-2 rounded-lg border border-ink-800 bg-ink-900/40 p-3" key={matchRef}>
       <input type="hidden" name="event_id" value={unit.event!.id} />
@@ -309,12 +311,6 @@ export function EventDecision({ unit, match, matchRef }: { unit: FcoReviewUnit; 
       <div className="ck-review-winner-toggle">
         <button type="button" aria-pressed={picked === "include"} onClick={() => setPicked("include")}>포함</button>
         <button type="button" aria-pressed={picked === "exclude"} onClick={() => setPicked("exclude")}>제외</button>
-      </div>
-      <div className="grid grid-cols-[72px_1fr] gap-2">
-        <label className="block text-[11px] text-ink-400">번호
-          <input name="bracket_no" inputMode="numeric" {...field("bracket_no")} className={inputCls} /></label>
-        <label className="block text-[11px] text-ink-400">브래킷 이름표
-          <input name="bracket_label" {...field("bracket_label")} placeholder="1경기 / 13경기 · 7위 결정전" className={inputCls} /></label>
       </div>
       <label className="block text-[11px] text-ink-400">{picked === "exclude" ? "제외 이유 (필수)" : "메모"}
         <input name="note" {...field("note")} required={picked === "exclude"}

@@ -1,4 +1,4 @@
-import { eventKindLabel } from "@soop-lol/core/lib/contract";
+import { formatLabel } from "@soop-lol/core/lib/metrics/format";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { listFcoPeople, listFcoRecentEvents } from "@soop-lol/core/lib/db/fconline";
@@ -124,7 +124,7 @@ export default async function FcHome() {
             <span>{datePart(event.last_played_at, { year: "numeric" })}</span><b>{datePart(event.last_played_at, { month: "long", day: "numeric" })}</b>
           </time>
           <div className="fh-event-info">
-            <div className="fh-event-tags"><span>{eventKindLabel(event.kind)}</span>{i === 0 && <span className="fh-latest">LATEST</span>}</div>
+            <div className="fh-event-tags">{formatLabel(event.format) && <span>{formatLabel(event.format)}</span>}{i === 0 && <span className="fh-latest">LATEST</span>}</div>
             <h3>{event.name.replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/, "")}</h3>
           </div>
           <EventResult result={result} />
