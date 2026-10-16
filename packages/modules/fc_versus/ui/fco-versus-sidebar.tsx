@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { profileHref, type FcoGame, type FcoPerson, type FcoTopPair } from "@soop-lol/core/lib/contract";
+import { pairSetOutcome, profileHref, tally, type FcoGame, type FcoPerson, type FcoTopPair } from "@soop-lol/core/lib/contract";
+import { recordText } from "../../../ui/record-pair-model.ts";
 import { Avatar } from "../../../ui/avatar.tsx";
 import { versusHref } from "./paths.ts";
 import { relatedPairs } from "./related-pairs.ts";
@@ -12,7 +13,11 @@ export function FcoVersusSidebar({ person, games, people, topPairs, opponentId, 
 }) {
   const events = [...new Map(games.filter((game) => game.event_slug && game.event_name)
     .map((game) => [game.event_slug!, { slug: game.event_slug!, name: game.event_name! }])).values()];
-  const results = games.flatMap((game) => game.participants.filter((participant) => participant.streamer_id === person.id));
+  // 맞대결 기록은 두 사람의 결과 짝으로 센다(pairSetOutcome) — 상대 쪽 화면과 언제나 거울이다. 세트·시리즈를 같이.
+  const outcomeOf = (game: FcoGame) => pairSetOutcome(
+    game.participants.find((p) => p.streamer_id === person.id)?.outcome ?? "unknown",
+    game.participants.find((p) => p.streamer_id === opponentId)?.outcome ?? "unknown");
+  const record = tally(games.map((game) => ({ series_id: game.series_id ?? game.id, outcome: outcomeOf(game) })));
   const byId = new Map(people.map((streamer) => [streamer.id, streamer]));
   const pairs = relatedPairs(topPairs, person.id, opponentId)
     .map((pair) => ({ ...pair, a: byId.get(pair.a_id), b: byId.get(pair.b_id) }))
@@ -25,8 +30,8 @@ export function FcoVersusSidebar({ person, games, people, topPairs, opponentId, 
         <span><strong>{person.name}</strong><small>FC 온라인 감독명 {person.nickname}</small></span>
       </Link>
       <div className="arena-mini-stats">
-        <div><strong>{games.length}</strong><small>맞대결</small></div>
-        <div><strong>{results.filter((result) => result.outcome === "win").length}</strong><small>승리</small></div>
+        <div><strong>{games.length}</strong><small>맞대결 세트</small></div>
+        <div><strong>{record.sets.win}<small> / {record.series.win}</small></strong><small>승리 세트 / 시리즈</small></div>
         <div><strong>{events.length}</strong><small>연결된 행사</small></div>
       </div>
       <Link className="arena-panel-link" href={profileHref("fconline", person.slug)}>개인 기록 보기　→</Link>
@@ -39,15 +44,15 @@ export function FcoVersusSidebar({ person, games, people, topPairs, opponentId, 
         : <p className="text-xs text-ink-400">확인해 연결한 행사 경기가 없습니다.</p>}
     </section>
     <section className="arena-panel arena-pairs-sidebar" aria-label={`${person.name}의 자주 만난 상대`}>
-      <h2>자주 만난 매치업 <small className="record-sidebar-note">경기 기준</small></h2>
+      <h2>자주 만난 매치업 <small className="record-sidebar-note">세트 기준</small></h2>
       {pairs.length ? <ul className="arena-pair-list">{pairs.map((pair) => {
         const { a, b } = pair;
         if (!a || !b) return null;
         return <li key={`${pair.a_id}:${pair.b_id}`}><Link className="arena-pair-row"
           href={versusHref({ a: a.slug, b: b.slug })}
-          aria-label={`${a.name} 대 ${b.name} · ${pair.a_wins}승 ${pair.draws}무 ${pair.b_wins}패`}>
+          aria-label={`${a.name} 대 ${b.name} · 세트 ${recordText(pair.record.sets)} · 시리즈 ${recordText(pair.record.series)}`}>
           <span className="arena-pair-person"><Avatar name={a.name} src={a.image} channelId={a.channel_id} /><span title={a.name}>{a.name}</span></span>
-          <span className="arena-pair-score"><strong data-leading={pair.a_wins > pair.b_wins}>{pair.a_wins}</strong><span>:</span><strong data-leading={pair.b_wins > pair.a_wins}>{pair.b_wins}</strong></span>
+          <span className="arena-pair-score"><strong data-leading={pair.record.sets.win > pair.record.sets.loss}>{pair.record.sets.win}</strong><span>:</span><strong data-leading={pair.record.sets.loss > pair.record.sets.win}>{pair.record.sets.loss}</strong></span>
           <span className="arena-pair-person"><Avatar name={b.name} src={b.image} channelId={b.channel_id} /><span title={b.name}>{b.name}</span></span>
         </Link></li>;
       })}</ul> : <p className="text-xs text-ink-400">아직 다른 맞대결 기록이 없습니다.</p>}

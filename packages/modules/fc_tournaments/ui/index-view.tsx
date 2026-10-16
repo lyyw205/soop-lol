@@ -6,7 +6,7 @@
 import Link from "next/link";
 import { ArrowRight, Search, Trophy } from "lucide-react";
 import type { FcoEvent, FcoGame } from "@soop-lol/core/lib/contract";
-import { kindLabel, sideScore, type Entrant } from "./model.ts";
+import { formatLabel, sideScore, type Entrant } from "./model.ts";
 import { eventHref, eventPeriod, eventYear, Person, TournamentHero } from "./shared.tsx";
 import { tournamentsIndexHref } from "./paths.ts";
 
@@ -85,7 +85,7 @@ export function IndexView({ entries, q, year: wantedYear }: { entries: IndexEntr
             <strong className="ft-year-marker">{y}</strong>
             <ul>{group.map((e) => <li key={e.event.id}>
               <Link className="ft-catalog-row" href={eventHref(e.event.slug)}>
-                <span className="ft-catalog-title"><small>{kindLabel(e.event.kind)}</small><b>{e.event.name}</b></span>
+                <span className="ft-catalog-title">{formatLabel(e.event.format) && <small>{formatLabel(e.event.format)}</small>}<b>{e.event.name}</b></span>
                 <span>{eventPeriod(e.event).text}</span>
                 <span>{e.event.organizer ?? "주최 미확인"}</span>
                 <span className="ft-catalog-faces">

@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { ArrowRight, CalendarDays, ExternalLink, Trophy } from "lucide-react";
 import type { FcoEvent, FcoGame } from "@soop-lol/core/lib/contract";
 import { Avatar } from "../../../ui/avatar.tsx";
-import { kindLabel, type Entrant } from "./model.ts";
+import { formatLabel, type Entrant } from "./model.ts";
 import { tournamentDetailHref } from "./paths.ts";
 import { eventPeriod, eventYear } from "./event-dates.ts";
 export { eventPeriod, eventYear } from "./event-dates.ts";
@@ -76,7 +76,7 @@ export function TournamentHero({ event, numbers, compact = false, people = [], c
       <div className="ft-eyebrow">
         <span className="ft-edition">{year ?? "FC"}</span>
         {event.organizer ?? "FC ONLINE"}
-        <span className="ft-chip">{kindLabel(event.kind)}</span>
+        {formatLabel(event.format) && <span className="ft-chip">{formatLabel(event.format)}</span>}
         {compact && champion && <span className="ft-chip ft-chip-champion"><Trophy size={10} />우승 {champion.name}</span>}
       </div>
       {compact

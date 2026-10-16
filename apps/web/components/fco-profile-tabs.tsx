@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { eventKindLabel } from "@soop-lol/core/lib/contract/client";
+import { formatLabel } from "@soop-lol/core/lib/metrics/format";
+import { pairSetOutcome, type Tally } from "@soop-lol/core/lib/metrics/tally";
+import { RecordPair } from "../../../packages/ui/record-pair";
+import { recordText } from "../../../packages/ui/record-pair-model";
 import { fcMatchHref } from "@soop-lol/core/lib/site-paths";
 import type { FcoGame, FcoPerson, FcoProfileEventRecord } from "@soop-lol/core/lib/db/fconline";
 import { kstDateString } from "@soop-lol/core/lib/time";
@@ -9,10 +12,10 @@ import { Avatar } from "./avatar";
 import { RecordEventItem, RecordEventList } from "./record-structure";
 import { fcTournamentHref, fcVersusHref } from "@/lib/module-links";
 
+/** 상대 한 사람과의 맞대결 — 기록은 tally(세트·시리즈), 세트 결과는 두 사람의 결과 짝(pairSetOutcome). */
 export interface FcoOpponentRow {
   id: string; slug: string; name: string; matches: FcoGame[];
-  vs_matches: number; vs_match_wins: number; vs_match_draws: number; vs_match_unknown: number;
-  ally_matches: number; last_met: string;
+  record: Tally; last_met: string;
 }
 
 export function FcoOpponentHistory({ rows, people, streamerId, streamerSlug, streamerName }: {
@@ -23,16 +26,17 @@ export function FcoOpponentHistory({ rows, people, streamerId, streamerSlug, str
   const byId = new Map(people.map((person) => [person.id, person]));
   return <div className="opponent-history-list">{rows.map((row) => {
     const person = byId.get(row.id);
-    const losses = row.vs_matches - row.vs_match_wins - row.vs_match_draws - row.vs_match_unknown;
-    const rate = rawWinRate({ wins: row.vs_match_wins, losses });
+    // 승률·색은 시리즈 기준(다전제 한 번이 단판 세 번처럼 무게를 갖지 않게 — metrics/opponents 와 같은 기준). 미상은 분모에서 뺀다.
+    const { win, loss } = row.record.series;
+    const rate = rawWinRate({ wins: win, losses: loss });
     const versusHref = fcVersusHref(streamerSlug, row.slug);
     return <div key={row.id} className="personal-timeline-row opponent-history-row"
-      data-result={row.vs_match_wins === losses ? "draw" : row.vs_match_wins > losses ? "win" : "loss"}>
+      data-result={win === loss ? "draw" : win > loss ? "win" : "loss"}>
       <details className="personal-match-detail">
         <summary className="arena-match-toggle personal-match-toggle opponent-history-toggle">
           <span className="opponent-history-person"><Avatar name={row.name} src={person?.image ?? null} channelId={person?.channel_id} /><strong>{row.name}</strong></span>
-          <span className="opponent-history-record"><b>{row.vs_match_wins}승</b><span>{row.vs_match_draws}무</span><b>{losses}패</b></span>
-          <span className="opponent-history-rate">{rate === null ? "—" : `${Math.round(rate * 100)}%`}<small>{row.vs_matches}경기{row.vs_match_unknown ? ` · 결과 미상 ${row.vs_match_unknown}` : ""}</small></span>
+          <span className="opponent-history-record"><b>{recordText(row.record.series)}</b><span>시리즈</span></span>
+          <span className="opponent-history-rate">{rate === null ? "—" : `${Math.round(rate * 100)}%`}<small>세트 {recordText(row.record.sets)}</small></span>
           <span className="personal-match-expand" aria-hidden="true" />
         </summary>
         <div className="opponent-history-expanded">
@@ -44,10 +48,10 @@ export function FcoOpponentHistory({ rows, people, streamerId, streamerSlug, str
             const day = kstDateString(new Date(game.played_at));
             return <li key={game.id}>
               <time dateTime={day}>{day.replaceAll("-", ".")}</time>
-              <span className="opponent-history-event"><Link href={fcMatchHref(game.provider_id)}>{game.event_name ?? "맞대결"}</Link></span>
+              <span className="opponent-history-event"><Link href={fcMatchHref(game.provider_id)}>{game.event_name ?? (game.format && formatLabel(game.format)) ?? "맞대결"}</Link></span>
               <strong>{mine.score_display ?? mine.goals ?? "?"} : {other.score_display ?? other.goals ?? "?"}</strong>
               <small>{FCO_MODE_LABEL[game.mode_key ?? ""] ?? "경기"}</small>
-              <span data-result={mine.outcome}>{mine.outcome === "win" ? "승" : mine.outcome === "draw" ? "무" : mine.outcome === "loss" ? "패" : "?"}</span>
+              {(() => { const o = pairSetOutcome(mine.outcome, other.outcome); return <span data-result={o}>{o === "win" ? "승" : o === "draw" ? "무" : o === "loss" ? "패" : "?"}</span>; })()}
             </li>;
           })}</ul>
         </div>
@@ -65,14 +69,13 @@ export function FcoProfileEventList({ rows }: { rows: FcoProfileEventRow[] }) {
     const lastDay = kstDateString(new Date(row.lastPlayed));
     return <RecordEventItem key={row.slug}>
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-      <span className="text-xs text-ink-400">{eventKindLabel(row.kind)}</span>
+      {formatLabel(row.format) && <span className="text-xs text-ink-400">{formatLabel(row.format)}</span>}
       {fcTournamentHref(row.slug)
         ? <Link className="font-medium text-ink-200" href={fcTournamentHref(row.slug)!}>{row.name} →</Link>
         : <span className="font-medium text-ink-200">{row.name}</span>}
       <span className="text-[length:var(--type-micro)] text-ink-400">{firstDay.replaceAll("-", ".")}{firstDay !== lastDay ? ` – ${lastDay.replaceAll("-", ".")}` : ""}</span>
     </div>
-    <p className="tabular mt-2 text-sm text-ink-300">매치 {row.wins}승{row.draws ? ` ${row.draws}무` : ""} {row.losses}패{row.unknown ? ` · 결과 미상 ${row.unknown}` : ""}
-      <span className="ml-3 text-[length:var(--type-micro)] text-ink-500">확인된 {row.games}경기</span></p>
+    <div className="mt-2"><RecordPair tally={row.record} compact /></div>
   </RecordEventItem>;
   })}</RecordEventList>;
 }

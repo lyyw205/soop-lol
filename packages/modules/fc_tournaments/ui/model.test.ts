@@ -11,7 +11,7 @@ function side(id: string | null, side_no: number, outcome: FcoParticipant["outco
 }
 const game = (id: string, ...participants: FcoParticipant[]): FcoGame => ({
   id, provider_id: `p-${id}`, played_at: "2026-08-25T08:00:00Z", mode_key: "40", event_id: "e", event_name: "e",
-  event_kind: "tournament", event_slug: "e", series_id: null, series_game_no: null, best_of: null, participants,
+  format: "tournament", scope: "versus", event_slug: "e", series_id: null, series_game_no: null, best_of: null, participants,
 });
 
 test("기록은 이름순이고(순위가 아니다) 표시 점수로 득실을 센다", () => {
@@ -61,4 +61,21 @@ test("평균 평점 1위는 최소 출전 수를 채운 카드만 오른다", ()
   assert.equal(h.topCard?.playerId, 101);
   assert.equal(h.bestRated?.playerId, 101); // 202 는 평점 10 이 한 경기뿐이다
   assert.equal(h.biggestWin?.margin, 1);
+});
+
+test("참가자 기록은 세트·시리즈를 같이 세고 미상을 숨기지 않는다(tally)", () => {
+  const rows = entrants([
+    { ...game("1", side("a", 1, "win", 2), side("b", 2, "loss", 1)), series_id: "s" },
+    { ...game("2", side("a", 1, "loss", 0), side("b", 2, "win", 1)), series_id: "s" },
+    { ...game("3", side("a", 1, "unknown", 1), side("b", 2, "unknown", 1)), series_id: "t" },
+  ]);
+  const a = rows.find((r) => r.key === "a")!;
+  assert.deepEqual(a.record.sets, { win: 1, draw: 0, loss: 1, unknown: 1 });
+  assert.deepEqual(a.record.series, { win: 0, draw: 1, loss: 0, unknown: 1 });
+  assert.equal(a.unknown, 1);
+});
+
+test("상대 전적표의 양쪽 몰수패는 양쪽 다 무다 — 거울", () => {
+  const m = headToHead([game("1", side("a", 1, "loss", 0), side("b", 2, "loss", 0))]);
+  assert.deepEqual([m.get("a")?.get("b")?.[0].outcome, m.get("b")?.get("a")?.[0].outcome], ["draw", "draw"]);
 });
