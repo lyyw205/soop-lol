@@ -38,3 +38,18 @@ test("최신 시리즈가 먼저, 이어 보기는 시리즈를 자르지 않는
   assert.deepEqual(next.rows.map((g) => g.series_id), ["old"]);
   assert.equal(next.more, false);
 });
+
+test("확인 전 세트는 줄에 보이고 점수·결과에는 안 들어간다 — 전부 확인 전이면 미상(0093)", () => {
+  const at = "2026-10-01T12:00:00Z";
+  const [mixed] = foldSeries([
+    { series_id: "a", match_id: "a1", series_game_no: 1, played_at: at, outcome: "win" },
+    { series_id: "a", match_id: "a2", series_game_no: 2, played_at: at, outcome: "loss", pending: true },
+  ]);
+  assert.equal(mixed.sets.length, 2);
+  assert.deepEqual(mixed.record, { win: 1, draw: 0, loss: 0, unknown: 0 });
+  assert.equal(mixed.result, "win");
+  assert.equal(mixed.pending, true);
+  const [allPending] = foldSeries([{ series_id: "b", match_id: "b1", series_game_no: 1, played_at: at, outcome: "win", pending: true }]);
+  assert.equal(allPending.result, "unknown");
+  assert.deepEqual(allPending.record, { win: 0, draw: 0, loss: 0, unknown: 0 });
+});

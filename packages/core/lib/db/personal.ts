@@ -38,16 +38,22 @@ export interface PersonalSet {
   map: string;
   best_of: number | null;
   set_order_known: boolean;
+  /** 확인 전(회원 제보, 0093) — `listed` 로 읽었을 때만 true 일 수 있다. tally 가 세지 않는다. */
+  pending: boolean;
 }
 
-/** 공개 내전 세트 중 본인 행 — 맵 탭·진행 방식·기간으로 고른다. 최신순. */
-export async function listPersonalSets(streamerId: string, scope: VersusScope = {}): Promise<PersonalSet[]> {
+/**
+ * 공개 내전 세트 중 본인 행 — 맵 탭·진행 방식·기간으로 고른다. 최신순.
+ * `listed` — 목록용(확인 전 세트 포함, lol_set_row). 기본은 집계용(lol_versus_set — 확인 전 없음). 둘 다 tally 로 세면 같은 점수다.
+ */
+export async function listPersonalSets(streamerId: string, scope: VersusScope = {}, { listed = false }: { listed?: boolean } = {}): Promise<PersonalSet[]> {
   const sql = db();
   return sql<PersonalSet[]>`
     SELECT v.match_id, v.series_id, v.series_game_no, v.played_at, v.game_creation_precision,
            v.series_started_on::text AS series_started_on, v.outcome, v.side, v.position, v.champion_id,
-           v.kills, v.deaths, v.assists, v.event_id, e.name AS event_name, v.format, v.map, v.best_of, v.set_order_known
-      FROM core_public.lol_versus_set v
+           v.kills, v.deaths, v.assists, v.event_id, e.name AS event_name, v.format, v.map, v.best_of, v.set_order_known,
+           ${listed ? sql`v.pending` : sql`false`} AS pending
+      FROM ${listed ? sql`core_public.lol_set_row` : sql`core_public.lol_versus_set`} v
       JOIN core_public.event e ON e.event_id = v.event_id
      WHERE v.streamer_id = ${streamerId}::uuid AND ${versusScopeSql(sql, "v", scope)}
      ORDER BY v.played_at DESC, v.match_id
@@ -62,6 +68,8 @@ export interface PersonalMatchSet {
   /** 방송에서 부른 보너스 판 이름. 없으면 null. */
   set_label: string | null;
   outcome: Outcome;
+  /** 확인 전 세트 — "확인 전" 표시, 점수에는 없다. */
+  pending: boolean;
 }
 
 /** 매치 히스토리 한 줄 = 한 시리즈(본인이 뛴, 고른 세트들). */
@@ -76,19 +84,21 @@ export interface PersonalMatch {
   record: Counts;
   /** 시리즈 결과(tally 규칙). */
   result: Outcome;
+  /** 확인 전 세트가 있다. */
+  pending: boolean;
   /** 본게임 + 보너스, 세트 번호·시각 순. */
   sets: PersonalMatchSet[];
 }
 
 /**
- * 매치 히스토리 한 쪽. 이미 고른 세트(`listPersonalSets`)를 시리즈로 접어 자른다 — 요약 카드와 분모가 같다.
+ * 매치 히스토리 한 쪽. 이미 고른 세트(`listPersonalSets(…, { listed: true })` — 확인 전 포함)를 시리즈로 접어 자른다 — 요약 카드와 분모가 같다.
  * 시리즈를 중간에서 자르지 않는다. 보너스 판은 보이는 시리즈의 것만 match_detail 에서 읽는다.
  */
 export async function listPersonalMatches(streamerId: string, sets: readonly PersonalSet[], { limit = 20, cursor }: { limit?: number; cursor?: string } = {}): Promise<{ rows: PersonalMatch[]; more: boolean }> {
   const page = pageSeries(foldSeries(sets), cursor, Math.min(100, Math.max(1, limit)));
   const ids = page.rows.map((g) => g.series_id);
   const bonus = ids.length ? await db()<(PersonalMatchSet & { series_id: string; played_at: Date })[]>`
-    SELECT DISTINCT ON (d.match_id) d.match_id, d.series_id, d.series_game_no, d.set_role, d.set_label, d.outcome, d.played_at
+    SELECT DISTINCT ON (d.match_id) d.match_id, d.series_id, d.series_game_no, d.set_role, d.set_label, d.outcome, d.played_at, d.pending
       FROM core_public.match_detail d
      WHERE d.series_id = ANY(${ids}) AND d.set_role = 'bonus' AND d.streamer_id = ${streamerId}::uuid
      ORDER BY d.match_id
@@ -99,16 +109,16 @@ export async function listPersonalMatches(streamerId: string, sets: readonly Per
       const extra = bonus.filter((b) => b.series_id === g.series_id);
       const main: (PersonalMatchSet & { at: number })[] = g.sets.map((s) => ({
         match_id: s.match_id, series_game_no: s.series_game_no, set_role: "main", set_label: null, outcome: s.outcome,
-        at: new Date(s.played_at).getTime(),
+        pending: s.pending, at: new Date(s.played_at).getTime(),
       }));
       const all = [...main, ...extra.map((b) => ({
         match_id: b.match_id, series_game_no: b.series_game_no, set_role: "bonus" as const, set_label: b.set_label, outcome: b.outcome,
-        at: new Date(b.played_at).getTime(),
+        pending: b.pending, at: new Date(b.played_at).getTime(),
       }))].sort((a, b) => a.at - b.at || (a.series_game_no ?? 0) - (b.series_game_no ?? 0) || a.match_id.localeCompare(b.match_id));
       return {
         series_id: g.series_id, played_at: g.played_at, event_name: g.first.event_name, format: g.first.format,
-        best_of: g.first.best_of, set_order_known: g.first.set_order_known, record: g.record, result: g.result,
-        sets: all.map(({ match_id, series_game_no, set_role, set_label, outcome }) => ({ match_id, series_game_no, set_role, set_label, outcome })),
+        best_of: g.first.best_of, set_order_known: g.first.set_order_known, record: g.record, result: g.result, pending: g.pending,
+        sets: all.map(({ match_id, series_game_no, set_role, set_label, outcome, pending }) => ({ match_id, series_game_no, set_role, set_label, outcome, pending })),
       };
     }),
   };

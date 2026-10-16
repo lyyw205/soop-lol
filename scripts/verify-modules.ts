@@ -487,6 +487,34 @@ console.log("\n  [옛 분류 체계 금지]");
   check(`옛 분류 체계 이름이 코드에 없다 (${files.length}개 파일)`, failures === before);
 }
 
+// 확인 전(회원 제보, 0093)을 세지 않는 규칙은 core 의 tally·counted 하나다. 화면이 pending 으로 직접 거르면 두 번째 규칙이 생긴다.
+// match_detail 로 직접 세는 질의(GROUP BY·count)는 pending 을 걸러야 한다 — 집계 뷰(lol_versus_set)는 이미 뺐다.
+console.log("\n  [확인 전 제보 — 세는 규칙 하나]");
+{
+  const before = failures;
+  const screens = [...walk(join(ROOT, "apps", "web"), /\.(ts|tsx)$/), ...walk(join(ROOT, "packages", "modules"), /\.(ts|tsx)$/), ...walk(join(ROOT, "packages", "ui"), /\.(ts|tsx)$/)]
+    .map(toRel).filter((f) => !f.includes("node_modules") && !f.includes("/.next"));
+  for (const file of screens) {
+    readFileSync(join(ROOT, file), "utf8").split("\n").forEach((line, i) => {
+      if (/^\s*(\/\/|\*)/.test(line)) return;
+      if (/!\s*[\w.?]+\.pending\b|\.pending\s*(===|!==)\s*(true|false)|filter\([^)]*\.pending/.test(line)) {
+        check(`${file}:${i + 1}: 화면이 pending 으로 직접 거른다`, false, "세지 않는 규칙은 core 의 counted(tally) 하나 — 표시만 pending 을 읽는다");
+      }
+    });
+  }
+  for (const file of walk(join(ROOT, "packages", "core", "lib", "db"), /\.ts$/).map(toRel)) {
+    const lines = readFileSync(join(ROOT, file), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      if (!/FROM core_public\.match_detail/.test(line)) return;
+      const window = lines.slice(Math.max(0, i - 3), i + 3).join("\n");
+      if (/count\(|GROUP BY|sum\(/i.test(window) && !/pending/.test(window)) {
+        check(`${file}:${i + 1}: match_detail 로 세면서 확인 전을 거르지 않는다`, false, "AND NOT pending");
+      }
+    });
+  }
+  check("확인 전을 세지 않는 규칙이 core 한 곳에만 있다", failures === before);
+}
+
 // 화면의 독자 계산과 글자 크기가 다시 늘어나는지 검사한다.
 console.log("\n  [사이트 공통 규칙]");
 for (const file of [...sourcesIn("packages"), ...sourcesIn("apps", "web")]) {

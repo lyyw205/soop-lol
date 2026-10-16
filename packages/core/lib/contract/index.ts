@@ -211,7 +211,7 @@ export type { SeriesGroup, SeriesSetRow } from "../metrics/record-series.ts";
 // 분류(진행 방식·맵)와 세기 — 공개 집계의 단일 출처(docs/CLASSIFICATION-REDESIGN-PLAN.md §5).
 export { FORMATS, FORMATS_BY_GAME, formatChipLabel, formatLabel, isFormat, allowedFormat } from "../metrics/format.ts";
 export type { Format, GameCode } from "../metrics/format.ts";
-export { tally, seriesOutcome, pairSetOutcome, mirror, total, isPairContradiction } from "../metrics/tally.ts";
+export { tally, seriesOutcome, pairSetOutcome, mirror, total, isPairContradiction, counted } from "../metrics/tally.ts";
 export type { Tally, Counts, Outcome, SetRow } from "../metrics/tally.ts";
 export { MAP_TABS, DEFAULT_MAP, isMapTab, mapTabLabel, scopeFormat } from "../metrics/record-scope.ts";
 export type { MapTab, FormatFilter, VersusScope } from "../metrics/record-scope.ts";

@@ -140,7 +140,8 @@ export default async function StreamerProfile({
       needs.opponents ? listPublicStreamers() : [],
       needs.opponentGames && periodOk ? listOpponentSummaries(id, {...scope, laneOnly}) : [],
       needs.champions ? listChampionRecords(id, 20, scope) : [],
-      periodOk ? listPersonalSets(id, scope) : [],
+      // 목록용(확인 전 포함) — 요약 카드도 같은 행을 tally 로 센다(tally 가 확인 전을 빼므로 점수는 집계와 같다).
+      periodOk ? listPersonalSets(id, scope, { listed: true }) : [],
       listPublicStreamerOptions(),
       allEventsPromise,
       allChampionsPromise,

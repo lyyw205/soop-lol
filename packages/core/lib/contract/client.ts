@@ -2,7 +2,7 @@
 export type * from "./index.ts";
 export { kstDateString, kstYear, kstPlayedAt } from "../time.ts";
 export { setLabel, isStandaloneSet } from "../metrics/set-label.ts";
-export { tally, seriesOutcome, pairSetOutcome, mirror, total } from "../metrics/tally.ts";
+export { tally, seriesOutcome, pairSetOutcome, mirror, total, counted } from "../metrics/tally.ts";
 export { FORMATS_BY_GAME, formatChipLabel, formatLabel, isFormat } from "../metrics/format.ts";
 export { MAP_TABS, DEFAULT_MAP, isMapTab, mapTabLabel, scopeFormat } from "../metrics/record-scope.ts";
 export { isLanePair, pairResult, selectPairs, summarizeOpponents } from "../metrics/opponent-history.ts";
@@ -14,7 +14,7 @@ export { addFcoStats, EMPTY_FCO_STATS, fcoNumber, FCO_MODE_LABEL } from "../game
 export { formatWon } from "../metrics/club-value.ts";
 export { championById, championIconPath } from "../riot/champions.ts";
 export { RECORD_PERIODS, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod, withinRecordDay } from "../metrics/record-period.ts";
-export { profileHref, fcMatchHref, routeHref } from "../site-paths.ts";
+export { profileHref, fcMatchHref, routeHref, submitMatchHref } from "../site-paths.ts";
 
 export { listedInTournaments, isTitle, isRunnerUp, classifyTeamStage, TEAM_STAGE_LABEL } from "../metrics/event.ts";
 export { readRecordScope, writeRecordScope, type RecordScope } from "../metrics/record-scope.ts";

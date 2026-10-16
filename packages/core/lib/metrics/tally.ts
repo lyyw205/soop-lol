@@ -7,12 +7,17 @@
  * - 상대전적의 한 세트 결과는 두 사람의 결과 짝으로 정한다 — 그래서 A 의 기록과 B 의 기록은 언제나 거울이다.
  * - 승 + 무 + 패 + 미상 = 판 수(세트·시리즈 각각). 숨기는 값이 없다.
  * - 저장된 세트만 센다. 안 들어온 세트를 best_of 로 짐작하지 않는다.
+ * - **확인 전(pending) 세트는 세지 않는다** — 회원 제보가 바꾸고 운영자가 아직 안 본 판이다(0093, 결정 A). 목록에는 보이고 점수에는 안 들어간다.
+ *   집계 뷰(lol_versus_set)는 이미 뺐고, 목록 행(lol_set_row)을 넘겨받아도 여기서 빠진다 — 세는 곳이 이 함수 하나라 규칙도 여기 하나다.
  */
 
 export type Outcome = "win" | "draw" | "loss" | "unknown";
 export interface Counts { win: number; draw: number; loss: number; unknown: number }
 export interface Tally { sets: Counts; series: Counts }
-export interface SetRow { series_id: string; outcome: Outcome }
+export interface SetRow { series_id: string; outcome: Outcome; pending?: boolean }
+
+/** 세는 세트인가 — 확인 전이 아니면. */
+export const counted = (r: { pending?: boolean }) => r.pending !== true;
 
 const zero = (): Counts => ({ win: 0, draw: 0, loss: 0, unknown: 0 });
 
@@ -30,6 +35,7 @@ export function tally(rows: readonly SetRow[]): Tally {
   const sets = zero(), series = zero();
   const bySeries = new Map<string, Outcome[]>();
   for (const r of rows) {
+    if (!counted(r)) continue;
     sets[r.outcome]++;
     const list = bySeries.get(r.series_id);
     if (list) list.push(r.outcome); else bySeries.set(r.series_id, [r.outcome]);

@@ -57,3 +57,12 @@ test("진행 방식 — 게임별 허용, 미분류는 칩은 있되 라벨은 �
   assert.equal(formatChipLabel("unclassified"), "분류 전");
   assert.equal(new Set(FORMATS_BY_GAME.lol.concat(FORMATS_BY_GAME.fconline)).size, FORMATS.length);
 });
+
+test("확인 전(pending) 세트는 세지 않는다 — 목록 행을 넘겨도 점수는 확인된 세트로만(0093)", () => {
+  const t = tally([
+    { series_id: "s1", outcome: "win" }, { series_id: "s1", outcome: "loss", pending: true }, { series_id: "s1", outcome: "win" },
+    { series_id: "s2", outcome: "loss", pending: true },
+  ]);
+  assert.deepEqual(t.sets, { win: 2, draw: 0, loss: 0, unknown: 0 });
+  assert.deepEqual(t.series, { win: 1, draw: 0, loss: 0, unknown: 0 }, "전부 확인 전인 시리즈는 시리즈 수에도 없다");
+});

@@ -8,7 +8,7 @@
  *   맵이 섞인 시리즈는 맵 탭마다 그 탭의 세트로 시리즈가 된다(계획 §5.2).
  */
 import { readRecordCursor } from "./record-cursor.ts";
-import { seriesOutcome, tally, type Counts, type Outcome } from "./tally.ts";
+import { counted, seriesOutcome, tally, type Counts, type Outcome } from "./tally.ts";
 
 export interface SeriesSetRow {
   series_id: string;
@@ -16,6 +16,8 @@ export interface SeriesSetRow {
   series_game_no: number | null;
   played_at: Date | string;
   outcome: Outcome;
+  /** 확인 전 세트(0093) — 줄에는 보이고 점수·결과에는 안 들어간다. */
+  pending?: boolean;
 }
 
 export interface SeriesGroup<T extends SeriesSetRow> {
@@ -26,8 +28,10 @@ export interface SeriesGroup<T extends SeriesSetRow> {
   sets: T[];
   /** 이 줄의 세트 결과(승·무·패·미상). */
   record: Counts;
-  /** 이 줄의 시리즈 결과 — tally.ts 의 seriesOutcome 하나로 정한다. */
+  /** 이 줄의 시리즈 결과 — tally.ts 의 seriesOutcome 하나로 정한다(확인 전 세트는 빼고). 전부 확인 전이면 미상. */
   result: Outcome;
+  /** 확인 전 세트가 하나라도 있나 — 줄의 "확인 전" 표시. */
+  pending: boolean;
   played_at: Date;
 }
 
@@ -50,7 +54,9 @@ export function foldSeries<T extends SeriesSetRow>(rows: readonly T[]): SeriesGr
     return {
       series_id, first, sets,
       record: tally(sets).sets,
-      result: seriesOutcome(sets.map((s) => s.outcome)),
+      pending: sets.some((s) => !counted(s)),
+      // 센 세트가 없으면(전부 확인 전) 미상 — 빈 묶음을 seriesOutcome 에 넘기면 0:0 무가 된다.
+      result: sets.some(counted) ? seriesOutcome(sets.filter(counted).map((s) => s.outcome)) : "unknown",
       played_at: new Date(first.played_at),
     };
   }).sort((a, b) => b.played_at.getTime() - a.played_at.getTime() || a.series_id.localeCompare(b.series_id));

@@ -73,7 +73,9 @@ export async function getEventBracket(eventId: string, sql: Sql = db()): Promise
        WHERE m.event_id = ${eventId}`;
   // 롤: 경기의 청/홍 팀이 곧 참가 단위
   const lolRows = await sql<{ slot_id: string; match_id: string; played_at: Date; blue: string | null; red: string | null; winning_team: number | null }[]>`
-      SELECT l.slot_id, l.match_id, m.game_creation AS played_at, m.blue_team_id AS blue, m.red_team_id AS red, m.winning_team
+      -- 확인 전 판(회원 제보, 0093)의 승자는 대진을 움직이지 않는다 — 운영자가 확인할 때까지 결과 모름.
+      SELECT l.slot_id, l.match_id, m.game_creation AS played_at, m.blue_team_id AS blue, m.red_team_id AS red,
+             CASE WHEN EXISTS (SELECT 1 FROM core_public.pending_match pm WHERE pm.match_id = m.match_id) THEN NULL ELSE m.winning_team END AS winning_team
         FROM core_public.event_slot_match l JOIN match m ON m.match_id = l.match_id
        WHERE l.event_id = ${eventId} AND m.game_code = 'lol'`;
   // FC: 참가자 스트리머 → 그 사람이 속한 참가 단위

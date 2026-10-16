@@ -5,7 +5,7 @@ import { isLaneMatchup } from "@soop-lol/core/lib/contract/client";
  */
 import type { BoardModel } from "../../../ui/bracket/bracket-model.ts";
 import {
-  isStandaloneSet, kstDateString, setLabel, type Format, type PublicRosterEntry, type PublicTournamentMatchRow,
+  counted, isStandaloneSet, kstDateString, setLabel, type Format, type PublicRosterEntry, type PublicTournamentMatchRow,
 } from "@soop-lol/core/lib/contract/client";
 
 /**
@@ -78,6 +78,8 @@ export interface TournamentSet {
   blueName: string;
   redName: string;
   sourceUrl: string | null;
+  /** 확인 전 세트 — 표시만, 점수·선수 기록에서 빠진다. */
+  pending: boolean;
   players: PublicRosterEntry[];
 }
 export interface TournamentSeries {
@@ -142,12 +144,14 @@ export function tournamentSeries(
           (g.blue_team_id === aId && g.red_team_id === bId) ||
           (g.blue_team_id === bId && g.red_team_id === aId),
       );
-    const knownWinners = group.every(
+    // ★ 확인 전 세트(회원 제보, 0093)는 점수에 넣지 않는다 — 세는 규칙은 코어의 counted 하나.
+    const scored = group.filter(counted);
+    const knownWinners = scored.length > 0 && scored.every(
       (g) => g.winning_team === 100 || g.winning_team === 200,
     );
     const countable = knownWinners && (stableTeams || group.length === 1);
     const wins = (teamId: string | null, side: number) =>
-      group.filter((g) =>
+      scored.filter((g) =>
         stableTeams
           ? (g.winning_team === 100 ? g.blue_team_id : g.red_team_id) === teamId
           : g.winning_team === side,
@@ -183,6 +187,7 @@ export function tournamentSeries(
         blueName: g.blue_name ?? "팀 1",
         redName: g.red_name ?? "팀 2",
         sourceUrl: g.source_url,
+        pending: g.pending,
         players: players.get(g.match_id) ?? [],
       })),
     };
@@ -210,7 +215,7 @@ export function tournamentPlayerRecords(series: TournamentSeries[]) {
     { id: number; name: string; picks: number; wins: number; losses: number }
   >();
   for (const s of series)
-    for (const set of s.sets)
+    for (const set of s.sets.filter(counted))
       for (const p of set.players) {
         // Unknown names cannot be treated as a stable person across games.
         if (p.streamer_id) {

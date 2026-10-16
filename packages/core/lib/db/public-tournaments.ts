@@ -90,6 +90,8 @@ export interface PublicTournamentMatchRow {
   set_order_known: boolean;
   round_label: string | null;
   source_url: string | null;
+  /** 확인 전(회원 제보, 0093) — 화면에 보이고 점수·선수 기록에는 안 들어간다(contract 의 counted). */
+  pending: boolean;
 }
 
 /** 공개 경기나 참가자가 하나라도 있는 **롤** 대회(format='tournament'). 최근 것부터. */
@@ -99,7 +101,7 @@ export async function listPublicTournamentEvents(): Promise<PublicTournamentEven
       -- 본게임만 센다 — 보너스 판은 목록 숫자에 들어가지 않는다(펼친 경기 보기에만).
       SELECT event_id, min(played_at) AS first_match, max(played_at) AS last_match,
              count(DISTINCT match_id)::int AS set_count, count(DISTINCT series_id)::int AS series_count
-        FROM core_public.match_detail WHERE format = 'tournament' AND set_role = 'main' GROUP BY event_id
+        FROM core_public.match_detail WHERE format = 'tournament' AND set_role = 'main' AND NOT pending GROUP BY event_id
     ), teams AS (
       SELECT event_id,count(*)::int AS team_count,
              max(name) FILTER (WHERE placement_rank=1) AS winner,
@@ -149,7 +151,7 @@ export async function getPublicTournamentFacts(eventId: string): Promise<{
     sql<PublicTournamentMatchRow[]>`
       SELECT DISTINCT m.match_id,m.series_id,m.series_game_no,m.played_at AS game_creation,m.game_creation_precision,m.game_duration,
              m.winning_team,m.blue_team_id,m.red_team_id,b.name AS blue_name,r.name AS red_name,
-             m.best_of,m.set_order_known,m.round_label,m.source_url
+             m.best_of,m.set_order_known,m.round_label,m.source_url,m.pending
         FROM core_public.match_detail m
         LEFT JOIN core_public.event_team b ON b.event_team_id=m.blue_team_id
         LEFT JOIN core_public.event_team r ON r.event_team_id=m.red_team_id

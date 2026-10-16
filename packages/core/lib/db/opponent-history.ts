@@ -26,6 +26,8 @@ export interface PairSet extends PairSetRow {
   map: string;
   series_started_on: string;
   played_at: Date;
+  /** 확인 전(회원 제보, 0093) — `listed` 로 읽었을 때만 true 일 수 있다. tally 가 세지 않는다. */
+  pending: boolean;
 }
 
 /**
@@ -35,14 +37,15 @@ export interface PairSet extends PairSetRow {
 // ★ 상대를 지정해도 "이 사람이 낀 판의 짝"을 먼저 고르고 그 안에서 상대를 거른다(MATERIALIZED — 순서 고정).
 //   상대 조건을 뷰 안으로 밀어 넣게 두면 PostgreSQL 이 상대 쪽부터 풀려고 참가자 전체의 신원 규칙을 판마다 다시 계산한다 —
 //   칼바람처럼 판이 적은 맵에서 그 계획이 골라져 두 사람 상세가 3.5초 걸렸다(운영 복사본 실측, scripts/skeleton-rehearsal.ts).
-export async function listPairSets(streamerId: string, scope: VersusScope = {}, otherId?: string): Promise<PairSet[]> {
+// `listed` — 목록용(확인 전 포함, lol_pair_row). 기본은 집계용(versus_pair_set — 확인 전 없음).
+export async function listPairSets(streamerId: string, scope: VersusScope = {}, otherId?: string, { listed = false }: { listed?: boolean } = {}): Promise<PairSet[]> {
   const sql = db();
   const mine = sql`
     SELECT p.b_streamer_id AS other_id, p.match_id, p.series_id, p.series_game_no, p.played_at,
            p.series_started_on::text AS series_started_on, p.relation, p.a_outcome, p.b_outcome,
            p.a_position, p.b_position, p.a_champion_id, p.b_champion_id,
-           p.event_id, e.name AS event_name, p.format, p.map
-      FROM core_public.versus_pair_set p
+           p.event_id, e.name AS event_name, p.format, p.map, ${listed ? sql`p.pending` : sql`false`} AS pending
+      FROM ${listed ? sql`core_public.lol_pair_row` : sql`core_public.versus_pair_set`} p
       JOIN core_public.event e ON e.event_id = p.event_id
      WHERE p.game_code = 'lol' AND p.a_streamer_id = ${streamerId}::uuid
        AND ${versusScopeSql(sql, "p", scope)}`;
@@ -78,10 +81,12 @@ export interface OpponentHistoryMatch {
   standalone: boolean;
   record: Counts;
   result: Outcome;
+  /** 확인 전 세트가 있다. */
+  pending: boolean;
 }
 
 export async function listOpponentHistoryMatches(streamerId: string, otherId: string, scope: OpponentScope = {}): Promise<{ matches: OpponentHistoryMatch[]; truncated: boolean }> {
-  const rows = selectPairs(await listPairSets(streamerId, scope, otherId), scope.laneOnly ? "lane" : "opponent");
+  const rows = selectPairs(await listPairSets(streamerId, scope, otherId, { listed: true }), scope.laneOnly ? "lane" : "opponent");
   const groups = foldSeries(rows.map((r) => ({ ...r, outcome: pairResult(r) })));
   const shown = groups.slice(0, 200);
   const meta = await listSeriesMeta(shown.map((g) => g.series_id));
@@ -91,7 +96,7 @@ export async function listOpponentHistoryMatches(streamerId: string, otherId: st
       series_id: g.series_id, played_at: g.played_at, event_name: g.first.event_name, format: g.first.format,
       best_of: meta.get(g.series_id)?.best_of ?? null,
       standalone: g.sets.length === 1 && isStandaloneSet(g.sets[0].match_id, g.series_id),
-      record: g.record, result: g.result,
+      record: g.record, result: g.result, pending: g.pending,
     })),
   };
 }
@@ -116,11 +121,13 @@ export interface PublicPairSet {
   y_position: string | null;
   x_champion_id: number | null;
   y_champion_id: number | null;
+  /** 확인 전 — 목록에 보이고 tally 가 세지 않는다. */
+  pending: boolean;
 }
 
 /** x 기준으로 본 x–y 의 모든 공개 세트(맵·진행 방식·기간 구분 없이). 최신순. */
 export async function listPairSetsBetween(x: string, y: string): Promise<PublicPairSet[]> {
-  const rows = (await Promise.all([listPairSets(x, { map: "rift" }, y), listPairSets(x, { map: "aram" }, y)])).flat();
+  const rows = (await Promise.all([listPairSets(x, { map: "rift" }, y, { listed: true }), listPairSets(x, { map: "aram" }, y, { listed: true })])).flat();
   const meta = await listSeriesMeta([...new Set(rows.map((r) => r.series_id))]);
   return rows.map((r) => ({
     match_id: r.match_id, series_id: r.series_id, series_game_no: r.series_game_no,
@@ -128,6 +135,6 @@ export async function listPairSetsBetween(x: string, y: string): Promise<PublicP
     event_name: r.event_name, format: r.format, map: r.map, relation: r.relation,
     played_at: new Date(r.played_at).toISOString(), series_started_on: r.series_started_on,
     x_outcome: r.a_outcome, y_outcome: r.b_outcome, x_position: r.a_position, y_position: r.b_position,
-    x_champion_id: r.a_champion_id, y_champion_id: r.b_champion_id,
+    x_champion_id: r.a_champion_id, y_champion_id: r.b_champion_id, pending: r.pending,
   })).sort((a, b) => b.played_at.localeCompare(a.played_at) || a.match_id.localeCompare(b.match_id));
 }
