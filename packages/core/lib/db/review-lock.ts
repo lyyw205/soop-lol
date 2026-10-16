@@ -7,7 +7,7 @@
  *   (2026-10-05 연결 작업으로 약 140경기. VOD 207333829 의 dudan g1·g3).
  *
  * 계약 (ck-pov · ck 의 식별 · applyMatchReview 가 이 한 곳을 쓴다):
- *   1. 사람이 바꾼 칸(`review_change` actor=admin 의 그 칸)은 자동 판독이 건드리지 않는다. 사람이 비운 칸도.
+ *   1. 사람이 바꾼 칸(`review_change` actor=admin·member 의 그 칸)은 자동 판독이 건드리지 않는다. 사람이 비운 칸도.
  *   2. 사람이 안 바꾼 **빈 칸**만 채운다. 채우면 actor=auto 로 남긴다(0074).
  *   3. 값이 있는 칸은 덮지 않는다 — 다른 판독은 시점 비교의 불일치로 남는다(metrics/pov.ts).
  *   4. 이력으로 사람이 바꾼 칸을 가릴 수 없는 검수 경기는 **경기 전체**를 지킨다(아래 decideReviewLock).
@@ -67,7 +67,8 @@ export function decideReviewLock(
 ): ReviewLock {
   if (match.review_completed_at != null) return { mode: "match", reason: "검수 완료된 경기" };
   if (match.reviewed_at == null) return { mode: "open" };
-  const human = changes.filter((c) => c.actor === "admin");
+  // ★ 회원 제보(member)도 사람 칸이다 — 자동 판독이 제보를 덮으면 "확인 전" 표시만 남고 값이 사라진다(0093).
+  const human = changes.filter((c) => c.actor === "admin" || c.actor === "member");
   const protectedFlag = human.filter((c) => c.entity === "match" && c.field === "admin_protected").at(-1);
   if (protectedFlag?.after === true) return { mode: "match", reason: "관리자가 경기 전체를 보호했다" };
   if (human.some((c) => c.entity === "match" && c.field === "created")) return { mode: "match", reason: "관리자가 만든 경기" };
