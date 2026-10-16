@@ -588,13 +588,13 @@ try {
     console.error(`  1. https://sch.sooplive.co.kr 에서 방송국을 찾는다 (또는 나에게 이름을 주면 찾아 준다)`);
     console.error(`  2. seed/streamers-*.json 에 slug·display_name·channel_id 로 적는다`);
     console.error(`  3. npm run seed -- seed/streamers-*.json`);
-    console.error(`\n★ 라이엇 계정은 없어도 된다 — 등록만 되면 경기·조우·모스트 챔피언에 다 들어간다.`);
+    console.error(`\n★ 라이엇 계정은 없어도 된다 — 등록만 되면 경기·상대전적·모스트 챔피언에 다 들어간다.`);
     process.exitCode = 1;
   } else if (missing.size > 0) {
     console.log(
       `\n· 라이엇 계정이 아직 없는 스트리머 ${missing.size}명: ${[...missing].join(", ")}\n` +
-        `  경기·조우·모스트 챔피언에는 **들어갔다** (0017 — 사람으로 식별한다).\n` +
-        `  계정을 연결하면 공개 큐 전적까지 이어 붙는다.`,
+        `  경기·상대전적·모스트 챔피언에는 **들어갔다** (0017 — 사람으로 식별한다).\n` +
+        `  계정은 랭크 점수용이다 — 공개 큐 경기는 지명(collection_target)한 것만 모은다.`,
     );
   }
   // 적재 뒤 관문(ck:gate)을 부르던 연결은 없앴다 — 저장 규칙은 core 저장 함수가 지키고,

@@ -6,7 +6,7 @@ import {loadMigrations} from './migrations.ts';
 
 /**
  * Existing 0022 install with data vs a fresh install, including a safe reapplication.
- * ★ 0089 이후 이름만 읽은 자리의 공개 경로는 core_public.match_detail 이다(옛 core_public.match_participant 는 없다).
+ * ★ 0089 이후 이름만 읽은 자리의 공개 경로는 core_public.match_detail 이다(옛 참가자 공개 뷰는 0089 에서 없어졌다).
  *   이 판은 0022 시점의 행사(match.event_id)에 붙어 있어야 0089 가 한 판짜리 시리즈로 옮긴다 — 행사 없는 영상 판독 판은
  *   0089 가 거부한다(옮겨 담기가 빠뜨린 것으로 본다).
  */
