@@ -279,7 +279,7 @@ fc_worker() {
     setsid claude -p "/fco-match-context 무인 매일 자동 조사다. 사람이 없으니 묻지 말고 끝까지 간다.
 대상: 스트리머 $slug($who)의 $from 이후 넥슨 API 경기 중 맥락 '미조사' 경기 — npm run fco:context -- list --streamer $slug --from $from --status uninvestigated --vods 로 시작한다.
 API 경기의 맥락 판정만 한다. VOD 결과 화면으로 API 에 없는 경기를 새로 기록하는 일(screen, 30일 이전)은 하지 않는다.
-경기마다 casual/event 결론 또는 unresolved 사유를 fco:context apply 로 반영하고, 실제로 연 프레임은 근거로 건다. 행사명·주최자를 지어내지 않는다.
+경기마다 event 결론(대회·CK·컨셉 행사 소속) 또는 unresolved 사유를 fco:context apply 로 반영하고, 실제로 연 프레임은 근거로 건다. 행사명·주최자를 지어내지 않는다.
 세션 비용 상한 안에서 다 못 하면 처리한 만큼 반영하고 끝낸다 — 다음 날 남은 미조사부터 잇는다.
 작업 폴더는 $ROOT 이다. 스킬이 명령으로 안 보이면 $ROOT/.claude/skills/fco-match-context/SKILL.md 를 Read 로 직접 읽는다." \
       "${CLAUDE_BASE[@]}" </dev/null >"$out" 2>>"$LOG"

@@ -96,7 +96,7 @@ backfill_prompt() {  # $1 준비 결과(ok·fail·빈 값=준비 명령 없음) 
   PROMPT="/$SKILL FC 과거 백필의 VOD 하나를 조사한다: $CURRENT 의 vod (번호 $VOD). 스킬의 'VOD 에서 출발하기' 흐름을 그대로 따른다.
 ck-backfill 스킬이나 셸을 재귀 실행하지 않고, 이 VOD 외의 VOD 는 시작하지 않는다. SOOP 조사 도구는 병렬 실행하지 않는다.
 - VOD 안의 FC 경기를 전부 찾는다. 결과 화면 원본을 열어 읽은 경기만 fco:context screen 으로 저장한다(--dry-run 으로 형식을 먼저 확인).
-- 저장한 경기와 이 VOD 시간대의 API 경기마다 스킬 4단계대로 apply 로 결론(casual/event/unresolved)을 남긴다. 대회·CK 를 놓치지 않는다 —
+- 저장한 경기와 이 VOD 시간대의 API 경기마다 스킬 4단계대로 apply 로 결론(event — 대회·CK·컨셉 행사 소속 — 또는 unresolved)을 남긴다(친선은 사람이 정한다). 대회·CK 를 놓치지 않는다 —
   행사를 만들기 전에 npm run fco:context -- events 로 기존 행사를 찾아 같은 대회면 그 slug·name·kind 를 그대로 쓴다(앞선 VOD 세션이 만들었을 수 있다).
 - 탐색 단계를 마칠 때마다 npm run fco:context -- scan --vod $VOD --status running --requested <본 범위> --opened <연 초> 로 진척을 남긴다.
 - VOD 전 범위를 다 봤을 때만 --status done --requested 0-<영상 길이>. FC 화면이 하나도 없으면 무엇을 보고 그렇게 판단했는지 --note 에 적고 done.
