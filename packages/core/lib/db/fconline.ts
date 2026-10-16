@@ -300,12 +300,22 @@ export interface FcoTopPair {
 
 interface PairRow { a: string; b: string; series_id: string; a_outcome: Outcome; b_outcome: Outcome }
 async function fcoPairRows(streamerId?: string): Promise<PairRow[]> {
-  return db().unsafe<PairRow[]>(`
+  // 한 사람 기준이면 상대전적 뷰를 그 사람의 판 번호로 따라간다(빠른 길).
+  if (streamerId) return db().unsafe<PairRow[]>(`
     SELECT ps.a_streamer_id AS a, ps.b_streamer_id AS b, ps.series_id, ps.a_outcome, ps.b_outcome
       FROM core_public.versus_pair_set ps
-     WHERE ps.game_code = 'fconline' AND ps.relation = 'opponent'
-       AND ($1::uuid IS NULL AND ps.a_streamer_id < ps.b_streamer_id OR ps.a_streamer_id = $1::uuid)
-  `, [streamerId ?? null]);
+     WHERE ps.game_code = 'fconline' AND ps.relation = 'opponent' AND ps.a_streamer_id = $1::uuid
+  `, [streamerId]);
+  // ★ 전체 순위는 공개 세트에서 판 단위로 바로 짝을 짓는다 — FC 내전 판은 1대1이라 판 하나가 곧 짝 하나다.
+  //   상대전적 뷰는 사람 기준 판 번호 조회에 맞춰져 있어 전체를 훑으면 느리다(운영 복사본 0.39초).
+  return db().unsafe<PairRow[]>(`
+    SELECT min(v.streamer_id::text) AS a, max(v.streamer_id::text) AS b, v.series_id,
+           (array_agg(v.outcome ORDER BY v.streamer_id::text))[1] AS a_outcome,
+           (array_agg(v.outcome ORDER BY v.streamer_id::text))[2] AS b_outcome
+      FROM core_public.fc_versus_set v
+     GROUP BY v.match_id, v.series_id
+    HAVING count(DISTINCT v.streamer_id) = 2 AND count(DISTINCT v.side) = 2
+  `);
 }
 
 /** 공개로 확인된 스트리머끼리의 맞대결만 센다. 세트 수가 많은 순, 같으면 id 순. */

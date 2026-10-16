@@ -62,8 +62,8 @@ export async function verifyMatchSeriesDb() {
   await sql.begin(async (tx) => {
     const bucket = await ensureAutoBucketInTx(tx, { game_code: "lol", slug: lolCodeBucketSlug(day), name: "코드 묶음", day });
     for (const id of ["su:T1", "su:T2"]) {
-      await tx`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, collected_via, scope, game_creation, game_creation_precision, winning_team, tournament_code)
-        VALUES (${id}, 'lol', 0, '0', 'CLASSIC', 11, 'api', 'personal', ${day}, 'datetime', 100, ${id})`;
+      await tx`INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, collected_via, scope, game_creation, game_creation_precision, winning_team, tournament_code, platform_id, riot_game_id)
+        VALUES (${id}, 'lol', 0, '0', 'CLASSIC', 11, 'api', 'personal', ${day}, 'datetime', 100, ${id}, 'KR', ${id === "su:T1" ? 9001 : 9002})`;
       await placeSingleSetInTx(tx, { match_id: id, game_code: "lol", event_id: bucket, actor: "auto" });
     }
   });

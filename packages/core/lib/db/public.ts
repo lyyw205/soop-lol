@@ -280,8 +280,10 @@ export async function countPublic(): Promise<{ streamers: number; matches: numbe
   const rows = await sql<{ streamers: number; matches: number; encounters: number }[]>`
     SELECT (SELECT count(*)::int FROM core_public.streamer) AS streamers,
            (SELECT count(DISTINCT match_id)::int FROM core_public.lol_versus_set) AS matches,
-           (SELECT count(*)::int FROM core_public.versus_pair_set
-             WHERE game_code = 'lol' AND a_streamer_id < b_streamer_id) AS encounters
+           -- 쌍 수는 판마다 n(n-1)/2 — 짝을 하나하나 만들 필요가 없다. 상대전적 뷰(versus_pair_set)는 사람 기준으로 판 번호를
+           -- 따라가게 만들어져 있어 전체를 훑으면 느리다(운영 복사본 0.9초 → 이 계산은 공개 세트 한 번 훑기).
+           (SELECT coalesce(sum(n * (n - 1) / 2), 0)::int
+              FROM (SELECT count(*) AS n FROM core_public.lol_versus_set GROUP BY match_id) per_match) AS encounters
   `;
   return rows[0];
 }

@@ -90,6 +90,9 @@ UPDATE match SET collected_via = CASE
     ELSE 'manual' END;                                   -- wiki_seed·admin(엑셀·검수 화면)
 ALTER TABLE match ALTER COLUMN collected_via SET NOT NULL;
 ALTER TABLE match ADD CONSTRAINT match_collected_via_check CHECK (collected_via IN ('api', 'vod', 'manual'));
+-- 옛 match_public_queue_has_riot_ids 를 새 칸으로 — API 로 받은 롤 판(지명 판·토너먼트 코드 판)은 Riot 경기 번호를 반드시 가진다.
+ALTER TABLE match ADD CONSTRAINT match_lol_api_has_riot_ids
+  CHECK (game_code <> 'lol' OR collected_via <> 'api' OR (riot_game_id IS NOT NULL AND platform_id IS NOT NULL));
 
 -- 맵: Riot 사실(game_mode·queue_id)에서만 정해진다 — 생성 칼럼이라 모드를 고치면 따라 바뀐다. FC 는 맵이 없다.
 ALTER TABLE match ADD COLUMN map text GENERATED ALWAYS AS (CASE
@@ -432,7 +435,10 @@ CREATE VIEW core_public.versus_set AS
 COMMENT ON VIEW core_public.versus_set IS
   '공개 내전 세트(본게임만). 공개 집계는 이것(게임별 lol_versus_set·fc_versus_set)과 versus_pair_set 만 읽는다. 세는 규칙은 packages/core/lib/metrics/tally.ts.';
 
--- 상대전적의 재료 — 같은 판의 두 사람(게임별로 같은 경기 안에서만 잇는다). 결과 짝 → 상대전적 결과는 tally.ts 의 pairSetOutcome 한 곳.
+-- 상대전적의 재료 — 같은 판의 두 사람. 결과 짝 → 상대전적 결과는 tally.ts 의 pairSetOutcome 한 곳.
+-- ★ 상대(b)는 기준 판(a)의 **판 번호로만** 찾는다(LATERAL + OFFSET 0 — 끌어올림을 막아 판 번호 색인을 쓰게 고정).
+--   평범한 조인으로 두면 판이 적은 맵(칼바람)에서 PostgreSQL 이 판 수를 적게 어림해 판마다 참가자 전체의 신원 규칙을
+--   다시 계산하는 계획을 골랐다(운영 복사본 실측 3.5~8초). 신원 규칙은 그대로 게임별 versus_set 뷰 한 곳에만 있다.
 CREATE VIEW core_public.versus_pair_set AS
   SELECT a.game_code, a.match_id, a.streamer_id AS a_streamer_id, b.streamer_id AS b_streamer_id,
          CASE WHEN a.side = b.side THEN 'teammate' ELSE 'opponent' END AS relation,
@@ -441,7 +447,9 @@ CREATE VIEW core_public.versus_pair_set AS
          a.series_id, a.series_game_no, a.event_id, a.format, a.auto_bucket, a.map, a.mode_key,
          a.played_at, a.series_started_on
     FROM core_public.lol_versus_set a
-    JOIN core_public.lol_versus_set b ON b.match_id = a.match_id AND b.streamer_id <> a.streamer_id
+    CROSS JOIN LATERAL (SELECT x.streamer_id, x.side, x.outcome, x.position, x.champion_id
+                          FROM core_public.lol_versus_set x WHERE x.match_id = a.match_id OFFSET 0) b
+   WHERE b.streamer_id <> a.streamer_id
   UNION ALL
   SELECT a.game_code, a.match_id, a.streamer_id, b.streamer_id,
          CASE WHEN a.side = b.side THEN 'teammate' ELSE 'opponent' END,
@@ -449,7 +457,9 @@ CREATE VIEW core_public.versus_pair_set AS
          a.series_id, a.series_game_no, a.event_id, a.format, a.auto_bucket, a.map, a.mode_key,
          a.played_at, a.series_started_on
     FROM core_public.fc_versus_set a
-    JOIN core_public.fc_versus_set b ON b.match_id = a.match_id AND b.streamer_id <> a.streamer_id;
+    CROSS JOIN LATERAL (SELECT x.streamer_id, x.side, x.outcome, x.position, x.champion_id
+                          FROM core_public.fc_versus_set x WHERE x.match_id = a.match_id OFFSET 0) b
+   WHERE b.streamer_id <> a.streamer_id;
 
 -- 개인 기록(지명 수집한 판, FC 의 스트리머 한쪽 판) — 솔랭 도전 같은 전용 화면만 읽는다. 내전 집계에 들어가지 않는다.
 CREATE VIEW core_public.personal_game AS
@@ -489,6 +499,8 @@ CREATE VIEW core_public.match_detail AS
     LEFT JOIN streamer s ON s.visibility = 'public' AND s.id =
       CASE WHEN sa.puuid IS NOT NULL THEN CASE WHEN sa.visibility = 'public' THEN sa.streamer_id END ELSE p.streamer_id END
    WHERE m.visibility = 'public' AND m.scope = 'versus' AND m.game_code = 'lol'
+     -- 아레나·우르프 등은 원본만 남기고 어느 공개 화면에도 내지 않는다(0078 정책 유지 — 경기 보기 포함).
+     AND m.map <> 'unsupported'
      -- 지금 규칙 유지: 공개 스트리머 자리와 화면에서 읽은 미등록 이름 자리만. Riot 일반인 자리·숨긴 계정 자리는 행째 빠진다.
      AND (s.id IS NOT NULL OR (p.puuid IS NULL AND p.streamer_id IS NULL AND p.observed_name IS NOT NULL));
 

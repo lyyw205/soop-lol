@@ -188,11 +188,16 @@ try {
     ["FC 프로필 요약", `SELECT series_id, outcome, format FROM core_public.versus_set WHERE streamer_id = '${F}' AND game_code = 'fconline'`],
     ["스트리머 목록(전원 세트 수)", `SELECT streamer_id, count(*) FROM core_public.versus_set WHERE game_code = 'lol' GROUP BY 1`],
     ["홈 숫자", `SELECT count(DISTINCT match_id), count(DISTINCT streamer_id) FROM core_public.versus_set WHERE game_code = 'lol'`],
-    ["사이드바 자주 만난 매치업", `SELECT a_streamer_id, b_streamer_id, count(*) FROM core_public.versus_pair_set WHERE relation = 'opponent' AND a_streamer_id < b_streamer_id AND game_code = 'lol' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 4`],
+    // 사이드바는 한 사람 기준이다(versus 모듈 topLaneOpponents). 전체 쌍 집계 화면은 없다 — 전체 숫자는 공개 세트에서 판 단위로 센다.
+    ["사이드바 자주 만난 매치업", `SELECT b_streamer_id, count(*) FROM core_public.versus_pair_set WHERE relation = 'opponent' AND a_streamer_id = '${S}' AND game_code = 'lol' AND map = 'rift' GROUP BY 1 ORDER BY 2 DESC LIMIT 3`],
     ["행사 날짜 전체", `SELECT * FROM core_public.event_dates`],
     ["경기 상세", `SELECT * FROM core_public.match_detail WHERE match_id = '${anyMatch}'`],
     ["솔랭 도전(개인 기록)", `SELECT * FROM core_public.personal_game WHERE puuid IN ('${DUO.join("','")}')`],
   ];
+  if (process.env.SKEL_EXPLAIN_RAW) {  // 진단: {S}·{R}·{F} 를 표본 id 로 바꿔 실행 계획을 본다
+    const raw = process.env.SKEL_EXPLAIN_RAW.replaceAll("{S}", S).replaceAll("{R}", R).replaceAll("{F}", F);
+    for (const r of await dst.unsafe(`EXPLAIN (ANALYZE, COSTS OFF) ${raw}`)) console.log("   ", r["QUERY PLAN"]);
+  }
   if (process.env.SKEL_EXPLAIN) {
     const [, sql] = QUERIES.find(([n]) => n === process.env.SKEL_EXPLAIN)!;
     for (const r of await dst.unsafe(`EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) ${sql}`)) console.log("   ", r["QUERY PLAN"]);
@@ -206,6 +211,51 @@ try {
     console.log(`  ${med > BUDGET_MS ? "✗" : "✓"} ${name.padEnd(22)} ${med.toFixed(1).padStart(7)}ms`);
   }
   if (slow.length) { failed++; console.log(`  기준 초과: ${slow.join(", ")}`); }
+
+  // ── 실제 화면 함수로 — 위 질의는 흉내다. 화면이 실제로 부르는 core·모듈 함수를 운영 복사본에 그대로 불러 잰다 ──
+  // (질의 여러 개 + TS 세기까지 포함한 화면 한 칸의 시간). 연결은 이 일회용 PostgreSQL 이다.
+  process.env.DATABASE_URL = local.url;
+  const personal = await import("../packages/core/lib/db/personal.ts");
+  const opp = await import("../packages/core/lib/db/opponent-history.ts");
+  const pub = await import("../packages/core/lib/db/public.ts");
+  const ranked = await import("../packages/core/lib/db/public-ranked.ts");
+  const fco = await import("../packages/core/lib/db/fconline.ts");
+  const versusMod = await import("../packages/modules/versus/server/index.ts");
+  const { tally: tallyFn } = await import("../packages/core/lib/metrics/tally.ts");
+  const { closeDb } = await import("../packages/core/lib/db/client.ts");
+  const fcRival = (await dst.unsafe(`SELECT b_streamer_id::text AS s FROM core_public.versus_pair_set WHERE a_streamer_id = '${F}' AND game_code = 'fconline' AND relation = 'opponent' GROUP BY 1 ORDER BY count(*) DESC LIMIT 1`))[0]?.s;
+  const SCREENS: [string, () => Promise<unknown>][] = [
+    ["프로필 요약(세트+세기)", async () => tallyFn(await personal.listPersonalSets(S, { map: "rift" }))],
+    ["매치 히스토리 첫 쪽", async () => personal.listPersonalMatches(S, await personal.listPersonalSets(S, { map: "rift" }))],
+    ["챔피언 탭", () => personal.listChampionRecords(S, 20, { map: "rift" })],
+    ["상대 전적 탭", () => opp.listOpponentSummaries(S, { map: "rift" })],
+    ["대회 탭", () => pub.listStreamerEvents(S, {})],
+    ["상대전적 상세(두 사람)", () => opp.listPairSetsBetween(S, R)],
+    ["  └ 쌍 세트(협곡)", () => opp.listPairSets(S, { map: "rift" }, R)],
+    ["  └ 쌍 세트(칼바람)", () => opp.listPairSets(S, { map: "aram" }, R)],
+    ["  └ 시리즈 형식", async () => opp.listSeriesMeta([...new Set((await opp.listPairSets(S, { map: "rift" }, R)).map((r) => r.series_id))])],
+    ["사이드바 자주 만난 매치업", () => versusMod.topLaneOpponents(S, 3)],
+    ["스트리머 목록", () => pub.listStreamerCards()],
+    ["홈 숫자", () => pub.countPublic()],
+    ["솔랭 도전", () => ranked.listPublicRankedGames(DUO, new Date("2026-08-20T15:00:00Z"))],
+    ["FC 프로필 요약", () => fco.getFcoPersonalSummary(F)],
+    ["FC 매치 히스토리", () => fco.listFcoStreamerGamesForPerson(F)],
+    ...(fcRival ? [["FC 상대전적", () => fco.listFcoVersus(F, fcRival)] as [string, () => Promise<unknown>]] : []),
+    ["FC 맞대결 순위", () => fco.listFcoTopPairs(8)],
+  ];
+  console.log(`\n속도 — 실제 화면 함수(5회 중앙값, 기준 ${BUDGET_MS}ms):`);
+  const slowScreens: string[] = [];
+  for (const [name, fn] of SCREENS) {
+    const ms: number[] = [];
+    try {
+      for (let i = 0; i < 5; i++) { const t = performance.now(); await fn(); ms.push(performance.now() - t); }
+    } catch (e) { failed++; console.log(`  ✗ ${name.padEnd(22)} 오류: ${(e as Error).message.slice(0, 120)}`); continue; }
+    const med = ms.sort((a, b) => a - b)[2]!;
+    if (med > BUDGET_MS) slowScreens.push(name);
+    console.log(`  ${med > BUDGET_MS ? "✗" : "✓"} ${name.padEnd(22)} ${med.toFixed(1).padStart(7)}ms`);
+  }
+  if (slowScreens.length) { failed++; console.log(`  기준 초과: ${slowScreens.join(", ")}`); }
+  await closeDb();
 } finally {
   await dst.end().catch(() => {});
   await src.end().catch(() => {});

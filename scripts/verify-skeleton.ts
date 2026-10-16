@@ -275,7 +275,7 @@ try {
   });
   await check("내전 판은 시리즈 필수 / 개인 기록은 시리즈 금지", async () => {
     await rejects(`INSERT INTO match (match_id, game_code, collected_via, scope, game_creation) VALUES ('bad3', 'lol', 'vod', 'versus', now())`, "match_scope_series");
-    await rejects(`INSERT INTO match (match_id, game_code, collected_via, scope, game_creation, series_id, series_game_no) VALUES ('bad4', 'lol', 'api', 'personal', now(), 'ck-1:s1', 9)`, "match_scope_series");
+    await rejects(`INSERT INTO match (match_id, game_code, collected_via, scope, game_creation, series_id, series_game_no, platform_id, riot_game_id) VALUES ('bad4', 'lol', 'api', 'personal', now(), 'ck-1:s1', 9, 'KR', 99)`, "match_scope_series");
   });
   await check("게임별 허용 진행 방식 / 자동 묶음은 미분류만", async () => {
     await rejects(`INSERT INTO event (slug, name, format, game_code) VALUES ('b1', 'x', 'friendly', 'lol')`, "event_format_by_game");
