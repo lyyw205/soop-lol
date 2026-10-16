@@ -485,3 +485,42 @@ Codex 검토 의견(2026-10-16): 1·3·4·6·7 추천안 동의, 2 는 결정적
 | **본 세션** | `db/migrations/`, `classification.ts`·`format.ts`·`tally.ts`, `scripts/verify-db.ts`·`verify-skeleton.ts`·`skeleton-rehearsal.ts`·`verify-modules.ts`·`lib/consistency-checks.ts`, `.claude/skills/**`, `scripts/ck-auto.sh`·`ck-backfill.sh`(프롬프트), 문서·CLAUDE.md |
 
 ingest.ts 의 재파생 함수는 K 가 지우고, 그 호출부는 각 파일의 소유 영역이 지운다(병합 때 맞춘다).
+
+---
+
+## 13. 2단계 결과 (2026-10-16, 브랜치 `classification-skeleton`)
+
+네 영역(롤 쓰기·검수 / FC / 롤 공개 읽기 / 수집·편성표)을 따로 전환해 합쳤다. 운영 작업 트리·운영 DB 는 건드리지 않았다
+(운영 DB 는 리허설 복사에만 읽기 전용으로 읽었다).
+
+**확인** — 타입 검사 5개 프로젝트 오류 0 · `npm test` 660/660 · `verify:db`(검사 242, 실행 399건) · `verify:skeleton` 40 · `verify:ingest` ·
+`verify:automation` · `verify:fco`·`fco-dates`·`fco-club`·`fco-screen`·`fco-screen-review`·`fco-context` · `verify:bracket` · `verify:admin` ·
+`verify:ck`·`ck:concurrency`(실 PostgreSQL)·`ck:pov`·`ck:cell-lock` 통과. `verify:modules` 의 옛 분류 이름 0건(남은 위반은 다른 작업의
+`schedule.css` 글자 크기 12건). `verify:ck:backfill` 은 바꾸기 전 코드에서도 같은 단언으로 실패한다(이번 변경과 무관 — 따로 본다).
+브라우저 검사(`verify:ck:browser`·`review:browser`)는 이번에 돌리지 않았다.
+
+**운영 복사본 리허설**(PostgreSQL 17.6) — 대조 9건 통과(경기 ID·참가자 기본 칸·검수 완료·잠금·시리즈 키·이력 해시·제외 표·칩 합·대칭),
+0089 적용 5.7초. **실제 화면 함수 17개 전부 200ms 이하**(가장 느린 것: 상대전적 상세 148ms, 챔피언 탭 135ms, 홈 숫자 95ms).
+
+**통합에서 찾아 고친 것**
+1. 상대전적 뷰를 평범한 자기 조인으로 두면 판이 적은 맵(칼바람)에서 신원 규칙을 판마다 참가자 전체에 다시 계산하는 계획이 골라졌다
+   (실제 화면 함수 3.5~8초 — 흉내 질의로는 안 보였다). → 상대는 기준 판의 판 번호로만 찾는다(LATERAL). 전체 집계(홈 조우 수, FC 맞대결
+   순위)는 짝을 만들지 않고 공개 세트에서 판 단위로 센다.
+2. 0089 가 옛 "공개 큐 판은 Riot 경기 번호 필수" 제약을 지우고 새 칸으로 다시 걸지 않았다 → `match_lol_api_has_riot_ids`.
+3. 경기 보기(`match_detail`)에 아레나·우르프 판이 나왔다 → 0078 정책대로 뺐다.
+4. 분류 이동(scope·시리즈)이 FC 경기값 검수를 풀었다 → scope 는 값 목록에서 뺐다.
+5. FC 를 개인 기록으로 되돌리는 쓰기·옮긴 뒤 빈 자동 묶음 정리(`releaseToPersonalInTx`, `moveSeriesInTx`).
+
+**사용자에게 보이는 변화(전환 뒤)** — 롤: 협곡/칼바람 맵 탭, 진행 방식 선택(전체·CK·대회·컨셉·스크림·랜드·솔랭내기·분류 전), 승패 자리마다
+세트+시리즈, 랜드는 시리즈 하나, 맞라인은 세트마다, 대회 탭이 기간 필터를 따름, 홈 숫자는 공개 내전 기준(크게 준다), 공개 큐 판만 있던
+86명은 롤 기록이 비고 솔랭 도전만 남는다. FC: 진행 방식 선택(전체·대회·CK·컨셉·친선·분류 전) + 경기 모드 보조, 양쪽 몰수는 무,
+"일반 경기" 라벨 없음, 한쪽만 스트리머인 판은 새 "개인 기록" 탭에만(스쿼드 표도 내전 세트만이라 크게 준다). 관리자: 검수 대기열에
+"분류 대기" 갈래(자동 묶음 판), 자동 묶음은 relabel 불가, 출처 라벨은 API·영상 판독·수기. 조사 결과·시드 파일은 `event.format`(옛 `kind` 거부).
+
+**남은 것**
+- 지명 등록 도구가 없다(함수 `addCollectionTarget` 만). 솔랭 도전 화면은 아직 `challenges.json` 의 계정·시작일을 읽는다 — `collection_target`
+  을 정본으로 삼으려면 공개 읽기 경로가 필요하다.
+- FC 개인 기록의 `core_public` 뷰가 없다(지금은 같은 신원 규칙으로 원본을 읽는다).
+- 비어 있는 `mod_versus.pair` 표 삭제, `fco_context_evidence` 의 게임 공통 일반화.
+- 운영에 있는 시드 파일(`seed/tournaments*.json`, 저장소 밖)의 `kind` → `format`.
+- 3단계: 전환 직전 덤프로 리허설 다시 · 4단계 전환 절차(§8).
