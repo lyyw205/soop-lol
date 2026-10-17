@@ -12,3 +12,8 @@ export type { PublicCommunityComment, PublicCommunityPost, PublicCommunityPostRo
 export { kstDateString } from "../time.ts";
 export { loginHref, meHref, navigationSite, profileHref, routeHref } from "../site-paths.ts";
 export type { HrefQuery, NavigationSite } from "../site-paths.ts";
+
+export { ATTACHMENT_MAX, UPLOAD_MIMES, uploadInputError, attachmentUrl } from "../metrics/attachments.ts";
+export type { AttachmentView } from "../metrics/attachments.ts";
+
+export { attachmentUploadUrl, attachmentCompleteUrl } from '../metrics/attachments.ts';

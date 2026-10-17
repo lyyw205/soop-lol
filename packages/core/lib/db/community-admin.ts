@@ -1,3 +1,4 @@
+import { cleanupAttachments } from "./attachments.ts";
 /**
  * 커뮤니티 — 관리자 쓰기·읽기와 정기 작업(파기). docs/COMMUNITY-PLAN.md §3 "신고·운영"·"삭제와 파기"
  *
@@ -106,6 +107,7 @@ export interface ReportEntry {
   detail: string | null;
   snapshot_title: string | null;
   snapshot_body: string | null;
+  snapshot_attachment_ids: string[];
   created_at: Date;
 }
 
@@ -129,7 +131,7 @@ export interface ReportQueueItem {
 /** 열린 신고를 대상별로 묶는다. 개인정보 노출·명예훼손이 먼저, 그다음 신고 수, 오래된 순. */
 export async function listReportQueue(): Promise<ReportQueueItem[]> {
   const rows = await db()<(ReportEntry & { kind: Kind; target_id: number })[]>`
-    SELECT id::int AS report_id, kind, target_id::int AS target_id, reason, detail, snapshot_title, snapshot_body, created_at
+    SELECT id::int AS report_id, kind, target_id::int AS target_id, reason, detail, snapshot_title, snapshot_body, snapshot_attachment_ids, created_at
       FROM community_report WHERE status = 'open' ORDER BY created_at`;
   const groups = new Map<string, ReportQueueItem>();
   for (const r of rows) {
@@ -147,7 +149,7 @@ export async function listReportQueue(): Promise<ReportQueueItem[]> {
       item = { ...target, kind: r.kind, target_id: r.target_id, urgent: false, reports: [], edited_after_report: false };
       groups.set(key, item);
     }
-    item.reports.push({ report_id: r.report_id, reason: r.reason, detail: r.detail, snapshot_title: r.snapshot_title, snapshot_body: r.snapshot_body, created_at: r.created_at });
+    item.reports.push({ report_id: r.report_id, reason: r.reason, detail: r.detail, snapshot_title: r.snapshot_title, snapshot_body: r.snapshot_body, snapshot_attachment_ids: r.snapshot_attachment_ids, created_at: r.created_at });
     if (URGENT_REPORT_REASONS.includes(r.reason)) item.urgent = true;
   }
   const items = [...groups.values()];
@@ -247,7 +249,7 @@ export async function purgeDeletedContent(now = new Date()): Promise<{ posts: nu
       await tx`DELETE FROM community_post_vote WHERE post_id = ${id}`;
       await tx`UPDATE community_comment SET status = 'deleted', deleted_at = COALESCE(deleted_at, ${now}), body = NULL, updated_at = ${now}
                WHERE post_id = ${id} AND body IS NOT NULL`;
-      await tx`UPDATE community_report SET snapshot_title = NULL, snapshot_body = NULL
+      await tx`UPDATE community_report SET snapshot_title = NULL, snapshot_body = NULL, snapshot_attachment_ids = '{}'
                WHERE status <> 'open' AND ((kind = 'post' AND target_id = ${id})
                   OR (kind = 'comment' AND target_id IN (SELECT id FROM community_comment WHERE post_id = ${id})))`;
       return "purged" as const;
@@ -265,7 +267,7 @@ export async function purgeDeletedContent(now = new Date()): Promise<{ posts: nu
       if (!comment || comment.status !== "deleted" || comment.body === null) return "skip" as const;
       if (await purgeHeld(tx, "comment", c.id, now)) return "held" as const;
       await tx`UPDATE community_comment SET body = NULL, updated_at = ${now} WHERE id = ${c.id}`;
-      await tx`UPDATE community_report SET snapshot_title = NULL, snapshot_body = NULL
+      await tx`UPDATE community_report SET snapshot_title = NULL, snapshot_body = NULL, snapshot_attachment_ids = '{}'
                WHERE status <> 'open' AND kind = 'comment' AND target_id = ${c.id}`;
       return "purged" as const;
     });
@@ -278,7 +280,7 @@ export async function purgeDeletedContent(now = new Date()): Promise<{ posts: nu
 /** 처리하고 30일이 지난 신고의 당시 내용을 비운다. */
 export async function clearHandledSnapshots(now = new Date()): Promise<number> {
   const cleared = await db()`
-    UPDATE community_report SET snapshot_title = NULL, snapshot_body = NULL
+    UPDATE community_report SET snapshot_title = NULL, snapshot_body = NULL, snapshot_attachment_ids = '{}'
      WHERE status <> 'open' AND handled_at < ${daysAgo(now, SNAPSHOT_KEEP_DAYS)}
        AND (snapshot_title IS NOT NULL OR snapshot_body IS NOT NULL)`;
   return cleared.count;
@@ -290,5 +292,6 @@ export async function runCommunityHousekeep(now = new Date()) {
   const snapshots = await clearHandledSnapshots(now);
   const identities = await cleanupWithdrawnIdentities(now);
   const sessions = await cleanupExpiredSessions(now);
-  return { ...purged, snapshots, identities, sessions };
+  const attachments = await cleanupAttachments(undefined, now);
+  return { ...purged, snapshots, identities, sessions, attachments };
 }

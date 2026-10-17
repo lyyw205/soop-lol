@@ -11,6 +11,7 @@
  */
 
 import type postgres from "postgres";
+import { attachToPost } from "./attachments.ts";
 
 import {
   normalizeCommentBody, normalizePostInput, validateCommentBody, validatePostInput, validateReport, writeLimitMessage,
@@ -117,6 +118,7 @@ export async function createPost(token: string | null | undefined, raw: PostInpu
       VALUES (${m.id}::uuid, ${input.game_code}, ${input.topic}, ${input.title}, ${input.body}, ${now}, ${now})
       RETURNING id::int AS id`;
     await replaceTags(tx, row.id, input.streamer_ids);
+    await attachToPost(tx, m.id, row.id, input.attachment_ids);
     return { id: row.id };
   });
 }
@@ -140,6 +142,7 @@ export async function editPost(token: string | null | undefined, postId: number,
              edited_at = ${now}, updated_at = ${now}
        WHERE id = ${postId} RETURNING updated_at::text AS version`;
     await replaceTags(tx, postId, input.streamer_ids);
+    await attachToPost(tx, m.id, postId, input.attachment_ids);
     return row;
   });
 }
@@ -262,8 +265,9 @@ export async function reportContent(
         if (comment.author_id === m.id) throw new CommunityError("내 댓글은 신고할 수 없습니다.");
         snapshot = { title: null, body: comment.body };
       }
-      await tx`INSERT INTO community_report (kind, target_id, reporter_id, reason, detail, snapshot_title, snapshot_body, created_at)
-               VALUES (${kind}, ${targetId}, ${m.id}::uuid, ${reason}, ${detail}, ${snapshot.title}, ${snapshot.body}, ${now})`;
+      await tx`INSERT INTO community_report (kind, target_id, reporter_id, reason, detail, snapshot_title, snapshot_body, created_at, snapshot_attachment_ids)
+               VALUES (${kind}, ${targetId}, ${m.id}::uuid, ${reason}, ${detail}, ${snapshot.title}, ${snapshot.body}, ${now},
+                 CASE WHEN ${kind}='post' THEN ARRAY(SELECT id FROM community_attachment WHERE post_id=${targetId} AND attached AND state='ready' ORDER BY position) ELSE '{}'::uuid[] END)`;
     });
   } catch (error) {
     if ((error as { code?: string }).code === "23505") throw new CommunityError("이미 신고했습니다.");

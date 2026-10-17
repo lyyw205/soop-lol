@@ -7,6 +7,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { PostBody } from "./post-body.tsx";
+import { AttachmentPicker, AttachmentGallery } from "./attachments.tsx";
+import type { AttachmentView } from "@soop-lol/core/lib/contract/community-client";
+import { EMBED_MAX } from "./media.ts";
 
 import {
   BODY_MAX, COMMUNITY_GAME_LABEL, COMMUNITY_GAMES, NO_GAME_LABEL, TAG_MAX, TITLE_MAX,
@@ -28,13 +32,17 @@ export interface ComposeInitial {
   title: string;
   body: string;
   tags: StreamerChoice[];
+  attachments?: AttachmentView[];
 }
 
-export function ComposeForm({ initial, streamers, cancelHref, browse }: { initial: ComposeInitial; streamers: StreamerChoice[]; cancelHref: string; browse: ReturnType<typeof communityQuery> }) {
+export function ComposeForm({ initial, streamers, cancelHref, browse, uploads = false }: { uploads?: boolean; initial: ComposeInitial; streamers: StreamerChoice[]; cancelHref: string; browse: ReturnType<typeof communityQuery> }) {
   const { state, dispatch: action, pending, onSubmit } = useKeptFormAction(savePostAction, IDLE);
   const [tags, setTags] = useState<StreamerChoice[]>(initial.tags);
   const [query, setQuery] = useState("");
   const [body, setBody] = useState(initial.body);
+  const [files, setFiles] = useState<AttachmentView[]>(initial.attachments ?? []);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(false);
   const [tagError, setTagError] = useState("");
 
   function addTag() {
@@ -48,11 +56,12 @@ export function ComposeForm({ initial, streamers, cancelHref, browse }: { initia
     setTags([...tags, found]); setQuery(""); setTagError("");
   }
 
-  return <form action={action} onSubmit={onSubmit} className="cm-compose">
+  return <form action={action} onSubmit={e => { if (uploading) e.preventDefault(); else onSubmit(e); }} className="cm-compose">
     {Object.entries(browse).map(([key, value]) => value && <input key={key} type="hidden" name={`return_${key}`} value={value} />)}
     {initial.id !== null && <input type="hidden" name="id" value={initial.id} />}
     {initial.version !== null && <input type="hidden" name="version" value={initial.version} />}
     <input type="hidden" name="tags" value={tags.map((t) => t.slug).join(",")} />
+    <input type="hidden" name="attachments" value={files.map(f=>f.id).join(",")} />
     <input type="hidden" name="topic" value={initial.topic} />
     <div className="cm-compose-row">
       <label><span>게임</span>
@@ -67,9 +76,18 @@ export function ComposeForm({ initial, streamers, cancelHref, browse }: { initia
       <input name="title" required maxLength={TITLE_MAX} defaultValue={initial.title} />
     </label>
     <label className="cm-compose-field"><span className="cm-field-heading">본문 <small className="tabular">{body.length.toLocaleString()} / {BODY_MAX.toLocaleString()}</small></span>
-      <textarea name="body" required maxLength={BODY_MAX} rows={12} value={body} onChange={(e) => setBody(e.target.value)}
-        placeholder="내용을 입력해 주세요." />
+      <textarea name="body" required={files.length === 0} maxLength={BODY_MAX} rows={12} value={body} onChange={(e) => setBody(e.target.value)}
+        aria-describedby="cm-video-help" placeholder="내용을 입력해 주세요. 영상은 SOOP·유튜브 주소를 한 줄에 하나씩 붙여 넣으세요." />
     </label>
+    {uploads && <AttachmentPicker files={files} onChange={setFiles} onBusy={setUploading} disabled={pending} />}
+    <div className="cm-preview-tools">
+      <p id="cm-video-help" className="cm-field-help">SOOP·유튜브 주소를 한 줄에 하나씩 넣으면 본문에서 재생됩니다. 최대 {EMBED_MAX}개, 나머지는 링크로 표시됩니다.</p>
+      <button type="button" className="cm-secondary" aria-expanded={preview} aria-controls="cm-body-preview" onClick={() => setPreview(!preview)}>{preview ? "미리보기 닫기" : "본문 미리보기"}</button>
+    </div>
+    {preview && <section id="cm-body-preview" className="cm-body-preview" aria-label="본문 미리보기">
+      {body.trim() ? <PostBody text={body} /> : <p className="cm-muted">본문을 입력하면 이곳에 표시됩니다.</p>}
+      <AttachmentGallery files={files} />
+    </section>}
     <div className="cm-compose-field">
       <label htmlFor="cm-streamer-tag" className="cm-tag-label">스트리머 태그 <small>선택 · {tags.length}/{TAG_MAX}</small></label>
       <p id="cm-tag-help" className="cm-field-help">태그한 스트리머의 프로필에도 이 글이 표시됩니다.</p>
@@ -88,7 +106,7 @@ export function ComposeForm({ initial, streamers, cancelHref, browse }: { initia
     {state.message && <p className={state.ok ? "cm-ok" : "cm-error"} role="alert">{state.message}</p>}
     <div className="cm-compose-foot">
       <Link href={cancelHref} className="cm-secondary">취소</Link>
-      <button type="submit" className="cm-write" disabled={pending}>{pending ? "저장 중…" : initial.id === null ? "등록" : "수정 완료"}</button>
+      <button type="submit" className="cm-write" disabled={pending || uploading}>{uploading ? "첨부 처리 중…" : pending ? "저장 중…" : initial.id === null ? "등록" : "수정 완료"}</button>
     </div>
   </form>;
 }

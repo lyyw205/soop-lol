@@ -89,6 +89,7 @@ export interface PostInput {
   body: string;
   /** 태그할 스트리머(streamer.id). 공개 명부에 있는지는 접근자가 본다. */
   streamer_ids: string[];
+  attachment_ids?: string[];
 }
 
 /** 폼 값 정리 — 제목은 앞뒤 공백을 지우고, 본문은 줄바꿈을 \n 하나로 맞춘다(길이를 세는 기준이 같아야 DB CHECK 와 어긋나지 않는다). */
@@ -111,7 +112,7 @@ export function validatePostInput(input: PostInput, opts: { allowNotice?: boolea
     errors.push("말머리를 확인해 주세요.");
   }
   if (input.title.length < 1 || input.title.length > TITLE_MAX) errors.push(`제목은 1~${TITLE_MAX}자로 써 주세요.`);
-  if (input.body.trim().length < 1 || input.body.length > BODY_MAX) errors.push(`본문은 1~${BODY_MAX.toLocaleString()}자로 써 주세요.`);
+  if ((!input.body.trim() && !input.attachment_ids?.length) || input.body.length > BODY_MAX) errors.push(`본문이나 첨부파일을 넣어 주세요. 본문은 ${BODY_MAX.toLocaleString()}자까지 가능합니다.`);
   if (input.streamer_ids.length > TAG_MAX) errors.push(`스트리머는 ${TAG_MAX}명까지 태그할 수 있습니다.`);
   return errors;
 }

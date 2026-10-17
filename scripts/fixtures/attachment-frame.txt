@@ -1,0 +1,4 @@
+attachment-frame.mp4 is a one-second, single-keyframe remux of flower.mp4
+from https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4
+(MDN interactive examples, CC0 media). Remuxed with Mediabunny; no audio.
+Used only for attachment validation/browser playback tests.

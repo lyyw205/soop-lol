@@ -49,6 +49,7 @@ function QueueItem({ item }: { item: ReportQueueItem }) {
     <ul className="mt-2 space-y-1.5 text-xs">
       {item.reports.map((r) => <li key={r.report_id} className="text-ink-300">
         <span className="text-ink-400">{when(r.created_at)}</span> · <b>{REPORT_REASON_LABEL[r.reason]}</b>{r.detail && <> — {r.detail}</>}
+        {r.snapshot_attachment_ids?.length > 0 && <p className="mt-2">신고 당시 첨부: {r.snapshot_attachment_ids.map((id,i)=><a key={id} href={`/api/community/attachments/${id}`} target="_blank" rel="noopener noreferrer" className="ml-3 underline">파일 {i+1} ↗</a>)}</p>}
         {(r.snapshot_title !== item.title || r.snapshot_body !== item.body) && <details className="mt-1 rounded-md border border-ink-800 p-2">
           <summary className="cursor-pointer text-ink-400">신고 당시 내용(지금과 다름)</summary>
           {r.snapshot_title && <p className="mt-1 font-medium text-ink-200">{r.snapshot_title}</p>}

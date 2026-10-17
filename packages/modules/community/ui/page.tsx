@@ -12,7 +12,7 @@ import { cache } from "react";
 
 import { getPublicStreamer, listPublicStreamerOptions } from "@soop-lol/core/lib/contract";
 import {
-  currentMember, getPublicCommunityPost, loginHref, meHref, parseContentId, parseGameFilter,
+  publicAttachments, uploadsEnabled, currentMember, getPublicCommunityPost, loginHref, meHref, parseContentId, parseGameFilter,
 } from "@soop-lol/core/lib/contract/community";
 
 import { ComposeForm, type ComposeInitial, type StreamerChoice } from "./compose.tsx";
@@ -63,7 +63,7 @@ async function Compose({ searchParams }: { searchParams: Props["searchParams"] }
   const back = communityHref(browse);
   return <div className="cm cm-compose-page">
     <div className="cm-heading"><div><h1>글쓰기</h1><p>게임을 고르고 자유롭게 이야기를 남겨 주세요.</p></div><Link href={back} className="cm-secondary">목록으로</Link></div>
-    <ComposeForm initial={initial} streamers={await streamerChoices()} cancelHref={back} browse={browse} />
+    <ComposeForm uploads={uploadsEnabled()} initial={initial} streamers={await streamerChoices()} cancelHref={back} browse={browse} />
   </div>;
 }
 
@@ -75,11 +75,12 @@ async function Edit({ id, browse }: { id: number; browse: ReturnType<typeof comm
   if (!post || post.author_id !== me.member_id) notFound();
   const initial: ComposeInitial = {
     id, version: post.version, game: post.game_code, topic: post.topic === "notice" ? "free" : post.topic,
+    attachments: await publicAttachments(id),
     title: post.title, body: post.body, tags: post.streamers.map((s) => ({ slug: s.slug, display_name: s.display_name })),
   };
   return <div className="cm cm-compose-page">
     <div className="cm-heading"><div><h1>글 수정</h1><p>저장하면 글에 수정됨이 표시됩니다.</p></div><Link href={communityPostHref(id, browse)} className="cm-secondary">취소</Link></div>
-    <ComposeForm initial={initial} streamers={await streamerChoices()} cancelHref={communityPostHref(id, browse)} browse={browse} />
+    <ComposeForm uploads={uploadsEnabled()} initial={initial} streamers={await streamerChoices()} cancelHref={communityPostHref(id, browse)} browse={browse} />
   </div>;
 }
 

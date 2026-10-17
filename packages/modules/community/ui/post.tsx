@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { AttachmentGallery } from "./attachments.tsx";
+import { PostBody } from "./post-body.tsx";
 import { ArrowLeft, ChevronUp, ChevronDown, UserRound, MessagesSquare } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import {
-  COMMUNITY_GAME_LABEL,
+  publicAttachments, COMMUNITY_GAME_LABEL,
   publicProfileLinks, currentMember, getPublicCommunityNeighbors, parseGameFilter, listPublicCommunityComments, loginHref, meHref, myVotedPostIds, profileHref,
   type PublicCommunityComment, type PublicCommunityPost,
 } from "@soop-lol/core/lib/contract/community";
@@ -18,6 +20,7 @@ import { authorLabel, fullWhen, PlainText, shortWhen } from "./text.tsx";
  */
 export async function PostDetail({ post, browse }: { post: PublicCommunityPost | null; browse: ReturnType<typeof communityQuery> }) {
   if (!post) notFound();
+  const attachments = await publicAttachments(post.post_id);
   const comments = await listPublicCommunityComments(post.post_id);
   const neighbors = await getPublicCommunityNeighbors(post.post_id, { game: parseGameFilter(browse.game), streamer: browse.s ?? null, author: browse.author ?? null });
   const me = await currentMember();
@@ -37,6 +40,7 @@ export async function PostDetail({ post, browse }: { post: PublicCommunityPost |
       : <>
         <p className="cm-comment-meta"><b>{authorLabel(c.author_id, c.author_nickname)}</b> <span className="tabular">{shortWhen(c.created_at)}</span>{c.edited_at && <span> · 수정됨</span>}</p>
         <p className="cm-text"><PlainText text={c.body ?? ""} /></p>
+        {!canWrite && <div className="cm-comment-actions">{!reply && <Link href={signIn} className="cm-link-button">답글</Link>} <Link href={signIn} className="cm-link-button" aria-label="로그인 후 댓글 신고">신고</Link></div>}
         {me && <CommentActions postId={post.post_id} comment={{ id: c.comment_id, version: c.version, body: c.body ?? "" }}
           canReply={!reply && canWrite} isAuthor={c.author_id === me.member_id} canReport={canWrite && c.author_id !== me.member_id} />}
       </>}
@@ -59,7 +63,7 @@ export async function PostDetail({ post, browse }: { post: PublicCommunityPost |
 
 
       </header>
-      <div className="cm-text cm-body"><PlainText text={post.body} /></div>
+      <div className="cm-body"><PostBody text={post.body} /><AttachmentGallery files={attachments} /></div>
       <footer className="cm-post-footer">
         <div className="cm-post-response">
           {post.topic !== "notice" && <div className="cm-recommend-action"><VoteButton postId={post.post_id} likeCount={post.like_count} voted={voted} loginHref={signIn}
@@ -77,9 +81,9 @@ export async function PostDetail({ post, browse }: { post: PublicCommunityPost |
             </li>)}
           </ul>
         </section>}
-          {(isAuthor || (canWrite && post.author_id !== null)) && <div className="cm-post-manage">
+          {(isAuthor || post.author_id !== null) && <div className="cm-post-manage">
             {isAuthor ? <><Link href={communityPostHref(post.post_id, { ...browse, edit: 1 })} className="cm-link-button">수정</Link><DeletePostForm postId={post.post_id} browse={browse} /></>
-              : <ReportForm kind="post" targetId={post.post_id} />}
+              : canWrite ? <ReportForm kind="post" targetId={post.post_id} /> : <Link href={signIn} className="cm-link-button" aria-label="로그인 후 게시글 신고">신고</Link>}
           </div>}
           <Link href={communityHref(browse)} className="cm-secondary cm-list-return"><ArrowLeft size={15} aria-hidden="true" />목록으로</Link>
         </div>

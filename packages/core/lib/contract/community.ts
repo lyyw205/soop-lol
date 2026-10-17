@@ -46,3 +46,6 @@ export const voteCommunityPost = async (postId: number) => writes.votePost(await
 export const reportCommunityContent = async (kind: "post" | "comment", targetId: number, reason: ReportReason, detail: string | null) =>
   writes.reportContent(await readSessionToken(), kind, targetId, reason, detail);
 export { publicProfileLinks } from "../db/profile-links.ts";
+
+export { publicAttachments } from "../db/attachments.ts";
+export { uploadsEnabled } from "../storage/r2.ts";

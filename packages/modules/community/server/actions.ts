@@ -49,6 +49,7 @@ async function readPostInput(form: FormData): Promise<PostInput | string> {
     title: text(form, "title"),
     body: text(form, "body"),
     streamer_ids: streamerIds,
+    attachment_ids: form.has("attachments") ? text(form, "attachments").split(",").filter(Boolean) : undefined,
   };
 }
 

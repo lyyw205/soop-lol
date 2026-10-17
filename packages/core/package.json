@@ -11,8 +11,12 @@
   },
   "//deps": "postgres(.js)는 core 가 직접 쓴다 — 웹과 워커가 같은 커넥션 모듈을 공유한다.",
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1152.0",
+    "@aws-sdk/s3-request-presigner": "3.1152.0",
+    "mediabunny": "1.61.5",
     "openid-client": "6.8.8",
-    "postgres": "3.4.9"
+    "postgres": "3.4.9",
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "@types/node": "24.13.3"
