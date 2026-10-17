@@ -98,7 +98,7 @@ interface Facts {
 
 ```ts
 type Rule = { id: string; when: (f: Facts, c: Config) => boolean; then: Verdict };
-const POLICY = { version: "2026-10-17.1", config: { consensusMembers: 3 }, rules: [ /* 위에서부터 처음 맞는 것 */ ] };
+const POLICY = { version: "2026-10-17.2", config: { trustedReporter: false, consensusMembers: null }, rules: [ /* 위에서부터 처음 맞는 것 */ ] };
 ```
 
 v1 규칙은 **지금 동작을 그대로 옮긴 것**에 2단계를 더한 것이다(굵은 것이 새 규칙).
@@ -109,10 +109,10 @@ v1 규칙은 **지금 동작을 그대로 옮긴 것**에 2단계를 더한 것�
 | 2 | **`vod_agree`** | VOD 판독이 같은 판을 찾았다 | 보임·믿음(판독 값 우선) |
 | 3 | **`vod_mismatch`** | 판독이 같은 판인데 값이 다르다 | §9-2 결정 |
 | 4 | `sanctioned` | 보낸 사람이 제재 중 | (접수 자체를 막는다 — 지금과 같다) |
-| 5 | **`trusted`** | 보낸 사람에게 `trusted_reporter` 권한 | 보임·믿음 |
-| 6 | **`consensus`** | 서로 다른 회원 N명(설정값, 처음엔 꺼 둠)이 같은 값 | 보임·믿음 |
-| 7 | `hold_*` | 경기 고치기의 보류 이유 5종 | 숨김·대기 + 운영자 |
-| 8 | `schedule` | 편성표 제보 | 숨김·대기 + 운영자 |
+| 5 | `hold_*` | 경기 고치기의 보류 이유 5종 | 숨김·대기 + 운영자 |
+| 6 | `schedule` | 편성표 제보 | 숨김·대기 + 운영자 |
+| 7 | **`trusted`** | 경기 고치기 + 보낸 사람에게 `trusted_reporter` 권한(설정 `trustedReporter`) | 보임·믿음 |
+| 8 | **`consensus`** | 경기 고치기 + 서로 다른 회원 N명(설정 `consensusMembers`)이 같은 값 | 보임·믿음 |
 | 9 | **`addition`** | 빠진 경기 직접 입력(중복 없음) | **보임·대기 + VOD 우선** |
 | 10 | **`hint`** | VOD 단서 | 숨김·대기 + VOD 우선 |
 | 11 | `default` | 경기 고치기 | 보임·대기(지금의 applied) |
@@ -124,12 +124,26 @@ v1 규칙은 **지금 동작을 그대로 옮긴 것**에 2단계를 더한 것�
 - 판정마다 `rule_id` 와 `policy.version` 을 남긴다. 그래서 "이 판은 어떤 기준으로 검증됐나"를 언제든 보여 줄 수 있다.
 - **기준이 바뀌면 열린 제보를 다시 판정한다.** `reconsiderAll()` 을 돌린다. ③은 판정이 그대로면 아무것도 하지 않으므로(멱등) 몇 번 돌려도 안전하다.
 - 사람이 내린 결정은 기준이 바뀌어도 뒤집지 않는다. 규칙 1(`admin`)이 언제나 맨 위에 있기 때문이다.
+- **신뢰 계정·합의는 보류 아래에 둔다(구현 때 정함, 2단계 ②).** 처음 표에서는 보류 위였다. 하지만 그러면 신뢰 계정 한 명이
+  공식 기록(`api_observed`)·다툼(`contested`)·검수 끝난 판을 운영자 없이 바꾼다. 그래서 이 두 규칙은 "바로 반영(확인 전)"이 될 제보를
+  검증으로 올리기만 한다. 편성표 제보에도 쓰지 않는다 — 편성표는 운영자가 저장해야 바뀌므로, "검증"만 하면 반영 없이 닫혀 버린다
+  (편성표용 권한은 따로 `schedule_editor` 같은 역할 + 그 반영 길을 만들 때 더한다). 바꾸려면 규칙 순서만 옮기면 된다.
+- 판정이 보는 "같은 내용 회원 수"는 보낸 사람 + 같은 내용이에요(+1)다. 반영된 제보에 같은 값을 다시 보내면 "이미 그 값"이라
+  거부되므로, 확인 전 제보에 동의하는 길은 +1 버튼 하나다.
 
 ## 5. 권한 — 계정에 붙는 역할
 
 ```sql
-member_role (member_id, role, granted_by, granted_at, expires_at NULL, note)   -- PK (member_id, role)
+member_role (id, member_id, role, note, granted_by, granted_at, revoked_by, revoked_at)   -- 0096
+-- 지금 유효 = revoked_at IS NULL, (member_id, role) 마다 하나(부분 UNIQUE). 주고 거둔 기록은 지우지 않는다(제재 표와 같은 모양).
 ```
+
+- 구현 때 바꾼 것: 처음 설계의 `PK (member_id, role)` + `expires_at` 대신 기록을 남기는 줄 + 거두기 칸으로 했다.
+  "누가 언제 왜 주고 거뒀나"가 남아야 권한으로 검증된 제보를 나중에 설명할 수 있다. 기한은 쓸 곳이 생기면 더한다.
+- 주기·거두기는 `db/submission.ts` 의 `grantMemberRole`·`revokeMemberRole` 하나 — 회원 → 판 → 제보 순서로 잠그고
+  그 회원이 보냈거나 +1 한 열린 제보를 다시 판정한다. 이미 검증된 제보는 거둬도 그대로다(그때의 기준으로 닫혔다).
+- 운영 화면: 커뮤니티 운영의 회원 카드(`/admin/community?member=`)에 권한 기록·주기(사유 필수)·거두기.
+  지금 기준에서 꺼진 역할은 "효과 없음"으로 알린다(`roleInEffect`). 제보 상세에 보낸 회원의 권한과 회원 카드 링크.
 
 - 역할의 예: `trusted_reporter`(제보가 바로 검증), `schedule_editor`(편성표 제보가 바로 반영) 등.
 - 역할 목록은 `metrics` 상수 하나에 둔다. DB CHECK 도 같은 목록이다.
@@ -216,7 +230,11 @@ vod_request (vod_id, channel_id, requested_at, priority, reason, submission_id N
    - 운영자 확인·반려·편성표 반영 = 운영자 결정을 사실로 더하고 판정 — 따로 상태를 옮기는 코드가 없다
    - DB: `submission.intake`(접수 사실) · `admin_decision` · `rule_id` · `policy_version` — 운영자 상세에 "판정 규칙 · 기준"
    - 검사: 판정 단위 4 · verify:db(규칙 기록·같은 기준 재판정 0건·편성표 반영 = admin_verify) · 기존 제보 검사·브라우저 11단계 그대로
-2. `member_role` + `trusted`·`consensus` 규칙(설정으로 꺼 둔 채).
+2. ✅ **(2026-10-17, 0096)** `member_role` + `trusted`·`consensus` 규칙(설정으로 꺼 둔 채 — 동작 변화 0).
+   - `metrics/member-role.ts`(역할 목록 하나) · `db/member-role.ts`(읽기·InTx 쓰기) · 판정 사실 `factsInTx` 하나(역할·같은 내용 회원 수)
+   - 사실이 바뀌는 곳(+1·권한 주기/거두기)은 그 제보를 다시 판정하고 끝난다. 접수 순간 검증(신뢰 계정)도 같은 접수 길
+   - 검사: 판정 단위 7 · verify:db — 꺼 두면 그대로 / 켜고 다시 판정하면 신뢰 제보자 것만 검증·보류는 그대로 / 접수 순간 검증 /
+     거두면 다음부터 확인 전·기록 남음 / 합의 N=2 는 +1 순간 검증 / 되돌린 기준으로 다시 판정 0건
 3. `vod_request` + ck-auto 우선순위·다시 열기.
 4. 나(VOD 단서).
 5. 가(직접 입력) + 사람·날짜 중복 규칙 + 판독 잇기.

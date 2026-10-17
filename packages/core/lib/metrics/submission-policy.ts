@@ -4,12 +4,14 @@
  *
  *   사실 모으기(db/submission.ts) → decide(여기) → 실행(db/submission.ts enact — 기존 쓰기 길만 부른다)
  *
- * ★ 검증 기준을 바꾸는 일은 이 파일의 규칙 목록(RULES)·설정값(POLICY.config)만 고치는 일이다.
+ * ★ 검증 기준을 바꾸는 일은 이 파일의 규칙 목록(RULES)·설정값(POLICY.config)만 고치는 일이다. 바꾸면 version 을 올리고
+ *   열린 제보를 다시 판정한다(db/submission.ts reconsiderOpenSubmissions).
  *   사실 모으기·실행은 기준을 모른다 — 새 기준 때문에 그쪽에 if 가 생기면 뼈대가 틀어진 것이다.
  * ★ 판정은 두 축 — 보임(공개 기록에 들어가 있나) × 믿음(집계에 넣나). "보이지만 아직 안 믿음" = 확인 전.
  *   옛 상태 이름(applied·held·…)은 두 축에서 계산되는 이름표다(stateOf).
  * ★ 사람(운영자)의 결정은 언제나 맨 위 — 기준이 바뀌어 다시 판정해도 뒤집히지 않는다.
  */
+import type { MemberRole } from "./member-role.ts";
 import type { HoldReason, SubmissionKind, SubmissionState } from "./submission.ts";
 
 /** 접수 때 대상에서 본 것(경기 고치기). 접수 순간에 고정해 둔다 — 나중에 다시 판정해도 같은 사실로 본다. */
@@ -26,6 +28,20 @@ export interface Facts {
   intake: IntakeFacts;
   /** 운영자의 처리 — 확인(verify)·반려(reject). 없으면 null. */
   admin: "verify" | "reject" | null;
+  /** 보낸 사람의 지금 유효한 역할(member_role). 탈퇴했으면 빈 목록. */
+  reporter: { roles: readonly MemberRole[] };
+  /** 같은 내용을 낸 서로 다른 회원 — 보낸 사람 + 같은 내용이에요(+1). trusted = 그중 신뢰 제보자 수. */
+  agreement: { members: number; trusted: number };
+}
+
+/**
+ * 설정값 — 규칙의 손잡이. 2026-10-17 사용자 결정: 신뢰 계정·합의 **둘 다 꺼 둔 채** 시작(처음엔 VOD 판독·운영자만 검증).
+ *   trustedReporter   true 면 신뢰 제보자가 보낸 경기 고치기는 바로 검증
+ *   consensusMembers  N 이면 서로 다른 회원 N명이 같은 값을 낸 경기 고치기는 검증(null = 끔)
+ */
+export interface PolicyConfig {
+  trustedReporter: boolean;
+  consensusMembers: number | null;
 }
 
 export type Visibility = "shown" | "hidden";
@@ -42,8 +58,14 @@ export interface Verdict {
 
 export interface Rule {
   id: string;
-  when: (f: Facts) => boolean;
+  when: (f: Facts, c: PolicyConfig) => boolean;
   then: (f: Facts) => Omit<Verdict, "rule">;
+}
+
+export interface Policy {
+  version: string;
+  config: PolicyConfig;
+  rules: readonly Rule[];
 }
 
 const show = (trust: Trust): Omit<Verdict, "rule"> => ({ visibility: "shown", trust, hold_reason: null });
@@ -53,8 +75,11 @@ const hold = (hold_reason: HoldReason): Omit<Verdict, "rule"> => ({ visibility: 
 const INTAKE_HOLDS: readonly (keyof IntakeFacts & HoldReason)[] = ["not_public", "review_completed", "api_observed", "account_identity", "contested"];
 
 /**
- * 규칙 목록 — 위에서부터 처음 맞는 것. v1 = 1단계(경기 고치기)·3단계(편성표)의 동작을 그대로 옮긴 것.
- * 2단계 규칙(VOD 판독·신뢰 계정·합의·직접 입력·VOD 단서)은 docs/SUBMISSION-POLICY-PLAN.md §4 순서로 여기에 더한다.
+ * 규칙 목록 — 위에서부터 처음 맞는 것. v1 = 1단계(경기 고치기)·3단계(편성표)의 동작 + 2단계의 신뢰 계정·합의(설정으로 꺼 둠).
+ * 2단계의 나머지 규칙(VOD 판독·직접 입력·VOD 단서)은 docs/SUBMISSION-POLICY-PLAN.md §4 순서로 여기에 더한다.
+ *
+ * ★ 신뢰 계정·합의는 **보류 사실 아래**에 둔다 — "바로 반영(확인 전)"이 될 제보를 검증으로 올릴 뿐, 보류(공식 기록·다툼·검수 끝난 판…)를
+ *   건너뛰게 하지 않는다. 편성표 제보에도 쓰지 않는다 — 편성표는 운영자가 저장해야 바뀌므로 "검증"만 하면 반영 없이 닫혀 버린다.
  */
 const RULES: readonly Rule[] = [
   { id: "admin_reject", when: (f) => f.admin === "reject", then: () => ({ visibility: "hidden", trust: "rejected", hold_reason: null }) },
@@ -62,14 +87,24 @@ const RULES: readonly Rule[] = [
   ...INTAKE_HOLDS.map((r): Rule => ({ id: `hold_${r}`, when: (f) => f.kind === "match_correction" && f.intake[r] === true, then: () => hold(r) })),
   // 편성표 제보는 언제나 운영자가 반영한다(사용자 결정 2026-10-17).
   { id: "schedule_review", when: (f) => f.kind === "schedule_report", then: () => hold("schedule_review") },
+  {
+    id: "trusted",
+    when: (f, c) => c.trustedReporter && f.kind === "match_correction" && f.reporter.roles.includes("trusted_reporter"),
+    then: () => show("verified"),
+  },
+  {
+    id: "consensus",
+    when: (f, c) => c.consensusMembers !== null && f.kind === "match_correction" && f.agreement.members >= c.consensusMembers,
+    then: () => show("verified"),
+  },
   // 경기 고치기 — 바로 반영하고 확인 전(결정 A).
   { id: "apply_pending", when: (f) => f.kind === "match_correction", then: () => show("pending") },
 ];
 
-export const POLICY = { version: "2026-10-17.1", rules: RULES } as const;
+export const POLICY: Policy = { version: "2026-10-17.2", config: { trustedReporter: false, consensusMembers: null }, rules: RULES };
 
-export function decide(f: Facts, rules: readonly Rule[] = POLICY.rules): Verdict {
-  for (const r of rules) if (r.when(f)) return { ...r.then(f), rule: r.id };
+export function decide(f: Facts, policy: Policy = POLICY): Verdict {
+  for (const r of policy.rules) if (r.when(f, policy.config)) return { ...r.then(f), rule: r.id };
   throw new Error(`판정 규칙이 없습니다: ${f.kind}`);
 }
 
@@ -86,4 +121,11 @@ export function stateOf(v: Pick<Verdict, "visibility" | "trust">, wasShown: bool
 /** 옛 상태 → 지금 보이나(제안이 공개 기록에 들어가 있나). 실행(enact)이 보임의 변화를 이것으로 안다. */
 export function shownIn(state: SubmissionState | null): boolean {
   return state === "applied" || state === "verified";
+}
+
+/** 그 역할이 지금 기준에서 판정에 쓰이나 — 운영 화면이 "권한을 줘도 지금은 효과 없음"을 알린다. */
+export function roleInEffect(role: MemberRole, policy: Policy = POLICY): boolean {
+  switch (role) {
+    case "trusted_reporter": return policy.config.trustedReporter;
+  }
 }

@@ -9,6 +9,8 @@
  * ★ **판정 기준은 여기 없다** — metrics/submission-policy.ts 의 규칙 목록 하나(docs/SUBMISSION-POLICY-PLAN.md).
  *   여기는 ① 사실 모으기(접수 사실 intake · 운영자 결정) → decide → ③ 실행(settleInTx: 보임이 바뀌면 종류별 어댑터의 show/hide)만 한다.
  *   접수·운영자 확인·반려·편성표 반영은 모두 "사실을 남기고 판정한다" 한 길로 끝난다. 새 기준 때문에 여기에 if 가 생기면 뼈대가 틀어진 것이다.
+ * ★ 판정이 보는 사실은 factsInTx 하나가 모은다 — 접수 사실(intake)·운영자 결정·보낸 사람의 역할·같은 내용 회원 수.
+ *   사실이 바뀌는 곳(+1·권한 주기/거두기·운영자 처리)은 전부 그 제보를 다시 판정(settleInTx)하고 끝난다.
  * ★ 반영은 기존 쓰기 길 하나 — `applyMatchReviewInTx`(writer member). 제보만의 쓰기 SQL 을 두지 않는다(근거·잠금·이력·승패 재계산이 같이 온다).
  * ★ 중복 막기 네 겹(§6): 요청 번호(UNIQUE author×request) · 내용 지문(열린 제보 중 유일 → +1) · 같은 칸(다른 값이면 보류) · 이미 그 값(거부).
  *   같은 판의 제보는 그 판 행을 잠근 뒤 판정하므로 동시에 들어와도 지문 판정이 엇갈리지 않는다. 잠금 순서: 회원 → 판 → 제보.
@@ -21,7 +23,8 @@ import { createHash } from "node:crypto";
 import type postgres from "postgres";
 
 import { isUuid } from "../metrics/community.ts";
-import { decide, POLICY, shownIn, stateOf, type Facts, type IntakeFacts } from "../metrics/submission-policy.ts";
+import type { MemberRole } from "../metrics/member-role.ts";
+import { decide, POLICY, shownIn, stateOf, type Facts, type IntakeFacts, type Policy } from "../metrics/submission-policy.ts";
 import { kstClock } from "../metrics/schedule.ts";
 import {
   cellsOverlap, correctionCells, fingerprintSource, normalizeEvidenceUrl, normalizeMatchCorrection, normalizeNote,
@@ -30,7 +33,8 @@ import {
 } from "../metrics/submission.ts";
 import { ADMIN_WRITER, applyMatchReviewInTx, type MatchReviewPatch, type ReviewWriter } from "./ck.ts";
 import { db } from "./client.ts";
-import { lockSessionMember, memberFromSession, MemberError } from "./member.ts";
+import { lockMember, lockSessionMember, memberFromSession, MemberError } from "./member.ts";
+import { activeRolesInTx, grantRoleInTx, revokeRoleInTx } from "./member-role.ts";
 import { saveScheduleEntryInTx, type ScheduleSaveOptions } from "./schedule.ts";
 import { getPublicScheduleEntry, type PublicScheduleEntry } from "./schedule-public.ts";
 import type { ScheduleInput } from "../metrics/schedule.ts";
@@ -51,7 +55,7 @@ export type SubmissionRow = SubmissionContent & {
 };
 
 export type SubmitOutcome =
-  | { kind: "applied" | "held"; id: string; hold_reason: HoldReason | null }
+  | { kind: "applied" | "held" | "verified"; id: string; hold_reason: HoldReason | null }
   /** 같은 내용의 열린 제보가 있어 +1 로 합쳤다(또는 이미 +1 했다). */
   | { kind: "supported"; id: string }
   /** 같은 요청을 다시 받았다(두 번 누르기·재시도) — 처음 결과의 제보. */
@@ -204,9 +208,7 @@ export async function submitMatchCorrection(token: string | null, raw: MatchCorr
     const [twin] = await tx<{ id: string; author_id: string | null }[]>`
       SELECT id, author_id FROM submission WHERE fingerprint = ${fp} AND state IN ('applied', 'held') FOR UPDATE`;
     if (twin) {
-      if (twin.author_id !== m.id) {
-        await tx`INSERT INTO submission_supporter (submission_id, member_id, created_at) VALUES (${twin.id}::uuid, ${m.id}::uuid, ${now}) ON CONFLICT DO NOTHING`;
-      }
+      if (twin.author_id !== m.id) await supportInTx(tx, twin.id, m.id, now);
       return { kind: "supported", id: twin.id } as const;
     }
     const [{ n }] = await tx<{ n: number }[]>`
@@ -299,9 +301,7 @@ export async function submitScheduleReport(token: string | null, raw: ScheduleRe
     const [twin] = await tx<{ id: string; author_id: string | null }[]>`
       SELECT id, author_id FROM submission WHERE fingerprint = ${fp} AND state IN ('applied', 'held') FOR UPDATE`;
     if (twin) {
-      if (twin.author_id !== m.id) {
-        await tx`INSERT INTO submission_supporter (submission_id, member_id, created_at) VALUES (${twin.id}::uuid, ${m.id}::uuid, ${now}) ON CONFLICT DO NOTHING`;
-      }
+      if (twin.author_id !== m.id) await supportInTx(tx, twin.id, m.id, now);
       return { kind: "supported", id: twin.id } as const;
     }
     const [{ n }] = await tx<{ n: number }[]>`
@@ -337,16 +337,24 @@ async function closeScheduleReportInTx(tx: Tx, id: string, actor: string, entryI
   await settleInTx(tx, { ...s, schedule_entry_id: entryId }, { admin: { decision: "verify", actor, note: "편성표에 반영" } });
 }
 
-/** "같은 내용이에요(+1)" — 열린 남의 제보에만. 이미 했으면 그대로. */
+/** "같은 내용이에요(+1)" — 열린 남의 제보에만. 이미 했으면 그대로. 잠금 순서: 회원 → 판 → 제보(lockOpen). */
 export async function supportSubmission(token: string | null, id: string, now = new Date()): Promise<void> {
   if (!isUuid(id)) throw new SubmissionError("제보를 찾을 수 없습니다.");
   await db().begin(async (tx) => {
     const m = await lockSessionMember(tx, token, now, { needNickname: true, checkSanction: true });
-    const [s] = await tx<{ author_id: string | null; state: string }[]>`SELECT author_id, state FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
-    if (!s || !["applied", "held"].includes(s.state)) throw new SubmissionError("이미 처리된 제보입니다.");
+    const s = await lockOpen(tx, id);
     if (s.author_id === m.id) throw new SubmissionError("내가 보낸 제보입니다.");
-    await tx`INSERT INTO submission_supporter (submission_id, member_id, created_at) VALUES (${id}::uuid, ${m.id}::uuid, ${now}) ON CONFLICT DO NOTHING`;
+    await supportInTx(tx, id, m.id, now);
   });
+}
+
+/** +1 을 남기고 다시 판정한다(같은 내용 회원 수가 사실이다). 제보 행을 잠근 트랜잭션 안에서만. */
+async function supportInTx(tx: Tx, id: string, memberId: string, now: Date): Promise<void> {
+  const added = await tx`
+    INSERT INTO submission_supporter (submission_id, member_id, created_at) VALUES (${id}::uuid, ${memberId}::uuid, ${now}) ON CONFLICT DO NOTHING`;
+  if (!added.count) return;
+  const [s] = await tx<SubmissionRecord[]>`SELECT ${RECORD_COLUMNS(tx)} FROM submission WHERE id = ${id}::uuid`;
+  await settleInTx(tx, s);
 }
 
 // ── 회원: 읽기 ───────────────────────────────────────────────────────────────
@@ -454,6 +462,8 @@ export async function listSubmissionQueue(limit = 200): Promise<QueueItem[]> {
 
 export type AdminSubmission = QueueItem & {
   decided_by: string | null;
+  /** 보낸 회원(탈퇴하면 null)과 그 회원의 지금 권한 — 판정의 사실(reporter.roles)과 같은 읽기. */
+  author_id: string | null; author_roles: MemberRole[];
   /** 지금 상태를 정한 판정 규칙과 그때의 기준 버전(metrics/submission-policy.ts) — "어떤 기준으로". */
   rule_id: string | null; policy_version: string | null;
   /** 이 제보가 남긴 이력(applied 였던 것). */
@@ -465,8 +475,8 @@ export type AdminSubmission = QueueItem & {
 export async function getSubmissionForAdmin(id: string): Promise<AdminSubmission | null> {
   if (!isUuid(id)) return null;
   const sql = db();
-  const [row] = await sql<(QueueItem & { decided_by: string | null; rule_id: string | null; policy_version: string | null })[]>`
-    SELECT ${SUBMISSION_COLUMNS(sql)}, s.decided_by, s.rule_id, s.policy_version, mb.nickname AS author, m.game_creation AS played_at, e.name AS event_name, se.title AS schedule_title
+  const [row] = await sql<(QueueItem & { decided_by: string | null; author_id: string | null; rule_id: string | null; policy_version: string | null })[]>`
+    SELECT ${SUBMISSION_COLUMNS(sql)}, s.decided_by, s.author_id, s.rule_id, s.policy_version, mb.nickname AS author, m.game_creation AS played_at, e.name AS event_name, se.title AS schedule_title
       FROM submission s
       LEFT JOIN member mb ON mb.id = s.author_id
       LEFT JOIN match m ON m.match_id = s.match_id
@@ -476,7 +486,8 @@ export async function getSubmissionForAdmin(id: string): Promise<AdminSubmission
      WHERE s.id = ${id}::uuid`;
   if (!row) return null;
   const changes = await changesOf(sql, id);
-  return { ...row, changes, conflicts: row.state === "applied" ? await conflictsOf(sql, id, changes) : [] };
+  const author_roles = row.author_id ? (await activeRolesInTx(sql, [row.author_id])).get(row.author_id) ?? [] : [];
+  return { ...row, author_roles, changes, conflicts: row.state === "applied" ? await conflictsOf(sql, id, changes) : [] };
 }
 
 async function changesOf(sql: Sql, id: string): Promise<AdminSubmission["changes"]> {
@@ -506,10 +517,32 @@ async function conflictsOf(sql: Sql, id: string, changes: AdminSubmission["chang
 // 그리고 상태·규칙·기준 버전을 적는다. 종류마다 다른 것은 "보이게 하기·숨기기"를 어떻게 하느냐뿐이다.
 
 type SubmissionRecord = SubmissionContent & {
-  id: string; state: SubmissionState; match_id: string | null; schedule_entry_id: string | null;
+  id: string; author_id: string | null; state: SubmissionState; match_id: string | null; schedule_entry_id: string | null;
   intake: IntakeFacts; admin_decision: "verify" | "reject" | null; rule_id: string | null;
 };
-const RECORD_COLUMNS = (sql: Sql) => sql`id, kind, state, match_id, schedule_entry_id, payload, intake, admin_decision, rule_id`;
+const RECORD_COLUMNS = (sql: Sql) => sql`id, author_id, kind, state, match_id, schedule_entry_id, payload, intake, admin_decision, rule_id`;
+
+/** 지금 판정에 쓰는 기준. 바꾸는 길은 POLICY(코드)뿐이다 — 아래 함수는 verify:db 가 꺼 둔 규칙을 켜서 시험할 때만 쓴다. */
+let policy: Policy = POLICY;
+export function setSubmissionPolicyForVerify(p: Policy | null): void { policy = p ?? POLICY; }
+
+/**
+ * 판정이 보는 사실 — 여기 하나에서 모은다. 접수 순간(id = null)에는 +1 이 없다.
+ * 같은 내용 회원 = 보낸 사람 + +1(서로 다른 회원 — supporter 는 보낸 사람을 넣지 않는다). 탈퇴한 보낸 사람은 세지 않는다.
+ */
+async function factsInTx(tx: Tx, s: { id: string | null; kind: SubmissionKind; author_id: string | null; intake: IntakeFacts },
+                         admin: "verify" | "reject" | null): Promise<Facts> {
+  const supporters = s.id
+    ? (await tx<{ member_id: string }[]>`SELECT member_id FROM submission_supporter WHERE submission_id = ${s.id}::uuid`).map((r) => r.member_id)
+    : [];
+  const people = [...new Set([...(s.author_id ? [s.author_id] : []), ...supporters])];
+  const roles = await activeRolesInTx(tx, people);
+  return {
+    kind: s.kind, intake: s.intake, admin,
+    reporter: { roles: s.author_id ? roles.get(s.author_id) ?? [] : [] },
+    agreement: { members: people.length, trusted: people.filter((id) => roles.get(id)?.includes("trusted_reporter")).length },
+  };
+}
 
 /** 보임이 바뀔 때 종류마다 하는 일. writer = 누가 일으킨 판정인가(회원 접수 = member + 제보 번호, 운영자 처리 = admin). */
 interface KindAdapter {
@@ -551,18 +584,18 @@ interface InsertSubmission {
   payload: unknown; fingerprint: string; note: string | null; evidence_url: string | null; intake: IntakeFacts; now: Date;
 }
 
-/** 접수 — 판정하고, 그 상태로 적고, 보이면 반영한다(회원 이름 + 제보 번호). 접수의 유일한 쓰기. */
+/** 접수 — 판정하고, 그 상태로 적고, 보이면 반영한다(회원 이름 + 제보 번호). 접수의 유일한 쓰기. 접수 순간에 검증될 수도 있다(신뢰 계정). */
 async function admitInTx(tx: Tx, n: InsertSubmission): Promise<SubmitOutcome> {
-  const facts: Facts = { kind: n.kind, intake: n.intake, admin: null };
-  const v = decide(facts);
+  const v = decide(await factsInTx(tx, { id: null, kind: n.kind, author_id: n.author_id, intake: n.intake }, null), policy);
   const state = stateOf(v, false);
-  if (state !== "applied" && state !== "held") throw new Error(`접수 판정이 열린 상태가 아닙니다: ${v.rule}`);
+  if (state !== "applied" && state !== "held" && state !== "verified") throw new Error(`접수 판정이 받을 수 있는 상태가 아닙니다: ${v.rule}`);
+  const decided = state === "verified";
   const [row] = await tx<{ id: string }[]>`
     INSERT INTO submission (author_id, request_id, kind, match_id, schedule_entry_id, payload, fingerprint, note, evidence_url,
-                            state, hold_reason, intake, rule_id, policy_version, created_at, updated_at)
+                            state, hold_reason, intake, rule_id, policy_version, decided_by, decided_at, created_at, updated_at)
     VALUES (${n.author_id}::uuid, ${n.request_id}::uuid, ${n.kind}, ${n.match_id}, ${n.schedule_entry_id}::uuid, ${tx.json(n.payload as never)},
             ${n.fingerprint}, ${n.note}, ${n.evidence_url}, ${state}, ${v.hold_reason}, ${tx.json(n.intake as never)},
-            ${v.rule}, ${POLICY.version}, ${n.now}, ${n.now})
+            ${v.rule}, ${policy.version}, ${decided ? "policy" : null}, ${decided ? n.now : null}, ${n.now}, ${n.now})
     RETURNING id`;
   if (v.visibility === "shown") {
     const [rec] = await tx<SubmissionRecord[]>`SELECT ${RECORD_COLUMNS(tx)} FROM submission WHERE id = ${row.id}::uuid`;
@@ -577,7 +610,7 @@ async function admitInTx(tx: Tx, n: InsertSubmission): Promise<SubmitOutcome> {
  */
 async function settleInTx(tx: Tx, s: SubmissionRecord, opts: { admin?: { decision: "verify" | "reject"; actor: string; note: string | null } } = {}): Promise<void> {
   const admin = opts.admin?.decision ?? s.admin_decision;
-  const v = decide({ kind: s.kind, intake: s.intake, admin });
+  const v = decide(await factsInTx(tx, s, admin), policy);
   const wasShown = shownIn(s.state);
   const next = stateOf(v, wasShown);
   if (next === s.state && v.rule === s.rule_id && admin === s.admin_decision) return;
@@ -587,7 +620,7 @@ async function settleInTx(tx: Tx, s: SubmissionRecord, opts: { admin?: { decisio
   const decided = next !== "applied" && next !== "held";
   await tx`
     UPDATE submission SET state = ${next}, hold_reason = COALESCE(${v.hold_reason}, hold_reason), admin_decision = ${admin},
-           rule_id = ${v.rule}, policy_version = ${POLICY.version},
+           rule_id = ${v.rule}, policy_version = ${policy.version},
            decided_by = ${decided ? opts.admin?.actor ?? "policy" : null}, decided_at = CASE WHEN ${decided}::boolean THEN now() END,
            decision_note = ${decided ? opts.admin?.note ?? null : null}, updated_at = now()
      WHERE id = ${s.id}::uuid`;
@@ -596,12 +629,20 @@ async function settleInTx(tx: Tx, s: SubmissionRecord, opts: { admin?: { decisio
 /** 열린 제보 하나를 잠그고 판정 재료째 읽는다. 잠금 순서: 판 → 제보(접수와 같게). 판 번호를 먼저 잠금 없이 읽고, 잠근 뒤 다시 본다. */
 async function lockOpen(tx: Tx, id: string): Promise<SubmissionRecord> {
   if (!isUuid(id)) throw new SubmissionError("제보를 찾을 수 없습니다.");
+  const s = await tryLockOpen(tx, id);
+  if (s === "missing") throw new SubmissionError("제보를 찾을 수 없습니다.");
+  if (s === "closed") throw new SubmissionError("이미 처리된 제보입니다. 새로고침해 주세요.");
+  if (s === "moved") throw new SubmissionError("그 사이 제보가 바뀌었습니다. 새로고침해 주세요.");
+  return s;
+}
+
+async function tryLockOpen(tx: Tx, id: string): Promise<SubmissionRecord | "missing" | "closed" | "moved"> {
   const [peek] = await tx<{ match_id: string | null }[]>`SELECT match_id FROM submission WHERE id = ${id}::uuid`;
-  if (!peek) throw new SubmissionError("제보를 찾을 수 없습니다.");
+  if (!peek) return "missing";
   if (peek.match_id) await tx`SELECT 1 FROM match WHERE match_id = ${peek.match_id} FOR UPDATE`;
   const [s] = await tx<SubmissionRecord[]>`SELECT ${RECORD_COLUMNS(tx)} FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
-  if (!s || !["applied", "held"].includes(s.state)) throw new SubmissionError("이미 처리된 제보입니다. 새로고침해 주세요.");
-  if (s.match_id !== peek.match_id) throw new SubmissionError("그 사이 제보가 바뀌었습니다. 새로고침해 주세요.");
+  if (!s || !["applied", "held"].includes(s.state)) return "closed";
+  if (s.match_id !== peek.match_id) return "moved";
   return s;
 }
 
@@ -627,14 +668,49 @@ export async function rejectSubmission(id: string, actor: string, note?: string 
 export async function reconsiderOpenSubmissions(): Promise<number> {
   const ids = await db()<{ id: string }[]>`SELECT id FROM submission WHERE state IN ('applied', 'held') ORDER BY created_at, id`;
   let changed = 0;
-  for (const { id } of ids) {
-    await db().begin(async (tx) => {
-      const s = await lockOpen(tx, id);
-      await settleInTx(tx, s);
-      const [after] = await tx<{ state: string; rule_id: string }[]>`SELECT state, rule_id FROM submission WHERE id = ${id}::uuid`;
-      if (after.state !== s.state || after.rule_id !== s.rule_id) changed++;
-    });
-  }
+  for (const { id } of ids) if (await db().begin((tx) => reconsiderInTx(tx, id))) changed++;
+  return changed;
+}
+
+/** 하나 다시 판정 — 그 사이 닫혔으면 건너뛴다. 바뀌었으면 true. */
+async function reconsiderInTx(tx: Tx, id: string): Promise<boolean> {
+  const s = await tryLockOpen(tx, id);
+  if (typeof s === "string") return false;
+  await settleInTx(tx, s);
+  const [after] = await tx<{ state: string; rule_id: string }[]>`SELECT state, rule_id FROM submission WHERE id = ${id}::uuid`;
+  return after.state !== s.state || after.rule_id !== s.rule_id;
+}
+
+// ── 계정 권한 — 주고 거두면 그 회원이 보냈거나 +1 한 열린 제보를 다시 판정한다 ──────────────
+
+/** 권한 주기(운영자). 잠금 순서: 회원 → 판 → 제보. 다시 판정해 바뀐 제보 수를 돌려준다. */
+export async function grantMemberRole(memberId: string, role: string, note: string, actor: string, now = new Date()): Promise<number> {
+  if (!isUuid(memberId)) throw new SubmissionError("회원을 찾을 수 없습니다.");
+  return db().begin(async (tx) => {
+    const m = await lockMember(tx, memberId);
+    if (m.status !== "active") throw new SubmissionError("탈퇴한 회원에게는 권한을 줄 수 없습니다.");
+    await grantRoleInTx(tx, memberId, role, note, actor, now);
+    return reconsiderMemberInTx(tx, memberId);
+  });
+}
+
+/** 권한 거두기(운영자). 이미 검증된 제보는 그대로다 — 그때의 기준으로 닫힌 것이다. */
+export async function revokeMemberRole(memberId: string, role: string, actor: string, now = new Date()): Promise<number> {
+  if (!isUuid(memberId)) throw new SubmissionError("회원을 찾을 수 없습니다.");
+  return db().begin(async (tx) => {
+    await lockMember(tx, memberId);
+    await revokeRoleInTx(tx, memberId, role, actor, now);
+    return reconsiderMemberInTx(tx, memberId);
+  });
+}
+
+async function reconsiderMemberInTx(tx: Tx, memberId: string): Promise<number> {
+  const ids = await tx<{ id: string }[]>`
+    SELECT id FROM submission WHERE state IN ('applied', 'held') AND (author_id = ${memberId}::uuid
+       OR id IN (SELECT submission_id FROM submission_supporter WHERE member_id = ${memberId}::uuid))
+     ORDER BY created_at, id`;
+  let changed = 0;
+  for (const { id } of ids) if (await reconsiderInTx(tx, id)) changed++;
   return changed;
 }
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getSubmissionForAdmin, listStreamerChoices, listSubmissionQueue } from "@soop-lol/core/lib/db/submission";
+import { MEMBER_ROLE_LABEL } from "@soop-lol/core/lib/metrics/member-role";
 import { HOLD_REASON_LABEL, submissionLines, SUBMISSION_STATE_LABEL } from "@soop-lol/core/lib/metrics/submission";
 import { championById } from "@soop-lol/core/lib/riot/champions";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
@@ -34,6 +35,8 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
         <Tag tone={s.state === "applied" ? "warn" : "neutral"}>{SUBMISSION_STATE_LABEL[s.state]}</Tag>
         {s.hold_reason && <Tag>{HOLD_REASON_LABEL[s.hold_reason]}</Tag>}
         {s.supporters > 0 && <Tag tone="accent">같은 내용 {s.supporters}</Tag>}
+        {s.author_roles.map((r) => <Tag key={r} tone="accent">{MEMBER_ROLE_LABEL[r]}</Tag>)}
+        {s.author_id && <Link href={`/admin/community?member=${s.author_id}`} className="text-accent-400 hover:underline">보낸 회원(제재·권한) →</Link>}
         {s.match_id && <Link href={`/admin/ck/match/${encodeURIComponent(s.match_id)}`} className="text-accent-400 hover:underline">검수 화면에서 직접 고치기 →</Link>}
         {/* 편성표 제보의 반영 = 제보 내용으로 미리 채운 편성표 편집 폼을 저장한다(그 저장이 이 제보를 확인 완료로 닫는다). */}
         {schedule && open && <Link href={`/admin/schedule/${s.schedule_entry_id ?? "new"}?submission=${s.id}`} className="text-accent-400 hover:underline">편성표 편집에서 반영 →</Link>}

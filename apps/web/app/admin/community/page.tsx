@@ -7,7 +7,11 @@ import {
   isUuid, MODERATION_ACTION_LABEL, REPORT_REASON_LABEL, REVIEW_AFTER_DAYS, type ContentStatus, type ModerationAction,
 } from "@soop-lol/core/lib/metrics/community";
 
-import { LiftSanctionForm, ModerateForm, NoticeForm, SanctionForm } from "@/components/admin/CommunityForms";
+import { listMemberRoles, type MemberRoleRow } from "@soop-lol/core/lib/db/member-role";
+import { MEMBER_ROLE_LABEL, MEMBER_ROLES } from "@soop-lol/core/lib/metrics/member-role";
+import { roleInEffect } from "@soop-lol/core/lib/metrics/submission-policy";
+
+import { GrantRoleForm, LiftSanctionForm, ModerateForm, NoticeForm, RevokeRoleForm, SanctionForm } from "@/components/admin/CommunityForms";
 import { SetupNotice } from "@/components/admin/SetupNotice";
 import { Card, EmptyState, Tag } from "@/components/ui";
 import { roleHref } from "@/lib/module-links";
@@ -62,17 +66,39 @@ function QueueItem({ item }: { item: ReportQueueItem }) {
 }
 
 /**
+ * 계정 권한(0096) — 판정의 사실일 뿐이다. 무엇을 해 주는지는 core 의 판정 기준(submission-policy.ts)이 정하고,
+ * 지금 기준에서 꺼져 있는 역할은 "효과 없음"으로 알린다(주는 것은 막지 않는다 — 켜는 날 바로 쓰인다).
+ */
+function MemberRoles({ memberId, active, roles }: { memberId: string; active: boolean; roles: MemberRoleRow[] }) {
+  const held = new Set(roles.filter((r) => !r.revoked_at).map((r) => r.role));
+  return <div className="mt-4 border-t border-ink-800 pt-3">
+    <h3 className="text-sm font-medium text-ink-200">권한</h3>
+    {roles.length === 0 ? <p className="mt-1 text-sm text-ink-400">권한 기록이 없습니다.</p> : <ul className="divide-y divide-ink-800 text-sm">
+      {roles.map((r) => <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
+        <Tag tone={r.revoked_at ? "neutral" : "accent"}>{MEMBER_ROLE_LABEL[r.role]}{r.revoked_at ? " · 거둠" : ""}</Tag>
+        <span>{when(r.granted_at)}{r.revoked_at ? ` ~ ${when(r.revoked_at)}` : ""}</span>
+        <span className="text-ink-400">{r.note}</span>
+        {!r.revoked_at && !roleInEffect(r.role) && <span className="text-xs text-ink-400">지금 판정 기준에서 꺼져 있어 효과 없음</span>}
+        {!r.revoked_at && <RevokeRoleForm memberId={memberId} role={r.role} />}
+      </li>)}
+    </ul>}
+    {active && <GrantRoleForm memberId={memberId} roles={MEMBER_ROLES.filter((r) => !held.has(r))} />}
+  </div>;
+}
+
+/**
  * 커뮤니티 운영 — 신고 대기 · 다시 볼 것 · 회원 제재 · 공지 · 최근 처리. docs/COMMUNITY-PLAN.md §3 "신고·운영"
  * ★ 신고만으로 글이 내려가지 않는다(자동 내림 없음). 목록은 개인정보 노출·명예훼손이 먼저다.
  */
 export default async function AdminCommunityPage({ searchParams }: { searchParams: Promise<{ member?: string }> }) {
   const { member: memberParam } = await searchParams;
-  let queue, review, recent, member;
+  let queue, review, recent, member, roles: MemberRoleRow[] = [];
   try {
     queue = await listReportQueue();
     review = await listReviewQueue();
     recent = await listRecentModeration();
     member = isUuid(memberParam) ? await getMemberForAdmin(memberParam) : null;
+    if (member) roles = await listMemberRoles(member.member_id);
   } catch (e) {
     return <SetupNotice error={e} />;
   }
@@ -92,6 +118,7 @@ export default async function AdminCommunityPage({ searchParams }: { searchParam
         })}
       </ul>}
       {member.status === "active" && <SanctionForm memberId={member.member_id} />}
+      <MemberRoles memberId={member.member_id} active={member.status === "active"} roles={roles} />
     </Card>}
 
     <Card title={`신고 대기 ${queue.length}건`} description="개인정보 노출·명예훼손이 먼저, 그다음 신고 수 순입니다. 신고만으로 글이 내려가지 않습니다.">

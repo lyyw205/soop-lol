@@ -17,6 +17,8 @@ import * as opponents from "../../packages/core/lib/db/opponent-history.ts";
 import { resolveChampion } from "../../packages/core/lib/db/participant.ts";
 import { loadReviewLockInTx } from "../../packages/core/lib/db/review-lock.ts";
 import * as sub from "../../packages/core/lib/db/submission.ts";
+import { listMemberRoles } from "../../packages/core/lib/db/member-role.ts";
+import { POLICY, type PolicyConfig } from "../../packages/core/lib/metrics/submission-policy.ts";
 import { SUBMISSION_DAILY_LIMIT } from "../../packages/core/lib/metrics/submission.ts";
 import { tally } from "../../packages/core/lib/metrics/tally.ts";
 import { lolEvent } from "./verify-ck-fixtures.ts";
@@ -215,6 +217,57 @@ export async function verifySubmissionDb(check: Check, expectReject: ExpectRejec
       && byId.get(held1.id)?.intake.review_completed === true && byId.get(big.id)?.rule_id === "admin_reject" && byId.get(contest.id)?.intake.contested === true,
     JSON.stringify(rules.map((r) => [r.state, r.rule_id, r.admin_decision, r.intake])));
   check("같은 기준으로 다시 판정하면 아무것도 바뀌지 않는다(멱등)", (await sub.reconsiderOpenSubmissions()) === 0);
+
+  // ── 계정 권한(0096) — 역할은 판정의 사실, 신뢰 계정·합의 규칙은 꺼 둔 채(사용자 결정) ─────────────
+  const policyWith = (config: Partial<PolicyConfig>) => sub.setSubmissionPolicyForVerify({ ...POLICY, version: "verify", config: { ...POLICY.config, ...config } });
+  const stateOfSub = async (id: string) => (await sql<{ state: string; rule_id: string; decided_by: string | null }[]>`SELECT state, rule_id, decided_by FROM submission WHERE id = ${id}::uuid`)[0];
+  const kills = (pid: number, field: "kills" | "deaths" | "assists", to: number) => ({ participants: [{ participant_id: pid, changes: { [field]: { from: 1, to } } }] });
+  const changedOnGrant = await sub.grantMemberRole(O.id, "trusted_reporter", "시험 — 제보가 정확했던 회원", "admin", tick());
+  await expectReject("같은 권한을 두 번 줄 수 없다", () => sub.grantMemberRole(O.id, "trusted_reporter", "또", "admin", tick()), "이미 그 권한");
+  await expectReject("없는 권한은 줄 수 없다(목록 하나 — metrics/member-role.ts)", () => sub.grantMemberRole(O.id, "editor", "x", "admin", tick()), "없는 권한");
+  await expectReject("사유 없이 권한을 줄 수 없다", () => sub.grantMemberRole(R.id, "trusted_reporter", " ", "admin", tick()), "사유");
+  const off = await sub.submitMatchCorrection(O.token, { request_id: rid(), match_id: "SB:2", payload: kills(1, "kills", 5) }, tick());
+  check("★ 규칙이 꺼져 있으면 권한이 있어도 동작은 그대로 — 바로 반영·확인 전(apply_pending)",
+    changedOnGrant === 0 && off.kind === "applied" && (await stateOfSub(off.id)).rule_id === "apply_pending" && (await pend("SB:2")));
+
+  policyWith({ trustedReporter: true });
+  const flipped = await sub.reconsiderOpenSubmissions();
+  check("★ 규칙을 켜고 다시 판정하면 — 신뢰 제보자의 열린 제보만 검증된다(보류는 그대로, 판은 집계에 들어간다)",
+    flipped === 1 && (await stateOfSub(off.id)).state === "verified" && (await stateOfSub(off.id)).rule_id === "trusted"
+      && (await stateOfSub(off.id)).decided_by === "policy" && (await stateOfSub(acct.id)).state === "held" && !(await pend("SB:2")) && (await inAgg("SB:2")),
+    JSON.stringify({ flipped, off: await stateOfSub(off.id) }));
+  const direct = await sub.submitMatchCorrection(O.token, { request_id: rid(), match_id: "SB:2", payload: kills(1, "deaths", 2) }, tick());
+  check("켜진 채 신뢰 제보자가 보내면 접수 순간 검증 — 반영되고 확인 전 표시가 없다",
+    direct.kind === "verified" && (await stateOfSub(direct.id)).rule_id === "trusted" && !(await pend("SB:2"))
+      && (await sql`SELECT kills, deaths FROM match_participant WHERE match_id = 'SB:2' AND participant_id = 1`)[0].deaths === 2);
+  // (SB:3 은 위에서 운영자 확인이 참가자를 고쳐 검수 완료가 풀렸다 — 계정 자리 보류로 본다.)
+  const heldTrusted = await sub.submitMatchCorrection(O.token, { request_id: rid(), match_id: "SB:4",
+    payload: { participants: [{ participant_id: 2, changes: { observed_name: { from: null, to: "또누구" } } }] } }, tick());
+  check("신뢰 제보자도 보류 사실(계정 자리)은 건너뛰지 않는다", heldTrusted.kind === "held" && heldTrusted.hold_reason === "account_identity",
+    JSON.stringify(heldTrusted));
+  await sub.rejectSubmission(heldTrusted.id, "admin");   // 다음 절(열린 제보 목록)이 보는 판을 원래대로
+  const changedOnRevoke = await sub.revokeMemberRole(O.id, "trusted_reporter", "admin", tick());
+  await expectReject("없는 권한은 거둘 수 없다", () => sub.revokeMemberRole(O.id, "trusted_reporter", "admin", tick()), "그 권한이 없습니다");
+  const afterRevoke = await sub.submitMatchCorrection(O.token, { request_id: rid(), match_id: "SB:2", payload: kills(1, "assists", 4) }, tick());
+  const roleLog = await listMemberRoles(O.id);
+  check("거두면 다음 제보부터 확인 전 — 이미 검증된 것은 그때의 기준대로 남는다 · 주고 거둔 기록은 지우지 않는다",
+    changedOnRevoke === 0 && afterRevoke.kind === "applied" && (await stateOfSub(direct.id)).state === "verified"
+      && roleLog.length === 1 && roleLog[0].revoked_by === "admin" && roleLog[0].granted_by === "admin");
+
+  policyWith({ consensusMembers: 2 });
+  const P1 = await join("sb-agree1", "합의하나"), P2 = await join("sb-agree2", "합의둘");
+  const agreed = await sub.submitMatchCorrection(P1.token, { request_id: rid(), match_id: "SB:4", payload: kills(1, "kills", 6) }, tick());
+  const beforeAgree = (await stateOfSub(agreed.id)).state;
+  // 반영된 제보에 같은 값을 다시 보내면 "이미 그 값"이다 — 같은 내용 표시는 +1 버튼 하나.
+  await sub.supportSubmission(P2.token, agreed.id, tick());
+  check("★ 합의(N=2)를 켜면 — 혼자일 땐 확인 전, 다른 회원이 같은 내용이에요(+1)를 눌러 N명이 되는 순간 검증",
+    agreed.kind === "applied" && beforeAgree === "applied"
+      && (await stateOfSub(agreed.id)).state === "verified" && (await stateOfSub(agreed.id)).rule_id === "consensus" && !(await pend("SB:4")),
+    JSON.stringify(await stateOfSub(agreed.id)));
+
+  sub.setSubmissionPolicyForVerify(null);
+  check("기준을 되돌리고 다시 판정해도 닫힌 제보는 그대로 — 열린 것 중 바뀌는 것 없음", (await sub.reconsiderOpenSubmissions()) === 0
+    && (await stateOfSub(afterRevoke.id)).rule_id === "apply_pending");
 
   // ── 5. 회원 화면 · 탈퇴 ───────────────────────────────────────────────────
   const mine = await sub.listMySubmissions(W.token);

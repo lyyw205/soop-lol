@@ -8,7 +8,9 @@ import {
   COMMUNITY_GAME_LABEL, MODERATION_ACTION_LABEL, type ModerationAction,
 } from "@soop-lol/core/lib/metrics/community";
 
-import { liftSanctionAction, moderateAction, noticeAction, sanctionAction } from "@/app/admin/community/actions";
+import { MEMBER_ROLE_LABEL, type MemberRole } from "@soop-lol/core/lib/metrics/member-role";
+
+import { liftSanctionAction, moderateAction, noticeAction, roleAction, sanctionAction } from "@/app/admin/community/actions";
 import { IDLE } from "@/lib/action-state";
 
 import { useKeptFormAction } from "../../../../packages/ui/use-kept-form-action";
@@ -49,6 +51,33 @@ export function LiftSanctionForm({ sanctionId }: { sanctionId: number }) {
   return <form action={action} onSubmit={onSubmit} className="inline-flex items-center gap-2">
     <input type="hidden" name="sanction" value={sanctionId} />
     <SubmitButton tone="ghost">풀기</SubmitButton>
+    <ActionMessage state={state} />
+  </form>;
+}
+
+/** 권한 주기(사유 필수) — 고를 수 있는 것은 지금 없는 역할만. */
+export function GrantRoleForm({ memberId, roles }: { memberId: string; roles: MemberRole[] }) {
+  const { state, dispatch: action, onSubmit } = useKeptFormAction(roleAction, IDLE);
+  if (!roles.length) return null;
+  return <form action={action} onSubmit={onSubmit} className="mt-3 flex flex-wrap items-center gap-2">
+    <input type="hidden" name="member" value={memberId} />
+    <input type="hidden" name="op" value="grant" />
+    <select name="role" className={input} aria-label="권한" defaultValue={roles[0]}>
+      {roles.map((r) => <option key={r} value={r}>{MEMBER_ROLE_LABEL[r]}</option>)}
+    </select>
+    <input name="note" required maxLength={500} className={`${input} min-w-64 flex-1`} placeholder="주는 사유(운영 기록에 남습니다)" aria-label="권한 사유" />
+    <SubmitButton tone="ghost">권한 주기</SubmitButton>
+    <ActionMessage state={state} />
+  </form>;
+}
+
+export function RevokeRoleForm({ memberId, role }: { memberId: string; role: MemberRole }) {
+  const { state, dispatch: action, onSubmit } = useKeptFormAction(roleAction, IDLE);
+  return <form action={action} onSubmit={onSubmit} className="inline-flex items-center gap-2">
+    <input type="hidden" name="member" value={memberId} />
+    <input type="hidden" name="op" value="revoke" />
+    <input type="hidden" name="role" value={role} />
+    <SubmitButton tone="ghost">거두기</SubmitButton>
     <ActionMessage state={state} />
   </form>;
 }
