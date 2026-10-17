@@ -359,7 +359,7 @@ vod_request (id, title_no, channel_id NULL, priority, reason: submission|admin, 
 | 0098 `vod_hint` | 제보 종류 VOD 단서 + 보류 이유 3종(vod_pending·vod_not_found·vod_unavailable) | 10/17 23:36 |
 | 0099 `match_addition` | 제보 종류 직접 입력 + 모양 제약(판은 `submission_effect` 로 잇는다) | 10/18 00:25 |
 
-다음 마이그레이션 번호는 0100. 적용 시각은 운영 장부 기준(KST). 다섯 개 모두 장부와 저장소 파일의 체크섬이 같다(2026-10-18 외부 검증).
+다음 마이그레이션 번호는 0101(0100 은 §11, 10/18 적용). 적용 시각은 운영 장부 기준(KST). 다섯 개 모두 장부와 저장소 파일의 체크섬이 같다(2026-10-18 외부 검증).
 
 ### 10-5. 이 PC 의 자동 판독(ck-auto)과 잇기
 
@@ -410,7 +410,7 @@ vod_request (id, title_no, channel_id NULL, priority, reason: submission|admin, 
   직접 입력은 "못 찾음 → 운영자"로 남는다 — 운영자가 두 판을 합친다(`ck:dedupe`). 실제 운영에서 몇 번 생기는지 보고 판독 지시를 다듬는다.
 - 외부 공개 전: 운영 도메인 로그인·SITE_ORIGIN·R2 CORS·미리보기 샘플 글 지우기·법적 검토.
 
-## 11. 반영 방향 바꾸기 (2026-10-18 사용자 결정, 0100)
+## 11. 반영 방향 바꾸기 (2026-10-18 사용자 결정, 0100 — 같은 날 운영 DB 적용)
 
 > "경기 고치는 건 반영 안 되고 운영자가 확인하고 고쳐야 할 것 같고, 오히려 편성표 제보를 했을 때 바로 적용이 되는 게 좋을 것 같아."
 
