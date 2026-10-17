@@ -209,7 +209,7 @@ vod_request (vod_id, channel_id, requested_at, priority, reason, submission_id N
 
 **순서**(각 단계가 끝날 때마다 검사가 통과하는 상태로 둔다)
 
-1. ✅ **(2026-10-17, 0095)** 판정 뼈대 + 지금 두 종류를 v1 규칙으로 옮긴다. **동작 변화 0** — 기존 제보 검사가 그대로 통과했다.
+1. ✅ **(2026-10-17, 0095 — 운영 DB 적용)** 판정 뼈대 + 지금 두 종류를 v1 규칙으로 옮긴다. **동작 변화 0** — 기존 제보 검사가 그대로 통과했다.
    - `metrics/submission-policy.ts`(Facts·Rule·POLICY `2026-10-17.1`·`decide`·`stateOf`) — 기준은 여기 하나
    - `db/submission.ts`: 접수 사실 `matchIntakeInTx`(보류 사실을 **전부** 적는다 — 무엇이 먼저인지는 규칙이 정한다) · 접수 `admitInTx` ·
      다시 판정 `settleInTx`(보임이 바뀌면 종류별 어댑터 `ADAPTERS[kind].show/hide`) · `reconsiderOpenSubmissions`(기준이 바뀌었을 때, 멱등)
