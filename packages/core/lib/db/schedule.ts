@@ -7,11 +7,12 @@
  *   폼 검증과 별개로 여기서 다시 검증한다 — 폼을 거치지 않은 호출(스크립트·나중의 자동 수집)도 같은 문을 쓴다.
  * ★ 동시 수정
  *   폼이 열 때 받은 version(updated_at 의 텍스트)을 같이 보낸다. 그 사이 다른 저장이 있었으면 거부한다 — 덮어쓰지 않는다.
+ * ★ 같은 트랜잭션에 다른 일을 묶어야 하는 쪽(회원 편성표 제보 반영 — submission.ts)은 saveScheduleEntryInTx 를 부른다.
+ *   이 파일은 제보를 모른다(의존은 submission → schedule 한 방향, 경기 쪽 submission → ck 와 같다).
  */
 
 import type postgres from "postgres";
 import { db } from "./client.ts";
-import { closeScheduleReportInTx } from "./submission.ts";
 import { kstDateString } from "../time.ts";
 import {
   entryPeriod, entryState, scheduleChanges, slotSummary, validateScheduleInput,
@@ -41,84 +42,87 @@ async function scheduleSnapshot(tx: postgres.TransactionSql, id: string) {
   return row?.value ?? null;
 }
 
-export async function saveScheduleEntry(
-  input: ScheduleInput,
-  /**
-   * recordHistory=false: 오타 수정처럼 공개 변경 이력에 남기지 않을 저장. 기본은 남긴다.
-   * submission: 회원 편성표 제보를 반영하는 저장 — 같은 트랜잭션에서 그 제보를 확인 완료로 닫는다(0094). 저장이 실패하면 제보도 열린 채다.
-   */
-  opts: { id?: string | null; version?: string | null; recordHistory?: boolean; submission?: { id: string; actor: string } | null } = {},
-): Promise<{ id: string; version: string }> {
+export interface ScheduleSaveOptions {
+  id?: string | null;
+  version?: string | null;
+  /** false: 오타 수정처럼 공개 변경 이력에 남기지 않을 저장. 기본은 남긴다. */
+  recordHistory?: boolean;
+}
+
+export async function saveScheduleEntry(input: ScheduleInput, opts: ScheduleSaveOptions = {}): Promise<{ id: string; version: string }> {
   const errors = validateScheduleInput(input);
   if (errors.length) throw new ScheduleSaveError(errors);
+  return db().begin((tx) => saveScheduleEntryInTx(tx, input, opts));
+}
 
-  return db().begin(async (tx) => {
-    let previous: { title: string; status: ScheduleStatus; slots: ReturnType<typeof slotSummary> } | null = null;
-    if (opts.id) {
-      const [cur] = await tx<{ game_code: string; event_id: string | null; version: string }[]>`
-        SELECT game_code, event_id, updated_at::text AS version FROM schedule_entry WHERE id = ${opts.id}::uuid FOR UPDATE
-      `;
-      if (!cur) throw new ScheduleSaveError(["없는 일정입니다. 지워졌을 수 있습니다."]);
-      if (cur.version !== opts.version) throw new ScheduleSaveError([STALE_VERSION_MESSAGE]);
-      if (cur.event_id && cur.game_code !== input.game_code) {
-        throw new ScheduleSaveError(["결과 경기와 연결된 일정은 게임을 바꿀 수 없습니다. 연결을 먼저 끊고 저장하세요."]);
-      }
-      // 변경 이력의 '이전 값'. 칸은 아래에서 지우고 다시 넣으므로 그 전에 읽는다.
-      const [prev] = await tx<{ title: string; status: ScheduleStatus }[]>`SELECT title, status FROM schedule_entry WHERE id = ${opts.id}::uuid`;
-      const prevSlots = await tx<{ on_date: string; starts_at: Date | null; ends_at: Date | null; label: string | null }[]>`
-        SELECT on_date::text AS on_date, starts_at, ends_at, label FROM schedule_slot WHERE entry_id = ${opts.id}::uuid`;
-      previous = { title: prev.title, status: prev.status, slots: slotSummary([...prevSlots]) };
+/** 저장 본체 — 부르는 쪽의 트랜잭션 안에서. 검증도 여기서 다시 한다(트랜잭션째 부르는 쪽이 검증을 건너뛰지 못하게). */
+export async function saveScheduleEntryInTx(tx: postgres.TransactionSql, input: ScheduleInput, opts: ScheduleSaveOptions = {}): Promise<{ id: string; version: string }> {
+  const errors = validateScheduleInput(input);
+  if (errors.length) throw new ScheduleSaveError(errors);
+  let previous: { title: string; status: ScheduleStatus; slots: ReturnType<typeof slotSummary> } | null = null;
+  if (opts.id) {
+    const [cur] = await tx<{ game_code: string; event_id: string | null; version: string }[]>`
+      SELECT game_code, event_id, updated_at::text AS version FROM schedule_entry WHERE id = ${opts.id}::uuid FOR UPDATE
+    `;
+    if (!cur) throw new ScheduleSaveError(["없는 일정입니다. 지워졌을 수 있습니다."]);
+    if (cur.version !== opts.version) throw new ScheduleSaveError([STALE_VERSION_MESSAGE]);
+    if (cur.event_id && cur.game_code !== input.game_code) {
+      throw new ScheduleSaveError(["결과 경기와 연결된 일정은 게임을 바꿀 수 없습니다. 연결을 먼저 끊고 저장하세요."]);
     }
-    const auditBefore = opts.id ? await scheduleSnapshot(tx, opts.id) : null;
-    if (input.event_id) {
-      const [ev] = await tx<{ game_code: string }[]>`SELECT game_code FROM event WHERE id = ${input.event_id}::uuid`;
-      if (!ev) throw new ScheduleSaveError(["연결하려는 결과 경기(event)가 없습니다."]);
-      if (ev.game_code !== input.game_code) {
-        throw new ScheduleSaveError([`결과 경기의 게임(${ev.game_code})이 일정의 게임(${input.game_code})과 다릅니다.`]);
-      }
+    // 변경 이력의 '이전 값'. 칸은 아래에서 지우고 다시 넣으므로 그 전에 읽는다.
+    const [prev] = await tx<{ title: string; status: ScheduleStatus }[]>`SELECT title, status FROM schedule_entry WHERE id = ${opts.id}::uuid`;
+    const prevSlots = await tx<{ on_date: string; starts_at: Date | null; ends_at: Date | null; label: string | null }[]>`
+      SELECT on_date::text AS on_date, starts_at, ends_at, label FROM schedule_slot WHERE entry_id = ${opts.id}::uuid`;
+    previous = { title: prev.title, status: prev.status, slots: slotSummary([...prevSlots]) };
+  }
+  const auditBefore = opts.id ? await scheduleSnapshot(tx, opts.id) : null;
+  if (input.event_id) {
+    const [ev] = await tx<{ game_code: string }[]>`SELECT game_code FROM event WHERE id = ${input.event_id}::uuid`;
+    if (!ev) throw new ScheduleSaveError(["연결하려는 결과 경기(event)가 없습니다."]);
+    if (ev.game_code !== input.game_code) {
+      throw new ScheduleSaveError([`결과 경기의 게임(${ev.game_code})이 일정의 게임(${input.game_code})과 다릅니다.`]);
     }
+  }
 
-    const body = {
-      game_code: input.game_code, title: input.title.trim(), planned_format: input.planned_format,
-      sponsor: input.sponsor, description: input.description, admin_note: input.admin_note,
-      status: input.status, event_id: input.event_id, visibility: input.visibility,
-    };
-    const [row] = opts.id
-      ? await tx<{ id: string; version: string }[]>`
-          UPDATE schedule_entry SET ${tx(body)}, updated_at = now() WHERE id = ${opts.id}::uuid
-          RETURNING id, updated_at::text AS version`
-      : await tx<{ id: string; version: string }[]>`
-          INSERT INTO schedule_entry ${tx(body)} RETURNING id, updated_at::text AS version`;
+  const body = {
+    game_code: input.game_code, title: input.title.trim(), planned_format: input.planned_format,
+    sponsor: input.sponsor, description: input.description, admin_note: input.admin_note,
+    status: input.status, event_id: input.event_id, visibility: input.visibility,
+  };
+  const [row] = opts.id
+    ? await tx<{ id: string; version: string }[]>`
+        UPDATE schedule_entry SET ${tx(body)}, updated_at = now() WHERE id = ${opts.id}::uuid
+        RETURNING id, updated_at::text AS version`
+    : await tx<{ id: string; version: string }[]>`
+        INSERT INTO schedule_entry ${tx(body)} RETURNING id, updated_at::text AS version`;
 
-    await tx`DELETE FROM schedule_slot WHERE entry_id = ${row.id}::uuid`;
-    await tx`DELETE FROM schedule_participant WHERE entry_id = ${row.id}::uuid`;
-    await tx`DELETE FROM schedule_source WHERE entry_id = ${row.id}::uuid`;
-    for (const s of input.slots) {
-      await tx`INSERT INTO schedule_slot (entry_id, label, on_date, starts_at, ends_at, channel_id)
-               VALUES (${row.id}::uuid, ${s.label}, ${s.on_date}::date, ${s.starts_at}, ${s.ends_at}, ${s.channel_id})`;
+  await tx`DELETE FROM schedule_slot WHERE entry_id = ${row.id}::uuid`;
+  await tx`DELETE FROM schedule_participant WHERE entry_id = ${row.id}::uuid`;
+  await tx`DELETE FROM schedule_source WHERE entry_id = ${row.id}::uuid`;
+  for (const s of input.slots) {
+    await tx`INSERT INTO schedule_slot (entry_id, label, on_date, starts_at, ends_at, channel_id)
+             VALUES (${row.id}::uuid, ${s.label}, ${s.on_date}::date, ${s.starts_at}, ${s.ends_at}, ${s.channel_id})`;
+  }
+  for (const p of input.participants) {
+    await tx`INSERT INTO schedule_participant (entry_id, streamer_id, role, team)
+             VALUES (${row.id}::uuid, ${p.streamer_id}::uuid, ${p.role}, ${p.team})`;
+  }
+  for (const s of input.sources) {
+    await tx`INSERT INTO schedule_source (entry_id, url, title, posted_at)
+             VALUES (${row.id}::uuid, ${s.url}, ${s.title}, ${s.posted_at})`;
+  }
+  // 같은 트랜잭션에서 남긴다 — 저장이 실패하면 이력도 없다. 값이 그대로면 아무것도 안 남는다.
+  if (previous && opts.recordHistory !== false) {
+    const changes = scheduleChanges(previous, { title: input.title, status: input.status, slots: slotSummary(input.slots) });
+    for (const c of changes) {
+      await tx`INSERT INTO schedule_change (entry_id, field, before, after)
+               VALUES (${row.id}::uuid, ${c.field}, ${tx.json(c.before as never)}, ${tx.json(c.after as never)})`;
     }
-    for (const p of input.participants) {
-      await tx`INSERT INTO schedule_participant (entry_id, streamer_id, role, team)
-               VALUES (${row.id}::uuid, ${p.streamer_id}::uuid, ${p.role}, ${p.team})`;
-    }
-    for (const s of input.sources) {
-      await tx`INSERT INTO schedule_source (entry_id, url, title, posted_at)
-               VALUES (${row.id}::uuid, ${s.url}, ${s.title}, ${s.posted_at})`;
-    }
-    // 같은 트랜잭션에서 남긴다 — 저장이 실패하면 이력도 없다. 값이 그대로면 아무것도 안 남는다.
-    if (previous && opts.recordHistory !== false) {
-      const changes = scheduleChanges(previous, { title: input.title, status: input.status, slots: slotSummary(input.slots) });
-      for (const c of changes) {
-        await tx`INSERT INTO schedule_change (entry_id, field, before, after)
-                 VALUES (${row.id}::uuid, ${c.field}, ${tx.json(c.before as never)}, ${tx.json(c.after as never)})`;
-      }
-    }
-    const auditAfter = await scheduleSnapshot(tx, row.id);
-    await tx`INSERT INTO admin_audit (scope, scope_key, entity, operation, before, after)
-      VALUES ('schedule', ${row.id}, 'schedule', ${opts.id ? "UPDATE" : "INSERT"}, ${tx.json(auditBefore as never)}, ${tx.json(auditAfter as never)})`;
-    if (opts.submission) await closeScheduleReportInTx(tx, opts.submission.id, opts.submission.actor, row.id);
-    return row;
-  });
+  }
+  const auditAfter = await scheduleSnapshot(tx, row.id);
+  await tx`INSERT INTO admin_audit (scope, scope_key, entity, operation, before, after)
+    VALUES ('schedule', ${row.id}, 'schedule', ${opts.id ? "UPDATE" : "INSERT"}, ${tx.json(auditBefore as never)}, ${tx.json(auditAfter as never)})`;
+  return row;
 }
 
 /** 일정 삭제. 저장과 같은 동시 수정 규칙을 쓴다. */

@@ -25,7 +25,7 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
   const schedule = s.kind === "schedule_report";
   // 같은 대상의 다른 열린 제보 — 중복으로 합칠 후보.
   const siblings = queue.filter((q) => q.id !== s.id && q.kind === s.kind && (schedule ? q.schedule_entry_id === s.schedule_entry_id : q.match_id === s.match_id))
-    .map((q) => ({ id: q.id, label: `${SUBMISSION_STATE_LABEL[q.state]} · ${submissionLines(q.kind, q.payload, names)[0] ?? q.id.slice(0, 8)}` }));
+    .map((q) => ({ id: q.id, label: `${SUBMISSION_STATE_LABEL[q.state]} · ${submissionLines(q, names)[0] ?? q.id.slice(0, 8)}` }));
   return <div className="grid gap-5">
     <Link href="/admin/submissions" className="text-sm text-ink-400 hover:underline">← 제보 목록</Link>
     <Card title={schedule ? `편성표 · ${s.schedule_title ?? "편성표에 없는 일정"}` : `${s.event_name ?? "행사 없음"} · ${s.played_at ? kstPlayedAt(new Date(s.played_at), "datetime") : ""}`}
@@ -39,7 +39,7 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
         {schedule && open && <Link href={`/admin/schedule/${s.schedule_entry_id ?? "new"}?submission=${s.id}`} className="text-accent-400 hover:underline">편성표 편집에서 반영 →</Link>}
       </div>
       <h3 className="mt-4 text-sm font-semibold">제안</h3>
-      <ul className="mt-1 list-disc pl-5 text-sm text-ink-300">{submissionLines(s.kind, s.payload, names).map((l) => <li key={l}>{l}</li>)}</ul>
+      <ul className="mt-1 list-disc pl-5 text-sm text-ink-300">{submissionLines(s, names).map((l) => <li key={l}>{l}</li>)}</ul>
       {(s.note || s.evidence_url) && <div className="mt-3 text-sm text-ink-300">
         {s.evidence_url && <p>근거: <a href={s.evidence_url} target="_blank" rel="noreferrer noopener" className="text-accent-400 hover:underline">{s.evidence_url}</a></p>}
         {s.note && <p className="whitespace-pre-wrap">메모: {s.note}</p>}

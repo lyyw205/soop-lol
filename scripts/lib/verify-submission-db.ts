@@ -208,7 +208,7 @@ export async function verifySubmissionDb(check: Check, expectReject: ExpectRejec
 
   // ── 5. 회원 화면 · 탈퇴 ───────────────────────────────────────────────────
   const mine = await sub.listMySubmissions(W.token);
-  const open = await sub.listOpenOnMatch(O.token, "SB:4");
+  const open = await sub.listOpenSubmissions(O.token, "match_correction", "SB:4");
   check("내 제보 목록은 내 것만 · 판의 열린 제보는 보낸 사람·메모 없이", mine.length >= 5 && mine.every((m) => m.state)
     && open.length === 1 && !("note" in open[0]) && !("author" in open[0]), JSON.stringify(open));
   check("남의 제보는 내 화면에서 열 수 없다", (await sub.getMySubmission(O.token, s1.id)) === null && (await sub.getMySubmission(W.token, s1.id))?.id === s1.id);

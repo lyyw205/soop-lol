@@ -31,7 +31,7 @@ export default async function MySubmissionsPage() {
             {rows.map((r) => <li key={r.id}>
               <span className="submission-state">{kstDateString(new Date(r.created_at))} · {SUBMISSION_STATE_LABEL[r.state]}{r.supporters > 0 ? ` · 같은 내용 ${r.supporters}` : ""}</span>
               {r.state === "held" && r.hold_reason && <p className="member-lead">{HOLD_REASON_LABEL[r.hold_reason]}</p>}
-              <ul>{submissionLines(r.kind, r.payload, names).map((l) => <li key={l}>{l}</li>)}</ul>
+              <ul>{submissionLines(r, names).map((l) => <li key={l}>{l}</li>)}</ul>
               {r.decision_note && <p className="member-lead">운영자: {r.decision_note}</p>}
               {r.match_id && <Link href={submitMatchHref(r.match_id)}>그 경기 →</Link>}
               {r.schedule_entry_id && <Link href={submitScheduleHref(r.schedule_entry_id)}>그 일정 →</Link>}

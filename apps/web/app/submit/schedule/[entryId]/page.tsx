@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { currentMember, readSessionToken } from "@soop-lol/core/lib/auth/request";
-import { getScheduleReportTarget, listOpenOnSchedule } from "@soop-lol/core/lib/db/submission";
+import { getPublicScheduleEntry } from "@soop-lol/core/lib/db/schedule-public";
+import { listOpenSubmissions } from "@soop-lol/core/lib/db/submission";
 import { kstClock } from "@soop-lol/core/lib/metrics/schedule";
 import { scheduleReportLines, SUBMISSION_STATE_LABEL } from "@soop-lol/core/lib/metrics/submission";
 import { loginHref, meHref, mySubmissionsHref, submitScheduleHref } from "@soop-lol/core/lib/site-paths";
@@ -20,16 +21,17 @@ export const dynamic = "force-dynamic";
 export default async function SubmitSchedulePage({ params }: { params: Promise<{ entryId: string }> }) {
   const raw = decodeURIComponent((await params).entryId);
   const isNew = raw === "new";
-  const target = isNew ? null : await getScheduleReportTarget(raw);
+  // 고칠 일정은 공개 일정 읽기 하나로(숨긴·없는 일정은 404).
+  const target = isNew ? null : await getPublicScheduleEntry(raw);
   if (!isNew && !target) notFound();
   const me = await currentMember();
   const here = submitScheduleHref(isNew ? null : raw);
-  const open = me?.nickname && target ? await listOpenOnSchedule(await readSessionToken(), target.id) : [];
+  const open = me?.nickname && target ? await listOpenSubmissions(await readSessionToken(), "schedule_report", target.schedule_id) : [];
   const first = target?.slots[0];
   const start: ScheduleReportStart = target ? {
     game_code: target.game_code, title: target.title, status: target.status,
     on_date: first?.on_date ?? "", start: first?.starts_at ? kstClock(new Date(first.starts_at)) : "",
-    participants: target.participants.join(", "),
+    participants: [...new Set(target.participants.map((p) => p.display_name))].join(", "),
   } : { game_code: "lol", title: "", status: "scheduled", on_date: "", start: "", participants: "" };
   return <>
     <SiteHeader site="platform" />
@@ -49,13 +51,13 @@ export default async function SubmitSchedulePage({ params }: { params: Promise<{
             {open.map((o) => <li key={o.id}>
               <span className="submission-state">{SUBMISSION_STATE_LABEL[o.state]}{o.supporters > 0 ? ` · 같은 내용 ${o.supporters}` : ""}</span>
               <ul>{scheduleReportLines(o.payload).map((l) => <li key={l}>{l}</li>)}</ul>
-              {!o.mine && <SupportButton id={o.id} entryId={target!.id} />}
+              {!o.mine && <SupportButton id={o.id} entryId={target!.schedule_id} />}
             </li>)}
           </ul>
         </section>}
         {me?.nickname && <section className="member-card arena-panel submission-form-card" aria-labelledby="form-title">
           <h2 id="form-title">{isNew ? "일정" : "고칠 내용"}</h2>
-          <ScheduleReportForm entryId={target?.id ?? null} start={start} />
+          <ScheduleReportForm entryId={target?.schedule_id ?? null} start={start} />
           <p className="member-lead"><Link href={mySubmissionsHref()}>내 제보 보기 →</Link></p>
         </section>}
       </div>

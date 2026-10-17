@@ -41,7 +41,7 @@ export default async function SubmissionQueuePage() {
                 <span className="text-ink-400">{s.author ?? "탈퇴한 회원"} · {kstPlayedAt(new Date(s.created_at), "datetime")}</span>
                 <Link href={`/admin/submissions/${s.id}`} className="ml-auto text-accent-400 hover:underline">처리 →</Link>
               </div>
-              <ul className="mt-2 list-disc pl-5 text-ink-300">{submissionLines(s.kind, s.payload, names).map((l) => <li key={l}>{l}</li>)}</ul>
+              <ul className="mt-2 list-disc pl-5 text-ink-300">{submissionLines(s, names).map((l) => <li key={l}>{l}</li>)}</ul>
             </li>)}
           </ul>
         </li>)}

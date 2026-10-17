@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { currentMember, readSessionToken } from "@soop-lol/core/lib/auth/request";
-import { getCorrectionTarget, listOpenOnMatch, listStreamerChoices } from "@soop-lol/core/lib/db/submission";
+import { getCorrectionTarget, listOpenSubmissions, listStreamerChoices } from "@soop-lol/core/lib/db/submission";
 import { correctionLines, SUBMISSION_STATE_LABEL } from "@soop-lol/core/lib/metrics/submission";
 import { CHAMPIONS, championById } from "@soop-lol/core/lib/riot/champions";
 import { loginHref, meHref, mySubmissionsHref, submitMatchHref } from "@soop-lol/core/lib/site-paths";
@@ -24,7 +24,7 @@ export default async function SubmitMatchPage({ params }: { params: Promise<{ ma
   if (!target) notFound();
   const me = await currentMember();
   const here = submitMatchHref(matchId);
-  const [open, streamers] = me?.nickname ? await Promise.all([listOpenOnMatch(await readSessionToken(), matchId), listStreamerChoices()]) : [[], []];
+  const [open, streamers] = me?.nickname ? await Promise.all([listOpenSubmissions(await readSessionToken(), "match_correction", matchId), listStreamerChoices()]) : [[], []];
   const name = new Map(streamers.map((s) => [s.id, s.display_name]));
   const names = { streamer: (id: string) => name.get(id) ?? "알 수 없는 스트리머", champion: (id: number) => championById(id)?.name ?? `챔피언 ${id}` };
   const champions = [...CHAMPIONS].sort((a, b) => a.name.localeCompare(b.name, "ko")).map((c) => ({ id: c.id, name: c.name }));

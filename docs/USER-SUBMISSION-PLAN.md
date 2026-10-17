@@ -133,7 +133,7 @@ A 확인 전은 목록에 보이고 집계는 확인 뒤 · B 검수 완료 판�
 | 경기 제보(1단계) | 편성표 제보(3단계) |
 |---|---|
 | 접수 = 바로 반영(applied) 또는 보류 | 접수 = 언제나 보류(`held`, `schedule_review`) |
-| 반영은 `applyMatchReviewInTx`(actor member) | 반영은 운영자의 `saveScheduleEntry` — 제보 내용으로 **미리 채운 편집 폼**을 저장하면 같은 트랜잭션에서 확인 완료(`closeScheduleReportInTx`) |
+| 반영은 `applyMatchReviewInTx`(actor member) | 반영은 운영자가 제보 내용으로 **미리 채운 편집 폼**을 저장할 때 — `applyScheduleReport` 가 한 트랜잭션에서 `saveScheduleEntryInTx`(편성표 쓰기의 단일 출처) → 제보 확인 완료 |
 | 확인 전 표시·집계 제외·되돌리기 | 없음(반영 전엔 공개 화면이 그대로다) |
 
 - **제안 모양**(`metrics/submission.ts` `ScheduleReport`): 종류(correction·new) · 게임 · 제목 · 상태(예정대로·취소·연기, 고치기만) · 날짜(KST) · 시작 시각(HH:MM, 비우면 미정) · 참가자(이름 글자).
@@ -142,12 +142,15 @@ A 확인 전은 목록에 보이고 집계는 확인 뒤 · B 검수 완료 판�
   새 일정은 잠글 행이 없어 같은 지문끼리 advisory 잠금으로 줄을 세운다.
 - **운영자:** `/admin/submissions` 에 "편성표" 꼬리표로 같이 온다 → 상세의 **편성표 편집에서 반영 →**(`/admin/schedule/<일정|new>?submission=<제보>`) → 미리 채운 폼(제보 줄·근거·메모·맞지 않은 이름·여러 칸 경고) → 저장.
   저장이 실패하면(그 사이 바뀐 일정 등) 제보도 열린 채다. **반영 없이 확인**(이미 고쳤거나 고칠 것이 없다) · 반려 · 중복은 경기 제보와 같다.
+- **구조 원칙(10/17 검토 반영):** 의존은 submission → schedule 한 방향(경기 쪽 submission → ck 와 같다). 고치기 대상은 공개 일정 읽기 하나
+  (`getPublicScheduleEntry`)로 트랜잭션 밖에서 읽고, 트랜잭션 안에서 행을 잠근 뒤 version(updated_at)이 그대로인지 대 본다 — 그 사이 바뀌었으면 다시 보내게 한다.
+  제보 행은 kind 로 갈리는 판별 합집합이라 종류와 제안의 잘못된 조합을 컴파일러가 잡는다.
 - **진입:** 일정 모달·일정 상세의 **제보하기** · 편성표 머리의 **빠진 일정 알리기 →** — 주소는 `site-paths` 의 `submitScheduleHref`(계약으로 모듈에 준다).
 
 | 층 | 파일 |
 |---|---|
 | DB | `0094_schedule_report.sql` — kind `schedule_report` · `submission.schedule_entry_id`(새 일정은 반영 때 채운다) · hold_reason `schedule_review` · 모양 CHECK(편성표 제보는 applied·reverted 없음) |
-| core | `db/submission.ts`(`submitScheduleReport` · `listOpenOnSchedule` · `getScheduleReportTarget` · `closeScheduleReportInTx`) · `db/schedule.ts` `saveScheduleEntry({ submission })` · `metrics/submission.ts`(정규화·읽는 줄·`submissionLines`) |
+| core | `db/submission.ts`(`submitScheduleReport` · `listOpenSubmissions`(판·일정 하나로) · `applyScheduleReport`) · `db/schedule.ts` `saveScheduleEntryInTx`(저장 본체를 뗐다 — schedule 은 제보를 모른다) · `metrics/submission.ts`(정규화 · `matchStreamerNames` · 판별 합집합 `SubmissionContent` · `submissionLines`) |
 | web | `/submit/schedule/[entryId]`(new 포함) · 내 제보·운영자 대기열·상세의 종류별 줄 · 편성표 편집의 미리 채우기(`lib/schedule-report-prefill.ts`) |
 | 모듈 | schedule 모달·상세의 제보하기, 편성표 머리의 빠진 일정 알리기 |
-| 검사 | `verify:db` 편성표 제보 절 23개(scripts/lib/verify-schedule-report-db.ts) · `verify:submission:browser` 편성표 4단계(상세 → 취소 제보 → 빠진 일정 → 운영자 반영·새 일정 등록) |
+| 검사 | `verify:db` 편성표 제보 절 27개(scripts/lib/verify-schedule-report-db.ts) · 단위 시험(metrics/submission.test.ts) · `verify:submission:browser` 편성표 4단계(상세 → 취소 제보 → 빠진 일정 → 운영자 반영·새 일정 등록) |

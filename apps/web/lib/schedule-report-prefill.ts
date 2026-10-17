@@ -1,8 +1,8 @@
 /**
  * 편성표 제보 → 편성표 편집 폼의 처음 값. 운영자가 고쳐 저장하는 **제안**일 뿐이다 — 저장 판단은 core saveScheduleEntry 가 한다.
- * ★ 참가자는 이름 글자다. 등록된 스트리머의 표시 이름·slug 와 정확히 같은 것만 넣고, 나머지는 운영자에게 이름으로 보여 준다.
+ * ★ 참가자는 이름 글자다. 맞추는 규칙은 core 의 matchStreamerNames 하나(정확히 같은 이름만) — 여기는 폼 값으로 옮기기만 한다.
  */
-import type { ScheduleReport } from "@soop-lol/core/lib/metrics/submission";
+import { matchStreamerNames, type ScheduleReport } from "@soop-lol/core/lib/metrics/submission";
 
 import type { ScheduleFormPayload } from "@/app/admin/schedule/actions";
 
@@ -24,18 +24,13 @@ export function prefillFromReport(base: ScheduleFormPayload, report: ScheduleRep
       p.slots = [{ ...cur, on_date: report.on_date, start, end: start ? cur.end : "" }];
     } else slotsUntouched = true;
   }
-  const unmatched: string[] = [];
+  let unmatched: string[] = [];
   if (report.participants) {
-    const byName = new Map<string, string>();
-    for (const s of streamers) { byName.set(s.display_name.toLowerCase(), s.slug); byName.set(s.slug.toLowerCase(), s.slug); }
+    const matched = matchStreamerNames(report.participants, streamers);
+    // 이미 있던 사람은 역할·팀을 그대로 두고, 새 사람은 선수로.
     const keep = new Map(base.participants.map((x) => [x.slug, x]));
-    const next: ScheduleFormPayload["participants"] = [];
-    for (const name of report.participants.split(",").map((x) => x.trim()).filter(Boolean)) {
-      const slug = byName.get(name.toLowerCase());
-      if (!slug) { unmatched.push(name); continue; }
-      if (!next.some((x) => x.slug === slug)) next.push(keep.get(slug) ?? { slug, role: "player", team: "" });
-    }
-    p.participants = next;
+    p.participants = matched.slugs.map((slug) => keep.get(slug) ?? { slug, role: "player", team: "" });
+    unmatched = matched.unmatched;
   }
   if (evidenceUrl && !p.sources.some((s) => s.url === evidenceUrl)) {
     const filled = p.sources.filter((s) => s.url.trim());

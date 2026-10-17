@@ -3,7 +3,8 @@
  *
  *   · 언제나 보류(schedule_review) — 편성표는 그대로 · 새 일정은 근거 링크 필수 · 고치기는 칸이나 메모
  *   · 중복 막기 — 같은 요청 · 같은 지문(+1) · 이미 그 값 · 하루 한도는 경기 제보와 같이 센다
- *   · 반영은 saveScheduleEntry 하나 — 저장과 같은 트랜잭션에서 확인 완료, 저장이 실패하면 제보도 열린 채
+ *   · 반영은 applyScheduleReport — 편성표 쓰기(saveScheduleEntryInTx) + 제보 닫기를 한 트랜잭션에서, 저장이 실패하면 제보도 열린 채
+ *   · 고치기 대상은 공개 일정 읽기 하나(getPublicScheduleEntry) — 숨긴 일정은 제보할 수 없다
  *   · 반영 없이 확인 · 반려 · 비공개(열린 제보에 보낸 사람·메모 없음) · 탈퇴
  */
 import { db } from "../../packages/core/lib/db/client.ts";
@@ -79,7 +80,7 @@ export async function verifyScheduleReportDb(check: Check, expectReject: ExpectR
   const n1 = await sub.submitScheduleReport(P.token, { request_id: rid(), entry_id: null, payload: fresh, evidence_url: "https://x.example/notice" });
   const n2 = await sub.submitScheduleReport(Q.token, { request_id: rid(), entry_id: null, payload: { ...fresh, title: " 편제  새 대회 " }, evidence_url: "https://x.example/other" });
   check("새 일정 알리기 — 보류로 받고, 같은 내용(공백만 다른 제목)은 +1", n1.kind === "held" && n2.kind === "supported" && n2.id === n1.id);
-  const open = await sub.listOpenOnSchedule(Q.token, entry.id);
+  const open = await sub.listOpenSubmissions(Q.token, "schedule_report", entry.id);
   check("일정의 열린 제보는 보낸 사람·메모·근거 없이, +1 한 회원에게는 mine",
     open.length === 3 && open.every((o) => !("note" in o) && !("author" in o)) && open.find((o) => o.id === c1.id)?.mine === true, JSON.stringify(open));
 
@@ -90,24 +91,26 @@ export async function verifyScheduleReportDb(check: Check, expectReject: ExpectR
   await expectReject("하루 한도를 넘으면 받지 않는다", () => sub.submitScheduleReport(L.token, {
     request_id: rid(), entry_id: entry.id, payload: { type: "correction" }, note: "한도 넘음" }), `${SUBMISSION_DAILY_LIMIT}건`);
 
-  // ── 반영 — 편성표 저장 하나, 같은 트랜잭션에서 닫힌다 ───────────────────────────
-  await expectReject("저장이 실패하면(그 사이 바뀐 일정) 제보도 열린 채다", () => schedule.saveScheduleEntry({ ...input(), status: "cancelled" },
-    { id: entry.id, version: "1999-01-01", submission: { id: c1.id, actor: "owner-1" } }), "다른 수정이 먼저");
+  // ── 반영 — 편성표 쓰기 + 제보 닫기를 한 트랜잭션에서 ─────────────────────────────
+  await expectReject("저장이 실패하면(그 사이 바뀐 일정) 제보도 열린 채다", () => sub.applyScheduleReport(c1.id, "owner-1", { ...input(), status: "cancelled" },
+    { id: entry.id, version: "1999-01-01" }), "다른 수정이 먼저");
   check("…실패 뒤 제보는 여전히 보류", (await state(c1.id)).state === "held");
   const v1 = await version();
-  await schedule.saveScheduleEntry({ ...input(), status: "cancelled" }, { id: entry.id, version: v1, submission: { id: c1.id, actor: "owner-1" } });
+  await sub.applyScheduleReport(c1.id, "owner-1", { ...input(), status: "cancelled" }, { id: entry.id, version: v1 });
   const closed = await state(c1.id);
   check("★ 운영자 저장 = 편성표 반영 + 제보 확인 완료(작업자 기록)", closed.state === "verified" && closed.decided_by === "owner-1"
     && (await sql`SELECT status FROM schedule_entry WHERE id = ${entry.id}::uuid`)[0].status === "cancelled");
   const v2 = await version();
-  await expectReject("닫힌 제보로 또 저장하면 저장 전체가 거부된다", () => schedule.saveScheduleEntry({ ...input(), title: "다시" },
-    { id: entry.id, version: v2, submission: { id: c1.id, actor: "owner-1" } }), "이미 처리된");
+  await expectReject("닫힌 제보로 또 저장하면 저장 전체가 거부된다", () => sub.applyScheduleReport(c1.id, "owner-1", { ...input(), title: "다시" },
+    { id: entry.id, version: v2 }), "이미 처리된");
   check("…그 저장은 편성표를 바꾸지 않았다", (await version()) === v2);
   const other = await schedule.saveScheduleEntry({ ...input(), title: "다른 일정" });
-  await expectReject("다른 일정에 대한 제보로는 저장할 수 없다", () => schedule.saveScheduleEntry({ ...input(), title: "다른 일정 2" },
-    { id: other.id, version: other.version, submission: { id: sameTime.id, actor: "owner-1" } }), "제보한 일정과 저장한 일정이 다릅니다");
-  const made = await schedule.saveScheduleEntry({ ...input(), title: "편제 새 대회", sources: [{ url: "https://x.example/notice", title: "회원 제보 근거", posted_at: null }] },
-    { submission: { id: n1.id, actor: "owner-1" } });
+  await expectReject("다른 일정에 대한 제보로는 저장할 수 없다", () => sub.applyScheduleReport(sameTime.id, "owner-1", { ...input(), title: "다른 일정 2" },
+    { id: other.id, version: other.version }), "제보한 일정과 저장한 일정이 다릅니다");
+  check("…거부된 저장은 그 일정을 바꾸지 않았다(저장과 닫기가 한 트랜잭션)",
+    (await sql`SELECT title FROM schedule_entry WHERE id = ${other.id}::uuid`)[0].title === "다른 일정");
+  const made = await sub.applyScheduleReport(n1.id, "owner-1",
+    { ...input(), title: "편제 새 대회", sources: [{ url: "https://x.example/notice", title: "회원 제보 근거", posted_at: null }] });
   const newClosed = await state(n1.id);
   check("새 일정 반영 — 만든 일정이 제보의 대상으로 적힌다", newClosed.state === "verified" && newClosed.schedule_entry_id === made.id);
 
@@ -122,6 +125,9 @@ export async function verifyScheduleReportDb(check: Check, expectReject: ExpectR
   check("운영자 대기열에 일정 제목과 함께 온다", queue.some((q) => q.kind === "schedule_report" && q.schedule_title === "편제 CK"));
   await member.withdrawMember(P.token, { deleteContent: true });
   const [gone] = await sql<{ author_id: string | null; note: string | null }[]>`SELECT author_id, note FROM submission WHERE id = ${c1.id}::uuid`;
+  const hidden = await schedule.saveScheduleEntry({ ...input(), title: "숨긴 편성", visibility: "hidden", sources: [] });
+  await expectReject("숨긴 일정은 고치기 제보를 받지 않는다(공개 일정 읽기 하나로 대상을 찾는다)", () => sub.submitScheduleReport(Q.token, {
+    request_id: rid(), entry_id: hidden.id, payload: cancel }), "일정을 찾을 수 없습니다");
   check("탈퇴 — 메모·보낸 사람 연결은 지우고 반영된 편성표는 남는다", gone.author_id === null && gone.note === null
     && (await sql`SELECT status FROM schedule_entry WHERE id = ${entry.id}::uuid`)[0].status === "cancelled");
 }

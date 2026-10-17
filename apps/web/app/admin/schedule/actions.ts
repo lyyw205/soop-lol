@@ -11,6 +11,7 @@ import { buildSlotTimes, type ScheduleInput } from "@soop-lol/core/lib/metrics/s
 import { fromKstInputValue } from "@soop-lol/core/lib/time";
 
 import { MemberError } from "@soop-lol/core/lib/db/member";
+import { applyScheduleReport } from "@soop-lol/core/lib/db/submission";
 
 import type { ActionState } from "@/lib/action-state";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -89,10 +90,11 @@ export async function saveScheduleAction(_prev: ActionState, form: FormData): Pr
   if ("errors" in converted) return { ok: false, message: converted.errors.join(" / ") };
   let saved: { id: string; version: string };
   try {
-    saved = await saveScheduleEntry(converted.input, {
-      id: payload.id, version: payload.version, recordHistory: !payload.typo,
-      submission: typeof payload.submission_id === "string" && payload.submission_id ? { id: payload.submission_id, actor } : null,
-    });
+    const opts = { id: payload.id, version: payload.version, recordHistory: !payload.typo };
+    // 회원 편성표 제보를 반영하는 저장이면 저장과 제보 닫기를 한 트랜잭션에서(core submission.ts). 아니면 평소 저장.
+    saved = typeof payload.submission_id === "string" && payload.submission_id
+      ? await applyScheduleReport(payload.submission_id, actor, converted.input, opts)
+      : await saveScheduleEntry(converted.input, opts);
   } catch (e) {
     if (e instanceof ScheduleSaveError) return { ok: false, message: e.reasons.join(" / ") };
     if (e instanceof MemberError) return { ok: false, message: e.message };

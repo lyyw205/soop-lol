@@ -275,6 +275,22 @@ export function normalizePeopleText(v: unknown): string | null {
 }
 
 /**
+ * 이름 글자 → 등록된 스트리머 slug. 표시 이름이나 slug 와 (대소문자만 무시하고) **정확히 같은 것만** 맞춘다 — 비슷한 이름을 추측하지 않는다
+ * (틀린 사람을 일정에 넣느니 운영자에게 이름으로 보여 준다). 같은 사람을 두 번 적으면 한 번.
+ */
+export function matchStreamerNames(text: string, streamers: readonly { slug: string; display_name: string }[]): { slugs: string[]; unmatched: string[] } {
+  const byName = new Map<string, string>();
+  for (const s of streamers) { byName.set(s.slug.toLowerCase(), s.slug); byName.set(s.display_name.toLowerCase(), s.slug); }
+  const slugs: string[] = [], unmatched: string[] = [];
+  for (const name of (normalizePeopleText(text) ?? "").split(", ").filter(Boolean)) {
+    const slug = byName.get(name.toLowerCase());
+    if (!slug) unmatched.push(name);
+    else if (!slugs.includes(slug)) slugs.push(slug);
+  }
+  return { slugs, unmatched };
+}
+
+/**
  * 편성표 제보 정규화 — 빈 칸을 지우고 형식을 확인한다. 새 일정은 게임·제목·날짜가 있어야 한다(근거 링크는 db 쪽이 확인).
  * 고치기에서 남는 칸이 없으면 빈 고치기({type})다 — 메모만 있는 고치기는 db 쪽이 받는다.
  */
@@ -327,8 +343,12 @@ export function scheduleReportLines(r: ScheduleReport): string[] {
   return lines;
 }
 
+/** 종류와 제안 — kind 로 갈리는 판별 합집합(잘못된 조합은 컴파일러가 잡는다). 제보 행(db/submission.ts)이 이것을 품는다. */
+export type SubmissionContent =
+  | { kind: "match_correction"; payload: MatchCorrection }
+  | { kind: "schedule_report"; payload: ScheduleReport };
+
 /** 제보 하나를 읽는 줄로 — 종류에 맞는 풀이를 고른다. 목록 화면(내 제보·운영자 대기열)이 종류를 따지지 않게 한 곳에서. */
-export function submissionLines(kind: SubmissionKind, payload: MatchCorrection | ScheduleReport,
-  names: { streamer: (id: string) => string; champion: (id: number) => string }): string[] {
-  return kind === "schedule_report" ? scheduleReportLines(payload as ScheduleReport) : correctionLines(payload as MatchCorrection, names);
+export function submissionLines(s: SubmissionContent, names: { streamer: (id: string) => string; champion: (id: number) => string }): string[] {
+  return s.kind === "schedule_report" ? scheduleReportLines(s.payload) : correctionLines(s.payload, names);
 }
