@@ -54,6 +54,7 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
         </tbody></table>
       </>}
       {s.conflicts.length > 0 && <p className="mt-3 text-sm text-amber-400">이 제보 뒤에 같은 칸이 또 바뀌어 반려(되돌리기)를 할 수 없습니다: {s.conflicts.join(", ")} — 검수 화면에서 직접 고친 뒤 확인하세요.</p>}
+      {s.rule_id && <p className="mt-3 text-xs text-ink-500">판정 규칙 {s.rule_id} · 기준 {s.policy_version}</p>}
       {s.decided_at && <p className="mt-3 text-sm text-ink-400">처리: {s.decided_by} · {kstPlayedAt(new Date(s.decided_at), "datetime")}{s.decision_note ? ` · ${s.decision_note}` : ""}</p>}
       {open && <div className="mt-5"><DecideSubmissionForm id={s.id} held={s.state === "held"} schedule={schedule} duplicateOptions={siblings} /></div>}
     </Card>

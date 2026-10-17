@@ -206,6 +206,16 @@ export async function verifySubmissionDb(check: Check, expectReject: ExpectRejec
     (await sql`SELECT state, duplicate_of FROM submission WHERE id = ${dupA.id}::uuid`)[0].duplicate_of === acct.id
       && (await sql`SELECT state FROM submission WHERE id = ${contest.id}::uuid`)[0].state === "rejected" && (await winner("SB:1")) === 200);
 
+  // ── 판정 뼈대(0095) — 기준은 규칙 목록 하나, 상태마다 규칙·기준 버전이 남는다 ─────────────
+  const rules = await sql<{ id: string; state: string; rule_id: string; policy_version: string; admin_decision: string | null; intake: Record<string, boolean> }[]>`
+    SELECT id, state, rule_id, policy_version, admin_decision, intake FROM submission WHERE kind = 'match_correction'`;
+  const byId = new Map(rules.map((r) => [r.id, r]));
+  check("판정 규칙·기준 버전이 남는다 — 보류는 hold_<이유>, 운영자 처리는 admin_<결정>, 접수 사실은 intake",
+    rules.every((r) => r.rule_id && r.policy_version) && byId.get(held1.id)?.rule_id === "admin_verify" && byId.get(held1.id)?.admin_decision === "verify"
+      && byId.get(held1.id)?.intake.review_completed === true && byId.get(big.id)?.rule_id === "admin_reject" && byId.get(contest.id)?.intake.contested === true,
+    JSON.stringify(rules.map((r) => [r.state, r.rule_id, r.admin_decision, r.intake])));
+  check("같은 기준으로 다시 판정하면 아무것도 바뀌지 않는다(멱등)", (await sub.reconsiderOpenSubmissions()) === 0);
+
   // ── 5. 회원 화면 · 탈퇴 ───────────────────────────────────────────────────
   const mine = await sub.listMySubmissions(W.token);
   const open = await sub.listOpenSubmissions(O.token, "match_correction", "SB:4");

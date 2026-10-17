@@ -1,6 +1,6 @@
 # 제보 판정 — 기준을 갈아 끼울 수 있는 뼈대 + 2단계(빠진 경기 등록·VOD 단서)
 
-> 2026-10-17 설계 · **결정 완료**(§9, 같은 날 사용자). 구현 전 — 순서는 §8.
+> 2026-10-17 설계 · **결정 완료**(§9, 같은 날 사용자). **§8 1단계(판정 뼈대) 구현** — 나머지는 §8 순서대로.
 > 앞 문서: [USER-SUBMISSION-PLAN.md](USER-SUBMISSION-PLAN.md)(1단계 경기 고치기·3단계 편성표 — 지금 기준이 코드 곳곳의 if 로 박혀 있다).
 
 ## 1. 왜
@@ -209,7 +209,13 @@ vod_request (vod_id, channel_id, requested_at, priority, reason, submission_id N
 
 **순서**(각 단계가 끝날 때마다 검사가 통과하는 상태로 둔다)
 
-1. 판정 뼈대 + 지금 두 종류를 v1 규칙으로 옮긴다. **동작 변화 0** — 기존 제보 검사 35+27개가 그대로 통과해야 한다.
+1. ✅ **(2026-10-17, 0095)** 판정 뼈대 + 지금 두 종류를 v1 규칙으로 옮긴다. **동작 변화 0** — 기존 제보 검사가 그대로 통과했다.
+   - `metrics/submission-policy.ts`(Facts·Rule·POLICY `2026-10-17.1`·`decide`·`stateOf`) — 기준은 여기 하나
+   - `db/submission.ts`: 접수 사실 `matchIntakeInTx`(보류 사실을 **전부** 적는다 — 무엇이 먼저인지는 규칙이 정한다) · 접수 `admitInTx` ·
+     다시 판정 `settleInTx`(보임이 바뀌면 종류별 어댑터 `ADAPTERS[kind].show/hide`) · `reconsiderOpenSubmissions`(기준이 바뀌었을 때, 멱등)
+   - 운영자 확인·반려·편성표 반영 = 운영자 결정을 사실로 더하고 판정 — 따로 상태를 옮기는 코드가 없다
+   - DB: `submission.intake`(접수 사실) · `admin_decision` · `rule_id` · `policy_version` — 운영자 상세에 "판정 규칙 · 기준"
+   - 검사: 판정 단위 4 · verify:db(규칙 기록·같은 기준 재판정 0건·편성표 반영 = admin_verify) · 기존 제보 검사·브라우저 11단계 그대로
 2. `member_role` + `trusted`·`consensus` 규칙(설정으로 꺼 둔 채).
 3. `vod_request` + ck-auto 우선순위·다시 열기.
 4. 나(VOD 단서).

@@ -98,6 +98,8 @@ export async function verifyScheduleReportDb(check: Check, expectReject: ExpectR
   const v1 = await version();
   await sub.applyScheduleReport(c1.id, "owner-1", { ...input(), status: "cancelled" }, { id: entry.id, version: v1 });
   const closed = await state(c1.id);
+  const [ruled] = await sql<{ rule_id: string; admin_decision: string; decision_note: string }[]>`SELECT rule_id, admin_decision, decision_note FROM submission WHERE id = ${c1.id}::uuid`;
+  check("편성표 반영은 운영자의 확인 — 판정 규칙 admin_verify 로 닫힌다(0095)", ruled.rule_id === "admin_verify" && ruled.admin_decision === "verify" && ruled.decision_note === "편성표에 반영", JSON.stringify(ruled));
   check("★ 운영자 저장 = 편성표 반영 + 제보 확인 완료(작업자 기록)", closed.state === "verified" && closed.decided_by === "owner-1"
     && (await sql`SELECT status FROM schedule_entry WHERE id = ${entry.id}::uuid`)[0].status === "cancelled");
   const v2 = await version();

@@ -6,6 +6,9 @@
  *   운영자(requireAdmin 뒤, actor 글자)    listSubmissionQueue · getSubmissionForAdmin · verifySubmission · rejectSubmission · markSubmissionDuplicate
  *                                          · applyScheduleReport(편성표 저장 + 제보 닫기를 한 트랜잭션에서)
  *
+ * ★ **판정 기준은 여기 없다** — metrics/submission-policy.ts 의 규칙 목록 하나(docs/SUBMISSION-POLICY-PLAN.md).
+ *   여기는 ① 사실 모으기(접수 사실 intake · 운영자 결정) → decide → ③ 실행(settleInTx: 보임이 바뀌면 종류별 어댑터의 show/hide)만 한다.
+ *   접수·운영자 확인·반려·편성표 반영은 모두 "사실을 남기고 판정한다" 한 길로 끝난다. 새 기준 때문에 여기에 if 가 생기면 뼈대가 틀어진 것이다.
  * ★ 반영은 기존 쓰기 길 하나 — `applyMatchReviewInTx`(writer member). 제보만의 쓰기 SQL 을 두지 않는다(근거·잠금·이력·승패 재계산이 같이 온다).
  * ★ 중복 막기 네 겹(§6): 요청 번호(UNIQUE author×request) · 내용 지문(열린 제보 중 유일 → +1) · 같은 칸(다른 값이면 보류) · 이미 그 값(거부).
  *   같은 판의 제보는 그 판 행을 잠근 뒤 판정하므로 동시에 들어와도 지문 판정이 엇갈리지 않는다. 잠금 순서: 회원 → 판 → 제보.
@@ -18,6 +21,7 @@ import { createHash } from "node:crypto";
 import type postgres from "postgres";
 
 import { isUuid } from "../metrics/community.ts";
+import { decide, POLICY, shownIn, stateOf, type Facts, type IntakeFacts } from "../metrics/submission-policy.ts";
 import { kstClock } from "../metrics/schedule.ts";
 import {
   cellsOverlap, correctionCells, fingerprintSource, normalizeEvidenceUrl, normalizeMatchCorrection, normalizeNote,
@@ -123,19 +127,24 @@ function againstCurrent(c: MatchCorrection, match: MatchState, slots: Map<number
   return Object.keys(out).length ? out : null;
 }
 
-/** 바로 반영하나, 보류하나(§4). 보류 이유 하나를 고른다 — 앞의 것이 먼저다. */
-async function holdReasonInTx(tx: Tx, c: MatchCorrection, match: MatchState, slots: Map<number, SlotState>): Promise<HoldReason | null> {
-  if (match.visibility !== "public" || match.scope !== "versus") return "not_public";
-  if (match.review_completed_at) return "review_completed";
-  if (match.collected_via === "api") return "api_observed";
+/**
+ * 접수 사실(경기 고치기) — 대상에서 본 것을 **전부** 적는다. 어느 것이 보류인지·무엇이 먼저인지는 판정(submission-policy.ts)이 정한다.
+ * 같은 칸 다툼(contested) = 같은 칸을 다른 값으로 고친 확인 전 제보가 있다(겹 3).
+ */
+async function matchIntakeInTx(tx: Tx, c: MatchCorrection, match: MatchState, slots: Map<number, SlotState>): Promise<IntakeFacts> {
   const accountSlot = (id: number) => Boolean(slots.get(id)?.puuid);
-  if ((c.participants ?? []).some((p) => accountSlot(p.participant_id) && ("streamer_id" in p.changes || "observed_name" in p.changes))
-    || (c.remove ?? []).some(accountSlot)) return "account_identity";
   const mine = correctionCells(c);
   const open = await tx<{ payload: MatchCorrection }[]>`
     SELECT payload FROM submission WHERE match_id = ${match.match_id} AND state = 'applied'`;
-  if (open.some((o) => correctionCells(o.payload).some((x) => mine.some((y) => cellsOverlap(x, y))))) return "contested";
-  return null;
+  const facts: IntakeFacts = {
+    not_public: match.visibility !== "public" || match.scope !== "versus",
+    review_completed: Boolean(match.review_completed_at),
+    api_observed: match.collected_via === "api",
+    account_identity: (c.participants ?? []).some((p) => accountSlot(p.participant_id) && ("streamer_id" in p.changes || "observed_name" in p.changes))
+      || (c.remove ?? []).some(accountSlot),
+    contested: open.some((o) => correctionCells(o.payload).some((x) => mine.some((y) => cellsOverlap(x, y)))),
+  };
+  return Object.fromEntries(Object.entries(facts).filter(([, v]) => v)) as IntakeFacts;
 }
 
 /** 제안 → 기존 검수 경로의 고치기(기대값 = 화면이 본 값). 포지션은 두 칸을 함께(어긋나면 맞라인에서 빠진다 — 원칙 10). */
@@ -203,19 +212,12 @@ export async function submitMatchCorrection(token: string | null, raw: MatchCorr
     const [{ n }] = await tx<{ n: number }[]>`
       SELECT count(*)::int AS n FROM submission WHERE author_id = ${m.id} AND created_at > ${now}::timestamptz - interval '1 day'`;
     if (n >= SUBMISSION_DAILY_LIMIT) throw new SubmissionError(`제보는 하루 ${SUBMISSION_DAILY_LIMIT}건까지 보낼 수 있습니다.`);
-    // 겹 3 — 같은 칸을 다른 값으로 고친 확인 전 제보가 있으면 보류(contested). 그 밖의 보류 이유도 여기서.
-    const hold = await holdReasonInTx(tx, c, state.match, state.slots);
-    const [row] = await tx<{ id: string }[]>`
-      INSERT INTO submission (author_id, request_id, kind, match_id, payload, fingerprint, note, evidence_url, state, hold_reason, created_at, updated_at)
-      VALUES (${m.id}::uuid, ${raw.request_id}::uuid, 'match_correction', ${raw.match_id}, ${tx.json(c as never)}, ${fp},
-              ${note}, ${evidence}, ${hold ? "held" : "applied"}, ${hold}, ${now}, ${now})
-      RETURNING id`;
-    if (!hold) {
-      const writer: ReviewWriter = { actor: "member", submission_id: row.id };
-      await applyMatchReviewInTx(tx, raw.match_id, toReviewPatch(c, state.slots), writer);
-      await tx`INSERT INTO submission_effect (submission_id, match_id) VALUES (${row.id}::uuid, ${raw.match_id})`;
-    }
-    return { kind: hold ? "held" : "applied", id: row.id, hold_reason: hold } as const;
+    // 겹 3(같은 칸 다툼)과 그 밖의 보류 사실을 적고, 판정·실행은 접수 한 길(admitInTx)로.
+    const intake = await matchIntakeInTx(tx, c, state.match, state.slots);
+    return admitInTx(tx, {
+      author_id: m.id, request_id: raw.request_id, kind: "match_correction", match_id: raw.match_id, schedule_entry_id: null,
+      payload: c, fingerprint: fp, note, evidence_url: evidence, intake, now,
+    });
   }) as Promise<SubmitOutcome>;
 }
 
@@ -305,12 +307,10 @@ export async function submitScheduleReport(token: string | null, raw: ScheduleRe
     const [{ n }] = await tx<{ n: number }[]>`
       SELECT count(*)::int AS n FROM submission WHERE author_id = ${m.id} AND created_at > ${now}::timestamptz - interval '1 day'`;
     if (n >= SUBMISSION_DAILY_LIMIT) throw new SubmissionError(`제보는 하루 ${SUBMISSION_DAILY_LIMIT}건까지 보낼 수 있습니다.`);
-    const [row] = await tx<{ id: string }[]>`
-      INSERT INTO submission (author_id, request_id, kind, schedule_entry_id, payload, fingerprint, note, evidence_url, state, hold_reason, created_at, updated_at)
-      VALUES (${m.id}::uuid, ${raw.request_id}::uuid, 'schedule_report', ${raw.entry_id}::uuid, ${tx.json(r as never)}, ${fp},
-              ${note}, ${evidence}, 'held', 'schedule_review', ${now}, ${now})
-      RETURNING id`;
-    return { kind: "held", id: row.id, hold_reason: "schedule_review" } as const;
+    return admitInTx(tx, {
+      author_id: m.id, request_id: raw.request_id, kind: "schedule_report", match_id: null, schedule_entry_id: raw.entry_id,
+      payload: r, fingerprint: fp, note, evidence_url: evidence, intake: {}, now,
+    });
   }) as Promise<SubmitOutcome>;
 }
 
@@ -329,14 +329,12 @@ export async function applyScheduleReport(id: string, actor: string, input: Sche
 
 /** 편성표 제보 닫기 — applyScheduleReport 의 트랜잭션 안에서만. 새 일정 알리기는 만들어진 일정을 대상으로 적는다. */
 async function closeScheduleReportInTx(tx: Tx, id: string, actor: string, entryId: string): Promise<void> {
-  if (!isUuid(id)) throw new SubmissionError("제보를 찾을 수 없습니다.");
-  const [s] = await tx<{ kind: string; state: string; schedule_entry_id: string | null }[]>`
-    SELECT kind, state, schedule_entry_id FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
-  if (!s || s.kind !== "schedule_report") throw new SubmissionError("편성표 제보가 아닙니다.");
-  if (s.state !== "held") throw new SubmissionError("이미 처리된 제보입니다. 새로고침해 주세요.");
+  const s = await lockOpen(tx, id);
+  if (s.kind !== "schedule_report") throw new SubmissionError("편성표 제보가 아닙니다.");
   if (s.schedule_entry_id && s.schedule_entry_id !== entryId) throw new SubmissionError("제보한 일정과 저장한 일정이 다릅니다.");
   await tx`UPDATE submission SET schedule_entry_id = ${entryId}::uuid WHERE id = ${id}::uuid`;
-  await decide(tx, id, "verified", actor, "편성표에 반영");
+  // 운영자가 반영했다 = 운영자의 확인. 판정이 확인 완료로 옮긴다(편성표 어댑터의 show 는 이미 한 저장이라 할 일이 없다).
+  await settleInTx(tx, { ...s, schedule_entry_id: entryId }, { admin: { decision: "verify", actor, note: "편성표에 반영" } });
 }
 
 /** "같은 내용이에요(+1)" — 열린 남의 제보에만. 이미 했으면 그대로. */
@@ -456,6 +454,8 @@ export async function listSubmissionQueue(limit = 200): Promise<QueueItem[]> {
 
 export type AdminSubmission = QueueItem & {
   decided_by: string | null;
+  /** 지금 상태를 정한 판정 규칙과 그때의 기준 버전(metrics/submission-policy.ts) — "어떤 기준으로". */
+  rule_id: string | null; policy_version: string | null;
   /** 이 제보가 남긴 이력(applied 였던 것). */
   changes: { id: number; entity: string; entity_key: string; field: string; before: unknown; after: unknown; changed_at: Date }[];
   /** 되돌리면 걸릴 칸 — 이 제보 뒤에 누가 같은 칸을 또 바꿨다. 비어야 되돌릴 수 있다. */
@@ -465,8 +465,8 @@ export type AdminSubmission = QueueItem & {
 export async function getSubmissionForAdmin(id: string): Promise<AdminSubmission | null> {
   if (!isUuid(id)) return null;
   const sql = db();
-  const [row] = await sql<(QueueItem & { decided_by: string | null })[]>`
-    SELECT ${SUBMISSION_COLUMNS(sql)}, s.decided_by, mb.nickname AS author, m.game_creation AS played_at, e.name AS event_name, se.title AS schedule_title
+  const [row] = await sql<(QueueItem & { decided_by: string | null; rule_id: string | null; policy_version: string | null })[]>`
+    SELECT ${SUBMISSION_COLUMNS(sql)}, s.decided_by, s.rule_id, s.policy_version, mb.nickname AS author, m.game_creation AS played_at, e.name AS event_name, se.title AS schedule_title
       FROM submission s
       LEFT JOIN member mb ON mb.id = s.author_id
       LEFT JOIN match m ON m.match_id = s.match_id
@@ -500,64 +500,142 @@ async function conflictsOf(sql: Sql, id: string, changes: AdminSubmission["chang
   return [...new Set(later.map(cell).filter((x) => mine.some((y) => cellsOverlap(x, y))))];
 }
 
-type OpenRow = SubmissionContent & { id: string; state: SubmissionState; match_id: string | null };
-async function lockOpen(tx: Tx, id: string): Promise<OpenRow> {
+// ── 판정 실행 ───────────────────────────────────────────────────────────────
+//
+// 판정은 metrics/submission-policy.ts 가 한다. 여기는 그 판정을 옮길 뿐이다 — 보임이 바뀌면 종류별 어댑터의 show/hide,
+// 그리고 상태·규칙·기준 버전을 적는다. 종류마다 다른 것은 "보이게 하기·숨기기"를 어떻게 하느냐뿐이다.
+
+type SubmissionRecord = SubmissionContent & {
+  id: string; state: SubmissionState; match_id: string | null; schedule_entry_id: string | null;
+  intake: IntakeFacts; admin_decision: "verify" | "reject" | null; rule_id: string | null;
+};
+const RECORD_COLUMNS = (sql: Sql) => sql`id, kind, state, match_id, schedule_entry_id, payload, intake, admin_decision, rule_id`;
+
+/** 보임이 바뀔 때 종류마다 하는 일. writer = 누가 일으킨 판정인가(회원 접수 = member + 제보 번호, 운영자 처리 = admin). */
+interface KindAdapter {
+  show(tx: Tx, s: SubmissionRecord, writer: ReviewWriter): Promise<void>;
+  hide(tx: Tx, s: SubmissionRecord): Promise<void>;
+}
+
+const ADAPTERS: Record<SubmissionKind, KindAdapter> = {
+  match_correction: {
+    // 반영 — 기존 검수 경로 하나(기대값 = 제보가 본 값, 그 사이 바뀌었으면 검수 경로가 충돌로 거부한다).
+    async show(tx, s, writer) {
+      const st = s.match_id ? await lockMatchState(tx, s.match_id) : null;
+      if (!st) throw new SubmissionError("대상 경기가 지워져 반영할 수 없습니다 — 반려해 주세요.");
+      await applyMatchReviewInTx(tx, st.match.match_id, toReviewPatch(s.payload as MatchCorrection, st.slots), writer);
+      // 회원이 바꾼 판의 흔적 — 확인 전 표시(core_public.pending_match)가 읽는다.
+      if (writer.actor === "member") await tx`INSERT INTO submission_effect (submission_id, match_id) VALUES (${s.id}::uuid, ${st.match.match_id}) ON CONFLICT DO NOTHING`;
+    },
+    // 되돌리기 — 그 제보의 이력만 역순으로(운영자 이름). 그 뒤 같은 칸을 누가 또 바꿨으면 하나도 되돌리지 않는다.
+    async hide(tx, s) {
+      const changes = await changesOf(tx, s.id);
+      const conflicts = await conflictsOf(tx, s.id, changes);
+      if (conflicts.length) {
+        throw new SubmissionError(`이 제보 뒤에 같은 칸이 또 바뀌어 되돌릴 수 없습니다: ${conflicts.join(", ")} — 검수 화면에서 직접 고친 뒤 확인해 주세요.`);
+      }
+      const st = s.match_id ? await lockMatchState(tx, s.match_id) : null;
+      if (st && changes.length) await applyMatchReviewInTx(tx, st.match.match_id, inversePatch(changes, st.slots), ADMIN_WRITER);
+    },
+  },
+  schedule_report: {
+    // 편성표는 운영자가 편집 폼으로 저장한다(applyScheduleReport — 같은 트랜잭션). "반영 없이 확인"도 쓸 것이 없다.
+    async show() {},
+    // 반영 전에만 거부되므로 되돌릴 것이 없다.
+    async hide() {},
+  },
+};
+
+interface InsertSubmission {
+  author_id: string; request_id: string; kind: SubmissionKind; match_id: string | null; schedule_entry_id: string | null;
+  payload: unknown; fingerprint: string; note: string | null; evidence_url: string | null; intake: IntakeFacts; now: Date;
+}
+
+/** 접수 — 판정하고, 그 상태로 적고, 보이면 반영한다(회원 이름 + 제보 번호). 접수의 유일한 쓰기. */
+async function admitInTx(tx: Tx, n: InsertSubmission): Promise<SubmitOutcome> {
+  const facts: Facts = { kind: n.kind, intake: n.intake, admin: null };
+  const v = decide(facts);
+  const state = stateOf(v, false);
+  if (state !== "applied" && state !== "held") throw new Error(`접수 판정이 열린 상태가 아닙니다: ${v.rule}`);
+  const [row] = await tx<{ id: string }[]>`
+    INSERT INTO submission (author_id, request_id, kind, match_id, schedule_entry_id, payload, fingerprint, note, evidence_url,
+                            state, hold_reason, intake, rule_id, policy_version, created_at, updated_at)
+    VALUES (${n.author_id}::uuid, ${n.request_id}::uuid, ${n.kind}, ${n.match_id}, ${n.schedule_entry_id}::uuid, ${tx.json(n.payload as never)},
+            ${n.fingerprint}, ${n.note}, ${n.evidence_url}, ${state}, ${v.hold_reason}, ${tx.json(n.intake as never)},
+            ${v.rule}, ${POLICY.version}, ${n.now}, ${n.now})
+    RETURNING id`;
+  if (v.visibility === "shown") {
+    const [rec] = await tx<SubmissionRecord[]>`SELECT ${RECORD_COLUMNS(tx)} FROM submission WHERE id = ${row.id}::uuid`;
+    await ADAPTERS[n.kind].show(tx, rec, { actor: "member", submission_id: row.id });
+  }
+  return { kind: state, id: row.id, hold_reason: v.hold_reason };
+}
+
+/**
+ * 다시 판정하고 옮긴다 — 운영자 처리(admin)가 있으면 그 사실을 더한 뒤. 판정이 그대로면 아무것도 하지 않는다(멱등).
+ * 보임: 숨김 → 보임이면 show, 보임 → 숨김이면 hide. 상태·규칙·기준 버전은 언제나 같이 적는다.
+ */
+async function settleInTx(tx: Tx, s: SubmissionRecord, opts: { admin?: { decision: "verify" | "reject"; actor: string; note: string | null } } = {}): Promise<void> {
+  const admin = opts.admin?.decision ?? s.admin_decision;
+  const v = decide({ kind: s.kind, intake: s.intake, admin });
+  const wasShown = shownIn(s.state);
+  const next = stateOf(v, wasShown);
+  if (next === s.state && v.rule === s.rule_id && admin === s.admin_decision) return;
+  const writer: ReviewWriter = opts.admin ? ADMIN_WRITER : { actor: "member", submission_id: s.id };
+  if (!wasShown && v.visibility === "shown") await ADAPTERS[s.kind].show(tx, s, writer);
+  if (wasShown && v.visibility === "hidden") await ADAPTERS[s.kind].hide(tx, s);
+  const decided = next !== "applied" && next !== "held";
+  await tx`
+    UPDATE submission SET state = ${next}, hold_reason = COALESCE(${v.hold_reason}, hold_reason), admin_decision = ${admin},
+           rule_id = ${v.rule}, policy_version = ${POLICY.version},
+           decided_by = ${decided ? opts.admin?.actor ?? "policy" : null}, decided_at = CASE WHEN ${decided}::boolean THEN now() END,
+           decision_note = ${decided ? opts.admin?.note ?? null : null}, updated_at = now()
+     WHERE id = ${s.id}::uuid`;
+}
+
+/** 열린 제보 하나를 잠그고 판정 재료째 읽는다. 잠금 순서: 판 → 제보(접수와 같게). 판 번호를 먼저 잠금 없이 읽고, 잠근 뒤 다시 본다. */
+async function lockOpen(tx: Tx, id: string): Promise<SubmissionRecord> {
   if (!isUuid(id)) throw new SubmissionError("제보를 찾을 수 없습니다.");
-  // 잠금 순서: 판 → 제보(접수와 같게). 판 번호를 먼저 잠금 없이 읽고, 잠근 뒤 다시 본다.
   const [peek] = await tx<{ match_id: string | null }[]>`SELECT match_id FROM submission WHERE id = ${id}::uuid`;
   if (!peek) throw new SubmissionError("제보를 찾을 수 없습니다.");
   if (peek.match_id) await tx`SELECT 1 FROM match WHERE match_id = ${peek.match_id} FOR UPDATE`;
-  const [s] = await tx<OpenRow[]>`
-    SELECT id, kind, state, match_id, payload FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
+  const [s] = await tx<SubmissionRecord[]>`SELECT ${RECORD_COLUMNS(tx)} FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
   if (!s || !["applied", "held"].includes(s.state)) throw new SubmissionError("이미 처리된 제보입니다. 새로고침해 주세요.");
   if (s.match_id !== peek.match_id) throw new SubmissionError("그 사이 제보가 바뀌었습니다. 새로고침해 주세요.");
   return s;
 }
 
-async function decide(tx: Tx, id: string, state: SubmissionState, actor: string, note: string | null, duplicateOf: string | null = null): Promise<void> {
-  await tx`
-    UPDATE submission SET state = ${state}, decided_by = ${actor}, decided_at = now(), decision_note = ${note},
-           duplicate_of = ${duplicateOf}::uuid, updated_at = now()
-     WHERE id = ${id}::uuid`;
-}
-
 /**
- * 확인 — applied 는 표시만 뗀다(값은 이미 반영됐다). held 는 운영자 이름으로 지금 반영한다
- * (기대값은 제보가 본 값 — 그 사이 바뀌었으면 검수 경로가 충돌로 거부한다).
+ * 확인 — 운영자의 확인을 사실로 더하고 판정한다. 확인 전(보임)은 표시만 떨어지고, 보류(숨김)는 운영자 이름으로 지금 반영된다
+ * (기대값은 제보가 본 값 — 그 사이 바뀌었으면 검수 경로가 충돌로 거부한다). 편성표 제보는 반영 없이 닫힌다.
  */
 export async function verifySubmission(id: string, actor: string, note?: string | null): Promise<void> {
   const memo = input(() => normalizeNote(note));
-  await db().begin(async (tx) => {
-    const s = await lockOpen(tx, id);
-    // 편성표 제보의 "확인"은 반영 없이 닫기다(운영자가 이미 편성표를 고쳤거나 고칠 것이 없다). 반영은 편성표 편집 저장이 한다.
-    if (s.kind === "match_correction" && s.state === "held") {
-      if (!s.match_id) throw new SubmissionError("대상 경기가 지워져 반영할 수 없습니다 — 반려해 주세요.");
-      const st = await lockMatchState(tx, s.match_id);
-      if (!st) throw new SubmissionError("대상 경기가 지워져 반영할 수 없습니다 — 반려해 주세요.");
-      await applyMatchReviewInTx(tx, s.match_id, toReviewPatch(s.payload, st.slots), ADMIN_WRITER);
-    }
-    await decide(tx, id, "verified", actor, memo);
-  });
+  await db().begin(async (tx) => settleInTx(tx, await lockOpen(tx, id), { admin: { decision: "verify", actor, note: memo } }));
+}
+
+/** 반려 — 운영자의 반려를 사실로 더하고 판정한다. 확인 전(보임)은 그 제보가 남긴 것을 되돌리고, 보류는 바뀐 것이 없다. */
+export async function rejectSubmission(id: string, actor: string, note?: string | null): Promise<void> {
+  const memo = input(() => normalizeNote(note));
+  await db().begin(async (tx) => settleInTx(tx, await lockOpen(tx, id), { admin: { decision: "reject", actor, note: memo } }));
 }
 
 /**
- * 반려 — applied 는 그 제보의 이력을 역순으로 되돌린다(운영자 이름 — 운영자가 원래 값이 맞다고 본 것이다). held 는 바뀐 것이 없다.
- * 이 제보 뒤에 같은 칸을 누가 또 바꿨으면 **하나도 되돌리지 않고** 거부한다 — 운영자가 검수 화면에서 직접 고친 뒤 확인하면 된다.
+ * 열린 제보를 지금 기준으로 다시 판정한다 — 기준(POLICY)이 바뀌었을 때. 판정이 그대로인 제보는 건드리지 않는다(몇 번 돌려도 같다).
+ * 운영자의 결정은 규칙 맨 위라 뒤집히지 않는다. 바뀐 수를 돌려준다.
  */
-export async function rejectSubmission(id: string, actor: string, note?: string | null): Promise<void> {
-  const memo = input(() => normalizeNote(note));
-  await db().begin(async (tx) => {
-    const s = await lockOpen(tx, id);
-    if (s.state === "held") return decide(tx, id, "rejected", actor, memo);
-    const changes = await changesOf(tx, id);
-    const conflicts = await conflictsOf(tx, id, changes);
-    if (conflicts.length) {
-      throw new SubmissionError(`이 제보 뒤에 같은 칸이 또 바뀌어 되돌릴 수 없습니다: ${conflicts.join(", ")} — 검수 화면에서 직접 고친 뒤 확인해 주세요.`);
-    }
-    const st = s.match_id ? await lockMatchState(tx, s.match_id) : null;
-    if (st && changes.length) await applyMatchReviewInTx(tx, st.match.match_id, inversePatch(changes, st.slots), ADMIN_WRITER);
-    await decide(tx, id, "reverted", actor, memo);
-  });
+export async function reconsiderOpenSubmissions(): Promise<number> {
+  const ids = await db()<{ id: string }[]>`SELECT id FROM submission WHERE state IN ('applied', 'held') ORDER BY created_at, id`;
+  let changed = 0;
+  for (const { id } of ids) {
+    await db().begin(async (tx) => {
+      const s = await lockOpen(tx, id);
+      await settleInTx(tx, s);
+      const [after] = await tx<{ state: string; rule_id: string }[]>`SELECT state, rule_id FROM submission WHERE id = ${id}::uuid`;
+      if (after.state !== s.state || after.rule_id !== s.rule_id) changed++;
+    });
+  }
+  return changed;
 }
 
 /** 이력 → 되돌리는 고치기. 기대값은 제보가 남긴 값(after) — 그 사이 바뀌었으면 검수 경로가 충돌로 거부한다. */
@@ -619,7 +697,9 @@ export async function markSubmissionDuplicate(id: string, of: string, actor: str
                                   UNION SELECT member_id FROM submission_supporter WHERE submission_id = ${id}::uuid) x
        WHERE m IS DISTINCT FROM (SELECT author_id FROM submission WHERE id = ${of}::uuid)
       ON CONFLICT DO NOTHING`;
-    await decide(tx, id, "duplicate", actor, null, of);
+    // 합침은 판정이 아니다(제보 A → B) — 판정 축 밖의 상태로 적는다.
+    await tx`UPDATE submission SET state = 'duplicate', duplicate_of = ${of}::uuid, decided_by = ${actor}, decided_at = now(), updated_at = now()
+              WHERE id = ${id}::uuid`;
   });
 }
 
