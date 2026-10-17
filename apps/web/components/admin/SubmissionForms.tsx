@@ -2,7 +2,9 @@
 
 /** 제보 처리 폼. 거부돼도(충돌·이미 처리됨) 입력값을 잃지 않는다. 판단은 core submission.ts 가 한다. */
 
-import { duplicateSubmissionAction, rejectSubmissionAction, verifySubmissionAction } from "@/app/admin/submissions/actions";
+import {
+  cancelVodRequestAction, duplicateSubmissionAction, rejectSubmissionAction, requestVodAction, verifySubmissionAction,
+} from "@/app/admin/submissions/actions";
 import { IDLE } from "@/lib/action-state";
 
 import { useKeptFormAction } from "../../../../packages/ui/use-kept-form-action";
@@ -36,4 +38,24 @@ export function DecideSubmissionForm({ id, held, schedule = false, duplicateOpti
       <ActionMessage state={dup.state} />
     </form>}
   </div>;
+}
+
+/** VOD 판독 요청 — 링크나 번호. 판단(번호 읽기·중복)은 core vod-request.ts. */
+export function RequestVodForm() {
+  const { state, dispatch, onSubmit } = useKeptFormAction(requestVodAction, IDLE);
+  return <form action={dispatch} onSubmit={onSubmit} className="flex flex-wrap items-center gap-2">
+    <input name="vod" required className={`${input} min-w-64 flex-1`} placeholder="SOOP VOD 링크 또는 번호" aria-label="VOD 링크" />
+    <input name="note" maxLength={500} className={`${input} min-w-64 flex-1`} placeholder="메모(선택 — 판독 세션에 넘깁니다)" aria-label="요청 메모" />
+    <SubmitButton>판독 요청</SubmitButton>
+    <ActionMessage state={state} />
+  </form>;
+}
+
+export function CancelVodRequestForm({ id }: { id: number }) {
+  const { state, dispatch, onSubmit } = useKeptFormAction(cancelVodRequestAction, IDLE);
+  return <form action={dispatch} onSubmit={onSubmit} className="inline-flex items-center gap-2">
+    <input type="hidden" name="id" value={id} />
+    <SubmitButton tone="ghost">거두기</SubmitButton>
+    <ActionMessage state={state} />
+  </form>;
 }

@@ -41,3 +41,17 @@ test('아직 DB 단서가 없는 대기도 원본 메타데이터와 최초 발�
   assert.equal(pending['vod:1'].item?.duration_sec, 3581);
   assert.equal(pending['vod:1'].item?.channel_id, 'ch1');
 });
+test('판독 요청(우선순위)이 오래된 VOD 보다 먼저 — 같은 우선순위 안에서는 오래된 순서, 같은 채널 직렬은 그대로', () => {
+  const q = emptyQueue();
+  enqueue(q, [item(1, 'a', '2026-10-01 12:00:00'), { ...item(2, 'b', '2026-10-09 12:00:00'), priority: 100 },
+    { ...item(3, 'c', '2026-10-05 12:00:00'), priority: 50 }, { ...item(4, 'b', '2026-10-02 12:00:00'), priority: 100 }], 0);
+  assert.equal((claim(q, 'w1', 0) as AutoVod).title_no, 4);
+  assert.equal((claim(q, 'w2', 0) as AutoVod).title_no, 3);  // 2 는 같은 채널 b 가 조사 중
+  assert.equal((claim(q, 'w3', 0) as AutoVod).title_no, 1);
+  assert.throws(() => enqueue(q, [{ ...item(5), priority: -1 }], 0), /잘못된/);
+});
+test('요청이 닫히면 다음 목록이 우선순위 없는 줄로 덮는다', () => {
+  const q = emptyQueue(); enqueue(q, [{ ...item(1), priority: 100 }], 0);
+  enqueue(q, [item(1)], 10);
+  assert.equal(q.jobs['vod:1'].item.priority, undefined);
+});

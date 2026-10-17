@@ -155,16 +155,28 @@ member_role (id, member_id, role, note, granted_by, granted_at, revoked_by, revo
 ck-auto 의 대기열은 이 PC 의 파일(`out/ck/auto/queue.json`)이다. 배포하면 웹은 서버에서 돈다. 그래서 둘 사이를 **DB 의 요청 표 하나**로 잇는다.
 
 ```sql
-vod_request (vod_id, channel_id, requested_at, priority, reason, submission_id NULL, state: queued|claimed|done|unavailable)
+vod_request (id, title_no, channel_id NULL, priority, reason: submission|admin, submission_id NULL, note, requested_by,
+             state: queued|claimed|done|unavailable|cancelled, outcome_note, requested_at, claimed_at, closed_at)   -- 0097
 ```
+
+- **구현 때 정한 것(③, 2026-10-17):** 줄은 **(VOD, 제보)마다** 하나이고, "같은 VOD 는 한 줄로 모은다"는 읽는 쪽(`listOpenVodRequests`)이
+  VOD 번호로 묶는다. 그래야 제보마다 "내 VOD 는 어디까지 왔나"(사실 `vod`)를 바로 읽는다. 같은 VOD 의 열린 줄은 claim·close 가 함께 옮긴다.
+- 상태: `queued`(이 PC 가 아직 못 봄) → `claimed`(대기열에 넣음 — 끝난 조사였으면 다시 열었다) → `done`(판독 끝) | `unavailable`(영상 없음).
+  `cancelled` = 요청한 쪽이 거둠(운영자 요청은 운영 화면에서, 제보의 요청은 ④⑤의 판정이).
+- 우선순위(`metrics/vod-request.ts`): 회원 제보 100 > 운영자 50 > 요청 없는 매일 조사 0. 대기열은 우선순위 → 오래된 VOD.
+- 채널을 모르는 요청(링크만)은 이 PC 가 SOOP 상세(`vodDetail`)에서 채널·방송 끝·길이를 읽는다. 못 읽으면 지어내지 않고 다음 회차까지 둔다.
 
 **흐름**
 
-1. 판정의 할 일 `vod_priority` 가 요청 표에 한 줄을 쓴다. 같은 VOD 는 한 줄로 모은다.
-2. ck-auto 가 매시간 목록을 갱신할 때 요청 표를 먼저 읽는다.
-   - **감시 목록 밖 채널이어도** 대기열에 넣는다.
-   - **이미 끝난 VOD 면 다시 연다**(기존 `ck:queue reopen`).
-3. 대기열의 `claim` 정렬에 `priority` 를 더한다. 요청된 VOD 가 오래된 순서보다 앞선다.
+1. 판정의 할 일 `vod_priority` 가 요청 표에 한 줄을 쓴다(`requestVodInTx` — 제보 접수와 같은 트랜잭션, ④⑤). 운영자는 제보 화면의 "VOD 판독 요청"으로 쓴다.
+2. ck-auto 가 매시간 목록을 갱신할 때(`ck:queue plan`) 요청 표를 읽는다. 할 일은 순수 함수 `scripts/lib/ck-vod-request.ts` 가 정한다(단위 시험).
+   - **감시 목록 밖 채널이어도** 대기열에 넣는다. 제목 제외 규칙도 건너뛴다(사람이 콕 집은 VOD 다).
+   - **이미 끝난 VOD 면 다시 연다** — `ck:queue reopen` 과 같은 함수(`reopenDone`). 인계에는 "이전 결론은 유지하고 요청 뒤 들어온 경기를 확인,
+     같은 판이면 그 경기 번호로" + 요청 메모를 남긴다(품질 의심으로 다시 여는 reopen 과 문장이 다르다). 다시 열기는 처음 본(queued) 요청에서만.
+   - 접근 불가로 기록된 VOD 는 `unavailable` 로 닫는다. 대기열에 넣은 뒤 끝났으면(`claimed` + 끝) `done` 으로 닫는다.
+   - 요청 상태를 쓰는 것은 `--enqueue`(시간별 조회)뿐 — 미리보기·`--dry-run` 은 읽기만.
+3. 대기열의 `claim` 정렬에 `priority` 를 더한다. 요청된 VOD 가 오래된 순서보다 앞선다(같은 채널은 여전히 하나씩).
+4. 조사가 끝나면 `ck:queue finish` 가 `done`, 접근 불가 기록(`ck:queue access --status unavailable`)이면 `unavailable` 로 닫는다.
 
 **판독 결과 → 사실**
 
@@ -235,7 +247,11 @@ vod_request (vod_id, channel_id, requested_at, priority, reason, submission_id N
    - 사실이 바뀌는 곳(+1·권한 주기/거두기)은 그 제보를 다시 판정하고 끝난다. 접수 순간 검증(신뢰 계정)도 같은 접수 길
    - 검사: 판정 단위 7 · verify:db — 꺼 두면 그대로 / 켜고 다시 판정하면 신뢰 제보자 것만 검증·보류는 그대로 / 접수 순간 검증 /
      거두면 다음부터 확인 전·기록 남음 / 합의 N=2 는 +1 순간 검증 / 되돌린 기준으로 다시 판정 0건
-3. `vod_request` + ck-auto 우선순위·다시 열기.
+3. ✅ **(2026-10-17, 0097)** `vod_request` + ck-auto 우선순위·다시 열기. 요청을 쓰는 판정 규칙은 아직 없다(④⑤가 쓴다) — 지금은 운영자 요청만.
+   - `metrics/vod-request.ts`(VOD 링크 → 번호·우선순위) · `db/vod-request.ts`(쓰기·묶어 읽기·claim·close) · `scripts/lib/ck-vod-request.ts`(요청 → 할 일)
+   - ck-auto: `ck:queue plan` 이 요청을 먼저 · `claim` 이 우선순위 순 · `finish`·`access` 가 닫는다 · 운영 화면 "VOD 판독 요청"
+   - 검사: 단위(요청 → 할 일 3 · 우선순위 2 · VOD 번호 1) · verify:db 11(묶어 읽기·claim·close·중복·거두기·DB 제약)
+   - ★ ck-auto 는 이 작업 폴더에서 돈다 — `ck:queue` 의 요청 읽기는 **0097 운영 적용과 함께** 들어간다(표가 없으면 finish 가 실패해 쓰기 실패 표시로 자동 조사가 멈춘다).
 4. 나(VOD 단서).
 5. 가(직접 입력) + 사람·날짜 중복 규칙 + 판독 잇기.
 
