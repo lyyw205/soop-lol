@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  comparePov, fillPlan, identKey, matchParticipant, mergeObserved, summarizeComparison,
+  adoptPlan, comparePov, fillPlan, identKey, matchParticipant, mergeObserved, summarizeComparison,
   type StoredMatch, type StoredParticipant,
 } from "./pov.ts";
 
@@ -139,4 +139,16 @@ test("세트 번호는 시리즈가 없으면 비교하지 않는다", () => {
   const { observed } = mergeObserved({}, { match: { series_game_no: 2 } }, T0);
   const [item] = comparePov(stored({ series_id: null, series_game_no: null }), observed).items;
   assert.equal(item.status, "pending");
+});
+
+test("판독 값으로 덮기(직접 입력 검증) — 대응이 확실한 mismatch 의 승리 팀·챔피언·KDA·포지션만, 사람의 편·빈 칸·불확실한 대응은 안 덮는다", () => {
+  const s = stored({ winning_team: 100, participants: [row(1, "A", 100, { kills: 3, champion_id: 1 }), row(6, "B", 200, { kills: null })] });
+  const cmp = comparePov(s, { match: { winning_team: { v: 200, at: T0 } }, participants: {
+    "s:A": { ident: { streamer_id: "A" }, team: { v: 100, at: T0 }, kills: { v: 9, at: T0 }, champion_id: { v: 103, at: T0 } },
+    "s:B": { ident: { streamer_id: "B" }, team: { v: 100, at: T0 }, kills: { v: 2, at: T0 } },
+    "s:Z": { ident: { streamer_id: "Z" }, kills: { v: 1, at: T0 } },
+  } });
+  const plan = adoptPlan(cmp).map((x) => [x.scope, x.participant_id, x.field, x.value]);
+  // A 의 팀 100 → 경기 100 이지만 B 가 100 으로 읽혀 팀 대응이 깨진다(두 이름표가 한 팀) — 승리 팀은 대응 불가(pending)라 덮지 않는다.
+  assert.deepEqual(plan, [["participant", 1, "champion_id", 103], ["participant", 1, "kills", 9]]);
 });

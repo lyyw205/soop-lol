@@ -5,7 +5,8 @@
  *   내 정보 → 내 제보 → 관리 메뉴 → 운영자 확인 → "확인 전" 이 떨어지고 내 제보는 확인 완료 · 모바일 · 비로그인 안내
  * 편성표 제보(0094): 일정 상세의 제보하기 → 취소 제보(편성표는 그대로) · 빠진 일정 알리기 → 운영자 대기열 →
  *   편성표 편집에서 반영(미리 채운 폼 저장) → 편성표 반영 + 제보 확인 완료
- * 규칙 자체(중복 네 겹·보류·되돌리기·집계 제외)는 verify:db 의 verify-submission-db 가 함수로 검사한다.
+ * VOD 단서(0098): 내 제보 → 단서 보내기 → 숨김 + 판독 요청 · 직접 입력(0099): 내 제보 → 경기 등록 → 바로 공개·"검증 전" · 운영 대기열.
+ * 규칙 자체(중복 네 겹·보류·되돌리기·집계 제외·판독 검증)는 verify:db 가 함수로 검사한다.
  */
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
@@ -107,10 +108,19 @@ try {
   };
   // 링크 따라가기 — 링크가 있고 어디를 가리키는지 확인한 뒤 그 주소로 연다. 개발 서버는 처음 여는 화면을 컴파일하는 동안
   // 클라이언트 이동이 걸리지 않을 때가 있어(운영 빌드에는 없는 단계) 클릭 대신 주소로 간다.
+  // 개발 서버는 새 화면을 컴파일하면서 열린 탭들을 다시 불러온다 — 그 순간의 이동은 ERR_ABORTED 로 끊긴다(운영 빌드에는 없다). 끊기면 다시 간다.
+  const go = async (page: Awaited<ReturnType<typeof contextFor>>, url: string) => {
+    for (let tries = 1; ; tries++) {
+      try { return await page.goto(url, { timeout: 120_000 }); } catch (e) {
+        if (tries >= 3 || !String((e as Error).message).includes("ERR_ABORTED")) throw e;
+        await page.waitForTimeout(1000);
+      }
+    }
+  };
   const follow = async (page: Awaited<ReturnType<typeof contextFor>>, name: string, expected: RegExp) => {
     const href = await page.getByRole("link", { name }).first().getAttribute("href");
     assert.ok(href && expected.test(href), `${name} → ${href}`);
-    await page.goto(new URL(href!, base).toString());
+    await go(page, new URL(href!, base).toString());
   };
   const versus = `${base}/lol/versus?a=sbb-a&b=sbb-b`;
   const openSet = async (page: Awaited<ReturnType<typeof contextFor>>) => {
@@ -121,10 +131,10 @@ try {
 
   // 비로그인 — 폼 대신 로그인 안내
   const anon = await contextFor();
-  await anon.goto(`${base}/submit/match/${encodeURIComponent(matchId)}`, { timeout: 120_000 });
+  await go(anon, `${base}/submit/match/${encodeURIComponent(matchId)}`);
   assert.ok(await anon.getByRole("link", { name: "로그인하고 제보하기 →" }).isVisible());
   assert.equal(await anon.getByRole("button", { name: /제보 보내기|바꾼 칸이 없습니다/ }).count(), 0);
-  await anon.goto(`${base}/submissions`);
+  await go(anon, `${base}/submissions`);
   await anon.waitForURL(/\/login\?next=/);
   console.log("PASS anonymous: login prompt instead of form, /submissions redirects to login");
 
@@ -147,34 +157,34 @@ try {
   await openSet(user);
   assert.ok(await user.locator(".match-details .pending-badge").isVisible());
   assert.ok(await user.locator(".match-details-pending-dot").first().isVisible());
-  console.log("PASS public versus page shows 확인 전 on the series row and the set view");
+  console.log("PASS public versus page shows 검증 전 on the series row and the set view");
 
   // 다른 회원 — 열린 제보가 보이고 +1
   const second = await contextFor(other.token);
-  await second.goto(`${base}/submit/match/${encodeURIComponent(matchId)}`, { timeout: 120_000 });
+  await go(second, `${base}/submit/match/${encodeURIComponent(matchId)}`);
   await second.getByRole("heading", { name: "이 경기에 이미 접수된 제보 1건" }).waitFor();
   assert.ok(await second.getByText("1번 자리 킬: 1 → 5").isVisible());
   await second.getByRole("button", { name: "같은 내용이에요(+1)" }).click();
   // +1 한 회원도 이 제보에 낀 사람이 된다 — 다시 그리면 버튼이 빠지고 숫자가 오른다(두 번 +1 못 함).
-  await second.getByText("반영됨 · 확인 전 · 같은 내용 1").waitFor({ timeout: 60_000 });
+  await second.getByText("반영됨 · 검증 전 · 같은 내용 1").waitFor({ timeout: 60_000 });
   assert.equal(await second.getByRole("button", { name: "같은 내용이에요(+1)" }).count(), 0);
   console.log("PASS another member sees the open submission, adds +1 once (count shown, button gone)");
 
   // 작성자 — 내 정보 → 내 제보
-  await user.goto(`${base}/me`);
+  await go(user, `${base}/me`);
   await follow(user, "내 경기 제보 확인 →", /^\/submissions$/);
-  await user.getByText(/반영됨 · 확인 전 · 같은 내용 1/).waitFor();
+  await user.getByText(/반영됨 · 검증 전 · 같은 내용 1/).waitFor();
   assert.ok(await user.getByText("1번 자리 킬: 1 → 5").isVisible());
   await user.setViewportSize({ width: 390, height: 844 });
   assert.equal(await user.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  await user.goto(`${base}/submit/match/${encodeURIComponent(matchId)}`);
+  await go(user, `${base}/submit/match/${encodeURIComponent(matchId)}`);
   assert.equal(await user.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "submission form must not scroll sideways on mobile");
   await user.setViewportSize({ width: 1280, height: 900 });
   console.log("PASS /me link → my submissions with state and +1 count, mobile without horizontal scroll");
 
   // 운영자 — 관리 메뉴 → 대기열 → 처리 → 확인
   const admin = await contextFor(owner.token);
-  await admin.goto(`${base}/admin`, { timeout: 120_000 });
+  await go(admin, `${base}/admin`);
   await follow(admin, "회원 제보", /^\/admin\/submissions$/);
   await follow(admin, "처리 →", /^\/admin\/submissions\/[0-9a-f-]+$/);
   assert.ok(await admin.getByText("메모: <b>VOD 12:30</b> 결과창").isVisible());
@@ -183,7 +193,7 @@ try {
   await admin.getByText(/처리: .* 결과창 확인/).waitFor({ timeout: 60_000 });
   assert.equal(await pending(), false);
   const ordinary = await contextFor(other.token);
-  const denied = await ordinary.goto(`${base}/admin/submissions`);
+  const denied = await go(ordinary, `${base}/admin/submissions`);
   assert.equal(denied?.status(), 403);
   console.log("PASS admin nav → queue → detail (note as text) → verify; ordinary member gets 403");
 
@@ -191,13 +201,13 @@ try {
   await openSet(user);
   assert.equal(await user.locator(".match-details .pending-badge").count(), 0);
   assert.equal(await user.locator(".match-details-pending-dot").count(), 0);
-  await user.goto(`${base}/submissions`);
+  await go(user, `${base}/submissions`);
   await user.getByText(/확인 완료/).waitFor();
   assert.ok(await user.getByText("운영자: 결과창 확인").isVisible());
-  console.log("PASS after verification: 확인 전 gone from public view, my submissions shows 확인 완료 + admin note");
+  console.log("PASS after verification: 검증 전 gone from public view, my submissions shows 확인 완료 + admin note");
 
   // ── 편성표 제보 ───────────────────────────────────────────────────────────
-  await user.goto(`${base}/schedule/${sched.id}`, { timeout: 120_000 });
+  await go(user, `${base}/schedule/${sched.id}`);
   await follow(user, "제보하기 →", /^\/submit\/schedule\/[0-9a-f-]+$/);
   assert.equal(await user.getByLabel("제목").inputValue(), "제보 화면 편성");
   assert.equal(await user.getByRole("button", { name: /제보 보내기|바꾼 칸이 없습니다/ }).textContent(), "바꾼 칸이 없습니다");
@@ -208,7 +218,7 @@ try {
   assert.equal((await one<{ status: string }>(`SELECT status FROM schedule_entry WHERE id = $1`, [sched.id])).status, "scheduled", "report must not change the schedule");
   console.log("PASS schedule detail → 제보하기 → form prefilled with the entry → cancel report held, schedule unchanged");
 
-  await user.goto(`${base}/schedule`, { timeout: 120_000 });
+  await go(user, `${base}/schedule`);
   await follow(user, "빠진 일정 알리기 →", /^\/submit\/schedule\/new$/);
   await user.getByLabel("제목").fill("제보로 알린 대회");
   await user.getByLabel("날짜").fill("2026-11-25");
@@ -226,10 +236,10 @@ try {
   const reports = (await memory.query<{ id: string; schedule_entry_id: string | null }>(
     `SELECT id, schedule_entry_id FROM submission WHERE kind = 'schedule_report' ORDER BY created_at`)).rows;
   assert.equal(reports.length, 2);
-  await admin.goto(`${base}/admin/submissions`, { timeout: 120_000 });
+  await go(admin, `${base}/admin/submissions`);
   assert.ok(await admin.getByText("제보 화면 편성").first().isVisible());
   assert.ok(await admin.getByText("편성표에 없는 일정").first().isVisible());
-  await admin.goto(`${base}/admin/submissions/${reports[0].id}`);
+  await go(admin, `${base}/admin/submissions/${reports[0].id}`);
   await follow(admin, "편성표 편집에서 반영 →", /^\/admin\/schedule\/[0-9a-f-]+\?submission=/);
   await admin.getByText("회원 제보로 미리 채웠습니다").waitFor();
   await admin.getByRole("button", { name: "저장" }).click();
@@ -238,7 +248,7 @@ try {
   assert.equal((await one<{ state: string }>(`SELECT state FROM submission WHERE id = $1`, [reports[0].id])).state, "verified");
   console.log("PASS admin: queue shows schedule reports → 편성표 편집에서 반영 → prefilled save cancels the entry and closes the report");
 
-  await admin.goto(`${base}/admin/submissions/${reports[1].id}`);
+  await go(admin, `${base}/admin/submissions/${reports[1].id}`);
   await follow(admin, "편성표 편집에서 반영 →", /^\/admin\/schedule\/new\?submission=/);
   await admin.getByText("등록된 스트리머와 이름이 맞지 않아 넣지 않은 참가자: 모르는이름").waitFor();
   await admin.getByRole("button", { name: "일정 등록" }).click();
@@ -250,9 +260,43 @@ try {
       (SELECT count(*)::int FROM schedule_source x WHERE x.entry_id = e.id AND x.url = 'https://ch.sooplive.co.kr/sbb/post/2') AS src
      FROM schedule_entry e JOIN schedule_slot s ON s.entry_id = e.id WHERE e.id = $1`, [created.schedule_entry_id]);
   assert.deepEqual(entry, { title: "제보로 알린 대회", starts: "2026-11-25 19:30", people: 1, src: 1 });
-  await user.goto(`${base}/submissions`);
+  await go(user, `${base}/submissions`);
   assert.equal(await user.getByText(/확인 완료/).count() >= 3, true);
   console.log("PASS admin: new-schedule report → prefilled new entry (date·time·matched participant·evidence source) → created + report closed");
+
+  // ── VOD 단서(0098) · 빠진 경기 직접 입력(0099) ─────────────────────────────────
+  await go(user, `${base}/submissions`);
+  await follow(user, "내전이 있는 VOD 알리기 →", /^\/submit\/vod$/);
+  await user.getByLabel("SOOP VOD 링크").fill("https://vod.sooplive.com/player/209748301");
+  await user.getByLabel("시작 시점(선택)").fill("1:20:00");
+  await user.getByRole("button", { name: "단서 보내기" }).click();
+  await user.getByRole("status").filter({ hasText: "VOD 판독 대기열 맨 앞" }).waitFor({ timeout: 60_000 });
+  const hintReq = await one<{ n: number }>(`SELECT count(*)::int AS n FROM vod_request WHERE title_no = 209748301 AND reason = 'submission' AND state = 'queued'`);
+  assert.equal(hintReq.n, 1);
+  await go(user, `${base}/submissions`);
+  await user.getByText(/VOD 판독 대기/).first().waitFor();
+  console.log("PASS my submissions → VOD 단서 알리기 → hidden hint + queued VOD request, my submissions shows VOD 판독 대기");
+
+  await follow(user, "빠진 경기 직접 등록하기 →", /^\/submit\/addition$/);
+  await user.getByLabel("날짜").fill("2026-10-20");
+  await user.getByLabel("첫 세트 시작(어림)").fill("20:00");
+  await user.getByLabel("A팀 1번").selectOption({ label: "제보에이" });
+  await user.getByLabel("B팀 1번").selectOption({ label: "제보비" });
+  await user.getByLabel("승리 팀").selectOption("a");
+  await user.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await user.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "addition form must not scroll sideways on mobile");
+  await user.setViewportSize({ width: 1280, height: 900 });
+  await user.getByRole("button", { name: "경기 등록" }).click();
+  await user.getByRole("status").filter({ hasText: "검증 전" }).waitFor({ timeout: 60_000 });
+  const added = await one<{ id: string; rule_id: string }>(`SELECT id, rule_id FROM submission WHERE kind = 'match_addition'`);
+  assert.equal(added.rule_id, "addition_unverifiable");   // 링크도 그날 단서 행도 없다 — 검증 전 + 운영자
+  await go(user, versus);
+  await user.locator(".pending-badge").first().waitFor();
+  assert.equal(await user.locator(".pending-badge").first().textContent(), "검증 전");
+  await go(admin, `${base}/admin/submissions`);
+  assert.ok(await admin.getByText("빠진 경기 등록").first().isVisible());
+  assert.ok(await admin.getByText("VOD 단서").first().isVisible());
+  console.log("PASS my submissions → 빠진 경기 직접 등록 → public at once with 검증 전 on versus page, admin queue lists addition + hint, mobile without horizontal scroll");
 } catch (error) {
   if (appLog) console.error(appLog.slice(-4000));
   throw error;

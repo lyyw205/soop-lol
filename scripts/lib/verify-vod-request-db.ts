@@ -132,7 +132,7 @@ async function verifyVodHintDb(check: Check, expectReject: ExpectReject): Promis
   const detail = await sub.getSubmissionForAdmin(d.id);
   check("시점을 준 단서 — 그 앞뒤 30분에 판독 경기가 없으면 운영자, 생기면 다시 판정해 확인 · 운영 화면에 요청 상태와 경기",
     far === "vod_not_found" && changed === 1 && (await st(d.id)).state === "verified"
-      && detail?.vod?.request === "done" && detail.vod.matches.join() === "VH:3", JSON.stringify({ far, changed, vod: detail?.vod }));
+      && detail?.vod?.requests[0]?.state === "done" && detail.vod.matches.map((m) => m.match_id).join() === "VH:3", JSON.stringify({ far, changed, vod: detail?.vod }));
 
   const e = await hint(H2, { vod: String(V4) });
   await sub.settleVodRequests(V4, "unavailable", "삭제된 VOD", tick());

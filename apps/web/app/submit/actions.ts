@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 
 import { readSessionToken } from "@soop-lol/core/lib/auth/request";
 import { MemberError } from "@soop-lol/core/lib/db/member";
-import { submitMatchCorrection, submitScheduleReport, submitVodHint, supportSubmission } from "@soop-lol/core/lib/db/submission";
+import { submitMatchAddition, submitMatchCorrection, submitScheduleReport, submitVodHint, supportSubmission } from "@soop-lol/core/lib/db/submission";
 import { HOLD_REASON_LABEL } from "@soop-lol/core/lib/metrics/submission";
-import { mySubmissionsHref, submitMatchHref, submitScheduleHref, submitVodHintHref } from "@soop-lol/core/lib/site-paths";
+import { mySubmissionsHref, submitAdditionHref, submitMatchHref, submitScheduleHref, submitVodHintHref } from "@soop-lol/core/lib/site-paths";
 
 import type { ActionState } from "@/lib/action-state";
 
@@ -24,7 +24,7 @@ export async function submitCorrectionAction(_prev: ActionState, form: FormData)
       request_id: String(form.get("request_id") ?? ""), match_id: matchId, payload,
       note: String(form.get("note") ?? ""), evidence_url: String(form.get("evidence_url") ?? ""),
     });
-    message = r.kind === "applied" ? "반영했습니다. 운영자가 확인할 때까지 '확인 전'으로 보이고, 전적 합계에는 확인 뒤에 들어갑니다."
+    message = r.kind === "applied" ? "반영했습니다. 운영자가 확인할 때까지 '검증 전'으로 보이고, 전적 합계에는 확인 뒤에 들어갑니다."
       : r.kind === "held" ? `접수했습니다. ${HOLD_REASON_LABEL[r.hold_reason!]}.`
       : r.kind === "supported" ? "같은 내용의 제보가 이미 있어 '같은 내용이에요'로 더했습니다."
       : "이미 접수된 요청입니다.";
@@ -69,6 +69,26 @@ export async function submitVodHintAction(_prev: ActionState, form: FormData): P
       : r.kind === "repeat" ? "이미 접수된 요청입니다." : "접수했습니다.";
   } catch (e) { if (e instanceof MemberError) return { ok: false, message: e.message }; throw e; }
   revalidatePath(submitVodHintHref());
+  revalidatePath(mySubmissionsHref());
+  return { ok: true, message };
+}
+
+/** 빠진 경기 직접 입력 — 사람·날짜로 중복을 본 뒤 바로 공개·검증 전. 판단은 core submission.ts. */
+export async function submitAdditionAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  let payload: unknown;
+  try { payload = JSON.parse(String(form.get("payload") ?? "{}")); } catch { return { ok: false, message: "입력 형식이 올바르지 않습니다. 새로고침해 주세요." }; }
+  let message: string;
+  try {
+    const r = await submitMatchAddition(await readSessionToken(), {
+      request_id: String(form.get("request_id") ?? ""), payload,
+      vod_link: String(form.get("vod_link") ?? ""), note: String(form.get("note") ?? ""),
+    });
+    message = r.kind === "applied" ? "등록했습니다. 목록에 '검증 전'으로 보이고, VOD 판독이 확인하면 전적 합계에 들어갑니다."
+      : r.kind === "supported" ? "같은 경기를 다른 회원이 먼저 등록해 '같은 내용이에요'로 더했습니다."
+      : r.kind === "repeat" ? "이미 접수된 요청입니다." : "접수했습니다.";
+  } catch (e) { if (e instanceof MemberError) return { ok: false, message: e.message }; throw e; }
+  revalidatePath("/", "layout");
+  revalidatePath(submitAdditionHref());
   revalidatePath(mySubmissionsHref());
   return { ok: true, message };
 }

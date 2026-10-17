@@ -26,14 +26,16 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
   const open = s.state === "applied" || s.state === "held";
   const schedule = s.kind === "schedule_report";
   const hint = s.kind === "vod_hint" ? s.payload : null;
+  const addition = s.kind === "match_addition" ? s.payload : null;
   // 같은 대상의 다른 열린 제보 — 중복으로 합칠 후보.
   const sameTarget = (q: typeof queue[number]) => q.kind === "vod_hint" && hint ? q.payload.vod === hint.vod
+    : q.kind === "match_addition" && addition ? q.payload.on_date === addition.on_date
     : schedule ? q.schedule_entry_id === s.schedule_entry_id : q.match_id === s.match_id;
   const siblings = queue.filter((q) => q.id !== s.id && q.kind === s.kind && sameTarget(q))
     .map((q) => ({ id: q.id, label: `${SUBMISSION_STATE_LABEL[q.state]} · ${submissionLines(q, names)[0] ?? q.id.slice(0, 8)}` }));
   return <div className="grid gap-5">
     <Link href="/admin/submissions" className="text-sm text-ink-400 hover:underline">← 제보 목록</Link>
-    <Card title={hint ? `VOD 단서 · vod:${hint.vod}` : schedule ? `편성표 · ${s.schedule_title ?? "편성표에 없는 일정"}` : `${s.event_name ?? "행사 없음"} · ${s.played_at ? kstPlayedAt(new Date(s.played_at), "datetime") : ""}`}
+    <Card title={addition ? `빠진 경기 등록 · ${addition.on_date} ${addition.start}` : hint ? `VOD 단서 · vod:${hint.vod}` : schedule ? `편성표 · ${s.schedule_title ?? "편성표에 없는 일정"}` : `${s.event_name ?? "행사 없음"} · ${s.played_at ? kstPlayedAt(new Date(s.played_at), "datetime") : ""}`}
       description={`${s.author ?? "탈퇴한 회원"} · ${kstPlayedAt(new Date(s.created_at), "datetime")} 접수`}>
       <div className="flex flex-wrap gap-2 text-sm">
         <Tag tone={s.state === "applied" ? "warn" : "neutral"}>{submissionStateLabel(s)}</Tag>
@@ -62,10 +64,12 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
       </>}
       {s.vod && <div className="mt-4 text-sm text-ink-300">
         <h3 className="text-sm font-semibold">VOD 판독</h3>
-        <p className="mt-1">요청: {s.vod.request ? VOD_REQUEST_STATE_LABEL[s.vod.request as keyof typeof VOD_REQUEST_STATE_LABEL] : "없음"}
-          {" · "}판독이 기록한 경기{hint?.from_sec !== undefined ? "(단서 시점 앞뒤 30분)" : ""} {s.vod.matches.length}건</p>
-        {s.vod.matches.length > 0 && <ul className="mt-1 list-disc pl-5">{s.vod.matches.map((m) => <li key={m}>
-          <Link href={`/admin/ck/match/${encodeURIComponent(m)}`} className="text-accent-400 hover:underline">{m}</Link></li>)}</ul>}
+        <p className="mt-1">요청: {s.vod.requests.length ? s.vod.requests.map((r) => `vod:${r.title_no} ${VOD_REQUEST_STATE_LABEL[r.state as keyof typeof VOD_REQUEST_STATE_LABEL] ?? r.state}`).join(" · ")
+          : addition ? "없음 — 판독할 VOD 를 못 찾았습니다(그날 참가자 VOD 가 단서 행에 생기면 다음 시간별 조회가 요청합니다)" : "없음"}</p>
+        <p className="mt-1">{addition ? "만든 판(판독 시점이 붙으면 판독 값으로 덮고 검증)" : `판독이 기록한 경기${hint?.from_sec !== undefined ? "(단서 시점 앞뒤 30분)" : ""}`} {s.vod.matches.length}건</p>
+        {s.vod.matches.length > 0 && <ul className="mt-1 list-disc pl-5">{s.vod.matches.map((m) => <li key={m.match_id}>
+          <Link href={`/admin/ck/match/${encodeURIComponent(m.match_id)}`} className="text-accent-400 hover:underline">{m.match_id}</Link>
+          {addition && <span className="ml-2 text-ink-400">{m.read ? "판독 시점 있음" : "판독 전"}</span>}</li>)}</ul>}
       </div>}
       {s.conflicts.length > 0 && <p className="mt-3 text-sm text-amber-400">이 제보 뒤에 같은 칸이 또 바뀌어 반려(되돌리기)를 할 수 없습니다: {s.conflicts.join(", ")} — 검수 화면에서 직접 고친 뒤 확인하세요.</p>}
       {s.rule_id && <p className="mt-3 text-xs text-ink-500">판정 규칙 {s.rule_id} · 기준 {s.policy_version}</p>}

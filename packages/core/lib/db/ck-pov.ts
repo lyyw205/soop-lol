@@ -12,13 +12,14 @@
 import { isDeepStrictEqual } from "node:util";
 import type postgres from "postgres";
 
+import { AUTO_WRITER, applyMatchReviewInTx, type MatchReviewPatch, type ParticipantPatch } from "./ck.ts";
 import { db } from "./client.ts";
 import { resolveChampion } from "./participant.ts";
 import {
   autoFillVerdict, loadReviewLockInTx, matchCell, participantCell, recordAutoChangesInTx, type AutoChange,
 } from "./review-lock.ts";
 import {
-  comparePov, fillPlan, mergeObserved, summarizeComparison,
+  adoptPlan, comparePov, fillPlan, mergeObserved, summarizeComparison,
   type PovHistoryEntry, type PovObserved, type PovSubmission, type StoredMatch,
 } from "../metrics/pov.ts";
 
@@ -300,6 +301,57 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
     await tx`UPDATE match SET review_version = review_version + 1 WHERE match_id = ${input.match_id}`;
   }
   return { role: prev?.role ?? role, filled, attached, locked, lock_reason: lock.mode === "match" ? lock.reason : null, kept, reopened, summary, unmatched: final.unmatched };
+}
+
+/**
+ * 판독 값으로 덮기 — 회원이 직접 입력한 경기를 판독이 검증할 때(0099, §9 "판독 값으로 덮고 검증"). 그 경기에 붙은 시점들의 관측 중
+ * 경기 값과 **다른** 승리 팀·챔피언·KDA·포지션을 판독 값으로 고친다(metrics/pov.ts adoptPlan). 시점끼리 값이 다르면 그 칸은 덮지 않는다
+ * (어느 판독이 맞는지 모른다 — 불일치로 남아 운영자가 본다). 쓰기는 검수 길 하나(applyMatchReviewInTx, actor auto). 덮은 칸 수를 돌려준다.
+ */
+export async function adoptPovValuesInTx(tx: Tx, matchId: string): Promise<number> {
+  const stored = await loadStoredMatchInTx(tx, matchId, true);
+  if (!stored) return 0;
+  const povs = await listMatchPovsInTx(tx, matchId);
+  const want = new Map<string, { scope: "match" | "participant"; participant_id: number | null; field: string; value: unknown } | null>();
+  for (const p of povs) {
+    for (const item of adoptPlan(comparePov(stored, p.observed))) {
+      const key = `${item.scope}:${item.participant_id ?? ""}:${item.field}`;
+      const prev = want.get(key);
+      if (prev === undefined) want.set(key, item);
+      else if (prev !== null && !isDeepStrictEqual(prev.value, item.value)) want.set(key, null);   // 시점끼리 다르다
+    }
+  }
+  const plan = [...want.values()].filter((x): x is NonNullable<typeof x> => x !== null);
+  if (!plan.length) return 0;
+  const patch: MatchReviewPatch = {};
+  const winner = plan.find((x) => x.scope === "match" && x.field === "winning_team");
+  if (winner) patch.match = { changes: { winning_team: winner.value as 100 | 200 }, expect: { winning_team: stored.winning_team } };
+  const rows = await tx<{ participant_id: number; champion_id: number; champion_name: string | null; team_position: string | null;
+    individual_position: string | null; kills: number | null; deaths: number | null; assists: number | null }[]>`
+    SELECT participant_id, champion_id, champion_name, team_position, individual_position, kills, deaths, assists
+      FROM match_participant WHERE match_id = ${matchId}`;
+  const byPid = new Map(rows.map((r) => [r.participant_id, r]));
+  const edits = new Map<number, ParticipantPatch>();
+  for (const x of plan) {
+    if (x.scope !== "participant" || x.participant_id === null) continue;
+    const cur = byPid.get(x.participant_id);
+    if (!cur) continue;
+    const e = edits.get(x.participant_id) ?? { participant_id: x.participant_id, changes: {}, expect: {} };
+    if (x.field === "champion_id") {
+      e.changes.champion_id = x.value as number;
+      e.expect.champion_id = cur.champion_id; e.expect.champion_name = cur.champion_name;
+    } else if (x.field === "position") {
+      const pos = String(x.value).toUpperCase();
+      e.changes.team_position = pos; e.changes.individual_position = pos;
+      e.expect.team_position = cur.team_position; e.expect.individual_position = cur.individual_position;
+    } else if (x.field === "kills" || x.field === "deaths" || x.field === "assists") {
+      e.changes[x.field] = x.value as number; e.expect[x.field] = cur[x.field];
+    }
+    edits.set(x.participant_id, e);
+  }
+  if (edits.size) patch.participants = { patch: [...edits.values()] };
+  await applyMatchReviewInTx(tx, matchId, patch, AUTO_WRITER);
+  return plan.length;
 }
 
 /** 경기에 붙은 시점들. 경기를 만든 시점 → 먼저 붙은 순. */

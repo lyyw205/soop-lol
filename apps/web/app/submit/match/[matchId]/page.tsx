@@ -35,7 +35,7 @@ export default async function SubmitMatchPage({ params }: { params: Promise<{ ma
         <section className="member-card arena-panel" aria-labelledby="submit-title">
           <h1 id="submit-title">경기 제보</h1>
           <p className="member-lead">{target.event_name} · {kstPlayedAt(new Date(target.played_at), "datetime")}</p>
-          <p className="member-lead">틀렸거나 빠진 값을 고쳐 주세요. 바로 반영되고, 운영자가 확인할 때까지 <strong>확인 전</strong>으로 보이며 전적 합계에는 확인 뒤에 들어갑니다.
+          <p className="member-lead">틀렸거나 빠진 값을 고쳐 주세요. 바로 반영되고, 운영자가 확인할 때까지 <strong>검증 전</strong>으로 보이며 전적 합계에는 확인 뒤에 들어갑니다.
             보낸 내용은 본인과 운영자만 봅니다.</p>
           {!me ? <p><Link href={loginHref(here)}>로그인하고 제보하기 →</Link></p>
             : !me.nickname ? <p><Link href={meHref({ next: here })}>가입을 마치고 제보하기 →</Link></p> : null}

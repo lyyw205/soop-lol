@@ -78,6 +78,8 @@ export const submitMatchHref = (matchId: string): string => `/submit/match/${enc
 export const submitScheduleHref = (entryId?: string | null): string => `/submit/schedule/${entryId ? encodeURIComponent(entryId) : "new"}`;
 /** VOD 단서(로그인 필수, 공개하지 않음) — "이 VOD 에 내전이 있다"를 알려 판독 대기열 맨 앞에 넣는다. */
 export const submitVodHintHref = (): string => "/submit/vod";
+/** 빠진 경기 직접 입력(로그인 필수) — 바로 공개·검증 전, VOD 판독이 검증한다. */
+export const submitAdditionHref = (): string => "/submit/addition";
 /** 내 제보 — 보낸 제보와 상태. */
 export const mySubmissionsHref = (): string => "/submissions";
 export const termsHref = (): string => "/terms";

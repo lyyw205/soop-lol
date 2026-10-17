@@ -27,6 +27,10 @@ import type postgres from "postgres";
 
 import { isUuid } from "../metrics/community.ts";
 import type { MemberRole } from "../metrics/member-role.ts";
+import {
+  additionSetTime, additionStreamers, isSameSeriesCandidate, normalizeMatchAddition, type MatchAddition,
+} from "../metrics/addition.ts";
+import { soopVodId } from "../metrics/vod-request.ts";
 import { decide, POLICY, shownIn, stateOf, type Facts, type IntakeFacts, type Policy, type Verdict, type VodFact } from "../metrics/submission-policy.ts";
 import { kstClock } from "../metrics/schedule.ts";
 import {
@@ -35,7 +39,10 @@ import {
   type CorrectionParticipantField, type HoldReason, type MatchCorrection, type ScheduleReport, type SubmissionContent, type SubmissionKind, type SubmissionState,
   type VodHint,
 } from "../metrics/submission.ts";
-import { ADMIN_WRITER, applyMatchReviewInTx, type MatchReviewPatch, type ReviewWriter } from "./ck.ts";
+import { ADMIN_WRITER, applyMatchReviewInTx, lockCkMatchWritesInTx, type MatchReviewPatch, type ReviewWriter } from "./ck.ts";
+import { adoptPovValuesInTx } from "./ck-pov.ts";
+import { ensureAutoBucketInTx, placeSetInTx } from "./classification.ts";
+import { resolveChampion } from "./participant.ts";
 import { db } from "./client.ts";
 import { lockMember, lockSessionMember, memberFromSession, MemberError } from "./member.ts";
 import { activeRolesInTx, grantRoleInTx, revokeRoleInTx } from "./member-role.ts";
@@ -282,6 +289,90 @@ export async function submitVodHint(token: string | null, raw: VodHintInput, now
   }) as Promise<SubmitOutcome>;
 }
 
+// ── 빠진 경기 직접 입력(0099) ──────────────────────────────────────────────────
+
+export interface MatchAdditionInput {
+  request_id: string;
+  payload: unknown;
+  /** VOD 링크(선택). */
+  vod_link?: string | null;
+  note?: string | null;
+}
+
+/**
+ * 빠진 경기 직접 입력 — 사람·날짜로 이미 있는 경기인지 본 뒤(metrics/addition.ts isSameSeriesCandidate) 아니면 **바로 공개**·검증 전.
+ * 같은 판 후보가 열린 직접 입력이면 그 제보에 +1, 그 밖의 공개 경기면 받지 않는다("그 경기 고치기로").
+ * 잠금 순서: 회원 → 판 쓰기 잠금(lockCkMatchWritesInTx — 새 판은 잠글 행이 없어 동시 등록·판독 저장과 줄을 세운다).
+ */
+export async function submitMatchAddition(token: string | null, raw: MatchAdditionInput, now = new Date()): Promise<SubmitOutcome> {
+  if (!isUuid(raw.request_id)) throw new SubmissionError("요청 번호가 올바르지 않습니다. 새로고침해 주세요.");
+  const link = String(raw.vod_link ?? "").trim();
+  const vod = link ? soopVodId(link) : null;
+  if (link && !vod) throw new SubmissionError("VOD 링크는 SOOP 다시보기 주소(vod.sooplive.com/player/번호)로 넣어 주세요.");
+  const a = input(() => normalizeMatchAddition(raw.payload, vod));
+  const note = input(() => normalizeNote(raw.note));
+  return db().begin(async (tx) => {
+    const m = await lockSessionMember(tx, token, now, { needNickname: true, checkSanction: true });
+    const [repeat] = await tx<{ id: string }[]>`SELECT id FROM submission WHERE author_id = ${m.id} AND request_id = ${raw.request_id}::uuid`;
+    if (repeat) return { kind: "repeat", id: repeat.id } as const;
+    await lockCkMatchWritesInTx(tx);
+    if (a.event_id) {
+      const [e] = await tx<{ game_code: string; auto_bucket: boolean }[]>`SELECT game_code, auto_bucket FROM event WHERE id = ${a.event_id}::uuid`;
+      if (!e || e.game_code !== "lol" || e.auto_bucket) throw new SubmissionError("고른 행사를 찾을 수 없습니다. 다시 골라 주세요.");
+    }
+    const ids = [...additionStreamers(a).a, ...additionStreamers(a).b];
+    const found = await tx<{ id: string }[]>`SELECT id FROM streamer WHERE id = ANY(${ids}::uuid[]) AND visibility = 'public'`;
+    if (found.length !== ids.length) throw new SubmissionError("고른 스트리머를 찾을 수 없습니다. 다시 골라 주세요.");
+    const dup = await additionDuplicateInTx(tx, a);
+    if (dup) {
+      // 열린 직접 입력이 만든 판이면 같은 시리즈를 또 등록한 것 — 그 제보에 +1. 아니면 이미 기록된 경기다.
+      const [owner] = await tx<{ id: string; author_id: string | null }[]>`
+        SELECT s.id, s.author_id FROM submission_effect se JOIN submission s ON s.id = se.submission_id
+         WHERE se.match_id = ${dup} AND s.kind = 'match_addition' AND s.state IN ('applied', 'held') FOR UPDATE OF s`;
+      if (owner) {
+        if (owner.author_id !== m.id) await supportInTx(tx, owner.id, m.id, now);
+        return { kind: "supported", id: owner.id } as const;
+      }
+      throw new SubmissionError(`이미 기록된 경기로 보입니다(${dup}) — 그 경기의 세트 보기에서 제보하기로 고쳐 주세요.`);
+    }
+    const fp = fingerprint("match_addition", a.on_date, a);
+    const twin = await twinOrLimitInTx(tx, m.id, fp, now);
+    if (twin) return twin;
+    return admitInTx(tx, {
+      author_id: m.id, request_id: raw.request_id, kind: "match_addition", match_id: null, schedule_entry_id: null,
+      payload: a, fingerprint: fp, note, evidence_url: a.vod ? `https://vod.sooplive.com/player/${a.vod}` : null, intake: {}, now,
+    });
+  }) as Promise<SubmitOutcome>;
+}
+
+/** 같은 KST 날짜의 공개 내전 세트 중 같은 편 사람이 기준 넘게 겹치는 첫 판(없으면 null). 계정의 주인을 사람으로 본다. */
+async function additionDuplicateInTx(tx: Tx, a: MatchAddition): Promise<string | null> {
+  const from = new Date(`${a.on_date}T00:00:00+09:00`), to = new Date(from.getTime() + 24 * 3600_000);
+  const rows = await tx<{ match_id: string; team_id: 100 | 200; person: string | null }[]>`
+    SELECT m.match_id, p.team_id, COALESCE(sa.streamer_id, p.streamer_id) AS person
+      FROM match m JOIN match_participant p ON p.match_id = m.match_id
+      LEFT JOIN streamer_account sa ON sa.puuid = p.puuid AND sa.active_to IS NULL
+     WHERE m.game_code = 'lol' AND m.scope = 'versus' AND m.visibility = 'public'
+       AND m.game_creation >= ${from} AND m.game_creation < ${to}
+     ORDER BY m.game_creation, m.match_id`;
+  const sets = new Map<string, { 100: string[]; 200: string[] }>();
+  for (const r of rows) {
+    const set = sets.get(r.match_id) ?? { 100: [], 200: [] };
+    if (r.person) set[r.team_id].push(r.person);
+    sets.set(r.match_id, set);
+  }
+  const mine = additionStreamers(a);
+  for (const [matchId, set] of sets) if (isSameSeriesCandidate(mine, set)) return matchId;
+  return null;
+}
+
+/** 직접 입력 폼의 행사 고르기 — 실제 LoL 행사(자동 묶음 제외), 최근 것 먼저. */
+export async function listAdditionEventChoices(limit = 300): Promise<{ id: string; name: string; starts_at: Date | null }[]> {
+  return db()<{ id: string; name: string; starts_at: Date | null }[]>`
+    SELECT id, name, starts_at FROM event WHERE game_code = 'lol' AND NOT auto_bucket
+     ORDER BY starts_at DESC NULLS LAST, name LIMIT ${limit}`;
+}
+
 /**
  * 판독이 끝났다(done)·영상이 없다(unavailable) — 그 VOD 의 열린 요청을 닫고, 요청한 제보들을 **같은 트랜잭션에서** 다시 판정한다.
  * 이 PC 의 ck:queue(finish·access·plan)가 부른다. 닫을 요청이 없으면 아무것도 안 한다.
@@ -525,8 +616,11 @@ export type AdminSubmission = QueueItem & {
   changes: { id: number; entity: string; entity_key: string; field: string; before: unknown; after: unknown; changed_at: Date }[];
   /** 되돌리면 걸릴 칸 — 이 제보 뒤에 누가 같은 칸을 또 바꿨다. 비어야 되돌릴 수 있다. */
   conflicts: string[];
-  /** VOD 를 가리키는 제보(단서)의 판독 — 요청 상태와 판독이 기록한 경기(판정의 사실 vod 와 같은 읽기). */
-  vod: { title_no: number; request: string | null; matches: string[] } | null;
+  /**
+   * VOD 를 쓰는 제보(단서·직접 입력)의 판독 — 요청 줄들과 경기(판정의 사실 vod 와 같은 읽기).
+   * 단서: 판독이 그 VOD 에 기록한 경기(모두 read) · 직접 입력: 만든 판과 판독 시점이 붙었나(read).
+   */
+  vod: { requests: { title_no: number; state: string }[]; matches: { match_id: string; read: boolean }[] } | null;
 };
 
 export async function getSubmissionForAdmin(id: string): Promise<AdminSubmission | null> {
@@ -544,8 +638,12 @@ export async function getSubmissionForAdmin(id: string): Promise<AdminSubmission
   if (!row) return null;
   const changes = await changesOf(sql, id);
   const author_roles = row.author_id ? (await activeRolesInTx(sql, [row.author_id])).get(row.author_id) ?? [] : [];
-  const vodNo = ADAPTERS[row.kind].vodOf(row);
-  const vod = vodNo ? { title_no: vodNo, request: await submissionVodRequestInTx(sql, id, vodNo), matches: await vodMatchesInTx(sql, vodNo, row.payload as VodHint) } : null;
+  const va = ADAPTERS[row.kind].vod;
+  const vod = va ? {
+    requests: await sql<{ title_no: number; state: string }[]>`
+      SELECT title_no::float8 AS title_no, state FROM vod_request WHERE submission_id = ${id}::uuid ORDER BY title_no`,
+    matches: await va.matches(sql, row),
+  } : null;
   return { ...row, author_roles, vod, changes, conflicts: row.state === "applied" ? await conflictsOf(sql, id, changes) : [] };
 }
 
@@ -608,8 +706,34 @@ async function factsInTx(tx: Tx, s: { id: string | null; author_id: string | nul
 interface KindAdapter {
   show(tx: Tx, s: SubmissionRecord, writer: ReviewWriter): Promise<void>;
   hide(tx: Tx, s: SubmissionRecord): Promise<void>;
-  /** 이 제보가 가리키는 VOD(판독 요청·사실 vod 의 대상). 없으면 null. */
-  vodOf(s: SubmissionContent): number | null;
+  /** VOD 판독으로 검증하는 종류만 — 판정의 사실 vod 의 재료. */
+  vod?: VodAdapter;
+  /** 할 일 adopt_vod — 판독 값이 다른 칸을 판독 값으로 덮는다. */
+  adopt?(tx: Tx, s: { id: string } & SubmissionContent): Promise<void>;
+}
+
+type VodSubject = { id: string } & SubmissionContent;
+interface VodAdapter {
+  /** 판독할 VOD 번호(요청할 것). 비면 판독할 VOD 를 못 찾았다(no_vod). */
+  vods(tx: Sql, s: { id: string | null } & SubmissionContent): Promise<number[]>;
+  /** 판독이 그 경기를 찾았나. */
+  found(tx: Sql, s: VodSubject): Promise<boolean>;
+  /** 운영 화면의 경기 줄. */
+  matches(tx: Sql, s: VodSubject): Promise<{ match_id: string; read: boolean }[]>;
+  /** 판독 요청 메모 — 자동 판독 지시문으로 넘어간다. **회원이 쓴 글을 넣지 않는다**(숫자·등록 이름·경기 번호만). */
+  note(tx: Sql, s: VodSubject): Promise<string | null>;
+}
+
+/** 이 제보가 만든 판(직접 입력) — submission_effect. */
+const effectMatches = async (sql: Sql, id: string) =>
+  (await sql<{ match_id: string }[]>`SELECT match_id FROM submission_effect WHERE submission_id = ${id}::uuid ORDER BY match_id`).map((r) => r.match_id);
+
+/** 등록 이름(공개 스트리머) — 판독 요청 메모에 넣어도 되는 이름. */
+async function streamerNamesInTx(sql: Sql, ids: readonly string[]): Promise<string[]> {
+  if (!ids.length) return [];
+  const rows = await sql<{ id: string; display_name: string }[]>`SELECT id, display_name FROM streamer WHERE id = ANY(${ids as string[]}::uuid[]) AND visibility = 'public'`;
+  const name = new Map(rows.map((r) => [r.id, r.display_name]));
+  return ids.flatMap((id) => (name.has(id) ? [name.get(id)!] : []));
 }
 
 const ADAPTERS: Record<SubmissionKind, KindAdapter> = {
@@ -632,61 +756,165 @@ const ADAPTERS: Record<SubmissionKind, KindAdapter> = {
       const st = s.match_id ? await lockMatchState(tx, s.match_id) : null;
       if (st && changes.length) await applyMatchReviewInTx(tx, st.match.match_id, inversePatch(changes, st.slots), ADMIN_WRITER);
     },
-    vodOf: () => null,
   },
   schedule_report: {
     // 편성표는 운영자가 편집 폼으로 저장한다(applyScheduleReport — 같은 트랜잭션). "반영 없이 확인"도 쓸 것이 없다.
     async show() {},
     // 반영 전에만 거부되므로 되돌릴 것이 없다.
     async hide() {},
-    vodOf: () => null,
   },
   vod_hint: {
     // 단서는 공개 기록을 바꾸지 않는다 — 판독이 기록한 경기는 판독 길(ck:merge)로 이미 들어가 있다.
     async show() {},
     async hide() {},
-    vodOf: (s) => (s.kind === "vod_hint" ? s.payload.vod : null),
+    vod: {
+      vods: async (_tx, s) => (s.kind === "vod_hint" ? [s.payload.vod] : []),
+      // 요청한 판독이 끝났고 그 VOD(시점을 줬으면 앞뒤 30분)에 판독이 기록한 경기가 있다.
+      async found(tx, s) {
+        if (s.kind !== "vod_hint") return false;
+        const done = await submissionVodRequestInTx(tx, s.id, s.payload.vod);
+        return done === "done" && (await vodMatchesInTx(tx, s.payload.vod, s.payload)).length > 0;
+      },
+      matches: async (tx, s) => (s.kind === "vod_hint" ? (await vodMatchesInTx(tx, s.payload.vod, s.payload)).map((match_id) => ({ match_id, read: true })) : []),
+      async note(tx, s) {
+        if (s.kind !== "vod_hint") return null;
+        const parts: string[] = [];
+        if (s.payload.from_sec !== undefined) parts.push(`시점 ${vodClock(s.payload.from_sec)}${s.payload.to_sec !== undefined ? `~${vodClock(s.payload.to_sec)}` : " 무렵"}`);
+        if (s.payload.people) {
+          const streamers = await tx<{ slug: string; display_name: string }[]>`SELECT slug, display_name FROM streamer WHERE visibility = 'public'`;
+          const name = new Map(streamers.map((x) => [x.slug, x.display_name]));
+          const { slugs } = matchStreamerNames(s.payload.people, streamers);
+          if (slugs.length) parts.push(`나온 사람(등록 이름) ${slugs.map((x) => name.get(x)).join(", ")}`);
+        }
+        return parts.length ? `회원 단서: ${parts.join(" · ")}` : "회원 단서";
+      },
+    },
+  },
+  match_addition: {
+    // 공개 — 판 행 + 분류 쓰기(placeSetInTx) 한 길. 판은 sub:<제보>:<세트>, 시리즈는 sub:<제보>. 확인 전 흔적(submission_effect)을 같이 남긴다.
+    // 이미 만든 판이면(운영자가 숨긴 뒤 다시 보이게 할 때) 공개로 되돌리기만 한다.
+    async show(tx, s) {
+      const made = await effectMatches(tx, s.id);
+      if (made.length) {
+        for (const m of made) await applyMatchReviewInTx(tx, m, { visibility: "public" }, ADMIN_WRITER);
+        return;
+      }
+      await createAdditionMatchesInTx(tx, s.id, s.payload as MatchAddition);
+    },
+    // 반려 = 만든 판 숨기기(되돌릴 이력이 없다 — 판 자체가 제보다). 숨긴 판은 목록에서도 빠진다.
+    async hide(tx, s) {
+      for (const m of await effectMatches(tx, s.id)) await applyMatchReviewInTx(tx, m, { visibility: "hidden" }, ADMIN_WRITER);
+    },
+    vod: {
+      // 링크를 줬으면 그 VOD, 아니면 그날 참가 스트리머 채널의 VOD(단서 행 — 매일 조사가 만든다) 최대 4개.
+      async vods(tx, s) {
+        if (s.kind !== "match_addition") return [];
+        if (s.payload.vod) return [s.payload.vod];
+        const { a, b } = additionStreamers(s.payload);
+        const t0 = additionSetTime(s.payload, 0);
+        const rows = await tx<{ n: number }[]>`
+          SELECT DISTINCT substr(l.source_key, 5)::float8 AS n FROM event_lead l
+            JOIN streamer_channel c ON c.channel_id = l.channel_id AND c.platform = 'soop'
+           WHERE l.source = 'vod_title' AND l.source_key ~ '^vod:[0-9]+$' AND c.streamer_id = ANY(${[...a, ...b]}::uuid[])
+             AND l.observed_at >= ${t0} AND l.observed_at < ${new Date(t0.getTime() + 18 * 3600_000)}
+           ORDER BY n LIMIT 4`;
+        return rows.map((r) => r.n);
+      },
+      // 만든 판 **모두**에 판독 시점이 붙었다(같은 판이라고 판독이 이었다). 일부만이면 운영자가 본다.
+      async found(tx, s) {
+        const rows = await tx<{ match_id: string; n: number }[]>`
+          SELECT se.match_id, count(p.lead_id)::int AS n FROM submission_effect se LEFT JOIN match_pov p ON p.match_id = se.match_id
+           WHERE se.submission_id = ${s.id}::uuid GROUP BY se.match_id`;
+        return rows.length > 0 && rows.every((r) => r.n > 0);
+      },
+      matches: async (tx, s) => (await tx<{ match_id: string; read: boolean }[]>`
+        SELECT se.match_id, EXISTS (SELECT 1 FROM match_pov p WHERE p.match_id = se.match_id) AS read
+          FROM submission_effect se WHERE se.submission_id = ${s.id}::uuid ORDER BY se.match_id`),
+      async note(tx, s) {
+        if (s.kind !== "match_addition") return null;
+        const made = await effectMatches(tx, s.id);
+        const { a, b } = additionStreamers(s.payload);
+        const names = await streamerNamesInTx(tx, [...a, ...b]);
+        const ids = made.length > 1 ? `sub:${s.id}:1~${made.length}` : made[0] ?? `sub:${s.id}:1`;
+        return `회원 직접 입력 경기 ${ids} (${s.payload.on_date} ${s.payload.start} 무렵 시작, 등록 이름 ${names.join(", ")}) — `
+          + "같은 판이면 새 경기를 만들지 말고 이 경기 번호에 시점을 더한다(pov role added)";
+      },
+    },
+    async adopt(tx, s) {
+      for (const m of await effectMatches(tx, s.id)) await adoptPovValuesInTx(tx, m);
+    },
   },
 };
 
 /**
- * 판정이 보는 VOD 사실 — 이 제보의 요청 줄(같은 제보 × 같은 VOD 는 한 줄)과 판독이 기록한 경기.
- * 요청이 없거나 거둬졌으면 none, 열려 있으면 queued, 끝났으면 경기가 있나(단서의 시점 앞뒤 30분)로 found·not_found.
+ * 판정이 보는 VOD 사실 — 종류의 VOD 어댑터(어느 VOD·찾았나)와 이 제보의 요청 줄들.
+ * 찾았으면 found, 열린 요청이 있으면 queued, 요청이 없으면 판독할 VOD 가 있나(none·no_vod), 다 닫혔으면 unavailable(전부 영상 없음)·not_found.
  */
 async function vodFactInTx(tx: Tx, s: { id: string | null } & SubmissionContent): Promise<VodFact> {
-  const vod = ADAPTERS[s.kind].vodOf(s);
-  if (!vod || !s.id) return "none";
-  const r = await submissionVodRequestInTx(tx, s.id, vod);
-  if (!r || r === "cancelled") return "none";
-  if (r === "queued" || r === "claimed") return "queued";
-  if (r === "unavailable") return "unavailable";
-  return (await vodMatchesInTx(tx, vod, s.kind === "vod_hint" ? s.payload : undefined)).length ? "found" : "not_found";
+  const a = ADAPTERS[s.kind].vod;
+  if (!a) return "none";
+  if (!s.id) return (await a.vods(tx, s)).length ? "none" : "no_vod";
+  const subject = { ...s, id: s.id };
+  if (await a.found(tx, subject)) return "found";
+  const reqs = (await tx<{ state: string }[]>`SELECT state FROM vod_request WHERE submission_id = ${s.id}::uuid`)
+    .map((r) => r.state).filter((x) => x !== "cancelled");
+  if (reqs.some((x) => x === "queued" || x === "claimed")) return "queued";
+  if (!reqs.length) return (await a.vods(tx, s)).length ? "none" : "no_vod";
+  return reqs.every((x) => x === "unavailable") ? "unavailable" : "not_found";
 }
 
 /**
- * 판정의 할 일을 옮긴다 — 열린 제보에 vod_priority 면 판독 요청 줄을 둔다(이미 있으면 그대로 — 판독이 끝난 줄도 다시 만들지 않는다).
- * 제보가 닫히면 그 제보의 열린 요청을 거둔다. 요청 메모에는 회원이 쓴 글을 넣지 않는다 — 판독 세션(자동)에 넘어가는 글이라
- * 시점(숫자)과 등록된 스트리머 이름으로 맞춘 사람만 적는다.
+ * 판정의 할 일을 옮긴다(멱등).
+ *   adopt_vod    판독 값으로 덮기(어댑터 adopt)
+ *   vod_priority 열린 동안 판독할 VOD 마다 요청 줄(이미 있으면 그대로 — 판독이 끝난 줄도 다시 만들지 않는다)
+ * 제보가 닫히면 그 제보의 열린 요청을 거둔다.
  */
 async function syncEffectsInTx(tx: Tx, s: { id: string } & SubmissionContent, v: Verdict, next: SubmissionState, now: Date): Promise<void> {
-  const vod = ADAPTERS[s.kind].vodOf(s);
-  if (!vod) return;
+  const adapter = ADAPTERS[s.kind];
+  if (v.effects.includes("adopt_vod")) await adapter.adopt?.(tx, s);
+  if (!adapter.vod) return;
   if (next !== "applied" && next !== "held") { await cancelSubmissionVodRequestsInTx(tx, s.id, `제보가 닫혀 거둠(${next})`, now); return; }
   if (!v.effects.includes("vod_priority")) return;
-  await requestVodInTx(tx, { title_no: vod, reason: "submission", submission_id: s.id, requested_by: "policy", note: await requestNoteInTx(tx, s) }, now);
+  const vods = await adapter.vod.vods(tx, s);
+  if (!vods.length) return;
+  const note = await adapter.vod.note(tx, s);
+  for (const title_no of vods) await requestVodInTx(tx, { title_no, reason: "submission", submission_id: s.id, requested_by: "policy", note }, now);
 }
 
-async function requestNoteInTx(tx: Tx, s: SubmissionContent): Promise<string | null> {
-  if (s.kind !== "vod_hint") return null;
-  const parts: string[] = [];
-  if (s.payload.from_sec !== undefined) parts.push(`시점 ${vodClock(s.payload.from_sec)}${s.payload.to_sec !== undefined ? `~${vodClock(s.payload.to_sec)}` : " 무렵"}`);
-  if (s.payload.people) {
-    const streamers = await tx<{ slug: string; display_name: string }[]>`SELECT slug, display_name FROM streamer WHERE visibility = 'public'`;
-    const name = new Map(streamers.map((x) => [x.slug, x.display_name]));
-    const { slugs } = matchStreamerNames(s.payload.people, streamers);
-    if (slugs.length) parts.push(`나온 사람(등록 이름) ${slugs.map((x) => name.get(x)).join(", ")}`);
+/**
+ * 직접 입력의 판을 만든다 — 판 행(수기 manual·날짜 정확도) + 분류 쓰기(placeSetInTx — 새 판이라 사람의 제외가 있을 수 없어 auto 로 둔다)
+ * + 참가자 + 확인 전 흔적. 행사를 모르면 그날의 회원 등록 미분류 묶음(자동 묶음 — 이름은 운영자·판독이 실제 행사로 옮겨 정한다).
+ */
+async function createAdditionMatchesInTx(tx: Tx, submissionId: string, a: MatchAddition): Promise<void> {
+  await lockCkMatchWritesInTx(tx);
+  const eventId = a.event_id ?? await ensureAutoBucketInTx(tx, {
+    game_code: "lol", slug: `lol-member-auto-${a.on_date}`, name: `${a.on_date} 회원 등록 내전(행사 미정)`, day: additionSetTime(a, 0),
+  });
+  const seriesId = `sub:${submissionId}`;
+  for (const [i, set] of a.sets.entries()) {
+    const matchId = `${seriesId}:${i + 1}`;
+    const winning = set.winner === "a" ? set.a_side : (set.a_side === 100 ? 200 : 100);
+    await tx`
+      INSERT INTO match (match_id, game_code, queue_id, mode_key, game_mode, map_id, game_creation, winning_team, collected_via, scope,
+                         source_url, game_creation_precision)
+      VALUES (${matchId}, 'lol', 0, '0', ${a.map === "aram" ? "ARAM" : "CLASSIC"}, ${a.map === "aram" ? 12 : 11}, ${additionSetTime(a, i)}, ${winning},
+              'manual', 'personal', ${a.vod ? `https://vod.sooplive.com/player/${a.vod}` : null}, 'date')`;
+    await placeSetInTx(tx, { match_id: matchId, game_no: i + 1, actor: "auto", series: { id: seriesId, game_code: "lol", event_id: eventId } });
+    const seat = { 100: 1, 200: 6 };
+    for (const team of ["a", "b"] as const) {
+      const side: 100 | 200 = team === "a" ? set.a_side : (set.a_side === 100 ? 200 : 100);
+      for (const [k, p] of a.teams[team].entries()) {
+        const st = set.stats?.[`${team}${k}`] ?? {};
+        const champ = resolveChampion(st.champion_id ?? null, null);
+        await tx`
+          INSERT INTO match_participant (match_id, participant_id, team_id, side_no, streamer_id, observed_name, champion_id, champion_name, outcome, kills, deaths, assists)
+          VALUES (${matchId}, ${seat[side]++}, ${side}, ${side === 100 ? 1 : 2}, ${"streamer_id" in p ? p.streamer_id : null}::uuid,
+                  ${"name" in p ? p.name : null}, ${champ.champion_id}, ${champ.champion_name}, ${side === winning ? "win" : "loss"},
+                  ${st.kills ?? null}, ${st.deaths ?? null}, ${st.assists ?? null})`;
+      }
+    }
+    await tx`INSERT INTO submission_effect (submission_id, match_id) VALUES (${submissionId}::uuid, ${matchId})`;
   }
-  return parts.length ? `회원 단서: ${parts.join(" · ")}` : "회원 단서";
 }
 
 interface InsertSubmission {

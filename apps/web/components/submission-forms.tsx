@@ -10,7 +10,7 @@ import { SCHEDULE_GAME_LABEL, SCHEDULE_GAMES } from "@soop-lol/core/lib/metrics/
 
 import { useKeptFormAction } from "../../../packages/ui/use-kept-form-action";
 import { IDLE } from "@/lib/action-state";
-import { submitCorrectionAction, submitScheduleReportAction, submitVodHintAction, supportAction } from "@/app/submit/actions";
+import { submitAdditionAction, submitCorrectionAction, submitScheduleReportAction, submitVodHintAction, supportAction } from "@/app/submit/actions";
 
 type Slot = CorrectionTarget["slots"][number];
 type Editable = Pick<Slot, "streamer_id" | "observed_name" | "champion_id" | "team_position" | "kills" | "deaths" | "assists">;
@@ -221,5 +221,123 @@ export function VodHintForm() {
     <label>메모(선택)<textarea name="note" rows={3} maxLength={1000} placeholder="어떤 내전이었는지 알고 있는 것을 적어 주세요(운영자만 봅니다)" /></label>
     {state.message && <p role={state.ok ? "status" : "alert"}>{state.message}</p>}
     <button disabled={pending || (state.ok && !!state.message)}>{pending ? "보내는 중…" : "단서 보내기"}</button>
+  </form>;
+}
+
+type AdditionSlot = { streamer_id: string; name: string; byName: boolean };
+interface AdditionSetState { a_side: 100 | 200; winner: "" | "a" | "b"; stats: Record<string, { champion_id: string; kills: string; deaths: string; assists: string }> }
+const emptySlots = (): AdditionSlot[] => Array.from({ length: 5 }, () => ({ streamer_id: "", name: "", byName: false }));
+const newSet = (): AdditionSetState => ({ a_side: 100, winner: "", stats: {} });
+
+/**
+ * 빠진 경기 직접 입력 폼 — 행사(모르면 비움)·날짜·시작 어림·맵·두 팀 사람·세트마다 A팀 진영과 승리 팀, (선택) 사람마다 챔피언·KDA·VOD 링크.
+ * 형식·사람·날짜 중복 판단은 core 가 한다(metrics/addition.ts). 보내면 바로 공개되고 "검증 전"으로 보인다.
+ * ★ 요청 번호는 폼을 열 때 하나(두 번 눌러도 제보 하나).
+ */
+export function AdditionForm({ events, streamers, champions }: {
+  events: { id: string; label: string }[];
+  streamers: { id: string; display_name: string }[];
+  champions: { id: number; name: string }[];
+}) {
+  const { state, dispatch, pending, onSubmit } = useKeptFormAction(submitAdditionAction, IDLE);
+  const [requestId] = useState(() => crypto.randomUUID());
+  const [meta, setMeta] = useState({ event_id: "", on_date: "", start: "", map: "rift" as "rift" | "aram" });
+  const [teams, setTeams] = useState<{ a: AdditionSlot[]; b: AdditionSlot[] }>(() => ({ a: emptySlots(), b: emptySlots() }));
+  const [sets, setSets] = useState<AdditionSetState[]>(() => [newSet()]);
+  const filled = (t: "a" | "b") => teams[t].map((p, i) => ({ p, i })).filter(({ p }) => (p.byName ? p.name.trim() : p.streamer_id));
+  const label = (p: AdditionSlot) => (p.byName ? p.name.trim() : streamers.find((s) => s.id === p.streamer_id)?.display_name ?? "");
+  const payload = useMemo(() => {
+    // 비운 자리를 빼고 앞으로 당긴다 — 통계 칸(a0…)은 당긴 순서의 번호다.
+    const order = { a: filled("a"), b: filled("b") };
+    return {
+      ...meta, event_id: meta.event_id || null,
+      teams: { a: order.a.map(({ p }) => (p.byName ? { name: p.name } : { streamer_id: p.streamer_id })),
+        b: order.b.map(({ p }) => (p.byName ? { name: p.name } : { streamer_id: p.streamer_id })) },
+      sets: sets.map((s) => ({
+        a_side: s.a_side, winner: s.winner || null,
+        stats: Object.fromEntries((["a", "b"] as const).flatMap((t) => order[t].flatMap(({ i }, n) => {
+          const st = s.stats[`${t}${i}`];
+          return st ? [[`${t}${n}`, { champion_id: st.champion_id || undefined, kills: st.kills, deaths: st.deaths, assists: st.assists }]] : [];
+        }))),
+      })),
+    };
+  }, [meta, teams, sets]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setSlot = (t: "a" | "b", i: number, patch: Partial<AdditionSlot>) =>
+    setTeams((cur) => ({ ...cur, [t]: cur[t].map((p, k) => (k === i ? { ...p, ...patch } : p)) }));
+  const setSet = (n: number, patch: Partial<AdditionSetState>) => setSets((cur) => cur.map((s, k) => (k === n ? { ...s, ...patch } : s)));
+  const setStat = (n: number, slot: string, field: "champion_id" | "kills" | "deaths" | "assists", value: string) =>
+    setSets((cur) => cur.map((s, k) => (k !== n ? s : {
+      ...s, stats: { ...s.stats, [slot]: { ...(s.stats[slot] ?? { champion_id: "", kills: "", deaths: "", assists: "" }), [field]: value } },
+    })));
+  return <form action={dispatch} onSubmit={onSubmit} className="submission-form">
+    <input type="hidden" name="request_id" value={requestId} />
+    <input type="hidden" name="payload" value={JSON.stringify(payload)} />
+    <label>행사
+      <select value={meta.event_id} onChange={(e) => setMeta({ ...meta, event_id: e.target.value })}>
+        <option value="">모름(운영자·VOD 판독이 정합니다)</option>
+        {events.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+      </select>
+    </label>
+    <div className="submission-row">
+      <label>날짜<input type="date" required value={meta.on_date} onChange={(e) => setMeta({ ...meta, on_date: e.target.value })} /></label>
+      <label>첫 세트 시작(어림)<input type="time" required value={meta.start} onChange={(e) => setMeta({ ...meta, start: e.target.value })} /></label>
+    </div>
+    <label>맵
+      <select value={meta.map} onChange={(e) => setMeta({ ...meta, map: e.target.value as "rift" | "aram" })}>
+        <option value="rift">소환사의 협곡</option><option value="aram">칼바람 나락</option>
+      </select>
+    </label>
+    {(["a", "b"] as const).map((t) => <fieldset key={t} className="submission-team">
+      <legend>{t === "a" ? "A팀" : "B팀"}</legend>
+      {teams[t].map((p, i) => <div key={i} className="submission-row">
+        <select aria-label={`${t === "a" ? "A" : "B"}팀 ${i + 1}번`} value={p.byName ? "__name" : p.streamer_id}
+          onChange={(e) => setSlot(t, i, e.target.value === "__name" ? { byName: true, streamer_id: "" } : { byName: false, streamer_id: e.target.value })}>
+          <option value="">(비움)</option>
+          {streamers.map((s) => <option key={s.id} value={s.id}>{s.display_name}</option>)}
+          <option value="__name">목록에 없음 — 이름으로 쓰기</option>
+        </select>
+        {p.byName && <input aria-label="이름" maxLength={30} value={p.name} placeholder="화면에 보인 이름" onChange={(e) => setSlot(t, i, { name: e.target.value })} />}
+      </div>)}
+    </fieldset>)}
+    {sets.map((s, n) => <fieldset key={n} className="submission-team">
+      <legend>{n + 1}세트</legend>
+      <div className="submission-row">
+        <label>A팀 진영
+          <select value={s.a_side} onChange={(e) => setSet(n, { a_side: Number(e.target.value) as 100 | 200 })}>
+            <option value={100}>블루</option><option value={200}>레드</option>
+          </select>
+        </label>
+        <label>승리 팀
+          <select required value={s.winner} onChange={(e) => setSet(n, { winner: e.target.value as "a" | "b" })}>
+            <option value="">고르기</option><option value="a">A팀</option><option value="b">B팀</option>
+          </select>
+        </label>
+      </div>
+      <details>
+        <summary>챔피언·KDA(선택)</summary>
+        {(["a", "b"] as const).flatMap((t) => filled(t).map(({ p, i }) => {
+          const slot = `${t}${i}`, st = s.stats[slot];
+          return <div key={slot} className="submission-slot">
+            <span className="submission-slot-no">{t.toUpperCase()}</span>
+            <span className="submission-slot-person">{label(p)}</span>
+            <select aria-label={`${label(p)} 챔피언`} value={st?.champion_id ?? ""} onChange={(e) => setStat(n, slot, "champion_id", e.target.value)}>
+              <option value="">챔피언 모름</option>
+              {champions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <span />
+            {(["kills", "deaths", "assists"] as const).map((f) => <input key={f} aria-label={`${label(p)} ${f === "kills" ? "킬" : f === "deaths" ? "데스" : "어시스트"}`}
+              inputMode="numeric" maxLength={2} value={st?.[f] ?? ""} placeholder={f === "kills" ? "K" : f === "deaths" ? "D" : "A"}
+              onChange={(e) => setStat(n, slot, f, e.target.value.replace(/\D/g, ""))} />)}
+            <span />
+          </div>;
+        }))}
+      </details>
+      {sets.length > 1 && <button type="button" className="submission-add" onClick={() => setSets((cur) => cur.filter((_, k) => k !== n))}>이 세트 지우기</button>}
+    </fieldset>)}
+    {sets.length < 7 && <button type="button" className="submission-add" onClick={() => setSets((cur) => [...cur, { ...newSet(), a_side: cur[cur.length - 1]?.a_side ?? 100 }])}>+ 세트 더하기</button>}
+    <label>VOD 링크(선택)<input name="vod_link" maxLength={300} placeholder="https://vod.sooplive.com/player/123456789 — 없으면 그날 참가자 VOD 를 찾습니다" /></label>
+    <label>메모(선택)<textarea name="note" rows={3} maxLength={1000} placeholder="어디서 본 경기인지 적어 주세요(운영자만 봅니다)" /></label>
+    {state.message && <p role={state.ok ? "status" : "alert"}>{state.message}</p>}
+    <button disabled={pending || (state.ok && !!state.message)}>{pending ? "보내는 중…" : "경기 등록"}</button>
   </form>;
 }

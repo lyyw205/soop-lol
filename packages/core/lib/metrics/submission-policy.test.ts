@@ -69,3 +69,16 @@ test("VOD 단서 — 판독 전엔 숨김·대기 + 대기열 맨 앞(할 일), 
   // 신뢰 계정·합의는 단서에 쓰지 않는다(켜도).
   assert.equal(decide(f({ kind: "vod_hint", reporter: { roles: ["trusted_reporter"] } }), on({ trustedReporter: true, consensusMembers: 1 })).rule, "hint_pending");
 });
+
+test("직접 입력 — 판독 전엔 보임·검증 전 + 대기열 맨 앞, 찾으면 판독 값으로 덮고 검증, 판독할 수 없으면 검증 전 그대로(운영자)", () => {
+  const add = (state: Facts["vod"]["state"]) => decide(f({ kind: "match_addition", vod: { state } }));
+  for (const s of ["none", "queued"] as const) {
+    assert.deepEqual(add(s), { visibility: "shown", trust: "pending", hold_reason: null, rule: "addition_pending", effects: ["vod_priority"] });
+  }
+  assert.deepEqual(add("found"), { visibility: "shown", trust: "verified", hold_reason: null, rule: "addition_found", effects: ["adopt_vod"] });
+  for (const s of ["not_found", "unavailable", "no_vod"] as const) {
+    assert.deepEqual(add(s), { visibility: "shown", trust: "pending", hold_reason: null, rule: "addition_unverifiable", effects: [] });
+  }
+  assert.equal(stateOf(add("queued"), false), "applied");
+  assert.equal(stateOf(decide(f({ kind: "match_addition", vod: { state: "queued" }, admin: "reject" })), true), "reverted");
+});

@@ -30,6 +30,7 @@ import { verifyMatchSeriesDb } from "./lib/verify-match-series.ts";
 import { verifySubmissionDb } from "./lib/verify-submission-db.ts";
 import { verifyScheduleReportDb } from "./lib/verify-schedule-report-db.ts";
 import { verifyVodRequestDb } from "./lib/verify-vod-request-db.ts";
+import { verifyAdditionDb } from "./lib/verify-addition-db.ts";
 import { verifyCollectionDb } from "./lib/verify-collection-db.ts";
 import { recordCursor } from "../packages/core/lib/metrics/record-cursor.ts";
 import { resolveRecordPeriod } from "../packages/core/lib/metrics/record-period.ts";
@@ -2190,6 +2191,7 @@ try {
   await verifySubmissionDb(check, expectReject);
   await verifyScheduleReportDb(check, expectReject);
   await verifyVodRequestDb(check, expectReject);
+  await verifyAdditionDb(check, expectReject);
 } finally {
   await closeDb();
   await server.stop();

@@ -55,7 +55,7 @@ import { join } from "node:path";
 import { rememberPending, vodTime, type PendingVod } from "./lib/ck-auto-queue.ts";
 import { planVodRequests, type RequestFacts, type VodMeta } from "./lib/ck-vod-request.ts";
 import { claimVodRequests, listOpenVodRequests, type OpenVodRequest } from "@soop-lol/core/lib/db/vod-request";
-import { settleVodRequests } from "@soop-lol/core/lib/db/submission";
+import { reconsiderOpenSubmissions, settleVodRequests } from "@soop-lol/core/lib/db/submission";
 
 const argv = process.argv.slice(2);
 const COMMAND = argv[0] && !argv[0].startsWith("--") ? argv[0] : "plan";
@@ -196,6 +196,11 @@ async function plan(): Promise<number> {
  */
 async function requestedItems(watch: Awaited<ReturnType<typeof listWatched>>, found: { title_no: number; channel_id: string; streamer: string; slug: string;
   title: string; ended_at: string; hours: number; category: string | null; duration_sec: number | null }[], state: State): Promise<Item[]> {
+  // 열린 제보를 먼저 다시 판정한다 — 링크 없이 등록한 직접 입력은 그날 VOD 의 단서 행이 생긴 뒤에야 요청을 낸다(판정의 할 일 vod_priority).
+  if (argv.includes("--enqueue")) {
+    const changed = await reconsiderOpenSubmissions();
+    if (changed) console.log(`열린 제보 다시 판정 — 바뀐 것 ${changed}건`);
+  }
   const requests = await listOpenVodRequests();
   if (!requests.length) return [];
   const keys = requests.map((r) => `vod:${r.title_no}`);

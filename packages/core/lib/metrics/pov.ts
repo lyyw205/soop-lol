@@ -271,6 +271,18 @@ export function fillPlan(cmp: PovComparison): Array<{ scope: "match" | "particip
     .map((i) => ({ scope: i.scope, participant_id: i.participant_id, field: i.field, value: i.observed }));
 }
 
+/**
+ * 비교 결과 중 **판독 값으로 덮을 것** — 대응이 확실한 mismatch 의 승리 팀·챔피언·KDA·포지션. 회원이 직접 입력한 경기를 판독이
+ * 검증할 때만 쓴다(docs/SUBMISSION-POLICY-PLAN.md §9 "판독 값으로 덮고 검증"). 사람의 편(team)은 덮지 않는다 — 신원·진영이 바뀌는 일이라
+ * 불일치로 남겨 운영자가 본다. 경기 시간·세트 번호도 덮지 않는다(회원이 쓰지 않는 칸이다).
+ */
+export function adoptPlan(cmp: PovComparison): Array<{ scope: "match" | "participant"; participant_id: number | null; field: string; value: unknown; stored: unknown }> {
+  const ADOPT = new Set(["winning_team", "champion_id", "kills", "deaths", "assists", "position"]);
+  return cmp.items
+    .filter((i) => i.status === "mismatch" && ADOPT.has(i.field) && (i.scope === "match" || i.participant_id !== null))
+    .map((i) => ({ scope: i.scope, participant_id: i.participant_id, field: i.field, value: i.observed, stored: i.stored }));
+}
+
 /** 한 시점의 요약. 검수 화면·조회 도구가 같은 숫자를 쓰게 한 곳에 둔다. */
 export function summarizeComparison(cmp: PovComparison) {
   const count = (s: CompareStatus) => cmp.items.filter((i) => i.status === s).length;

@@ -5,7 +5,7 @@ import { currentMember, readSessionToken } from "@soop-lol/core/lib/auth/request
 import { listMySubmissions, listStreamerChoices } from "@soop-lol/core/lib/db/submission";
 import { HOLD_REASON_LABEL, submissionLines, submissionStateLabel } from "@soop-lol/core/lib/metrics/submission";
 import { championById } from "@soop-lol/core/lib/riot/champions";
-import { loginHref, mySubmissionsHref, submitMatchHref, submitScheduleHref, submitVodHintHref } from "@soop-lol/core/lib/site-paths";
+import { loginHref, mySubmissionsHref, submitAdditionHref, submitMatchHref, submitScheduleHref, submitVodHintHref } from "@soop-lol/core/lib/site-paths";
 import { kstDateString } from "@soop-lol/core/lib/time";
 
 import { PageShell, SiteHeader } from "@/components/public";
@@ -26,7 +26,7 @@ export default async function MySubmissionsPage() {
       <section className="member-card arena-panel submission-page" aria-labelledby="mine-title">
         <h1 id="mine-title">내 제보</h1>
         <p className="member-lead">보낸 제보와 처리 상태입니다. 본인과 운영자만 볼 수 있습니다.</p>
-        <p className="member-lead"><Link href={submitVodHintHref()}>기록에 없는 내전이 있는 VOD 알리기 →</Link></p>
+        <p className="member-lead"><Link href={submitAdditionHref()}>빠진 경기 직접 등록하기 →</Link> · <Link href={submitVodHintHref()}>내전이 있는 VOD 알리기 →</Link></p>
         {!rows.length ? <p className="member-lead">아직 보낸 제보가 없습니다. 경기 기록의 세트 보기나 편성표의 일정에서 <strong>제보하기</strong>를 눌러 보내 주세요.</p>
           : <ul className="submission-open">
             {rows.map((r) => <li key={r.id}>

@@ -22,13 +22,16 @@ export default async function SubmissionQueuePage() {
     const names = { streamer: (id: string) => name.get(id) ?? id.slice(0, 8), champion: (id: number) => championById(id)?.name ?? `#${id}` };
     // 대상별로 묶는다 — 경기 제보는 판, 편성표 제보는 일정(새 일정 알리기는 제보마다 따로).
     const key = (r: QueueItem) => r.kind === "schedule_report" ? `schedule:${r.schedule_entry_id ?? r.id}`
-      : r.kind === "vod_hint" ? `vod:${r.payload.vod}` : r.match_id ?? "(지워진 경기)";
+      : r.kind === "vod_hint" ? `vod:${r.payload.vod}` : r.kind === "match_addition" ? `addition:${r.id}` : r.match_id ?? "(지워진 경기)";
     const byMatch = new Map<string, QueueItem[]>();
     for (const r of rows) byMatch.set(key(r), [...(byMatch.get(key(r)) ?? []), r]);
-    return <div className="grid gap-5"><Card title={`제보 ${rows.length}건`} description="확인 전(반영됨)은 공개 화면에 '확인 전'으로 보이고 집계에서 빠져 있습니다. 보류는 공개 화면에 아직 반영되지 않았습니다.">
+    return <div className="grid gap-5"><Card title={`제보 ${rows.length}건`} description="반영됨(검증 전)은 공개 화면에 '검증 전'으로 보이고 집계에서 빠져 있습니다 — 직접 입력은 VOD 판독이 검증합니다. 보류는 공개 화면에 아직 반영되지 않았습니다.">
       {!rows.length ? <EmptyState>열린 제보가 없습니다.</EmptyState> : <ul className="divide-y divide-ink-800">
         {[...byMatch].map(([matchId, items]) => <li key={matchId} className="py-4">
-          {items[0].kind === "vod_hint" ? <div className="flex flex-wrap items-center gap-2 text-sm">
+          {items[0].kind === "match_addition" ? <div className="flex flex-wrap items-center gap-2 text-sm">
+            <Tag>빠진 경기 등록</Tag><strong>{items[0].payload.on_date} {items[0].payload.start}</strong>
+            <span className="text-ink-400">{items[0].payload.sets.length}세트</span>
+          </div> : items[0].kind === "vod_hint" ? <div className="flex flex-wrap items-center gap-2 text-sm">
             <Tag>VOD 단서</Tag>
             <a href={`https://vod.sooplive.com/player/${items[0].payload.vod}`} target="_blank" rel="noreferrer noopener" className="text-accent-400 hover:underline">vod:{items[0].payload.vod}</a>
           </div> : items[0].kind === "schedule_report" ? <div className="flex flex-wrap items-center gap-2 text-sm">

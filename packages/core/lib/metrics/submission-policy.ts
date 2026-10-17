@@ -34,16 +34,20 @@ export interface Facts {
   agreement: { members: number; trusted: number };
   /**
    * 이 제보가 가리키는 VOD 의 판독(0097 vod_request) — VOD 가 없는 종류는 none.
-   *   none 아직 요청 없음 · queued 판독 대기열(요청됨·대기열에 넣음) · found 판독이 끝났고 경기를 찾았다
-   *   not_found 판독이 끝났는데 (그 시점에) 경기가 없다 · unavailable 영상을 열 수 없다
+   *   none 아직 요청 없음 · queued 판독 대기열(요청됨·대기열에 넣음) · found 판독이 그 경기를 찾았다
+   *   not_found 판독이 끝났는데 (그 시점에) 경기가 없다 · unavailable 영상을 열 수 없다 · no_vod 판독할 VOD 를 못 찾았다(직접 입력, 링크 없음)
    */
   vod: { state: VodFact };
 }
 
-export type VodFact = "none" | "queued" | "found" | "not_found" | "unavailable";
+export type VodFact = "none" | "queued" | "found" | "not_found" | "unavailable" | "no_vod";
 
-/** 판정이 함께 내놓는 할 일 — 실행(db/submission.ts)이 옮긴다. vod_priority = 그 VOD 를 판독 대기열 맨 앞으로(열린 동안). */
-export type Effect = "vod_priority";
+/**
+ * 판정이 함께 내놓는 할 일 — 실행(db/submission.ts syncEffectsInTx)이 옮긴다.
+ *   vod_priority 그 VOD 를 판독 대기열 맨 앞으로(열린 동안)
+ *   adopt_vod    판독 값이 회원 값과 다른 칸을 판독 값으로 덮는다(§9 "판독 값으로 덮고 검증" — 관측이 수기보다 강하다)
+ */
+export type Effect = "vod_priority" | "adopt_vod";
 
 /**
  * 설정값 — 규칙의 손잡이. 2026-10-17 사용자 결정: 신뢰 계정·합의 **둘 다 꺼 둔 채** 시작(처음엔 VOD 판독·운영자만 검증).
@@ -89,7 +93,7 @@ const INTAKE_HOLDS: readonly (keyof IntakeFacts & HoldReason)[] = ["not_public",
 
 /**
  * 규칙 목록 — 위에서부터 처음 맞는 것. v1 = 1단계(경기 고치기)·3단계(편성표)의 동작 + 2단계의 신뢰 계정·합의(설정으로 꺼 둠).
- * VOD 단서(hint_*, 2단계 ④)는 VOD 판독 사실(vod)로 정한다. 직접 입력(⑤)은 docs/SUBMISSION-POLICY-PLAN.md §4 순서로 여기에 더한다.
+ * VOD 단서(hint_*, 2단계 ④)·직접 입력(addition_*, ⑤)은 VOD 판독 사실(vod)로 정한다.
  *
  * ★ 신뢰 계정·합의는 **보류 사실 아래**에 둔다 — "바로 반영(확인 전)"이 될 제보를 검증으로 올릴 뿐, 보류(공식 기록·다툼·검수 끝난 판…)를
  *   건너뛰게 하지 않는다. 편성표 제보에도 쓰지 않는다 — 편성표는 운영자가 저장해야 바뀌므로 "검증"만 하면 반영 없이 닫혀 버린다.
@@ -103,6 +107,14 @@ const RULES: readonly Rule[] = [
   { id: "hint_not_found", when: (f) => f.kind === "vod_hint" && f.vod.state === "not_found", then: () => hold("vod_not_found") },
   { id: "hint_unavailable", when: (f) => f.kind === "vod_hint" && f.vod.state === "unavailable", then: () => hold("vod_unavailable") },
   { id: "hint_pending", when: (f) => f.kind === "vod_hint", then: () => hold("vod_pending", ["vod_priority"]) },
+  // 빠진 경기 직접 입력 — 바로 공개·검증 전(집계 제외). 판독이 그 경기들을 찾으면 판독 값으로 덮고 검증, 판독할 수 없으면 검증 전 그대로 + 운영자(§9).
+  { id: "addition_found", when: (f) => f.kind === "match_addition" && f.vod.state === "found", then: () => ({ ...show("verified"), effects: ["adopt_vod"] }) },
+  {
+    id: "addition_unverifiable",
+    when: (f) => f.kind === "match_addition" && (f.vod.state === "not_found" || f.vod.state === "unavailable" || f.vod.state === "no_vod"),
+    then: () => show("pending"),
+  },
+  { id: "addition_pending", when: (f) => f.kind === "match_addition", then: () => ({ ...show("pending"), effects: ["vod_priority"] }) },
   // 편성표 제보는 언제나 운영자가 반영한다(사용자 결정 2026-10-17).
   { id: "schedule_review", when: (f) => f.kind === "schedule_report", then: () => hold("schedule_review") },
   {
@@ -119,7 +131,7 @@ const RULES: readonly Rule[] = [
   { id: "apply_pending", when: (f) => f.kind === "match_correction", then: () => show("pending") },
 ];
 
-export const POLICY: Policy = { version: "2026-10-17.3", config: { trustedReporter: false, consensusMembers: null }, rules: RULES };
+export const POLICY: Policy = { version: "2026-10-17.4", config: { trustedReporter: false, consensusMembers: null }, rules: RULES };
 
 export function decide(f: Facts, policy: Policy = POLICY): Verdict {
   for (const r of policy.rules) if (r.when(f, policy.config)) { const t = r.then(f); return { ...t, effects: t.effects ?? [], rule: r.id }; }

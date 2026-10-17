@@ -54,8 +54,8 @@ export function planVodRequests(requests: readonly OpenVodRequest[], facts: Read
     } else if (f.blocked) { out.waiting.push({ title_no: r.title_no, why: "결과 진척 없이 반복 제한에 걸렸다" }); continue; }
     if (r.state === "queued") out.claim.push({ title_no: r.title_no, channel_id: f.meta.channel_id });
     const who = r.reasons.map((x) => REASON_LABEL[x] ?? x).join("·");
-    // 요청 메모는 세션 지시문의 "대상 사유"로 넘어간다 — 회원 글은 db/submission.ts 가 시점·등록 이름으로만 줄여 적는다.
-    const notes = r.notes.join(" / ").replace(/[\t\r\n]+/g, " ").slice(0, 200);
+    // 요청 메모는 세션 지시문의 "대상 사유"로 넘어간다(400자까지 — 직접 입력의 경기 번호와 지시가 잘리지 않게) — 회원 글은 db/submission.ts 가 시점·등록 이름으로만 줄여 적는다.
+    const notes = r.notes.join(" / ").replace(/[\t\r\n]+/g, " ").slice(0, 400);
     out.enqueue.push({ ...f.meta, priority: r.priority, reason: `${reason} · ${who} 판독 요청${notes ? ` (${notes})` : ""}` });
   }
   return out;

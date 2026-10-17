@@ -1210,10 +1210,13 @@ export interface ParticipantPatch {
 export type ReviewChangeEntity = "match" | "series" | "participant" | "frame" | "classification";
 
 /**
- * 판을 고치는 사람. 운영자(admin)와 회원 제보(member — 그 제보 번호와 함께, 0093)가 **같은 길**(applyMatchReviewInTx)로 고친다.
+ * 판을 고치는 쪽. 운영자(admin)와 회원 제보(member — 그 제보 번호와 함께, 0093)가 **같은 길**(applyMatchReviewInTx)로 고친다.
  * 이력의 actor 가 이것이다 — 제보의 되돌리기는 그 제보 번호의 이력만 읽는다(core/lib/db/submission.ts).
+ * auto = VOD 판독 값으로 회원이 직접 입력한 경기를 덮을 때(0099, §9 "판독 값으로 덮고 검증"). 사람 칸이 아니고(review-lock),
+ * 검수 표시(reviewed_at)를 남기지 않으며, 회원처럼 그 판의 칸만 고친다.
  */
-export type ReviewWriter = { actor: "admin" } | { actor: "member"; submission_id: string };
+export type ReviewWriter = { actor: "admin" } | { actor: "member"; submission_id: string } | { actor: "auto" };
+export const AUTO_WRITER: ReviewWriter = { actor: "auto" };
 export const ADMIN_WRITER: ReviewWriter = { actor: "admin" };
 export interface ReviewChangeInput {
   match_id?: string | null;
@@ -1332,7 +1335,7 @@ export async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: Match
     if (exists[0].scope !== "versus" || !exists[0].event_id) throw new Error("개인 기록 판(시리즈 밖)은 시리즈·행사를 정하지 않습니다.");
   }
   if (Object.hasOwn(meta, "event_id") && !meta.event_id) throw new Error("행사는 비울 수 없습니다 — 판은 반드시 행사 안에 있습니다(모르면 분류 전 행사).");
-  if (writer.actor === "member" && (classificationChanged || seriesFormatChanged || orderChanged || patch.visibility)) {
+  if (writer.actor !== "admin" && (classificationChanged || seriesFormatChanged || orderChanged || patch.visibility)) {
     throw new Error("제보는 그 판의 칸만 고칩니다 — 시리즈·행사·세트 형식·공개 여부는 운영자가 정합니다.");
   }
   if (classificationChanged) {
@@ -1467,8 +1470,9 @@ export async function applyMatchReviewInTx(tx: Tx, matchId: string, patch: Match
   }
 
   if (changed) {
-    meta.reviewed_at = new Date();
-    await tx`UPDATE match SET ${tx(meta, ...Object.keys(meta))} WHERE match_id = ${matchId}`;
+    // 사람이 고쳤다는 표시다 — 판독 값으로 덮는 자동(auto)은 남기지 않는다.
+    if (writer.actor !== "auto") meta.reviewed_at = new Date();
+    if (Object.keys(meta).length) await tx`UPDATE match SET ${tx(meta, ...Object.keys(meta))} WHERE match_id = ${matchId}`;
     await recordReviewChanges(tx, history, writer);
     // ★ `outcome` 은 사람이 적는 값이 아니라 **팀과 승리 팀에서 나오는 값**이다.
     //   승자를 바꿨든 참가자를 옮겼든, 여기서 한 번에 맞춘다. 위 INSERT 가 'loss' 를

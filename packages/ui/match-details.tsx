@@ -37,7 +37,7 @@ export function MatchDetails({ sets, streamerId, highlightedStreamerIds = [] }: 
                 onClick={() => setSelectedId(set.matchId)}>
                 {set.label}
                 {me && <span data-outcome={me.outcome}>{OUTCOME_LABEL[me.outcome]}</span>}
-                {set.pending && <span className="match-details-pending-dot" aria-label="확인 전" />}
+                {set.pending && <span className="match-details-pending-dot" aria-label="검증 전" />}
               </button>
             );
           })}

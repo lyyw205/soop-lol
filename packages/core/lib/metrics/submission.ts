@@ -7,8 +7,12 @@
 
 import { SCHEDULE_GAME_LABEL, SCHEDULE_GAMES, type ScheduleGame } from "./schedule.ts";
 import { soopVodId } from "./vod-request.ts";
+import { additionLines, type MatchAddition } from "./addition.ts";
+import { SubmissionInputError } from "./submission-errors.ts";
 
-export const SUBMISSION_KINDS = ["match_correction", "schedule_report", "vod_hint"] as const;
+export { SubmissionInputError };
+
+export const SUBMISSION_KINDS = ["match_correction", "schedule_report", "vod_hint", "match_addition"] as const;
 export type SubmissionKind = (typeof SUBMISSION_KINDS)[number];
 export type SubmissionState = "applied" | "held" | "verified" | "reverted" | "rejected" | "duplicate";
 export type HoldReason = "review_completed" | "api_observed" | "account_identity" | "contested" | "not_public" | "schedule_review"
@@ -20,7 +24,7 @@ export const SUBMISSION_NOTE_MAX = 1000;
 export const SUBMISSION_URL_MAX = 500;
 
 export const SUBMISSION_STATE_LABEL: Record<SubmissionState, string> = {
-  applied: "반영됨 · 확인 전", held: "운영자 확인 대기", verified: "확인 완료", reverted: "반려(되돌림)", rejected: "반려", duplicate: "중복",
+  applied: "반영됨 · 검증 전", held: "운영자 확인 대기", verified: "확인 완료", reverted: "반려(되돌림)", rejected: "반려", duplicate: "중복",
 };
 /** 상태 이름표 — 보류 중 VOD 판독을 기다리는 것은 "운영자 확인 대기"가 아니다. 회원·운영자 화면이 같이 쓴다. */
 export const submissionStateLabel = (s: { state: SubmissionState; hold_reason: HoldReason | null }): string =>
@@ -61,9 +65,6 @@ export interface MatchCorrection {
   remove?: number[];
 }
 
-export class SubmissionInputError extends Error {
-  constructor(message: string) { super(message); this.name = "SubmissionInputError"; }
-}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const fail = (m: string): never => { throw new SubmissionInputError(m); };
@@ -397,13 +398,15 @@ export function vodHintLines(h: VodHint): string[] {
 export type SubmissionContent =
   | { kind: "match_correction"; payload: MatchCorrection }
   | { kind: "schedule_report"; payload: ScheduleReport }
-  | { kind: "vod_hint"; payload: VodHint };
+  | { kind: "vod_hint"; payload: VodHint }
+  | { kind: "match_addition"; payload: MatchAddition };
 
 /** 제보 하나를 읽는 줄로 — 종류에 맞는 풀이를 고른다. 목록 화면(내 제보·운영자 대기열)이 종류를 따지지 않게 한 곳에서. */
-export function submissionLines(s: SubmissionContent, names: { streamer: (id: string) => string; champion: (id: number) => string }): string[] {
+export function submissionLines(s: SubmissionContent, names: { streamer: (id: string) => string; champion: (id: number) => string; event?: (id: string) => string }): string[] {
   switch (s.kind) {
     case "schedule_report": return scheduleReportLines(s.payload);
     case "vod_hint": return vodHintLines(s.payload);
     case "match_correction": return correctionLines(s.payload, names);
+    case "match_addition": return additionLines(s.payload, names);
   }
 }
