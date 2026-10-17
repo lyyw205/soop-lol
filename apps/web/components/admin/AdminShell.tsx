@@ -17,6 +17,7 @@ const NAV = [
   { href: "/admin/streamers", label: "스트리머·계정", icon: Users, match: (path: string) => path.startsWith("/admin/streamers") || path.startsWith("/admin/candidates") },
   { href: "/admin/schedule", label: "편성표", icon: CalendarDays, match: (path: string) => path.startsWith("/admin/schedule") },
   { href: "/admin/community", label: "커뮤니티", icon: MessageSquare, match: (path: string) => path.startsWith("/admin/community") },
+  { href: "/admin/submissions", label: "회원 제보", icon: ClipboardCheck, match: (path: string) => path.startsWith("/admin/submissions") },
   { href: "/admin/support", label: "건의·문의", icon: MessageSquare, match: (path: string) => path.startsWith("/admin/support") },
 ] as const;
 
