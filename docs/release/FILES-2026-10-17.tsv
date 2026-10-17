@@ -1,0 +1,80 @@
+상태	기능	파일	정리
+ M	문서	CLAUDE.md	현행 경로 유지
+ M	문서	README.md	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/.env.example	현행 경로 유지
+ M	커뮤니티	apps/web/app/admin/community/actions.ts	현행 경로 유지
+ M	커뮤니티	apps/web/app/admin/community/page.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/app/admin/layout.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/app/admin/office/status/route.ts	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/app/login/page.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/app/me/page.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/app/privacy/page.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/app/robots.txt/route.ts	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/components/admin/AdminShell.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/components/header-account.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/components/header-login-link.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/components/site-footer.tsx	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/lib/admin-auth.ts	현행 경로 유지
+ M	인증·권한·공통 화면	apps/web/proxy.ts	현행 경로 유지
+ M	커뮤니티	apps/worker/src/engines/community.ts	현행 경로 유지
+ M	문서	docs/COMMUNITY-PLAN.md	현행 경로 유지
+ M	문서	docs/SETUP.md	현행 경로 유지
+ M	의존성	package-lock.json	현행 경로 유지
+ M	커뮤니티	packages/core/lib/contract/community-client.ts	현행 경로 유지
+ M	커뮤니티	packages/core/lib/contract/community.ts	현행 경로 유지
+ M	커뮤니티	packages/core/lib/db/community-admin.ts	현행 경로 유지
+ M	커뮤니티	packages/core/lib/db/community.ts	현행 경로 유지
+ M	커뮤니티	packages/core/lib/metrics/community.ts	현행 경로 유지
+ M	의존성	packages/core/package.json	현행 경로 유지
+ M	커뮤니티	packages/modules/community/server/actions.ts	현행 경로 유지
+ M	커뮤니티	packages/modules/community/ui/community.css	현행 경로 유지
+ M	커뮤니티	packages/modules/community/ui/compose.tsx	현행 경로 유지
+ M	커뮤니티	packages/modules/community/ui/page.tsx	현행 경로 유지
+ M	커뮤니티	packages/modules/community/ui/post.tsx	현행 경로 유지
+ M	편성표	packages/modules/schedule/ui/schedule.css	현행 경로 유지
+ M	인증·권한·공통 화면	packages/modules/tournaments/server/tournament.test.ts	현행 경로 유지
+ M	검증·운영 도구	scripts/collect.ts	현행 경로 유지
+ M	검증·운영 도구	scripts/lib/verify-community-db.ts	현행 경로 유지
+ M	검증·운영 도구	scripts/systemd/soop-community.service	현행 경로 유지
+ M	검증·운영 도구	scripts/verify-admin-lol-collections.ts	현행 경로 유지
+ M	검증·운영 도구	scripts/verify-ck-browser.ts	현행 경로 유지
+ M	검증·운영 도구	scripts/verify-community-browser.ts	현행 경로 유지
+ M	검증·운영 도구	scripts/verify-match-review-browser.ts	현행 경로 유지
+ M	검증·운영 도구	scripts/verify-office-browser.ts	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/admin/support/[id]/page.tsx	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/admin/support/actions.ts	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/admin/support/layout.tsx	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/admin/support/page.tsx	현행 경로 유지
+??	첨부·R2	apps/web/app/api/community/attachments/[id]/route.ts	현행 경로 유지
+??	첨부·R2	apps/web/app/api/community/attachments/complete/route.ts	현행 경로 유지
+??	첨부·R2	apps/web/app/api/community/attachments/http.ts	현행 경로 유지
+??	첨부·R2	apps/web/app/api/community/attachments/route.ts	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/support/[id]/page.tsx	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/support/actions.ts	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/support/layout.tsx	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/support/page.tsx	현행 경로 유지
+??	비공개 건의·문의	apps/web/app/support/support.css	현행 경로 유지
+??	비공개 건의·문의	apps/web/components/support-content.tsx	현행 경로 유지
+??	비공개 건의·문의	apps/web/components/support-forms.tsx	현행 경로 유지
+??	DB 마이그레이션	db/migrations/0091_support_ticket.sql	현행 경로 유지
+??	DB 마이그레이션	db/migrations/0092_community_attachment.sql	현행 경로 유지
+??	문서	docs/release/STATUS-2026-10-17.md	현행 경로 유지
+??	인증·권한·공통 화면	packages/core/lib/auth/owner.ts	현행 경로 유지
+??	첨부·R2	packages/core/lib/db/attachments.ts	현행 경로 유지
+??	비공개 건의·문의	packages/core/lib/db/support.ts	현행 경로 유지
+??	첨부·R2	packages/core/lib/metrics/attachments.ts	현행 경로 유지
+??	첨부·R2	packages/core/lib/storage/inspect-media.ts	현행 경로 유지
+??	첨부·R2	packages/core/lib/storage/r2.ts	현행 경로 유지
+??	첨부·R2	packages/modules/community/ui/attachments.tsx	현행 경로 유지
+??	커뮤니티	packages/modules/community/ui/media.test.ts	현행 경로 유지
+??	커뮤니티	packages/modules/community/ui/media.ts	현행 경로 유지
+??	커뮤니티	packages/modules/community/ui/post-body.tsx	현행 경로 유지
+??	시험 자료와 출처	scripts/fixtures/attachment-frame.mp4	현행 경로 유지
+??	시험 자료와 출처	scripts/fixtures/attachment-frame.txt	현행 경로 유지
+??	검증·운영 도구	scripts/verify-admin-access.ts	현행 경로 유지
+??	검증·운영 도구	scripts/verify-attachment-browser.ts	현행 경로 유지
+??	검증·운영 도구	scripts/verify-attachments.ts	현행 경로 유지
+??	검증·운영 도구	scripts/verify-auth-access.ts	현행 경로 유지
+??	검증·운영 도구	scripts/verify-community-media.ts	현행 경로 유지
+??	검증·운영 도구	scripts/verify-support-access.ts	현행 경로 유지
+??	문서	docs/release/FILES-2026-10-17.tsv	변경 파일 목록

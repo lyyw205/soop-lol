@@ -39,6 +39,7 @@ npm run dev
 
 | 문서 | 내용 |
 |---|---|
+| [docs/release/STATUS-2026-10-17.md](docs/release/STATUS-2026-10-17.md) | 최신 작업 인계·변경 요약·검증·파일 정리 결과 |
 | [docs/release/REVIEW-2026-10-15.md](docs/release/REVIEW-2026-10-15.md) | 출시 전 검증 결과·필수 해결 항목·AWS/로컬 분리·폴더 정리 목록 |
 | [docs/release/CHECKLIST.md](docs/release/CHECKLIST.md) | 기존 아키텍처 점검표 + 가입·배포·폴더 보존·검증 도구 점검 |
 | [docs/CK-BACKFILL.md](docs/CK-BACKFILL.md) | 사용자 요청으로 과거 VOD 최근순 조사·중단 재개 |

@@ -343,3 +343,58 @@ CK_PG_BIN=/usr/lib/postgresql/16/bin npm run verify:ck:browser
 `CK_PG_BIN`은 설치된 PostgreSQL의 `initdb`·`pg_ctl` 디렉터리로 바꾼다. `pg_trgm`, `pgcrypto` 확장도 설치돼 있어야 한다. 루트 계정 대신 일반 사용자로 실행한다. 두 스크립트는 직접 만든 임시 클러스터와 임의 포트만 사용하고 외부 `DATABASE_URL`을 시험 대상으로 받지 않는다. 종료 시 클러스터를 중지하고 삭제한다.
 
 브라우저 검사는 임시 DB를 연결한 실제 Next 개발 서버를 별도 `NEXT_DIST_DIR`로 띄운다. 데스크톱·모바일 선택/저장, 두 탭의 충돌, 서버 갱신 중 입력 보존, 후보 재수집 보호를 확인한다. Playwright는 이 저장소의 고정 버전 의존성을 사용한다. 다른 저장소나 `/tmp`의 재현 스크립트에 의존하지 않는다.
+
+
+## 회원 로그인 연결 (2026-10-16)
+
+현재 로컬 상태(2026-10-17 확인): 두 제공자 키·최고 관리자·R2 설정이 존재한다(값은 문서에 기록하지 않는다). 2026-10-16 세션에서 실제 카카오·구글 가입/로그인과 R2 업로드·재생을 완료했다. 커뮤니티 정리 타이머는 enabled/active다. 운영 도메인 콜백·R2 CORS·서버 배포 확인은 별도다. 최신 작업 요약은 [release/STATUS-2026-10-17.md](release/STATUS-2026-10-17.md).
+
+현재 회원 코드는 카카오·구글 OpenID Connect를 사용한다. 공개 열람과 실시간 캠 공유는 로그인 없이 허용한다.
+실제 개발자 앱 설정 전에는 `/login`에 준비 중 안내가 나오며, 운영자 권한은 기존 관리자 인증과 별개다.
+
+1. 카카오 개발자 앱에서 카카오 로그인과 OpenID Connect를 활성화하고 로그인 완료 주소를 등록한다.
+2. 구글 개발자 콘솔에서 웹 애플리케이션 OAuth 클라이언트와 동의 화면을 구성하고 로그인 완료 주소를 등록한다.
+3. 로컬 완료 주소: `http://localhost:3000/auth/kakao/callback`, `http://localhost:3000/auth/google/callback`.
+   실제 접속 주소가 127.0.0.1이거나 포트가 다르면 그 주소를 별도로 등록한다.
+4. `apps/web/.env.local`에 `KAKAO_CLIENT_ID`(REST API 키), `KAKAO_CLIENT_SECRET`(신규 REST API 키는 기본 활성화되어 함께 설정),
+   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`을 설정한다. 값은 채팅·로그·저장소에 남기지 않는다.
+5. 운영에서는 `SITE_ORIGIN=https://실제도메인`을 설정하고 해당 도메인의 두 콜백 주소를 제공자에 등록한다.
+   `OAUTH_KAKAO_ISSUER` 같은 가짜 제공자 설정은 운영에서 사용하지 않는다.
+6. 서버를 다시 시작한 뒤 두 제공자로 가입·닉네임 설정·원래 화면 복귀·로그아웃을 실제로 확인한다.
+7. 본인 회원 ID를 확인한 후 개인별 운영 권한 전환을 진행한다. 최초 가입자나 닉네임을 근거로 관리자 권한을 자동 부여하지 않는다.
+
+로컬 권한 검증: `node scripts/verify-auth-access.ts`.
+실제 연동 전에도 임시 DB로 로그인·회원 쓰기 검사를 실행할 수 있다.
+공식 설정 안내: [카카오](https://developers.kakao.com/docs/ko/kakaologin/prerequisite), [구글](https://developers.google.com/identity/openid-connect/openid-connect).
+
+
+### 최고 관리자 계정 (회원 로그인)
+
+`apps/web/.env.local` 또는 배포 서버 설정:
+
+```dotenv
+ADMIN_AUTH_MODE=member
+SUPER_ADMIN_MEMBER_ID=확인된_본인_회원_UUID
+```
+
+최고 관리자에게만 상단 관리자 링크와 내 정보의 최고 관리자 표시가 보인다. `/admin` 하위 화면·API·서버 액션은
+로그인 세션의 유효성 및 이 회원 ID를 매번 검사한다. 로그아웃·세션 만료·탈퇴는 즉시 접근을 차단한다.
+구글 로그인 사용자 전체를 관리자로 만드는 것이 아니라, 확인된 한 회원만 지정한다.
+ID를 지우면 관리자 접근은 잠기며 기존 Basic 인증으로 자동 전환하지 않는다.
+설정 변경은 실행 서버에 반영해야 한다(운영은 재시작). 카카오 회원과 다른 구글 회원은 일반 회원으로 유지된다.
+
+기존 Basic을 사용하는 격리 검증 도구는 `ADMIN_AUTH_MODE=basic`을 명시한다. 운영에서 회원 모드와 Basic을 동시에 허용하지 않는다.
+이 문서 앞부분의 Basic 인증 안내는 구형 설정이며, 회원 모드에서는 이 절차가 우선한다.
+검증: `node scripts/verify-admin-access.ts`.
+
+
+### 커뮤니티 첨부 저장소
+
+별도 비공개 Cloudflare R2 버킷과 그 버킷에만 Object Read & Write 권한이 있는 API 토큰을 사용한다.
+apps/web/.env.local의 R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY를 채운다. 키를 저장소에 커밋하지 않는다.
+CORS는 실제 사이트 Origin만 허용하며 GET/HEAD/PUT, Content-Type, 노출 헤더 ETag를 설정한다. 로컬은 http://localhost:3000 및 http://127.0.0.1:3000이다. 배포 시 운영 Origin을 추가한다.
+
+0092 마이그레이션 후 COMMUNITY_UPLOAD_ENABLED=true로 활성화한다. COMMUNITY_STORAGE_LIMIT_BYTES 기본값은 10000000000(10GB)이다. 사용자 예약/재시도는 24시간 100MB·30회 제한이다.
+정리 작업은 scripts/systemd/install.sh --job community-housekeep 로 설치한다(매일 04:30, WSL이 켜져 있어야 실행). 정리 실패는 작업 실패로 남는다.
+비활성화해도 기존 게시 파일 조회는 유지된다. 저장소 전체 공개와 r2.dev는 사용하지 않는다.
+검증은 node scripts/verify-attachments.ts, 실제 전용 버킷 검증은 node --env-file=apps/web/.env.local scripts/verify-attachment-browser.ts 이다.
