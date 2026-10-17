@@ -10,6 +10,8 @@ import {
 import { buildSlotTimes, type ScheduleInput } from "@soop-lol/core/lib/metrics/schedule";
 import { fromKstInputValue } from "@soop-lol/core/lib/time";
 
+import { MemberError } from "@soop-lol/core/lib/db/member";
+
 import type { ActionState } from "@/lib/action-state";
 import { requireAdmin } from "@/lib/admin-auth";
 
@@ -19,6 +21,8 @@ export interface ScheduleFormPayload {
   version: string | null;
   /** 오타 수정 — 공개 변경 이력에 남기지 않는다. */
   typo: boolean;
+  /** 회원 편성표 제보를 반영하는 저장이면 그 제보 — 저장과 같은 트랜잭션에서 확인 완료로 닫힌다(0094). */
+  submission_id?: string | null;
   game_code: string;
   title: string;
   /** 예정 진행 방식(schedule_entry.planned_format, 0089) — 행사와 같은 어휘(format.ts). */
@@ -72,7 +76,7 @@ async function toInput(p: ScheduleFormPayload): Promise<{ input: ScheduleInput }
 }
 
 export async function saveScheduleAction(_prev: ActionState, form: FormData): Promise<ActionState & { savedId?: string; savedVersion?: string }> {
-  await requireAdmin();
+  const { actor } = await requireAdmin();
   let payload: ScheduleFormPayload;
   try {
     payload = JSON.parse(String(form.get("payload") ?? ""));
@@ -85,14 +89,19 @@ export async function saveScheduleAction(_prev: ActionState, form: FormData): Pr
   if ("errors" in converted) return { ok: false, message: converted.errors.join(" / ") };
   let saved: { id: string; version: string };
   try {
-    saved = await saveScheduleEntry(converted.input, { id: payload.id, version: payload.version, recordHistory: !payload.typo });
+    saved = await saveScheduleEntry(converted.input, {
+      id: payload.id, version: payload.version, recordHistory: !payload.typo,
+      submission: typeof payload.submission_id === "string" && payload.submission_id ? { id: payload.submission_id, actor } : null,
+    });
   } catch (e) {
     if (e instanceof ScheduleSaveError) return { ok: false, message: e.reasons.join(" / ") };
+    if (e instanceof MemberError) return { ok: false, message: e.message };
     throw e;
   }
   revalidatePath("/admin/schedule", "layout");
   revalidatePath("/schedule", "layout");
-  return { ok: true, message: "저장했습니다.", savedId: saved.id, savedVersion: saved.version };
+  if (payload.submission_id) revalidatePath("/admin/submissions", "layout");
+  return { ok: true, message: payload.submission_id ? "저장했습니다. 제보를 확인 완료로 닫았습니다." : "저장했습니다.", savedId: saved.id, savedVersion: saved.version };
 }
 
 export async function deleteScheduleAction(_prev: ActionState, form: FormData): Promise<ActionState> {

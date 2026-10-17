@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 
 import { readSessionToken } from "@soop-lol/core/lib/auth/request";
 import { MemberError } from "@soop-lol/core/lib/db/member";
-import { submitMatchCorrection, supportSubmission } from "@soop-lol/core/lib/db/submission";
+import { submitMatchCorrection, submitScheduleReport, supportSubmission } from "@soop-lol/core/lib/db/submission";
 import { HOLD_REASON_LABEL } from "@soop-lol/core/lib/metrics/submission";
-import { mySubmissionsHref, submitMatchHref } from "@soop-lol/core/lib/site-paths";
+import { mySubmissionsHref, submitMatchHref, submitScheduleHref } from "@soop-lol/core/lib/site-paths";
 
 import type { ActionState } from "@/lib/action-state";
 
@@ -35,10 +35,31 @@ export async function submitCorrectionAction(_prev: ActionState, form: FormData)
   return { ok: true, message };
 }
 
+/** 편성표 제보 — 언제나 운영자 확인 대기로 받는다(바로 반영하지 않는다). 판단은 core submission.ts. */
+export async function submitScheduleReportAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const entryId = String(form.get("entry_id") ?? "") || null;
+  let payload: unknown;
+  try { payload = JSON.parse(String(form.get("payload") ?? "{}")); } catch { return { ok: false, message: "제보 형식이 올바르지 않습니다. 새로고침해 주세요." }; }
+  let message: string;
+  try {
+    const r = await submitScheduleReport(await readSessionToken(), {
+      request_id: String(form.get("request_id") ?? ""), entry_id: entryId, payload,
+      note: String(form.get("note") ?? ""), evidence_url: String(form.get("evidence_url") ?? ""),
+    });
+    message = r.kind === "held" ? "접수했습니다. 운영자가 확인한 뒤 편성표에 반영됩니다."
+      : r.kind === "supported" ? "같은 내용의 제보가 이미 있어 '같은 내용이에요'로 더했습니다."
+      : "이미 접수된 요청입니다.";
+  } catch (e) { if (e instanceof MemberError) return { ok: false, message: e.message }; throw e; }
+  revalidatePath(submitScheduleHref(entryId));
+  revalidatePath(mySubmissionsHref());
+  return { ok: true, message };
+}
+
 export async function supportAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   try {
     await supportSubmission(await readSessionToken(), String(form.get("id") ?? ""));
   } catch (e) { if (e instanceof MemberError) return { ok: false, message: e.message }; throw e; }
-  revalidatePath(submitMatchHref(String(form.get("match_id") ?? "")));
+  const entryId = String(form.get("entry_id") ?? "");
+  revalidatePath(entryId ? submitScheduleHref(entryId) : submitMatchHref(String(form.get("match_id") ?? "")));
   return { ok: true, message: "같은 내용이에요(+1)를 남겼습니다." };
 }

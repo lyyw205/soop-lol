@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import { describeChange, entryPeriod, entryState, getPublicScheduleEntry, listPublicScheduleChanges, kstClock, kstDateString, kstDayStart, listPublicStreamerOptions, SCHEDULE_GAMES, type ScheduleGame } from "@soop-lol/core/lib/contract";
+import { describeChange, entryPeriod, entryState, getPublicScheduleEntry, listPublicScheduleChanges, kstClock, kstDateString, kstDayStart, listPublicStreamerOptions, SCHEDULE_GAMES, submitScheduleHref, type ScheduleGame } from "@soop-lol/core/lib/contract";
 import { agendaRange, parseKind } from "./agenda.ts";
 import { scheduleHref, scheduleQuery } from "./paths.ts";
 import { Badges, EntryBody, md, weekday, resultLink } from "./content.tsx";
@@ -78,6 +78,7 @@ async function ScheduleDetail({ id, roleHref, backHref, site }: { id: string; ro
         {changes.length === 0 ? <p className="sched-muted">공지 뒤 바뀐 것이 없습니다.</p> : <ol className="sched-changes">
           {changes.map((c, i) => <li key={i}><small className="tabular">{md(kstDateString(new Date(c.changed_at)))} {kstClock(new Date(c.changed_at))}</small> {describeChange(c)}</li>)}
         </ol>}
+        <p className="sched-muted">틀렸거나 바뀐 내용이 있나요? <Link href={submitScheduleHref(entry.schedule_id)} prefetch={false}>제보하기 →</Link></p>
       </section>
     </div>
   );

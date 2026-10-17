@@ -65,6 +65,9 @@
 .submission-open ul { margin: 0; padding-left: 18px; }
 .submission-state { color: var(--warning, #f5b84d); font-weight: 600; }
 .submission-support { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* 편성표 제보(0094) — 날짜·시각 한 줄 */
+.submission-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 640px) {
   .submission-slot { grid-template-columns: 22px 1fr 1fr; }
+  .submission-row { grid-template-columns: 1fr; }
 }

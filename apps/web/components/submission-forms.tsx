@@ -3,11 +3,14 @@
 import { useMemo, useState } from "react";
 
 import type { CorrectionTarget } from "@soop-lol/core/lib/db/submission";
-import { CORRECTION_POSITIONS, type MatchCorrection } from "@soop-lol/core/lib/metrics/submission";
+import {
+  CORRECTION_POSITIONS, SCHEDULE_REPORT_STATUS_LABEL, SCHEDULE_REPORT_STATUSES, type MatchCorrection, type ScheduleReport,
+} from "@soop-lol/core/lib/metrics/submission";
+import { SCHEDULE_GAME_LABEL, SCHEDULE_GAMES } from "@soop-lol/core/lib/metrics/schedule";
 
 import { useKeptFormAction } from "../../../packages/ui/use-kept-form-action";
 import { IDLE } from "@/lib/action-state";
-import { submitCorrectionAction, supportAction } from "@/app/submit/actions";
+import { submitCorrectionAction, submitScheduleReportAction, supportAction } from "@/app/submit/actions";
 
 type Slot = CorrectionTarget["slots"][number];
 type Editable = Pick<Slot, "streamer_id" | "observed_name" | "champion_id" | "team_position" | "kills" | "deaths" | "assists">;
@@ -136,12 +139,66 @@ function PositionSelect({ value, onChange, disabled, label }: { value: string | 
   </select>;
 }
 
-/** 같은 내용이에요(+1) — 새 제보 대신. */
-export function SupportButton({ id, matchId }: { id: string; matchId: string }) {
+/** 같은 내용이에요(+1) — 새 제보 대신. 경기 제보는 matchId, 편성표 제보는 entryId. */
+export function SupportButton({ id, matchId, entryId }: { id: string; matchId?: string; entryId?: string }) {
   const { state, dispatch, pending, onSubmit } = useKeptFormAction(supportAction, IDLE);
   return <form action={dispatch} onSubmit={onSubmit} className="submission-support">
-    <input type="hidden" name="id" value={id} /><input type="hidden" name="match_id" value={matchId} />
+    <input type="hidden" name="id" value={id} /><input type="hidden" name="match_id" value={matchId ?? ""} /><input type="hidden" name="entry_id" value={entryId ?? ""} />
     <button disabled={pending || (state.ok && !!state.message)}>같은 내용이에요(+1)</button>
     {state.message && <span role={state.ok ? "status" : "alert"}>{state.message}</span>}
+  </form>;
+}
+
+/** 편성표 제보가 처음 보여 주는 값(고치기는 지금 일정, 새 일정은 빈 칸). */
+export interface ScheduleReportStart { game_code: string; title: string; status: string; on_date: string; start: string; participants: string }
+
+/**
+ * 편성표 제보 폼 — 고치기는 **바뀐 칸만** 보낸다(처음 본 값과 다른 칸). 새 일정은 전부 보낸다.
+ * 반영은 운영자가 한다 — 보낸 뒤에도 편성표는 그대로이고 내 제보에서 처리 상태를 본다.
+ */
+export function ScheduleReportForm({ entryId, start }: { entryId: string | null; start: ScheduleReportStart }) {
+  const { state, dispatch, pending, onSubmit } = useKeptFormAction(submitScheduleReportAction, IDLE);
+  const [requestId] = useState(() => crypto.randomUUID());
+  const [v, setV] = useState(start);
+  const [note, setNote] = useState("");
+  const isNew = entryId === null;
+  const payload = useMemo<ScheduleReport>(() => {
+    if (isNew) return { type: "new", game_code: v.game_code as ScheduleReport["game_code"], title: v.title, on_date: v.on_date, start: v.start || null, participants: v.participants };
+    const out: Record<string, unknown> = { type: "correction" };
+    if (v.title !== start.title) out.title = v.title;
+    if (v.status !== start.status) out.status = v.status;
+    if (v.on_date !== start.on_date || v.start !== start.start) { out.on_date = v.on_date; out.start = v.start || null; }
+    if (v.participants !== start.participants) out.participants = v.participants;
+    return out as unknown as ScheduleReport;
+  }, [v, start, isNew]);
+  const empty = !isNew && Object.keys(payload).length === 1 && !note.trim();
+  const set = (patch: Partial<ScheduleReportStart>) => setV((cur) => ({ ...cur, ...patch }));
+  return <form action={dispatch} onSubmit={onSubmit} className="submission-form">
+    <input type="hidden" name="request_id" value={requestId} />
+    <input type="hidden" name="entry_id" value={entryId ?? ""} />
+    <input type="hidden" name="payload" value={JSON.stringify(payload)} />
+    {isNew && <label>게임
+      <select value={v.game_code} onChange={(e) => set({ game_code: e.target.value })}>
+        {SCHEDULE_GAMES.map((g) => <option key={g} value={g}>{SCHEDULE_GAME_LABEL[g]}</option>)}
+      </select>
+    </label>}
+    <label>제목<input value={v.title} maxLength={100} required={isNew} onChange={(e) => set({ title: e.target.value })} placeholder="예: 멸망전 시즌 5 결승" /></label>
+    {!isNew && <label>상태
+      <select value={v.status} onChange={(e) => set({ status: e.target.value })}>
+        {!SCHEDULE_REPORT_STATUSES.includes(start.status as never) && <option value={start.status}>지금 그대로</option>}
+        {SCHEDULE_REPORT_STATUSES.map((s) => <option key={s} value={s}>{SCHEDULE_REPORT_STATUS_LABEL[s]}</option>)}
+      </select>
+    </label>}
+    <div className="submission-row">
+      <label>날짜<input type="date" value={v.on_date} required={isNew} onChange={(e) => set({ on_date: e.target.value })} /></label>
+      <label>시작 시각(선택)<input type="time" value={v.start} onChange={(e) => set({ start: e.target.value })} /></label>
+    </div>
+    <label>참가자(선택)<textarea rows={2} maxLength={300} value={v.participants} placeholder="이름을 쉼표로 나눠 써 주세요"
+      onChange={(e) => set({ participants: e.target.value })} /></label>
+    <label>근거 링크{isNew ? "" : "(선택)"}<input name="evidence_url" type="url" maxLength={500} required={isNew} placeholder="방송 공지·SNS 주소" /></label>
+    <label>메모(선택)<textarea name="note" rows={3} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)}
+      placeholder={isNew ? "알고 있는 내용을 더 적어 주세요" : "바뀐 내용이나 확인한 곳을 적어 주세요"} /></label>
+    {state.message && <p role={state.ok ? "status" : "alert"}>{state.message}</p>}
+    <button disabled={pending || empty || (state.ok && !!state.message)}>{pending ? "보내는 중…" : empty ? "바꾼 칸이 없습니다" : "제보 보내기"}</button>
   </form>;
 }

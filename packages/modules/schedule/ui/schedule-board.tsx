@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { daysBetween, kstClock, kstDayStart, SCHEDULE_GAME_LABEL, SCHEDULE_GAMES,
+import { daysBetween, kstClock, kstDayStart, SCHEDULE_GAME_LABEL, SCHEDULE_GAMES, submitScheduleHref,
   type NavigationSite, type PublicScheduleEntry, type ScheduleGame } from "@soop-lol/core/lib/contract/schedule";
 import { loadScheduleWindow } from "../server/load-window.ts";
 import { agendaCards, agendaEntries, agendaRange, featuredCard, type ScheduleKindFilter } from "./agenda.ts";
@@ -142,6 +142,7 @@ export function ScheduleBoard({ initialEntries, initialDate, today, renderedAt, 
         <div className="sched-container sched-hero-inner">
           <div className="sched-hero-title"><div className="sched-eyebrow"><i />{gameLabel} / SCHEDULE</div>
             <h1>편성표</h1><div className="sched-masthead" aria-hidden="true">MATCH<span>DAY.</span></div><p>대회부터 CK까지.</p>
+            <Link className="sched-report-link" href={submitScheduleHref()} prefetch={false}>빠진 일정 알리기 →</Link>
             <span className="sched-hero-edition">{month.replace("-", " / ")}</span>
           </div>
           {feature ? <HeadlineMatch card={feature} people={people} href={detailHref(feature.entry)} />

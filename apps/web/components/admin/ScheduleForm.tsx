@@ -43,10 +43,10 @@ export function ScheduleForm({ initial, streamers, events }: {
 }) {
   const router = useRouter(), search = useSearchParams();
   const from = adminReturn(search.get("from"), "/admin/schedule");
-  const { draft: v, setDraft: setV, reset, dirty, stale } = useReviewDraft(`schedule:${initial.id ?? "new"}`, initial);
+  const { draft: v, setDraft: setV, reset, dirty, stale } = useReviewDraft(`schedule:${initial.id ?? "new"}${initial.submission_id ? `:submission:${initial.submission_id}` : ""}`, initial);
   const [state, action, pending] = useActionState(async (prev: ActionState, form: FormData) => {
     const result = await saveScheduleAction(prev, form);
-    if (result.ok && result.savedId) { reset({ ...JSON.parse(String(form.get("payload"))) as ScheduleFormPayload, id: result.savedId, version: result.savedVersion! }); router.replace(adminHref(`/admin/schedule/${result.savedId}`, { saved: "1", from })); router.refresh(); }
+    if (result.ok && result.savedId) { reset({ ...JSON.parse(String(form.get("payload"))) as ScheduleFormPayload, id: result.savedId, version: result.savedVersion!, submission_id: null }); router.replace(adminHref(`/admin/schedule/${result.savedId}`, { saved: "1", from })); router.refresh(); }
     return result;
   }, IDLE);
   const set = <K extends keyof ScheduleFormPayload>(k: K, value: ScheduleFormPayload[K]) => setV((p) => ({ ...p, [k]: value }));

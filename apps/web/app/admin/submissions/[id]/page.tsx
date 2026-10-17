@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getSubmissionForAdmin, listStreamerChoices, listSubmissionQueue } from "@soop-lol/core/lib/db/submission";
-import { correctionLines, HOLD_REASON_LABEL, SUBMISSION_STATE_LABEL } from "@soop-lol/core/lib/metrics/submission";
+import { HOLD_REASON_LABEL, submissionLines, SUBMISSION_STATE_LABEL } from "@soop-lol/core/lib/metrics/submission";
 import { championById } from "@soop-lol/core/lib/riot/champions";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
 
@@ -22,20 +22,24 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
   const name = new Map(streamers.map((x) => [x.id, x.display_name]));
   const names = { streamer: (id: string) => name.get(id) ?? id.slice(0, 8), champion: (id: number) => championById(id)?.name ?? `#${id}` };
   const open = s.state === "applied" || s.state === "held";
-  const siblings = queue.filter((q) => q.id !== s.id && q.match_id === s.match_id)
-    .map((q) => ({ id: q.id, label: `${SUBMISSION_STATE_LABEL[q.state]} · ${correctionLines(q.payload, names)[0] ?? q.id.slice(0, 8)}` }));
+  const schedule = s.kind === "schedule_report";
+  // 같은 대상의 다른 열린 제보 — 중복으로 합칠 후보.
+  const siblings = queue.filter((q) => q.id !== s.id && q.kind === s.kind && (schedule ? q.schedule_entry_id === s.schedule_entry_id : q.match_id === s.match_id))
+    .map((q) => ({ id: q.id, label: `${SUBMISSION_STATE_LABEL[q.state]} · ${submissionLines(q.kind, q.payload, names)[0] ?? q.id.slice(0, 8)}` }));
   return <div className="grid gap-5">
     <Link href="/admin/submissions" className="text-sm text-ink-400 hover:underline">← 제보 목록</Link>
-    <Card title={`${s.event_name ?? "행사 없음"} · ${s.played_at ? kstPlayedAt(new Date(s.played_at), "datetime") : ""}`}
+    <Card title={schedule ? `편성표 · ${s.schedule_title ?? "편성표에 없는 일정"}` : `${s.event_name ?? "행사 없음"} · ${s.played_at ? kstPlayedAt(new Date(s.played_at), "datetime") : ""}`}
       description={`${s.author ?? "탈퇴한 회원"} · ${kstPlayedAt(new Date(s.created_at), "datetime")} 접수`}>
       <div className="flex flex-wrap gap-2 text-sm">
         <Tag tone={s.state === "applied" ? "warn" : "neutral"}>{SUBMISSION_STATE_LABEL[s.state]}</Tag>
         {s.hold_reason && <Tag>{HOLD_REASON_LABEL[s.hold_reason]}</Tag>}
         {s.supporters > 0 && <Tag tone="accent">같은 내용 {s.supporters}</Tag>}
         {s.match_id && <Link href={`/admin/ck/match/${encodeURIComponent(s.match_id)}`} className="text-accent-400 hover:underline">검수 화면에서 직접 고치기 →</Link>}
+        {/* 편성표 제보의 반영 = 제보 내용으로 미리 채운 편성표 편집 폼을 저장한다(그 저장이 이 제보를 확인 완료로 닫는다). */}
+        {schedule && open && <Link href={`/admin/schedule/${s.schedule_entry_id ?? "new"}?submission=${s.id}`} className="text-accent-400 hover:underline">편성표 편집에서 반영 →</Link>}
       </div>
       <h3 className="mt-4 text-sm font-semibold">제안</h3>
-      <ul className="mt-1 list-disc pl-5 text-sm text-ink-300">{correctionLines(s.payload, names).map((l) => <li key={l}>{l}</li>)}</ul>
+      <ul className="mt-1 list-disc pl-5 text-sm text-ink-300">{submissionLines(s.kind, s.payload, names).map((l) => <li key={l}>{l}</li>)}</ul>
       {(s.note || s.evidence_url) && <div className="mt-3 text-sm text-ink-300">
         {s.evidence_url && <p>근거: <a href={s.evidence_url} target="_blank" rel="noreferrer noopener" className="text-accent-400 hover:underline">{s.evidence_url}</a></p>}
         {s.note && <p className="whitespace-pre-wrap">메모: {s.note}</p>}
@@ -51,7 +55,7 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
       </>}
       {s.conflicts.length > 0 && <p className="mt-3 text-sm text-amber-400">이 제보 뒤에 같은 칸이 또 바뀌어 반려(되돌리기)를 할 수 없습니다: {s.conflicts.join(", ")} — 검수 화면에서 직접 고친 뒤 확인하세요.</p>}
       {s.decided_at && <p className="mt-3 text-sm text-ink-400">처리: {s.decided_by} · {kstPlayedAt(new Date(s.decided_at), "datetime")}{s.decision_note ? ` · ${s.decision_note}` : ""}</p>}
-      {open && <div className="mt-5"><DecideSubmissionForm id={s.id} held={s.state === "held"} duplicateOptions={siblings} /></div>}
+      {open && <div className="mt-5"><DecideSubmissionForm id={s.id} held={s.state === "held"} schedule={schedule} duplicateOptions={siblings} /></div>}
     </Card>
   </div>;
 }

@@ -53,6 +53,7 @@
 .sched-masthead { width: fit-content; font: 900 clamp(60px,6.9vw,100px)/.86 "Arial Black",Arial,sans-serif; letter-spacing: -7px; }
 .sched-masthead > span { display: block; color: var(--sched-accent); margin-top: 9px; }
 .sched-hero-title > p { font-size: var(--type-meta); color: var(--text-secondary, #a7bdb0); margin-top: 23px; }
+.sched-report-link { display: inline-flex; align-items: center; min-height: 44px; font-size: var(--type-meta); color: var(--sched-accent); }
 .sched-hero-edition { position: absolute; right: 0; bottom: 18px; writing-mode: vertical-rl; font-size: var(--type-micro); letter-spacing: 2px; color: var(--text-secondary, #acc1b580); }
 .sched-hero-baseline { display: flex; align-items: center; justify-content: space-between; min-height: 61px; border-top: 1px solid var(--border-default, #ffffff20); color: var(--text-secondary, #bacdbf); font-size: var(--type-micro); }
 .sched-hero-baseline > span > b { color: var(--sched-accent); font-weight: 700; margin-left: 6px; }
@@ -512,6 +513,7 @@ body:has(.sched) { background-color: var(--surface-base, #0a0b0f); }
 .sched-viewer-actions { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 16px; font-size: var(--type-meta); color: var(--sched-muted); }
 .sched-viewer-actions a { min-height: 44px; display: inline-flex; align-items: center; }
 .sched-viewer-actions .sched-viewer-result { color: var(--sched-accent); }
+.sched-viewer-actions .sched-viewer-report { color: var(--sched-muted); text-decoration: underline; text-underline-offset: 3px; }
 .sched-dialog :is(a,summary,button):focus-visible { outline: 2px solid var(--sched-accent); outline-offset: 3px; }
 @media (max-width:600px) {
   .sched-dialog-content { padding: 20px; }

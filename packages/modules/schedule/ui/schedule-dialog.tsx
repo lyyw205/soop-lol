@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef } from "react";
-import { entryState, profileHref, slotTimeLabel, type PublicScheduleEntry } from "@soop-lol/core/lib/contract/schedule";
+import { entryState, profileHref, slotTimeLabel, submitScheduleHref, type PublicScheduleEntry } from "@soop-lol/core/lib/contract/schedule";
 import { Badges, md, weekday, timeOf } from "./content.tsx";
 
 /** 네이티브 dialog가 포커스·Escape·배경 접근 차단을 맡는다. 원본 공지와 고유 상세 주소는 유지한다. */
@@ -68,7 +68,9 @@ export function ScheduleDialog({ entries, selected, onClose, detailHref, resultH
           {entry.sources.length > 0 && <ul>{entry.sources.map((source, i) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title ?? `행사 공지 ${i + 1}`} ↗</a></li>)}</ul>}
         </details>}
         <div className="sched-viewer-actions">{resultHref(entry) && <Link className="sched-viewer-result" href={resultHref(entry)!}>경기 결과 보기 →</Link>}
-          <Link href={detailHref(entry)}>일정 페이지 열기 ↗</Link></div>
+          <Link href={detailHref(entry)}>일정 페이지 열기 ↗</Link>
+          {/* 틀렸거나 바뀐 일정 — 로그인한 회원이 제보하고 운영자가 확인한 뒤 반영된다. 주소는 core site-paths 한 곳. */}
+          <Link className="sched-viewer-report" href={submitScheduleHref(entry.schedule_id)} prefetch={false}>제보하기</Link></div>
       </div>
     </>}
   </dialog>;
