@@ -24,8 +24,9 @@ export async function submitCorrectionAction(_prev: ActionState, form: FormData)
       request_id: String(form.get("request_id") ?? ""), match_id: matchId, payload,
       note: String(form.get("note") ?? ""), evidence_url: String(form.get("evidence_url") ?? ""),
     });
-    message = r.kind === "applied" ? "반영했습니다. 운영자가 확인할 때까지 '검증 전'으로 보이고, 전적 합계에는 확인 뒤에 들어갑니다."
-      : r.kind === "held" ? `접수했습니다. ${HOLD_REASON_LABEL[r.hold_reason!]}.`
+    message = r.kind === "held" ? `접수했습니다. ${HOLD_REASON_LABEL[r.hold_reason!]}.`
+      : r.kind === "verified" ? "반영했습니다(신뢰 제보자 — 확인 완료)."
+      : r.kind === "applied" ? "반영했습니다. 운영자가 확인할 때까지 '검증 전'으로 보이고, 전적 합계에는 확인 뒤에 들어갑니다."
       : r.kind === "supported" ? "같은 내용의 제보가 이미 있어 '같은 내용이에요'로 더했습니다."
       : "이미 접수된 요청입니다.";
   } catch (e) { if (e instanceof MemberError) return { ok: false, message: e.message }; throw e; }
@@ -35,7 +36,7 @@ export async function submitCorrectionAction(_prev: ActionState, form: FormData)
   return { ok: true, message };
 }
 
-/** 편성표 제보 — 언제나 운영자 확인 대기로 받는다(바로 반영하지 않는다). 판단은 core submission.ts. */
+/** 편성표 제보 — 바로 반영 + 확인 전(같은 일정의 열린 제보·방송 칸 여럿이면 운영자 대기). 판단은 core submission.ts. */
 export async function submitScheduleReportAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const entryId = String(form.get("entry_id") ?? "") || null;
   let payload: unknown;
@@ -46,10 +47,12 @@ export async function submitScheduleReportAction(_prev: ActionState, form: FormD
       request_id: String(form.get("request_id") ?? ""), entry_id: entryId, payload,
       note: String(form.get("note") ?? ""), evidence_url: String(form.get("evidence_url") ?? ""),
     });
-    message = r.kind === "held" ? "접수했습니다. 운영자가 확인한 뒤 편성표에 반영됩니다."
+    message = r.kind === "applied" ? "편성표에 반영했습니다. 운영자가 확인할 때까지 '확인 전'으로 보입니다."
+      : r.kind === "held" ? `접수했습니다. ${HOLD_REASON_LABEL[r.hold_reason!]}.`
       : r.kind === "supported" ? "같은 내용의 제보가 이미 있어 '같은 내용이에요'로 더했습니다."
       : "이미 접수된 요청입니다.";
   } catch (e) { if (e instanceof MemberError) return { ok: false, message: e.message }; throw e; }
+  revalidatePath("/", "layout");   // 바로 반영 — 공개 편성표가 바뀐다
   revalidatePath(submitScheduleHref(entryId));
   revalidatePath(mySubmissionsHref());
   return { ok: true, message };

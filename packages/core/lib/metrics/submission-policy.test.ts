@@ -9,10 +9,15 @@ const f = (over: Partial<Facts>): Facts => ({
 const on = (config: Partial<Policy["config"]>): Policy => ({ ...POLICY, config: { ...POLICY.config, ...config } });
 const state = (x: Partial<Facts>, wasShown = false) => stateOf(decide(f(x)), wasShown);
 
-test("v1 = 1단계·3단계 동작 그대로 — 경기 고치기는 바로 반영(확인 전), 편성표는 운영자 대기", () => {
-  assert.deepEqual(decide(f({})), { visibility: "shown", trust: "pending", hold_reason: null, rule: "apply_pending", effects: [] });
-  assert.equal(state({}), "applied");
-  assert.deepEqual(decide(f({ kind: "schedule_report" })), { visibility: "hidden", trust: "pending", hold_reason: "schedule_review", rule: "schedule_review", effects: [] });
+test("기준 2026-10-18.1 — 경기 고치기는 운영자 확인 대기, 편성표는 바로 반영 + 확인 전(사용자 결정 10/18)", () => {
+  assert.deepEqual(decide(f({})), { visibility: "hidden", trust: "pending", hold_reason: "correction_review", rule: "correction_review", effects: [] });
+  assert.equal(state({}), "held");
+  assert.deepEqual(decide(f({ kind: "schedule_report" })), { visibility: "shown", trust: "pending", hold_reason: null, rule: "schedule_apply", effects: [] });
+  assert.equal(state({ kind: "schedule_report" }), "applied");
+  // 같은 일정의 열린 제보가 있거나 방송 칸이 여럿인 일정의 날짜면 운영자 대기.
+  assert.equal(decide(f({ kind: "schedule_report", intake: { contested: true } })).hold_reason, "contested");
+  assert.equal(decide(f({ kind: "schedule_report", intake: { multi_slot: true } })).rule, "schedule_multi_slot");
+  assert.equal(state({ kind: "schedule_report", admin: "reject" }, true), "reverted");
 });
 
 test("보류 사실은 정해진 순서로 하나의 이유가 된다(앞의 것이 먼저)", () => {
@@ -33,9 +38,9 @@ test("옛 상태 이름 ↔ 보임", () => {
   assert.deepEqual(["applied", "held", "verified", "reverted", "rejected", "duplicate"].map((s) => shownIn(s as never)), [true, false, true, false, false, false]);
 });
 
-test("신뢰 계정·합의는 지금 꺼 둔 채다(사용자 결정) — 역할이 있고 여럿이 같아도 확인 전 그대로", () => {
+test("신뢰 계정·합의는 지금 꺼 둔 채다(사용자 결정) — 역할이 있고 여럿이 같아도 운영자 확인 대기 그대로", () => {
   assert.deepEqual(POLICY.config, { trustedReporter: false, consensusMembers: null });
-  assert.equal(decide(f({ reporter: { roles: ["trusted_reporter"] }, agreement: { members: 9, trusted: 9 } })).rule, "apply_pending");
+  assert.equal(decide(f({ reporter: { roles: ["trusted_reporter"] }, agreement: { members: 9, trusted: 9 } })).rule, "correction_review");
   assert.equal(roleInEffect("trusted_reporter"), false);
 });
 
@@ -43,7 +48,7 @@ test("켜면 — 신뢰 제보자·N명 합의는 경기 고치기를 바로 검
   const trusted = f({ reporter: { roles: ["trusted_reporter"] } });
   assert.deepEqual(decide(trusted, on({ trustedReporter: true })), { visibility: "shown", trust: "verified", hold_reason: null, rule: "trusted", effects: [] });
   assert.equal(stateOf(decide(trusted, on({ trustedReporter: true })), false), "verified");
-  assert.equal(decide(f({ agreement: { members: 2, trusted: 0 } }), on({ consensusMembers: 3 })).rule, "apply_pending");
+  assert.equal(decide(f({ agreement: { members: 2, trusted: 0 } }), on({ consensusMembers: 3 })).rule, "correction_review");
   assert.equal(decide(f({ agreement: { members: 3, trusted: 0 } }), on({ consensusMembers: 3 })).rule, "consensus");
   assert.equal(roleInEffect("trusted_reporter", on({ trustedReporter: true })), true);
 });
@@ -52,7 +57,7 @@ test("켜도 보류를 건너뛰지 않고, 편성표에는 쓰지 않는다 —
   const all = on({ trustedReporter: true, consensusMembers: 2 });
   const strong = { reporter: { roles: ["trusted_reporter"] as const }, agreement: { members: 5, trusted: 5 } };
   assert.equal(decide(f({ ...strong, intake: { api_observed: true } }), all).rule, "hold_api_observed");
-  assert.equal(decide(f({ ...strong, kind: "schedule_report" }), all).rule, "schedule_review");
+  assert.equal(decide(f({ ...strong, kind: "schedule_report" }), all).rule, "schedule_apply");
   assert.equal(decide(f({ ...strong, admin: "reject" }), all).rule, "admin_reject");
 });
 

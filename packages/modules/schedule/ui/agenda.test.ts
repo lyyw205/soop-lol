@@ -5,7 +5,7 @@ import { agendaCards, agendaEntries, agendaRange, featuredCard, parseKind, tourn
 
 const entry = (title: string, dates: string[], changes: Partial<PublicScheduleEntry> = {}): PublicScheduleEntry => ({
   schedule_id: title, game_code: "fconline", title, planned_format: "tournament", status: "scheduled", origin: "manual",
-  sponsor: null, description: null, participants: [], sources: [], result: null, slots_changed_at: null,
+  sponsor: null, description: null, participants: [], sources: [], result: null, slots_changed_at: null, pending: false,
   slots: dates.map((on_date) => ({ on_date, starts_at: null, ends_at: null, label: null, channel_id: null })), ...changes,
 });
 

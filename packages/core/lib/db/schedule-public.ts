@@ -48,6 +48,8 @@ export interface PublicScheduleEntry {
   result: { page: "lol_tournament" | "fc_event"; slug: string } | null;
   /** 방송 칸(날짜·시각)이 마지막으로 바뀐 때. 없으면 null — 카드의 "일정 변경" 뱃지. */
   slots_changed_at: Date | null;
+  /** 회원 편성표 제보가 바로 반영했고 운영자가 아직 확인하지 않았다(core_public.pending_schedule, 0100) — "확인 전" 표시. */
+  pending: boolean;
 }
 
 export interface PublicScheduleChange { field: ScheduleChangeField; before: unknown; after: unknown; changed_at: Date }
@@ -60,7 +62,7 @@ export interface PublicScheduleQuery {
   streamer?: string | null;
 }
 
-type EntryRow = Omit<PublicScheduleEntry, "slots" | "participants" | "sources" | "result"> & { event_id: string | null };
+type EntryRow = Omit<PublicScheduleEntry, "slots" | "participants" | "sources" | "result" | "pending"> & { event_id: string | null };
 
 export async function listPublicSchedule(q: PublicScheduleQuery): Promise<PublicScheduleEntry[]> {
   const to = daysBetween(q.from, q.to) > SCHEDULE_MAX_DAYS - 1 ? addDays(q.from, SCHEDULE_MAX_DAYS - 1) : q.to;
@@ -120,6 +122,8 @@ async function hydrate(entries: EntryRow[]): Promise<PublicScheduleEntry[]> {
   const changed = await sql<{ schedule_id: string; at: Date }[]>`
       SELECT schedule_id, max(changed_at) AS at FROM core_public.schedule_change
        WHERE field = 'slots' AND schedule_id = ANY(${ids}::uuid[]) GROUP BY schedule_id`;
+  const pending = new Set((await sql<{ schedule_id: string }[]>`
+      SELECT schedule_id FROM core_public.pending_schedule WHERE schedule_id = ANY(${ids}::uuid[])`).map((r) => r.schedule_id));
 
   const results = await resultPages(entries.filter((e) => e.status === "held" && e.event_id));
 
@@ -140,6 +144,7 @@ async function hydrate(entries: EntryRow[]): Promise<PublicScheduleEntry[]> {
       sources: sources.filter((s) => s.schedule_id === e.schedule_id).map(({ schedule_id: _, ...s }) => s),
       result: event_id && e.status === "held" ? results.get(event_id) ?? null : null,
       slots_changed_at: changed.find((c) => c.schedule_id === e.schedule_id)?.at ?? null,
+      pending: pending.has(e.schedule_id),
     };
   });
 }

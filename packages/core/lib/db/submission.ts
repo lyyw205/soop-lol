@@ -18,8 +18,10 @@
  * ★ 중복 막기 네 겹(§6): 요청 번호(UNIQUE author×request) · 내용 지문(열린 제보 중 유일 → +1) · 같은 칸(다른 값이면 보류) · 이미 그 값(거부).
  *   같은 판의 제보는 그 판 행을 잠근 뒤 판정하므로 동시에 들어와도 지문 판정이 엇갈리지 않는다. 잠금 순서: 회원 → 판 → 제보.
  * ★ 되돌리기는 그 제보의 이력(review_change.submission_id)만 역순으로 되돌린다. 그 뒤 누가 같은 칸을 또 바꿨으면 아무것도 되돌리지 않는다.
- * ★ 편성표 제보(0094)는 바로 반영하지 않는다 — 언제나 보류(schedule_review)로 받고, 운영자가 편성표 편집 폼으로 저장할 때
- *   applyScheduleReport 가 한 트랜잭션에서 saveScheduleEntryInTx(편성표 쓰기의 단일 출처) → 제보 닫기를 한다. 편성표를 쓰는 SQL 은 여기에 없다.
+ * ★ 반영 방향(사용자 결정 2026-10-18 — 기준 2026-10-18.1): 경기 고치기는 운영자 확인 대기(correction_review) → 확인하면 운영자 이름으로 반영.
+ *   편성표 제보(0094)는 바로 반영 + 확인 전 — 어댑터가 saveScheduleEntryInTx(편성표 쓰기의 단일 출처)로 쓰고 되돌리기 원본을
+ *   submission_schedule_effect(0100)에 남긴다. 반려하면 그 원본으로 되돌린다(그 뒤 또 바뀌었으면 거부). 보류된 편성표 제보(다툼·방송 칸 여럿)는
+ *   운영자가 편성표 편집 폼으로 저장할 때 applyScheduleReport 가 한 트랜잭션에서 저장 → 제보 닫기를 한다. 편성표를 쓰는 SQL 은 여기에 없다.
  *   공개 일정 읽기도 schedule-public.ts 하나를 쓴다. 의존은 submission → schedule 한 방향(경기 쪽 submission → ck 와 같다).
  */
 import { createHash } from "node:crypto";
@@ -35,7 +37,7 @@ import { decide, POLICY, shownIn, stateOf, type Facts, type IntakeFacts, type Po
 import { kstClock } from "../metrics/schedule.ts";
 import {
   cellsOverlap, correctionCells, fingerprintSource, normalizeEvidenceUrl, normalizeMatchCorrection, normalizeNote,
-  normalizeScheduleReport, normalizeVodHint, scheduleReportHasChange, SUBMISSION_DAILY_LIMIT, SubmissionInputError, matchStreamerNames, vodClock,
+  normalizeScheduleReport, normalizeVodHint, scheduleInputFromReport, scheduleReportHasChange, SUBMISSION_DAILY_LIMIT, SubmissionInputError, matchStreamerNames, vodClock,
   type CorrectionParticipantField, type HoldReason, type MatchCorrection, type ScheduleReport, type SubmissionContent, type SubmissionKind, type SubmissionState,
   type VodHint,
 } from "../metrics/submission.ts";
@@ -49,7 +51,7 @@ import { activeRolesInTx, grantRoleInTx, revokeRoleInTx } from "./member-role.ts
 import {
   cancelSubmissionVodRequestsInTx, closeVodRequestsInTx, requestVodInTx, submissionVodRequestInTx, vodMatchesInTx,
 } from "./vod-request.ts";
-import { saveScheduleEntryInTx, type ScheduleSaveOptions } from "./schedule.ts";
+import { saveScheduleEntryInTx, ScheduleSaveError, scheduleInputInTx, type ScheduleSaveOptions } from "./schedule.ts";
 import { getPublicScheduleEntry, type PublicScheduleEntry } from "./schedule-public.ts";
 import type { ScheduleInput } from "../metrics/schedule.ts";
 import { PARTICIPANT_ROW_FIELD } from "./review-lock.ts";
@@ -153,7 +155,7 @@ async function matchIntakeInTx(tx: Tx, c: MatchCorrection, match: MatchState, sl
   const accountSlot = (id: number) => Boolean(slots.get(id)?.puuid);
   const mine = correctionCells(c);
   const open = await tx<{ payload: MatchCorrection }[]>`
-    SELECT payload FROM submission WHERE match_id = ${match.match_id} AND state = 'applied'`;
+    SELECT payload FROM submission WHERE match_id = ${match.match_id} AND state IN ('applied', 'held')`;
   const facts: IntakeFacts = {
     not_public: match.visibility !== "public" || match.scope !== "versus",
     review_completed: Boolean(match.review_completed_at),
@@ -411,7 +413,8 @@ function scheduleAgainstCurrent(r: ScheduleReport, cur: PublicScheduleEntry): Sc
 }
 
 /**
- * 편성표 제보 — 언제나 보류(schedule_review)로 받는다. 같은 요청(repeat)·같은 지문(+1, supported)은 경기 제보와 같다.
+ * 편성표 제보 — 바로 반영 + 확인 전(2026-10-18, 규칙 schedule_apply). 같은 일정의 열린 제보가 이미 있거나 방송 칸이 여럿인 일정의 날짜면 운영자 대기.
+ * 같은 요청(repeat)·같은 지문(+1, supported)은 경기 제보와 같다.
  * 새 일정은 근거 링크가 있어야 한다(공개 일정의 조건이 출처라서 — 사용자 결정). 고치기는 고칠 칸이나 메모 중 하나가 있어야 한다.
  */
 export async function submitScheduleReport(token: string | null, raw: ScheduleReportInput, now = new Date()): Promise<SubmitOutcome> {
@@ -453,9 +456,17 @@ export async function submitScheduleReport(token: string | null, raw: ScheduleRe
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${fp}, 0))`;
     const twin = await twinOrLimitInTx(tx, m.id, fp, now);
     if (twin) return twin;
+    // 접수 사실 — 같은 일정에 열린 제보가 이미 있다(다툼) · 방송 칸이 여럿인 일정의 날짜를 바꾼다(어느 칸인지 모른다). 무엇이 보류인지는 규칙이 정한다.
+    const intake: IntakeFacts = {};
+    if (raw.entry_id) {
+      const [other] = await tx`SELECT 1 FROM submission WHERE kind = 'schedule_report' AND schedule_entry_id = ${raw.entry_id}::uuid
+                                 AND state IN ('applied', 'held') LIMIT 1`;
+      if (other) intake.contested = true;
+      if (cur && r.on_date && cur.slots.length > 1) intake.multi_slot = true;
+    }
     return admitInTx(tx, {
       author_id: m.id, request_id: raw.request_id, kind: "schedule_report", match_id: null, schedule_entry_id: raw.entry_id,
-      payload: r, fingerprint: fp, note, evidence_url: evidence, intake: {}, now,
+      payload: r, fingerprint: fp, note, evidence_url: evidence, intake, now,
     });
   }) as Promise<SubmitOutcome>;
 }
@@ -468,18 +479,22 @@ export async function submitScheduleReport(token: string | null, raw: ScheduleRe
 export async function applyScheduleReport(id: string, actor: string, input: ScheduleInput, opts: ScheduleSaveOptions = {}): Promise<{ id: string; version: string }> {
   return db().begin(async (tx) => {
     const saved = await saveScheduleEntryInTx(tx, input, opts);
-    await closeScheduleReportInTx(tx, id, actor, saved.id);
+    await closeScheduleReportInTx(tx, id, actor, saved);
     return saved;
   });
 }
 
 /** 편성표 제보 닫기 — applyScheduleReport 의 트랜잭션 안에서만. 새 일정 알리기는 만들어진 일정을 대상으로 적는다. */
-async function closeScheduleReportInTx(tx: Tx, id: string, actor: string, entryId: string): Promise<void> {
+async function closeScheduleReportInTx(tx: Tx, id: string, actor: string, saved: { id: string; version: string }): Promise<void> {
+  const entryId = saved.id;
   const s = await lockOpen(tx, id);
   if (s.kind !== "schedule_report") throw new SubmissionError("편성표 제보가 아닙니다.");
   if (s.schedule_entry_id && s.schedule_entry_id !== entryId) throw new SubmissionError("제보한 일정과 저장한 일정이 다릅니다.");
   await tx`UPDATE submission SET schedule_entry_id = ${entryId}::uuid WHERE id = ${id}::uuid`;
-  // 운영자가 반영했다 = 운영자의 확인. 판정이 확인 완료로 옮긴다(편성표 어댑터의 show 는 이미 한 저장이라 할 일이 없다).
+  // 운영자가 편성표 편집으로 반영했다 — 그 저장이 반영이다(흔적 admin). 이미 바로 반영된 제보면 그 흔적이 그대로 남는다.
+  // 흔적이 있으면 편성표 어댑터의 show 는 다시 쓰지 않는다. 운영자가 반영했다 = 운영자의 확인 — 판정이 확인 완료로 옮긴다.
+  await tx`INSERT INTO submission_schedule_effect (submission_id, entry_id, kind, after_version)
+           VALUES (${id}::uuid, ${entryId}::uuid, 'admin', ${saved.version}) ON CONFLICT (submission_id) DO NOTHING`;
   await settleInTx(tx, { ...s, schedule_entry_id: entryId }, { admin: { decision: "verify", actor, note: "편성표에 반영" } });
 }
 
@@ -728,6 +743,16 @@ interface VodAdapter {
 const effectMatches = async (sql: Sql, id: string) =>
   (await sql<{ match_id: string }[]>`SELECT match_id FROM submission_effect WHERE submission_id = ${id}::uuid ORDER BY match_id`).map((r) => r.match_id);
 
+/** 흔적에 JSON 으로 남긴 일정 입력 → 저장 입력(시각 글자를 Date 로). */
+function reviveScheduleInput(j: ScheduleInput): ScheduleInput {
+  const at = (v: unknown) => (v == null ? null : new Date(v as string));
+  return {
+    ...j,
+    slots: j.slots.map((x) => ({ ...x, starts_at: at(x.starts_at), ends_at: at(x.ends_at) })),
+    sources: j.sources.map((x) => ({ ...x, posted_at: at(x.posted_at) })),
+  };
+}
+
 /** 등록 이름(공개 스트리머) — 판독 요청 메모에 넣어도 되는 이름. */
 async function streamerNamesInTx(sql: Sql, ids: readonly string[]): Promise<string[]> {
   if (!ids.length) return [];
@@ -758,10 +783,55 @@ const ADAPTERS: Record<SubmissionKind, KindAdapter> = {
     },
   },
   schedule_report: {
-    // 편성표는 운영자가 편집 폼으로 저장한다(applyScheduleReport — 같은 트랜잭션). "반영 없이 확인"도 쓸 것이 없다.
-    async show() {},
-    // 반영 전에만 거부되므로 되돌릴 것이 없다.
-    async hide() {},
+    // 바로 반영(2026-10-18) — 편성표 쓰기의 단일 출처(saveScheduleEntryInTx)로. 되돌리기 원본을 흔적(submission_schedule_effect)에 남긴다.
+    // 흔적이 이미 있으면(운영자가 편집 저장으로 반영했거나 이미 반영됨) 다시 쓰지 않는다.
+    async show(tx, s) {
+      const [had] = await tx`SELECT 1 FROM submission_schedule_effect WHERE submission_id = ${s.id}::uuid`;
+      if (had) return;
+      const r = s.payload as ScheduleReport;
+      const [{ evidence_url }] = await tx<{ evidence_url: string | null }[]>`SELECT evidence_url FROM submission WHERE id = ${s.id}::uuid`;
+      let matched: string[] | null = null;
+      if (r.participants) {
+        const streamers = await tx<{ id: string; slug: string; display_name: string }[]>`SELECT id, slug, display_name FROM streamer WHERE visibility = 'public'`;
+        const bySlug = new Map(streamers.map((x) => [x.slug, x.id]));
+        matched = matchStreamerNames(r.participants, streamers).slugs.map((slug) => bySlug.get(slug)!);
+      }
+      const save = async (inputValue: ScheduleInput, opts: ScheduleSaveOptions) => {
+        try { return await saveScheduleEntryInTx(tx, inputValue, opts); } catch (e) {
+          if (e instanceof ScheduleSaveError) throw new SubmissionError(`편성표에 반영할 수 없습니다: ${e.reasons.join(" / ")}`);
+          throw e;
+        }
+      };
+      if (r.type === "correction") {
+        if (!s.schedule_entry_id) throw new SubmissionError("고칠 일정을 찾을 수 없습니다.");
+        await tx`SELECT 1 FROM schedule_entry WHERE id = ${s.schedule_entry_id}::uuid FOR UPDATE`;
+        const cur = await scheduleInputInTx(tx, s.schedule_entry_id);
+        if (!cur) throw new SubmissionError("일정이 지워져 반영할 수 없습니다 — 반려해 주세요.");
+        const saved = await save(input(() => scheduleInputFromReport(cur.input, r, evidence_url, matched)), { id: s.schedule_entry_id, version: cur.version });
+        await tx`INSERT INTO submission_schedule_effect (submission_id, entry_id, kind, before, after_version)
+                 VALUES (${s.id}::uuid, ${saved.id}::uuid, 'changed', ${tx.json(cur.input as never)}, ${saved.version})`;
+        return;
+      }
+      const saved = await save(input(() => scheduleInputFromReport(null, r, evidence_url, matched)), {});
+      await tx`UPDATE submission SET schedule_entry_id = ${saved.id}::uuid WHERE id = ${s.id}::uuid`;
+      await tx`INSERT INTO submission_schedule_effect (submission_id, entry_id, kind, after_version)
+               VALUES (${s.id}::uuid, ${saved.id}::uuid, 'made', ${saved.version})`;
+    },
+    // 반려(되돌리기) — 고친 일정은 고치기 전 입력으로, 만든 일정은 숨김으로. 그 뒤 누가 또 저장했으면(version 이 다르면) 아무것도 바꾸지 않는다.
+    // 운영자가 편집으로 반영한 것(admin)은 되돌리지 않는다.
+    async hide(tx, s) {
+      const [eff] = await tx<{ entry_id: string; kind: "made" | "changed" | "admin"; before: ScheduleInput | null; after_version: string }[]>`
+        SELECT entry_id, kind, before, after_version FROM submission_schedule_effect WHERE submission_id = ${s.id}::uuid`;
+      if (!eff || eff.kind === "admin") return;
+      await tx`SELECT 1 FROM schedule_entry WHERE id = ${eff.entry_id}::uuid FOR UPDATE`;
+      const cur = await scheduleInputInTx(tx, eff.entry_id);
+      if (!cur) return;   // 일정이 지워졌다 — 되돌릴 것이 없다
+      if (cur.version !== eff.after_version) {
+        throw new SubmissionError("이 제보 뒤에 일정이 또 바뀌어 되돌릴 수 없습니다 — 편성표 편집에서 직접 고친 뒤 확인해 주세요.");
+      }
+      const back = eff.kind === "made" ? { ...cur.input, visibility: "hidden" as const } : reviveScheduleInput(eff.before!);
+      await saveScheduleEntryInTx(tx, back, { id: eff.entry_id, version: cur.version });
+    },
   },
   vod_hint: {
     // 단서는 공개 기록을 바꾸지 않는다 — 판독이 기록한 경기는 판독 길(ck:merge)로 이미 들어가 있다.
@@ -979,9 +1049,11 @@ async function lockOpen(tx: Tx, id: string): Promise<SubmissionRecord> {
 }
 
 async function tryLockOpen(tx: Tx, id: string): Promise<SubmissionRecord | "missing" | "closed" | "moved"> {
-  const [peek] = await tx<{ match_id: string | null }[]>`SELECT match_id FROM submission WHERE id = ${id}::uuid`;
+  const [peek] = await tx<{ match_id: string | null; schedule_entry_id: string | null }[]>`SELECT match_id, schedule_entry_id FROM submission WHERE id = ${id}::uuid`;
   if (!peek) return "missing";
+  // 잠금 순서: 판·일정 → 제보(접수와 같게 — 편성표 제보도 접수가 일정을 먼저 잠근다).
   if (peek.match_id) await tx`SELECT 1 FROM match WHERE match_id = ${peek.match_id} FOR UPDATE`;
+  if (peek.schedule_entry_id) await tx`SELECT 1 FROM schedule_entry WHERE id = ${peek.schedule_entry_id}::uuid FOR UPDATE`;
   const [s] = await tx<SubmissionRecord[]>`SELECT ${RECORD_COLUMNS(tx)} FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
   if (!s || !["applied", "held"].includes(s.state)) return "closed";
   if (s.match_id !== peek.match_id) return "moved";

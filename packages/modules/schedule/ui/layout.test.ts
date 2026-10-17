@@ -7,7 +7,7 @@ import { barSpan, cardsByDay, timelineLanes, majorRows, windowDays, mergeSchedul
 
 const entry = (title: string, slots: [string, string | null][]): PublicScheduleEntry => ({
   schedule_id: title, game_code: "lol", title, planned_format: "tournament", sponsor: null, description: null,
-  status: "scheduled", origin: "manual", participants: [], sources: [], result: null, slots_changed_at: null,
+  status: "scheduled", origin: "manual", participants: [], sources: [], result: null, slots_changed_at: null, pending: false,
   slots: slots.map(([on_date, hhmm]) => ({
     label: null, on_date, ends_at: null, channel_id: null, starts_at: hhmm ? new Date(`${on_date}T${hhmm}:00+09:00`) : null,
   })),

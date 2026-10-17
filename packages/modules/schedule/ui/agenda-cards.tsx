@@ -62,6 +62,7 @@ export function ScheduleRow({ card, people, href, compact = false }: {
         <span>{compact ? <SlotTime card={card} /> : SCHEDULE_GAME_LABEL[entry.game_code]}</span>
         {slot.label && <span>{slot.label}</span>}{hosts && <span>{hosts} 주최</span>}
         {entry.slots_changed_at && entry.status !== "cancelled" && <span className="sched-changed">일정 변경</span>}
+        {entry.pending && <span className="sched-changed" title="회원 제보로 바로 바뀐 일정입니다. 운영자가 확인하기 전입니다.">확인 전</span>}
       </div>
     </div>
     {compact ? <ScheduleStatus entry={entry} /> : <ScheduleFaces entry={entry} people={people} />}

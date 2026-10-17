@@ -148,16 +148,16 @@ try {
   await user.getByLabel("1번 킬").fill("5");
   await user.getByLabel("메모(선택)").fill("<b>VOD 12:30</b> 결과창");
   await user.getByRole("button", { name: "제보 보내기" }).click();
-  await user.getByRole("status").filter({ hasText: "반영했습니다" }).waitFor({ timeout: 60_000 });
-  const [after] = (await memory.query<{ kills: number }>(`SELECT kills FROM match_participant WHERE match_id = $1 AND participant_id = 1`, [matchId])).rows;
-  assert.equal(after.kills, 5);
-  console.log("PASS set view → 제보하기 → form sends only the changed cell → applied immediately");
+  await user.getByRole("status").filter({ hasText: "운영자가 확인한 뒤 경기 기록에 반영됩니다" }).waitFor({ timeout: 60_000 });
+  const kills = async () => (await memory.query<{ kills: number }>(`SELECT kills FROM match_participant WHERE match_id = $1 AND participant_id = 1`, [matchId])).rows[0].kills;
+  assert.equal(await kills(), 1, "correction must wait for the operator (2026-10-18)");
+  console.log("PASS set view → 제보하기 → form sends only the changed cell → held for the operator, value unchanged");
 
-  // 공개 화면 — 시리즈 줄과 세트 보기에 확인 전
+  // 공개 화면 — 운영자 확인 전에는 아무 표시 없이 그대로(사용자 결정 10/18)
   await openSet(user);
-  assert.ok(await user.locator(".match-details .pending-badge").isVisible());
-  assert.ok(await user.locator(".match-details-pending-dot").first().isVisible());
-  console.log("PASS public versus page shows 검증 전 on the series row and the set view");
+  assert.equal(await user.locator(".match-details .pending-badge").count(), 0);
+  assert.equal(await user.locator(".match-details-pending-dot").count(), 0);
+  console.log("PASS public versus page unchanged while the correction waits (no badge)");
 
   // 다른 회원 — 열린 제보가 보이고 +1
   const second = await contextFor(other.token);
@@ -166,14 +166,14 @@ try {
   assert.ok(await second.getByText("1번 자리 킬: 1 → 5").isVisible());
   await second.getByRole("button", { name: "같은 내용이에요(+1)" }).click();
   // +1 한 회원도 이 제보에 낀 사람이 된다 — 다시 그리면 버튼이 빠지고 숫자가 오른다(두 번 +1 못 함).
-  await second.getByText("반영됨 · 검증 전 · 같은 내용 1").waitFor({ timeout: 60_000 });
+  await second.getByText("운영자 확인 대기 · 같은 내용 1").waitFor({ timeout: 60_000 });
   assert.equal(await second.getByRole("button", { name: "같은 내용이에요(+1)" }).count(), 0);
   console.log("PASS another member sees the open submission, adds +1 once (count shown, button gone)");
 
   // 작성자 — 내 정보 → 내 제보
   await go(user, `${base}/me`);
   await follow(user, "내 경기 제보 확인 →", /^\/submissions$/);
-  await user.getByText(/반영됨 · 검증 전 · 같은 내용 1/).waitFor();
+  await user.getByText(/운영자 확인 대기 · 같은 내용 1/).waitFor();
   assert.ok(await user.getByText("1번 자리 킬: 1 → 5").isVisible());
   await user.setViewportSize({ width: 390, height: 844 });
   assert.equal(await user.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -189,24 +189,24 @@ try {
   await follow(admin, "처리 →", /^\/admin\/submissions\/[0-9a-f-]+$/);
   assert.ok(await admin.getByText("메모: <b>VOD 12:30</b> 결과창").isVisible());
   await admin.getByLabel("확인 메모").fill("결과창 확인");
-  await admin.getByRole("button", { name: "확인(표시 떼기)" }).click();
+  await admin.getByRole("button", { name: "확인하고 반영" }).click();
   await admin.getByText(/처리: .* 결과창 확인/).waitFor({ timeout: 60_000 });
+  assert.equal(await kills(), 5, "operator verify applies the correction");
   assert.equal(await pending(), false);
   const ordinary = await contextFor(other.token);
   const denied = await go(ordinary, `${base}/admin/submissions`);
   assert.equal(denied?.status(), 403);
-  console.log("PASS admin nav → queue → detail (note as text) → verify; ordinary member gets 403");
+  console.log("PASS admin nav → queue → detail (note as text) → 확인하고 반영 applies the value; ordinary member gets 403");
 
-  // 확인 뒤 — 확인 전 표시가 사라지고 내 제보는 확인 완료
+  // 확인 뒤 — 값이 바뀌고(표시 없이 바로 집계) 내 제보는 확인 완료
   await openSet(user);
   assert.equal(await user.locator(".match-details .pending-badge").count(), 0);
-  assert.equal(await user.locator(".match-details-pending-dot").count(), 0);
   await go(user, `${base}/submissions`);
   await user.getByText(/확인 완료/).waitFor();
   assert.ok(await user.getByText("운영자: 결과창 확인").isVisible());
-  console.log("PASS after verification: 검증 전 gone from public view, my submissions shows 확인 완료 + admin note");
+  console.log("PASS after verification: value applied without a badge, my submissions shows 확인 완료 + admin note");
 
-  // ── 편성표 제보 ───────────────────────────────────────────────────────────
+  // ── 편성표 제보 — 바로 반영 + 확인 전(사용자 결정 10/18) ───────────────────────────
   await go(user, `${base}/schedule/${sched.id}`);
   await follow(user, "제보하기 →", /^\/submit\/schedule\/[0-9a-f-]+$/);
   assert.equal(await user.getByLabel("제목").inputValue(), "제보 화면 편성");
@@ -214,9 +214,19 @@ try {
   await user.getByLabel("상태").selectOption("cancelled");
   await user.getByLabel("메모(선택)").fill("방송 공지에서 취소");
   await user.getByRole("button", { name: "제보 보내기" }).click();
-  await user.getByRole("status").filter({ hasText: "운영자가 확인한 뒤" }).waitFor({ timeout: 60_000 });
-  assert.equal((await one<{ status: string }>(`SELECT status FROM schedule_entry WHERE id = $1`, [sched.id])).status, "scheduled", "report must not change the schedule");
-  console.log("PASS schedule detail → 제보하기 → form prefilled with the entry → cancel report held, schedule unchanged");
+  await user.getByRole("status").filter({ hasText: "편성표에 반영했습니다" }).waitFor({ timeout: 60_000 });
+  assert.equal((await one<{ status: string }>(`SELECT status FROM schedule_entry WHERE id = $1`, [sched.id])).status, "cancelled", "schedule report applies at once");
+  await go(user, `${base}/schedule/${sched.id}`);
+  await user.locator(".sched-pending").first().waitFor();
+  console.log("PASS schedule detail → 제보하기 → cancel report applied at once, schedule shows 확인 전");
+
+  // 다른 회원이 같은 일정에 또 제보하면(확인 전 제보가 있다) 운영자 대기 — 편성표 편집에서 반영하는 길
+  await go(second, `${base}/submit/schedule/${sched.id}`);
+  await second.getByLabel("제목").fill("제보 화면 편성(결승)");
+  await second.getByRole("button", { name: "제보 보내기" }).click();
+  await second.getByRole("status").filter({ hasText: "운영자가 함께 확인" }).waitFor({ timeout: 60_000 });
+  assert.equal((await one<{ title: string }>(`SELECT title FROM schedule_entry WHERE id = $1`, [sched.id])).title, "제보 화면 편성");
+  console.log("PASS a second report on the same entry waits for the operator (contested), schedule unchanged");
 
   await go(user, `${base}/schedule`);
   await follow(user, "빠진 일정 알리기 →", /^\/submit\/schedule\/new$/);
@@ -225,44 +235,43 @@ try {
   await user.getByLabel("시작 시각(선택)").fill("19:30");
   await user.getByLabel("참가자(선택)").fill("제보에이, 모르는이름");
   await user.getByLabel("근거 링크").fill("https://ch.sooplive.co.kr/sbb/post/2");
-  await user.getByRole("button", { name: "제보 보내기" }).click();
-  await user.getByRole("status").filter({ hasText: "운영자가 확인한 뒤" }).waitFor({ timeout: 60_000 });
   await user.setViewportSize({ width: 390, height: 844 });
   assert.equal(await user.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "schedule report form must not scroll sideways on mobile");
   await user.setViewportSize({ width: 1280, height: 900 });
-  console.log("PASS schedule board → 빠진 일정 알리기 → new-schedule report with evidence link, mobile without horizontal scroll");
+  await user.getByRole("button", { name: "제보 보내기" }).click();
+  await user.getByRole("status").filter({ hasText: "편성표에 반영했습니다" }).waitFor({ timeout: 60_000 });
+  const reports = (await memory.query<{ id: string; schedule_entry_id: string | null; state: string }>(
+    `SELECT id, schedule_entry_id, state FROM submission WHERE kind = 'schedule_report' ORDER BY created_at`)).rows;
+  assert.deepEqual(reports.map((r) => r.state), ["applied", "held", "applied"]);
+  const entry = await one<{ title: string; starts: string; people: number; src: number; visibility: string }>(`SELECT e.title, e.visibility, to_char(s.starts_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') AS starts,
+      (SELECT count(*)::int FROM schedule_participant p WHERE p.entry_id = e.id) AS people,
+      (SELECT count(*)::int FROM schedule_source x WHERE x.entry_id = e.id AND x.url = 'https://ch.sooplive.co.kr/sbb/post/2') AS src
+     FROM schedule_entry e JOIN schedule_slot s ON s.entry_id = e.id WHERE e.id = $1`, [reports[2].schedule_entry_id]);
+  assert.deepEqual(entry, { title: "제보로 알린 대회", visibility: "public", starts: "2026-11-25 19:30", people: 1, src: 1 });
+  console.log("PASS schedule board → 빠진 일정 알리기 → new entry public at once (date·time·matched participant·evidence source), mobile without horizontal scroll");
 
-  // 운영자 — 대기열 → 편성표 편집에서 반영 → 미리 채운 폼 저장
-  const reports = (await memory.query<{ id: string; schedule_entry_id: string | null }>(
-    `SELECT id, schedule_entry_id FROM submission WHERE kind = 'schedule_report' ORDER BY created_at`)).rows;
-  assert.equal(reports.length, 2);
+  // 운영자 — 대기열 → 바로 반영된 취소는 확인(표시 떼기) · 보류는 편성표 편집에서 반영 · 새 일정은 반려(숨김)
   await go(admin, `${base}/admin/submissions`);
   assert.ok(await admin.getByText("제보 화면 편성").first().isVisible());
-  assert.ok(await admin.getByText("편성표에 없는 일정").first().isVisible());
   await go(admin, `${base}/admin/submissions/${reports[0].id}`);
+  await admin.getByRole("button", { name: "확인(표시 떼기)" }).click();
+  await admin.getByText(/처리: /).waitFor({ timeout: 60_000 });
+  assert.equal((await one<{ state: string }>(`SELECT state FROM submission WHERE id = $1`, [reports[0].id])).state, "verified");
+  await go(admin, `${base}/admin/submissions/${reports[1].id}`);
   await follow(admin, "편성표 편집에서 반영 →", /^\/admin\/schedule\/[0-9a-f-]+\?submission=/);
   await admin.getByText("회원 제보로 미리 채웠습니다").waitFor();
   await admin.getByRole("button", { name: "저장" }).click();
   await admin.waitForURL(/saved=1/, { timeout: 60_000 });
-  assert.equal((await one<{ status: string }>(`SELECT status FROM schedule_entry WHERE id = $1`, [sched.id])).status, "cancelled");
-  assert.equal((await one<{ state: string }>(`SELECT state FROM submission WHERE id = $1`, [reports[0].id])).state, "verified");
-  console.log("PASS admin: queue shows schedule reports → 편성표 편집에서 반영 → prefilled save cancels the entry and closes the report");
-
-  await go(admin, `${base}/admin/submissions/${reports[1].id}`);
-  await follow(admin, "편성표 편집에서 반영 →", /^\/admin\/schedule\/new\?submission=/);
-  await admin.getByText("등록된 스트리머와 이름이 맞지 않아 넣지 않은 참가자: 모르는이름").waitFor();
-  await admin.getByRole("button", { name: "일정 등록" }).click();
-  await admin.waitForURL(/\/admin\/schedule\/[0-9a-f-]+\?saved=1/, { timeout: 60_000 });
-  const created = await one<{ state: string; schedule_entry_id: string }>(`SELECT state, schedule_entry_id FROM submission WHERE id = $1`, [reports[1].id]);
-  assert.equal(created.state, "verified");
-  const entry = await one<{ title: string; starts: string; people: number; src: number }>(`SELECT e.title, to_char(s.starts_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') AS starts,
-      (SELECT count(*)::int FROM schedule_participant p WHERE p.entry_id = e.id) AS people,
-      (SELECT count(*)::int FROM schedule_source x WHERE x.entry_id = e.id AND x.url = 'https://ch.sooplive.co.kr/sbb/post/2') AS src
-     FROM schedule_entry e JOIN schedule_slot s ON s.entry_id = e.id WHERE e.id = $1`, [created.schedule_entry_id]);
-  assert.deepEqual(entry, { title: "제보로 알린 대회", starts: "2026-11-25 19:30", people: 1, src: 1 });
-  await go(user, `${base}/submissions`);
-  assert.equal(await user.getByText(/확인 완료/).count() >= 3, true);
-  console.log("PASS admin: new-schedule report → prefilled new entry (date·time·matched participant·evidence source) → created + report closed");
+  assert.equal((await one<{ title: string }>(`SELECT title FROM schedule_entry WHERE id = $1`, [sched.id])).title, "제보 화면 편성(결승)");
+  assert.equal((await one<{ state: string }>(`SELECT state FROM submission WHERE id = $1`, [reports[1].id])).state, "verified");
+  await go(admin, `${base}/admin/submissions/${reports[2].id}`);
+  admin.once("dialog", (d) => d.accept());
+  await admin.getByRole("button", { name: "반려(되돌리기)" }).click();
+  await admin.getByText(/처리: /).waitFor({ timeout: 60_000 });
+  assert.equal((await one<{ visibility: string }>(`SELECT visibility FROM schedule_entry WHERE id = $1`, [reports[2].schedule_entry_id])).visibility, "hidden");
+  await go(user, `${base}/schedule/${sched.id}`);
+  assert.equal(await user.locator(".sched-pending").count(), 0);
+  console.log("PASS admin: 확인 drops 확인 전 · held report → 편성표 편집에서 반영 (prefilled save) · reject hides the reported new entry");
 
   // ── VOD 단서(0098) · 빠진 경기 직접 입력(0099) ─────────────────────────────────
   await go(user, `${base}/submissions`);

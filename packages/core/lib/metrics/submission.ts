@@ -5,7 +5,7 @@
  * ★ 정규화가 중복 막기의 바탕이다 — 같은 뜻의 제안은 언제나 같은 글자가 된다(칸 순서·자리 순서·빈 칸·이미 그 값인 칸을 지운 뒤).
  */
 
-import { SCHEDULE_GAME_LABEL, SCHEDULE_GAMES, type ScheduleGame } from "./schedule.ts";
+import { SCHEDULE_GAME_LABEL, SCHEDULE_GAMES, type ScheduleGame, type ScheduleInput } from "./schedule.ts";
 import { soopVodId } from "./vod-request.ts";
 import { additionLines, type MatchAddition } from "./addition.ts";
 import { SubmissionInputError } from "./submission-errors.ts";
@@ -16,7 +16,7 @@ export const SUBMISSION_KINDS = ["match_correction", "schedule_report", "vod_hin
 export type SubmissionKind = (typeof SUBMISSION_KINDS)[number];
 export type SubmissionState = "applied" | "held" | "verified" | "reverted" | "rejected" | "duplicate";
 export type HoldReason = "review_completed" | "api_observed" | "account_identity" | "contested" | "not_public" | "schedule_review"
-  | "vod_pending" | "vod_not_found" | "vod_unavailable";
+  | "vod_pending" | "vod_not_found" | "vod_unavailable" | "correction_review";
 
 /** 회원당 하루 제보 수(결정 C). +1 은 세지 않는다. */
 export const SUBMISSION_DAILY_LIMIT = 20;
@@ -34,9 +34,10 @@ export const HOLD_REASON_LABEL: Record<HoldReason, string> = {
   review_completed: "운영자가 검수를 마친 경기라 운영자가 확인한 뒤 바뀝니다",
   api_observed: "게임 서버 기록으로 모은 경기라 운영자가 확인한 뒤 바뀝니다",
   account_identity: "계정이 연결된 자리의 사람은 운영자가 확인한 뒤 바뀝니다",
-  contested: "다른 제보가 같은 칸을 다른 값으로 이미 고쳤습니다 — 운영자가 함께 확인합니다",
+  contested: "같은 곳을 바꾸는 다른 제보가 먼저 확인을 기다리고 있습니다 — 운영자가 함께 확인합니다",
   not_public: "공개되지 않은 경기입니다",
-  schedule_review: "편성표 제보는 운영자가 확인한 뒤 편성표에 반영됩니다",
+  schedule_review: "방송 칸이 여럿인 일정의 날짜는 운영자가 확인한 뒤 편성표에 반영됩니다",
+  correction_review: "운영자가 확인한 뒤 경기 기록에 반영됩니다",
   vod_pending: "VOD 판독 대기열 맨 앞에 넣었습니다 — 판독이 경기를 찾으면 전적에 들어갑니다",
   vod_not_found: "판독이 이 VOD 에서 경기를 찾지 못했습니다 — 운영자가 확인합니다",
   vod_unavailable: "VOD 를 열 수 없습니다(삭제·비공개) — 운영자가 확인합니다",
@@ -335,6 +336,48 @@ export function normalizeScheduleReport(raw: unknown): ScheduleReport {
     if (!out.title) fail("제목을 써 주세요.");
     if (!out.on_date) fail("날짜를 써 주세요.");
   }
+  return out;
+}
+
+/**
+ * 편성표 제보 → 저장할 일정 입력(바로 반영, 2026-10-18 사용자 결정). 순수 함수 — 저장은 db/schedule.ts saveScheduleEntryInTx 하나.
+ *   고치기: 지금 일정(base)에 제보한 칸만 바꾼다. 날짜·시각은 방송 칸이 하나일 때만(여럿이면 어느 칸인지 몰라 호출자가 보류로 받는다).
+ *           시작을 옮기면 끝도 같은 길이만큼 옮긴다. 참가자는 이름이 정확히 맞은 등록 스트리머로 바꾸되 이미 있던 사람의 역할·팀은 그대로, 새 사람은 선수.
+ *   새 일정: 미분류·예정·공개, 방송 칸 하나, 근거 링크를 출처로.
+ * 근거 링크가 있으면 출처에 더한다(이미 있으면 그대로). matched = 참가자 이름에 맞은 스트리머 id(matchStreamerNames 결과를 id 로 바꾼 것).
+ */
+export function scheduleInputFromReport(base: ScheduleInput | null, r: ScheduleReport, evidenceUrl: string | null, matched: readonly string[] | null): ScheduleInput {
+  const kst = (date: string, clock: string) => new Date(`${date}T${clock}:00+09:00`);
+  const source = evidenceUrl ? [{ url: evidenceUrl, title: "회원 제보 근거", posted_at: null }] : [];
+  if (r.type === "new" || !base) {
+    if (!r.game_code || !r.title || !r.on_date) throw new SubmissionInputError("새 일정에는 게임·제목·날짜가 있어야 합니다.");
+    return {
+      game_code: r.game_code, title: r.title, planned_format: "unclassified", sponsor: null, description: null, admin_note: null,
+      status: "scheduled", event_id: null, visibility: "public",
+      slots: [{ label: null, on_date: r.on_date, starts_at: r.start ? kst(r.on_date, r.start) : null, ends_at: null, channel_id: null }],
+      participants: (matched ?? []).map((streamer_id) => ({ streamer_id, role: "player" as const, team: null })),
+      sources: source,
+    };
+  }
+  const out: ScheduleInput = { ...base, slots: base.slots.map((x) => ({ ...x })), participants: [...base.participants], sources: [...base.sources] };
+  if (r.game_code) out.game_code = r.game_code;
+  if (r.title) out.title = r.title;
+  if (r.status) out.status = r.status;
+  if (r.on_date) {
+    if (out.slots.length !== 1) throw new SubmissionInputError("방송 칸이 여럿인 일정은 날짜를 자동으로 고치지 않습니다.");
+    const cur = out.slots[0];
+    const startClock = r.start === undefined ? (cur.starts_at ? new Date(cur.starts_at.getTime() + 9 * 3600_000).toISOString().slice(11, 16) : null) : r.start;
+    const starts_at = startClock ? kst(r.on_date, startClock) : null;
+    const span = cur.starts_at && cur.ends_at ? cur.ends_at.getTime() - cur.starts_at.getTime() : null;
+    out.slots = [{ ...cur, on_date: r.on_date, starts_at, ends_at: starts_at && span ? new Date(starts_at.getTime() + span) : null }];
+  }
+  if (r.participants && matched) {
+    out.participants = matched.flatMap((id) => {
+      const had = base.participants.filter((p) => p.streamer_id === id);
+      return had.length ? had : [{ streamer_id: id, role: "player" as const, team: null }];
+    });
+  }
+  for (const s of source) if (!out.sources.some((x) => x.url === s.url)) out.sources = [...out.sources, s];
   return out;
 }
 

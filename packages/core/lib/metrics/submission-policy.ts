@@ -21,6 +21,8 @@ export interface IntakeFacts {
   api_observed?: boolean;
   account_identity?: boolean;
   contested?: boolean;
+  /** 편성표 고치기가 날짜를 바꾸는데 방송 칸이 여럿이다(어느 칸인지 모른다). */
+  multi_slot?: boolean;
 }
 
 export interface Facts {
@@ -92,11 +94,11 @@ const hold = (hold_reason: HoldReason, effects: readonly Effect[] = []): Then =>
 const INTAKE_HOLDS: readonly (keyof IntakeFacts & HoldReason)[] = ["not_public", "review_completed", "api_observed", "account_identity", "contested"];
 
 /**
- * 규칙 목록 — 위에서부터 처음 맞는 것. v1 = 1단계(경기 고치기)·3단계(편성표)의 동작 + 2단계의 신뢰 계정·합의(설정으로 꺼 둠).
- * VOD 단서(hint_*, 2단계 ④)·직접 입력(addition_*, ⑤)은 VOD 판독 사실(vod)로 정한다.
+ * 규칙 목록 — 위에서부터 처음 맞는 것. 기준 2026-10-18.1 = 경기 고치기는 운영자 확인 대기, 편성표는 바로 반영 + 확인 전(사용자 결정 10/18)
+ * + 2단계(VOD 단서 hint_*·직접 입력 addition_* — VOD 판독 사실 vod 로 정한다) + 신뢰 계정·합의(설정으로 꺼 둠).
  *
- * ★ 신뢰 계정·합의는 **보류 사실 아래**에 둔다 — "바로 반영(확인 전)"이 될 제보를 검증으로 올릴 뿐, 보류(공식 기록·다툼·검수 끝난 판…)를
- *   건너뛰게 하지 않는다. 편성표 제보에도 쓰지 않는다 — 편성표는 운영자가 저장해야 바뀌므로 "검증"만 하면 반영 없이 닫혀 버린다.
+ * ★ 신뢰 계정·합의는 **보류 사실 아래**에 둔다 — 운영자 대기(correction_review)가 될 경기 고치기를 바로 반영 + 검증으로 올릴 뿐,
+ *   보류 사실(공식 기록·다툼·검수 끝난 판…)을 건너뛰게 하지 않는다. 편성표 제보에는 쓰지 않는다.
  */
 const RULES: readonly Rule[] = [
   { id: "admin_reject", when: (f) => f.admin === "reject", then: () => ({ visibility: "hidden", trust: "rejected", hold_reason: null }) },
@@ -115,8 +117,11 @@ const RULES: readonly Rule[] = [
     then: () => show("pending"),
   },
   { id: "addition_pending", when: (f) => f.kind === "match_addition", then: () => ({ ...show("pending"), effects: ["vod_priority"] }) },
-  // 편성표 제보는 언제나 운영자가 반영한다(사용자 결정 2026-10-17).
-  { id: "schedule_review", when: (f) => f.kind === "schedule_report", then: () => hold("schedule_review") },
+  // 편성표 제보 — 바로 반영 + "확인 전"(사용자 결정 2026-10-18, 그 전엔 언제나 운영자 대기였다). 같은 일정의 확인 전 제보가 이미 있거나
+  // 방송 칸이 여럿인 일정의 날짜면 운영자가 본다.
+  { id: "schedule_contested", when: (f) => f.kind === "schedule_report" && f.intake.contested === true, then: () => hold("contested") },
+  { id: "schedule_multi_slot", when: (f) => f.kind === "schedule_report" && f.intake.multi_slot === true, then: () => hold("schedule_review") },
+  { id: "schedule_apply", when: (f) => f.kind === "schedule_report", then: () => show("pending") },
   {
     id: "trusted",
     when: (f, c) => c.trustedReporter && f.kind === "match_correction" && f.reporter.roles.includes("trusted_reporter"),
@@ -127,11 +132,11 @@ const RULES: readonly Rule[] = [
     when: (f, c) => c.consensusMembers !== null && f.kind === "match_correction" && f.agreement.members >= c.consensusMembers,
     then: () => show("verified"),
   },
-  // 경기 고치기 — 바로 반영하고 확인 전(결정 A).
-  { id: "apply_pending", when: (f) => f.kind === "match_correction", then: () => show("pending") },
+  // 경기 고치기 — 운영자가 확인한 뒤 운영자 이름으로 반영(사용자 결정 2026-10-18, 그 전엔 바로 반영 + 확인 전 = apply_pending 이었다).
+  { id: "correction_review", when: (f) => f.kind === "match_correction", then: () => hold("correction_review") },
 ];
 
-export const POLICY: Policy = { version: "2026-10-17.4", config: { trustedReporter: false, consensusMembers: null }, rules: RULES };
+export const POLICY: Policy = { version: "2026-10-18.1", config: { trustedReporter: false, consensusMembers: null }, rules: RULES };
 
 export function decide(f: Facts, policy: Policy = POLICY): Verdict {
   for (const r of policy.rules) if (r.when(f, policy.config)) { const t = r.then(f); return { ...t, effects: t.effects ?? [], rule: r.id }; }

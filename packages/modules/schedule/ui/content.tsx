@@ -33,6 +33,7 @@ export function Badges({ entry, state }: { entry: PublicScheduleEntry; state: Re
     <span className="sched-tag">{SCHEDULE_GAME_LABEL[entry.game_code]}</span>
     {formatName && <span className="sched-tag">{formatName}</span>}
     {entry.slots_changed_at && state !== "cancelled" && <span className="sched-tag is-changed" title="공지 뒤 날짜·시각이 바뀌었습니다">일정 변경</span>}
+    {entry.pending && <span className="sched-tag is-changed sched-pending" title="회원 제보로 바로 바뀐 일정입니다. 운영자가 확인하기 전입니다.">확인 전</span>}
     <span className="sched-state">{ENTRY_STATE_LABEL[state]}</span>
   </span>;
 }

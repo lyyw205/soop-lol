@@ -18,7 +18,7 @@ import { resolveChampion } from "../../packages/core/lib/db/participant.ts";
 import { loadReviewLockInTx } from "../../packages/core/lib/db/review-lock.ts";
 import * as sub from "../../packages/core/lib/db/submission.ts";
 import { listMemberRoles } from "../../packages/core/lib/db/member-role.ts";
-import { POLICY, type PolicyConfig } from "../../packages/core/lib/metrics/submission-policy.ts";
+import { POLICY, type Policy, type PolicyConfig } from "../../packages/core/lib/metrics/submission-policy.ts";
 import { SUBMISSION_DAILY_LIMIT } from "../../packages/core/lib/metrics/submission.ts";
 import { tally } from "../../packages/core/lib/metrics/tally.ts";
 import { lolEvent } from "./verify-ck-fixtures.ts";
@@ -29,6 +29,12 @@ type ExpectReject = (name: string, fn: () => Promise<unknown>, expected: string)
 export async function verifySubmissionDb(check: Check, expectReject: ExpectReject): Promise<void> {
   console.log("\n▸ 사용자 제보 — 반영·확인 전·중복·보류·되돌리기 (0093)");
   const sql = db();
+  // ★ 이 절의 대부분은 "바로 반영 + 확인 전" 기계(검수 경로 반영·집계 제외·다툼·정확한 되돌리기)를 검사한다. 기본 기준(2026-10-18.1)은 경기 고치기를
+  //   운영자 확인 대기로 받으므로(사용자 결정 10/18) 그 기계를 쓰는 기준(옛 apply_pending)으로 바꿔 돌린다 — 신뢰 계정·합의를 켜면 같은 기계를 쓴다.
+  //   기본 기준의 동작은 "기본 기준" 절이 본다.
+  const applyPolicy: Policy = { ...POLICY, version: "verify-apply", rules: POLICY.rules.map((r) => r.id !== "correction_review" ? r
+    : { ...r, id: "apply_pending", then: () => ({ visibility: "shown" as const, trust: "pending" as const, hold_reason: null }) }) };
+  sub.setSubmissionPolicyForVerify(applyPolicy);
   const T0 = new Date("2031-05-01T03:00:00Z");
   let clock = T0;
   const tick = () => (clock = new Date(clock.getTime() + 60_000));
@@ -219,7 +225,7 @@ export async function verifySubmissionDb(check: Check, expectReject: ExpectRejec
   check("같은 기준으로 다시 판정하면 아무것도 바뀌지 않는다(멱등)", (await sub.reconsiderOpenSubmissions()) === 0);
 
   // ── 계정 권한(0096) — 역할은 판정의 사실, 신뢰 계정·합의 규칙은 꺼 둔 채(사용자 결정) ─────────────
-  const policyWith = (config: Partial<PolicyConfig>) => sub.setSubmissionPolicyForVerify({ ...POLICY, version: "verify", config: { ...POLICY.config, ...config } });
+  const policyWith = (config: Partial<PolicyConfig>) => sub.setSubmissionPolicyForVerify({ ...applyPolicy, config: { ...POLICY.config, ...config } });
   const stateOfSub = async (id: string) => (await sql<{ state: string; rule_id: string; decided_by: string | null }[]>`SELECT state, rule_id, decided_by FROM submission WHERE id = ${id}::uuid`)[0];
   const kills = (pid: number, field: "kills" | "deaths" | "assists", to: number) => ({ participants: [{ participant_id: pid, changes: { [field]: { from: 1, to } } }] });
   const changedOnGrant = await sub.grantMemberRole(O.id, "trusted_reporter", "시험 — 제보가 정확했던 회원", "admin", tick());
@@ -265,9 +271,24 @@ export async function verifySubmissionDb(check: Check, expectReject: ExpectRejec
       && (await stateOfSub(agreed.id)).state === "verified" && (await stateOfSub(agreed.id)).rule_id === "consensus" && !(await pend("SB:4")),
     JSON.stringify(await stateOfSub(agreed.id)));
 
-  sub.setSubmissionPolicyForVerify(null);
+  sub.setSubmissionPolicyForVerify(applyPolicy);
   check("기준을 되돌리고 다시 판정해도 닫힌 제보는 그대로 — 열린 것 중 바뀌는 것 없음", (await sub.reconsiderOpenSubmissions()) === 0
     && (await stateOfSub(afterRevoke.id)).rule_id === "apply_pending");
+
+  // ── 기본 기준(2026-10-18.1) — 경기 고치기는 운영자 확인 대기, 확인하면 운영자 이름으로 반영(사용자 결정 10/18) ─────────────
+  sub.setSubmissionPolicyForVerify(null);
+  const assists = async () => (await sql<{ assists: number | null }[]>`SELECT assists FROM match_participant WHERE match_id = 'SB:4' AND participant_id = 1`)[0].assists;
+  const a0 = await assists();
+  // (SB:2 에는 위 절의 확인 전 제보가 남아 있다 — 열린 제보가 없는 SB:4 로 본다.)
+  const review = await sub.submitMatchCorrection(O.token, { request_id: rid(), match_id: "SB:4", payload: kills(1, "assists", 7) }, tick());
+  check("★ 기본 기준 — 경기 고치기는 운영자 확인 대기(correction_review): 값은 그대로, 확인 전 표시도 없다",
+    review.kind === "held" && review.hold_reason === "correction_review" && (await assists()) === a0 && !(await pend("SB:4"))
+      && (await sql`SELECT 1 FROM review_change WHERE submission_id = ${review.id}::uuid`).length === 0, JSON.stringify(review));
+  await sub.verifySubmission(review.id, "admin", "VOD 확인");
+  const byAdmin = await sql<{ actor: string }[]>`SELECT actor FROM review_change WHERE match_id = 'SB:4' AND field = 'assists' ORDER BY id DESC LIMIT 1`;
+  check("★ 운영자가 확인하면 그때 운영자 이름으로 반영된다 — 확인 전을 거치지 않는다",
+    (await assists()) === 7 && byAdmin[0]?.actor === "admin" && (await stateOfSub(review.id)).state === "verified" && !(await pend("SB:4")));
+  sub.setSubmissionPolicyForVerify(applyPolicy);
 
   // ── 5. 회원 화면 · 탈퇴 ───────────────────────────────────────────────────
   const mine = await sub.listMySubmissions(W.token);
@@ -279,4 +300,12 @@ export async function verifySubmissionDb(check: Check, expectReject: ExpectRejec
   const [gone] = await sql<{ author_id: string | null; note: string | null; evidence_url: string | null }[]>`SELECT author_id, note, evidence_url FROM submission WHERE id = ${s1.id}::uuid`;
   check("탈퇴 — 메모·근거·보낸 사람 연결은 지우고, 반영된 값과 이력은 남는다", gone.author_id === null && gone.note === null && gone.evidence_url === null
     && (await winner("SB:1")) === 200 && (await sql`SELECT 1 FROM review_change WHERE submission_id = ${s1.id}::uuid`).length > 0);
+  // 기준을 바꾸면(바로 반영 → 운영자 확인 대기) 다시 판정이 열린 고치기를 옮긴다 — 바로 반영돼 있던 것은 되돌리고 운영자 대기로.
+  sub.setSubmissionPolicyForVerify(null);
+  const moved = await sub.reconsiderOpenSubmissions();
+  const [ar] = await sql<{ state: string; rule_id: string; hold_reason: string | null }[]>`SELECT state, rule_id, hold_reason FROM submission WHERE id = ${afterRevoke.id}::uuid`;
+  check("★ 기준을 바꾸고 다시 판정하면 바로 반영돼 있던 열린 고치기는 되돌려 운영자 대기(correction_review)로 옮긴다 · 한 번 더 하면 그대로",
+    moved >= 1 && ar.state === "held" && ar.rule_id === "correction_review"
+      && (await sql<{ assists: number | null }[]>`SELECT assists FROM match_participant WHERE match_id = 'SB:2' AND participant_id = 1`)[0].assists === 1
+      && (await sub.reconsiderOpenSubmissions()) === 0, JSON.stringify({ moved, ar }));
 }

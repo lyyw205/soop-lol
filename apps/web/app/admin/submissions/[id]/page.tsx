@@ -44,8 +44,9 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
         {s.author_roles.map((r) => <Tag key={r} tone="accent">{MEMBER_ROLE_LABEL[r]}</Tag>)}
         {s.author_id && <Link href={`/admin/community?member=${s.author_id}`} className="text-accent-400 hover:underline">보낸 회원(제재·권한) →</Link>}
         {s.match_id && <Link href={`/admin/ck/match/${encodeURIComponent(s.match_id)}`} className="text-accent-400 hover:underline">검수 화면에서 직접 고치기 →</Link>}
-        {/* 편성표 제보의 반영 = 제보 내용으로 미리 채운 편성표 편집 폼을 저장한다(그 저장이 이 제보를 확인 완료로 닫는다). */}
-        {schedule && open && <Link href={`/admin/schedule/${s.schedule_entry_id ?? "new"}?submission=${s.id}`} className="text-accent-400 hover:underline">편성표 편집에서 반영 →</Link>}
+        {/* 편성표 제보는 바로 반영된다. 보류(다툼·방송 칸 여럿)만 제보 내용으로 미리 채운 편성표 편집 폼을 저장해 반영한다(그 저장이 확인 완료로 닫는다). */}
+        {schedule && s.state === "held" && <Link href={`/admin/schedule/${s.schedule_entry_id ?? "new"}?submission=${s.id}`} className="text-accent-400 hover:underline">편성표 편집에서 반영 →</Link>}
+        {schedule && s.schedule_entry_id && s.state !== "held" && <Link href={`/admin/schedule/${s.schedule_entry_id}`} className="text-accent-400 hover:underline">반영된 일정 →</Link>}
       </div>
       <h3 className="mt-4 text-sm font-semibold">제안</h3>
       <ul className="mt-1 list-disc pl-5 text-sm text-ink-300">{submissionLines(s, names).map((l) => <li key={l}>{l}</li>)}</ul>
@@ -74,7 +75,7 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
       {s.conflicts.length > 0 && <p className="mt-3 text-sm text-amber-400">이 제보 뒤에 같은 칸이 또 바뀌어 반려(되돌리기)를 할 수 없습니다: {s.conflicts.join(", ")} — 검수 화면에서 직접 고친 뒤 확인하세요.</p>}
       {s.rule_id && <p className="mt-3 text-xs text-ink-500">판정 규칙 {s.rule_id} · 기준 {s.policy_version}</p>}
       {s.decided_at && <p className="mt-3 text-sm text-ink-400">처리: {s.decided_by} · {kstPlayedAt(new Date(s.decided_at), "datetime")}{s.decision_note ? ` · ${s.decision_note}` : ""}</p>}
-      {open && <div className="mt-5"><DecideSubmissionForm id={s.id} held={s.state === "held"} schedule={schedule || !!hint} duplicateOptions={siblings} /></div>}
+      {open && <div className="mt-5"><DecideSubmissionForm id={s.id} held={s.state === "held"} schedule={!!hint} duplicateOptions={siblings} /></div>}
     </Card>
   </div>;
 }

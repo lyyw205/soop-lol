@@ -191,8 +191,22 @@ export interface AdminScheduleDetail {
 export async function getScheduleForAdmin(id: string): Promise<AdminScheduleDetail | null> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
   const sql = db();
-  const [e] = await sql<(Omit<ScheduleInput, "slots" | "participants" | "sources"> & { id: string; version: string })[]>`
-    SELECT id, updated_at::text AS version, game_code, title, planned_format, sponsor, description, admin_note,
+  const cur = await scheduleInputInTx(sql, id);
+  if (!cur) return null;
+  const participants = await sql<AdminScheduleDetail["participants"]>`
+      SELECT p.streamer_id, s.slug, s.display_name, p.role, p.team
+        FROM schedule_participant p JOIN streamer s ON s.id = p.streamer_id
+       WHERE p.entry_id = ${id}::uuid ORDER BY p.role, s.display_name`;
+  return { id, version: cur.version, participants: [...participants], input: cur.input };
+}
+
+/**
+ * 지금 일정의 저장 입력(ScheduleInput)과 version — 운영 화면과 회원 편성표 제보의 바로 반영(submission.ts)이 같이 쓴다.
+ * 트랜잭션 안에서 부르면 그 트랜잭션의 값이다(잠금은 부르는 쪽이 먼저 한다).
+ */
+export async function scheduleInputInTx(sql: postgres.Sql | postgres.TransactionSql, id: string): Promise<{ version: string; input: ScheduleInput } | null> {
+  const [e] = await sql<(Omit<ScheduleInput, "slots" | "participants" | "sources"> & { version: string })[]>`
+    SELECT updated_at::text AS version, game_code, title, planned_format, sponsor, description, admin_note,
            status, event_id, visibility
       FROM schedule_entry WHERE id = ${id}::uuid`;
   if (!e) return null;
@@ -200,17 +214,12 @@ export async function getScheduleForAdmin(id: string): Promise<AdminScheduleDeta
   const slots = await sql<ScheduleInput["slots"]>`
       SELECT label, on_date::text AS on_date, starts_at, ends_at, channel_id
         FROM schedule_slot WHERE entry_id = ${id}::uuid ORDER BY on_date, starts_at NULLS LAST`;
-  const participants = await sql<AdminScheduleDetail["participants"]>`
-      SELECT p.streamer_id, s.slug, s.display_name, p.role, p.team
-        FROM schedule_participant p JOIN streamer s ON s.id = p.streamer_id
-       WHERE p.entry_id = ${id}::uuid ORDER BY p.role, s.display_name`;
+  const participants = await sql<ScheduleInput["participants"]>`
+      SELECT streamer_id, role, team FROM schedule_participant WHERE entry_id = ${id}::uuid ORDER BY role, streamer_id`;
   const sources = await sql<ScheduleInput["sources"]>`
       SELECT url, title, posted_at FROM schedule_source WHERE entry_id = ${id}::uuid ORDER BY posted_at NULLS LAST, url`;
-  const { id: _id, version, ...rest } = e;
-  return {
-    id, version, participants: [...participants],
-    input: { ...rest, slots: [...slots], participants: participants.map(({ streamer_id, role, team }) => ({ streamer_id, role, team })), sources: [...sources] },
-  };
+  const { version, ...rest } = e;
+  return { version, input: { ...rest, slots: [...slots], participants: [...participants], sources: [...sources] } };
 }
 
 /**

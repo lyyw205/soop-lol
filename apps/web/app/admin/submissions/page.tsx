@@ -25,7 +25,7 @@ export default async function SubmissionQueuePage() {
       : r.kind === "vod_hint" ? `vod:${r.payload.vod}` : r.kind === "match_addition" ? `addition:${r.id}` : r.match_id ?? "(지워진 경기)";
     const byMatch = new Map<string, QueueItem[]>();
     for (const r of rows) byMatch.set(key(r), [...(byMatch.get(key(r)) ?? []), r]);
-    return <div className="grid gap-5"><Card title={`제보 ${rows.length}건`} description="반영됨(검증 전)은 공개 화면에 '검증 전'으로 보이고 집계에서 빠져 있습니다 — 직접 입력은 VOD 판독이 검증합니다. 보류는 공개 화면에 아직 반영되지 않았습니다.">
+    return <div className="grid gap-5"><Card title={`제보 ${rows.length}건`} description="경기 고치기는 운영자가 확인해야 반영됩니다. 편성표 제보는 이미 반영돼 '확인 전'으로 보이고(반려하면 되돌림), 직접 입력은 '검증 전'으로 공개돼 VOD 판독이 검증합니다.">
       {!rows.length ? <EmptyState>열린 제보가 없습니다.</EmptyState> : <ul className="divide-y divide-ink-800">
         {[...byMatch].map(([matchId, items]) => <li key={matchId} className="py-4">
           {items[0].kind === "match_addition" ? <div className="flex flex-wrap items-center gap-2 text-sm">

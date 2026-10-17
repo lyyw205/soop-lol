@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * 편성표 제보 — 로그인 필수. 있는 일정 고치기(/submit/schedule/<번호>)와 빠진 일정 알리기(/submit/schedule/new).
- * 바로 반영하지 않는다 — 운영자가 확인한 뒤 편성표에 들어간다(사용자 결정 2026-10-17, docs/USER-SUBMISSION-PLAN.md §12).
+ * 바로 반영 + 확인 전(사용자 결정 2026-10-18 — 그 전엔 운영자 확인 뒤였다). 같은 일정의 열린 제보가 있거나 방송 칸이 여럿인 일정의 날짜면 운영자 대기.
  */
 export default async function SubmitSchedulePage({ params }: { params: Promise<{ entryId: string }> }) {
   const raw = decodeURIComponent((await params).entryId);
@@ -41,7 +41,7 @@ export default async function SubmitSchedulePage({ params }: { params: Promise<{
           <h1 id="submit-title">{isNew ? "빠진 일정 알리기" : "편성표 제보"}</h1>
           {target && <p className="member-lead">{target.title}{first ? ` · ${first.on_date}` : ""}{target.slots.length > 1 ? ` 외 ${target.slots.length - 1}회` : ""}</p>}
           <p className="member-lead">{isNew ? "편성표에 없는 방송 일정을 알려 주세요. 근거 링크(방송 공지·SNS 주소)가 필요합니다."
-            : "취소·연기, 바뀐 시간이나 참가자를 알려 주세요."} 운영자가 확인한 뒤 편성표에 반영되며, 보낸 내용은 본인과 운영자만 봅니다.</p>
+            : "취소·연기, 바뀐 시간이나 참가자를 알려 주세요."} 바로 편성표에 반영되고 운영자가 확인할 때까지 <strong>확인 전</strong>으로 보입니다. 보낸 메모는 본인과 운영자만 봅니다.</p>
           {!me ? <p><Link href={loginHref(here)}>로그인하고 제보하기 →</Link></p>
             : !me.nickname ? <p><Link href={meHref({ next: here })}>가입을 마치고 제보하기 →</Link></p> : null}
         </section>
