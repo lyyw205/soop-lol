@@ -11,7 +11,11 @@
  *   npm run ck:queue -- reopen --vods <번호,…> --reason <왜> --state <s.json> [--apply]   # 끝난 롤 조사를 다시 연다(기본은 미리보기)
  *
  * `scripts/ck-auto.sh --poll`(매시간 타이머)이 plan --enqueue로 발견 목록을 보존한다.
- * 대상 선정 상태는 --state 파일 하나다. DB 에 쓰는 건 access(접근 기록)·reopen(조사 다시 열기)뿐이다.
+ * 대상 선정 상태는 --state 파일 하나다. DB 에 쓰는 건 access(접근 기록)·reopen(조사 다시 열기)·판독 요청 상태(0097)뿐이다.
+ *
+ * ★ 판독 요청(0097 vod_request — 회원 제보·운영자)은 plan 이 와치리스트보다 **먼저** 본다. 할 일은 scripts/lib/ck-vod-request.ts 가 정한다:
+ *   감시 목록 밖 채널이어도 대기열에 넣고(우선순위 → claim 이 맨 앞으로), 끝난 조사였으면 다시 연다. finish·access 가 요청을 닫는다.
+ *   요청 상태를 쓰는 것은 --enqueue 일 때뿐이다(미리보기·--dry-run 은 읽기만).
  *
  * ★ 매일 조사와 백필은 다른 일이다
  *   매일 조사 = 와치리스트 채널의 새 VOD 를 빠짐없이 따라간다. 백필 = 사용자가 정한 과거 기간을 메운다.
@@ -42,13 +46,16 @@ import { dirname } from "node:path";
 import { kstDate, makeOpt } from "./lib/cli.mjs";
 import { CK_RECENT_DAYS, recentFrom, titleExclusion, vodWork, type VodReason } from "@soop-lol/core/lib/metrics/ck-vod-status";
 import { kstDateString } from "@soop-lol/core/lib/time";
-import { listBroadcasts } from "./lib/soop-vod.mjs";
+import { listBroadcasts, playableFiles, vodBroadcastTimes, vodDetail } from "./lib/soop-vod.mjs";
 import { backfillContext, lastFinishedScans, recordVodAccess, savedPovCounts, vodRaws } from "@soop-lol/core/lib/db/ck-backfill";
 import { madeProgress, progressKind, type VodWork } from "@soop-lol/core/lib/metrics/ck-vod-status";
 import { advanceGuard, guardBlocked, parseGuard, MAX_NO_OUTCOME_SESSIONS, type BackfillGuard } from "./lib/ck-backfill-guard.ts";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { rememberPending, vodTime, type PendingVod } from "./lib/ck-auto-queue.ts";
+import { planVodRequests, type RequestFacts, type VodMeta } from "./lib/ck-vod-request.ts";
+import { claimVodRequests, listOpenVodRequests, type OpenVodRequest } from "@soop-lol/core/lib/db/vod-request";
+import { settleVodRequests } from "@soop-lol/core/lib/db/submission";
 
 const argv = process.argv.slice(2);
 const COMMAND = argv[0] && !argv[0].startsWith("--") ? argv[0] : "plan";
@@ -94,7 +101,10 @@ const stalled = (s: State, key: string) => (s.stall[key]?.count ?? 0) >= STALL_L
 
 interface Item {
   key: string; title_no: number; channel_id: string; streamer: string; slug: string;
-  title: string; ended_at: string; hours: number; category: string | null; reason: VodReason;
+  title: string; ended_at: string; hours: number; category: string | null;
+  /** 매일 조사는 VodReason, 판독 요청은 "<VodReason> · <누가> 판독 요청". */
+  reason: VodReason | string;
+  priority?: number;
 }
 
 const sql = db();
@@ -163,16 +173,107 @@ async function plan(): Promise<number> {
     consider({ key, title_no: Number(key.slice(4)), channel_id: l.channel_id, streamer: w.display_name, slug: w.slug,
       title: l.title, ended_at: l.observed_at.toISOString(), hours: 0, category: null }, null);
   }
-  queue.sort((a, b) => vodTime(a.ended_at) - vodTime(b.ended_at));  // 오래된 것부터
+  // 판독 요청 — 같은 VOD 가 매일 조사에도 있으면 요청 쪽(우선순위·사유)으로 바꾼다.
+  const req = await requestedItems(watch, found, state);
+  const requestedKeys = new Set(req.map((x) => x.key));
+  const merged = [...req, ...queue.filter((x) => !requestedKeys.has(x.key))];
+  queue.length = 0; queue.push(...merged);
+  queue.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || vodTime(a.ended_at) - vodTime(b.ended_at));  // 요청 먼저, 그다음 오래된 것부터
   saveState(state);
 
-  console.log(`롤 와치리스트 ${watch.length}명 · VOD ${found.length}개(+이어받기 ${orphanKeys.length}) · 조사 끝 ${done} · 제목으로 제외 ${excluded} · 큐 ${queue.length}`);
+  console.log(`롤 와치리스트 ${watch.length}명 · VOD ${found.length}개(+이어받기 ${orphanKeys.length}) · 조사 끝 ${done} · 제목으로 제외 ${excluded} · 판독 요청 ${req.length} · 큐 ${queue.length}`);
   for (const q of queue) console.log(`  ${q.ended_at}  ${q.key}  ${q.hours}h  ${q.streamer}  [${q.reason}]  ${q.title}`);
   if (skippedStall.length) console.log(`\n⚠ 결과 진척 없이 ${MAX_NO_OUTCOME_SESSIONS}회 연속 조사해 건너뛴 VOD: ${skippedStall.join(", ")} — 원인 확인 뒤 ${GUARD_DIR}/lol-<번호>.json 을 지운다`);
   if (clipped.length) console.log(`\n⚠ 마지막 조사 지점이 ${MAX_LOOKBACK}일보다 오래돼 ${floor} 부터만 본다(그 앞은 백필 몫): ${clipped.join(", ")}`);
   if (truncated.length) console.log(`\n⚠ VOD 목록이 잘렸다 — 큐가 불완전하다: ${truncated.join(", ")}`);
   writeOut({ generated_at: new Date().toISOString(), truncated, clipped, skipped_stall: skippedStall, queue });
   return truncated.length ? 2 : 0;
+}
+
+/**
+ * 판독 요청(0097) → 대기열 줄. 사실(VOD 정보·조사 상태·반복 제한)을 모아 planVodRequests 에 넘기고, --enqueue 면 그 결과를 쓴다
+ * (끝난 조사 다시 열기 · queued → claimed · 영상 없음/끝 닫기). VOD 정보는 이번 목록 → pending → 단서 행 → SOOP 상세 순서로 찾는다.
+ */
+async function requestedItems(watch: Awaited<ReturnType<typeof listWatched>>, found: { title_no: number; channel_id: string; streamer: string; slug: string;
+  title: string; ended_at: string; hours: number; category: string | null; duration_sec: number | null }[], state: State): Promise<Item[]> {
+  const requests = await listOpenVodRequests();
+  if (!requests.length) return [];
+  const keys = requests.map((r) => `vod:${r.title_no}`);
+  const leads = await sql<{ source_key: string; channel_id: string; title: string; observed_at: Date; raw: Record<string, any> }[]>`
+    SELECT source_key, channel_id, title, observed_at, raw FROM event_lead WHERE source = 'vod_title' AND source_key = ANY(${keys})`;
+  const leadOf = new Map(leads.map((l) => [l.source_key, l]));
+  const names = await channelNames([...new Set([...requests.map((r) => r.channel_id), ...leads.map((l) => l.channel_id)].filter((c): c is string => !!c))], watch);
+  const facts = new Map<number, RequestFacts>();
+  for (const r of requests) {
+    const key = `vod:${r.title_no}`, lead = leadOf.get(key);
+    const listed = found.find((v) => v.title_no === r.title_no);
+    let meta: VodMeta | null = null, seconds: number | null = listed?.duration_sec ?? null;
+    if (listed) meta = { key, title_no: r.title_no, channel_id: listed.channel_id, streamer: listed.streamer, slug: listed.slug, title: listed.title,
+      ended_at: listed.ended_at, hours: listed.hours, category: listed.category, duration_sec: listed.duration_sec };
+    else if (state.pending[key]?.item) { const { reason: _r, priority: _p, ...saved } = state.pending[key].item!; meta = saved; seconds = saved.duration_sec ?? null; }
+    else if (lead) {
+      const n = names.get(lead.channel_id);
+      meta = { key, title_no: r.title_no, channel_id: lead.channel_id, streamer: n?.name ?? lead.channel_id, slug: n?.slug ?? lead.channel_id,
+        title: lead.title, ended_at: lead.observed_at.toISOString(), hours: 0, category: null };
+    } else {
+      meta = await metaFromSoop(r, names).catch((e) => { console.log(`  ⚠ ${key}: SOOP 상세 실패 — ${(e as Error).message}`); return null; });
+      seconds = meta?.duration_sec ?? null;
+    }
+    const work = vodWork(lead?.raw, seconds);
+    facts.set(r.title_no, { meta, work, scan_status: lead?.raw?.scan?.status ?? null, blocked: guardBlocked(readGuard(r.title_no), work) });
+  }
+  const plan = planVodRequests(requests, facts);
+  if (argv.includes("--enqueue")) {
+    if (plan.reopen.length) await reopenDone(plan.reopen.map((n) => `vod:${n}`), "판독 요청(0097) — 요청 뒤 이 VOD 를 다시 본다", requestResume(requests), state);
+    for (const c of plan.claim) await claimVodRequests(c.title_no, c.channel_id);
+    // 닫기는 요청한 제보의 다시 판정과 한 트랜잭션(VOD 단서가 확인·운영자 대기로 옮겨 간다).
+    for (const c of plan.close) await settleVodRequests(c.title_no, c.state, c.note);
+  }
+  const tag = argv.includes("--enqueue") ? "" : " (미리보기 — 요청 상태는 안 바꿨다)";
+  console.log(`판독 요청 VOD ${requests.length}개${tag} · 대기열 ${plan.enqueue.length} · 다시 엶 ${plan.reopen.length} · 닫음 ${plan.close.length} · 대기 ${plan.waiting.length}`);
+  for (const c of plan.close) console.log(`  닫음 vod:${c.title_no} → ${c.state} (${c.note})`);
+  for (const w of plan.waiting) console.log(`  ⚠ 대기 vod:${w.title_no} — ${w.why}`);
+  return plan.enqueue;
+}
+
+/** 채널 → 스트리머 이름(감시 목록 밖도 — 등록된 채널이면). */
+async function channelNames(channels: string[], watch: Awaited<ReturnType<typeof listWatched>>): Promise<Map<string, { name: string; slug: string }>> {
+  const out = new Map<string, { name: string; slug: string }>();
+  for (const w of watch) if (w.channel_id) out.set(w.channel_id, { name: w.display_name, slug: w.slug });
+  const rest = channels.filter((c) => !out.has(c));
+  if (rest.length) {
+    for (const r of await sql<{ channel_id: string; display_name: string; slug: string }[]>`
+      SELECT c.channel_id, s.display_name, s.slug FROM streamer_channel c JOIN streamer s ON s.id = c.streamer_id
+       WHERE c.platform = 'soop' AND c.channel_id = ANY(${rest})`) out.set(r.channel_id, { name: r.display_name, slug: r.slug });
+  }
+  return out;
+}
+
+/** 단서 행도 목록에도 없는 VOD(링크만 받은 요청) — SOOP 상세에서 채널·방송 끝·길이를 읽는다. 못 읽으면 null(지어내지 않는다). */
+async function metaFromSoop(r: OpenVodRequest, names: Map<string, { name: string; slug: string }>): Promise<VodMeta | null> {
+  const detail = await vodDetail(r.title_no);
+  if (!detail) { console.log(`  ⚠ vod:${r.title_no}: SOOP 상세 응답 없음(삭제·비공개일 수 있다)`); return null; }
+  const channel_id: string | null = detail.bj_id ?? detail.user_id ?? r.channel_id ?? null;
+  const ended = vodBroadcastTimes(detail).end;
+  if (!channel_id || !/^[\w-]+$/.test(channel_id) || !ended) return null;
+  const ms = playableFiles(detail).reduce((a: number, f: { duration: number }) => a + f.duration, 0);
+  const n = names.get(channel_id);
+  return { key: `vod:${r.title_no}`, title_no: r.title_no, channel_id, streamer: n?.name ?? detail.bj_nick ?? detail.writer_nick ?? channel_id,
+    slug: n?.slug ?? channel_id, title: detail.title ?? `VOD ${r.title_no}`, ended_at: ended,
+    hours: Math.round((ms / 3_600_000) * 10) / 10, category: null, duration_sec: ms > 0 ? Math.round(ms / 1000) : null };
+}
+
+/** 요청으로 다시 열 때의 인계 — 이전 결론은 유지하고 요청 메모의 경기를 찾는다(품질 의심으로 다시 여는 reopen 과 다르다). */
+function requestResume(requests: OpenVodRequest[]) {
+  return (key: string) => {
+    const r = requests.find((x) => `vod:${x.title_no}` === key);
+    return {
+      next_action: "판독 요청으로 다시 열었다(회원 제보·운영자). 이전 조사의 사실·결론은 그대로 두고, 요청 뒤에 들어온 경기 정보를 확인한다. "
+        + "ck:merge --find-match --vod 로 DB 의 기존 경기를 먼저 본다. 같은 판이면 그 경기 번호로 기록하고 새 판을 만들지 않는다. "
+        + "전 범위 확인 조건은 평소와 같다.",
+      request_notes: r?.notes ?? [],
+    };
+  };
 }
 
 /** FC: 최근 30일 API 경기 중 맥락 미조사가 있는 와치리스트 FC 스트리머. */
@@ -239,6 +340,11 @@ async function finish(): Promise<number> {
   const state = loadState();
   const key = `vod:${VOD}`;
   if (after.reason === null) { delete state.pending[key]; rmGuard(VOD); }
+  // 판독 요청(0097) — 끝났으면 done, 접근 불가면 unavailable 로 닫는다(열린 요청이 없으면 아무것도 안 바뀐다).
+  // 닫으면서 요청한 제보를 다시 판정한다(같은 트랜잭션 — submission.ts settleVodRequests).
+  const settled = after.unavailable ? await settleVodRequests(VOD, "unavailable", "조사 세션이 접근 불가로 기록")
+    : after.reason === null ? await settleVodRequests(VOD, "done", "판독 끝") : { closed: 0, changed: 0 };
+  if (settled.closed) console.log(`${key}: 판독 요청 ${settled.closed}건 닫음 · 판정이 바뀐 제보 ${settled.changed}건`);
   else {
     const [l] = await sql<{ channel_id: string }[]>`SELECT channel_id FROM event_lead WHERE source = 'vod_title' AND source_key = ${key}`;
     state.pending[key] ??= { channel_id: l?.channel_id ?? "", since: TODAY };
@@ -270,34 +376,41 @@ async function reopen(): Promise<number> {
   const skipped = keys.filter((k) => !target.includes(k)).map((k) => `${k}(${byKey.get(k)?.status ?? "단서 없음"})`);
   console.log(`다시 열 VOD ${target.length}개${skipped.length ? ` · 건너뜀 ${skipped.length}: ${skipped.join(", ")}` : ""}`);
   if (!apply) { console.log("미리보기다 — 쓰려면 --apply"); return 0; }
-  const at = new Date().toISOString();
-  const resume = {
-    reopened_at: at, reason,
+  const state = loadState();
+  await reopenDone(target, reason, () => ({
     next_action: "이 VOD 를 다시 판독한다. 이전 '끝' 결론은 위 사유로 신뢰하지 않는다 — 사실·근거는 참고만 한다. "
       + "ck:merge --find-match --vod 로 DB 의 기존 경기를 먼저 보고 이 VOD 시점을 연결한다(결과창 원본을 직접 읽어 대조). "
       + "빈 챔피언·KDA 를 채우고, 미해결 후보에 결론을 낸다. 전 범위 확인 조건은 평소와 같다.",
-  };
-  const state = loadState();
-  await sql.begin(async (tx) => {
-    for (const key of target) {
-      await tx`UPDATE event_lead SET raw = jsonb_set(jsonb_set(jsonb_set(raw,
-          '{scan,status}', '"running"'),
-          '{scan,resume}', ${tx.json(resume)}::jsonb),
-          '{scan,reopened}', COALESCE(raw->'scan'->'reopened', '[]'::jsonb) || ${tx.json([{ at, reason, prev_status: "done" }])}::jsonb)
-        WHERE source = 'vod_title' AND source_key = ${key} AND raw->'scan'->>'status' = 'done'`;
-      state.pending[key] ??= { channel_id: byKey.get(key)!.channel_id, since: TODAY };
-      rmGuard(Number(key.slice(4)));
-    }
-  });
+  }), state);
   saveState(state);
   console.log(`다시 열었다: ${target.length}개 → pending 에 올림(${STATE_PATH})`);
   return 0;
+}
+
+/**
+ * done 인 조사를 running 으로 되돌리고 인계(resume)에 지시를 남긴 뒤 pending 에 올린다 — reopen 명령과 판독 요청이 같이 쓴다.
+ * 이력은 scan.reopened 에 쌓는다. 경기·검수 기록은 건드리지 않는다. done 이 아닌 것은 건드리지 않는다(조건부 UPDATE).
+ */
+async function reopenDone(keys: string[], reason: string, resumeOf: (key: string) => Record<string, unknown>, state: State): Promise<void> {
+  const at = new Date().toISOString();
+  await sql.begin(async (tx) => {
+    for (const key of keys) {
+      const done = await tx<{ channel_id: string }[]>`UPDATE event_lead SET raw = jsonb_set(jsonb_set(jsonb_set(raw,
+          '{scan,status}', '"running"'),
+          '{scan,resume}', ${tx.json({ reopened_at: at, reason, ...resumeOf(key) } as never)}::jsonb),
+          '{scan,reopened}', COALESCE(raw->'scan'->'reopened', '[]'::jsonb) || ${tx.json([{ at, reason, prev_status: "done" }])}::jsonb)
+        WHERE source = 'vod_title' AND source_key = ${key} AND raw->'scan'->>'status' = 'done' RETURNING channel_id`;
+      if (done[0]) state.pending[key] ??= { channel_id: done[0].channel_id, since: TODAY };
+      rmGuard(Number(key.slice(4)));
+    }
+  });
 }
 
 async function access(): Promise<number> {
   const status = opt("--status", "");
   if (!VOD || !["temporary", "unavailable", "retry"].includes(status)) throw new Error("--vod 와 --status temporary|unavailable|retry 가 필요하다");
   await recordVodAccess(VOD, status as "temporary" | "unavailable" | "retry", opt("--reason", ""));
+  if (status === "unavailable") await settleVodRequests(VOD, "unavailable", opt("--reason", ""));
   console.log(`vod:${VOD}: 접근 상태 ${status} 기록`);
   return 0;
 }
