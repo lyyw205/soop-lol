@@ -305,23 +305,14 @@ export async function submitMatchPovInTx(tx: Tx, input: PovSubmitInput): Promise
 
 /**
  * 판독 값으로 덮기 — 회원이 직접 입력한 경기를 판독이 검증할 때(0099, §9 "판독 값으로 덮고 검증"). 그 경기에 붙은 시점들의 관측 중
- * 경기 값과 **다른** 승리 팀·챔피언·KDA·포지션을 판독 값으로 고친다(metrics/pov.ts adoptPlan). 시점끼리 값이 다르면 그 칸은 덮지 않는다
- * (어느 판독이 맞는지 모른다 — 불일치로 남아 운영자가 본다). 쓰기는 검수 길 하나(applyMatchReviewInTx, actor auto). 덮은 칸 수를 돌려준다.
+ * 경기 값과 **다른** 승리 팀·챔피언·KDA·포지션을 판독 값으로 고친다(metrics/pov.ts adoptPlan). 한 시점이라도 다른 값을 봤으면(경기 값과
+ * 같은 값을 본 시점 포함) 그 칸은 덮지 않는다(어느 판독이 맞는지 모른다 — 불일치로 남아 운영자가 본다). 쓰기는 검수 길 하나(applyMatchReviewInTx, actor auto). 덮은 칸 수를 돌려준다.
  */
 export async function adoptPovValuesInTx(tx: Tx, matchId: string): Promise<number> {
   const stored = await loadStoredMatchInTx(tx, matchId, true);
   if (!stored) return 0;
-  const povs = await listMatchPovsInTx(tx, matchId);
-  const want = new Map<string, { scope: "match" | "participant"; participant_id: number | null; field: string; value: unknown } | null>();
-  for (const p of povs) {
-    for (const item of adoptPlan(comparePov(stored, p.observed))) {
-      const key = `${item.scope}:${item.participant_id ?? ""}:${item.field}`;
-      const prev = want.get(key);
-      if (prev === undefined) want.set(key, item);
-      else if (prev !== null && !isDeepStrictEqual(prev.value, item.value)) want.set(key, null);   // 시점끼리 다르다
-    }
-  }
-  const plan = [...want.values()].filter((x): x is NonNullable<typeof x> => x !== null);
+  // 시점끼리의 충돌은 adoptPlan 이 모든 시점의 관측(경기 값과 같은 것까지)을 모아 가린다.
+  const plan = adoptPlan(stored, (await listMatchPovsInTx(tx, matchId)).map((p) => p.observed));
   if (!plan.length) return 0;
   const patch: MatchReviewPatch = {};
   const winner = plan.find((x) => x.scope === "match" && x.field === "winning_team");

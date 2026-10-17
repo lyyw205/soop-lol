@@ -1,6 +1,6 @@
 # 제보 판정 — 기준을 갈아 끼울 수 있는 뼈대 + 2단계(빠진 경기 등록·VOD 단서)
 
-> 2026-10-17 설계 · **결정 완료**(§9, 같은 날 사용자) · **§8 다섯 단계 전부 구현·운영 DB 적용(0095~0099, 2026-10-18)** — 한눈에 보는 결과는 **§10**.
+> 2026-10-17 설계 · **결정 완료**(§9, 같은 날 사용자) · **§8 다섯 단계 전부 구현·운영 DB 적용(0095~0098 2026-10-17 · 0099 2026-10-18)** — 한눈에 보는 결과는 **§10**.
 > 앞 문서: [USER-SUBMISSION-PLAN.md](USER-SUBMISSION-PLAN.md)(1단계 경기 고치기·3단계 편성표 — 지금 기준이 코드 곳곳의 if 로 박혀 있다).
 
 ## 1. 왜
@@ -352,13 +352,13 @@ vod_request (id, title_no, channel_id NULL, priority, reason: submission|admin, 
 
 | 번호 | 무엇 | 적용 |
 |---|---|---|
-| 0095 `submission_policy` | `submission.intake`·`admin_decision`·`rule_id`·`policy_version` | 10/17 |
-| 0096 `member_role` | 계정 권한 — 주고 거둔 기록을 지우지 않는 줄(유효 = `revoked_at IS NULL`), 역할 목록 `metrics/member-role.ts` | 10/18 |
-| 0097 `vod_request` | VOD 판독 요청 — 줄 = (VOD, 제보), 읽을 때 VOD 로 묶음, queued → claimed → done/unavailable/cancelled | 10/18 |
-| 0098 `vod_hint` | 제보 종류 VOD 단서 + 보류 이유 3종(vod_pending·vod_not_found·vod_unavailable) | 10/18 |
-| 0099 `match_addition` | 제보 종류 직접 입력 + 모양 제약(판은 `submission_effect` 로 잇는다) | 10/18 |
+| 0095 `submission_policy` | `submission.intake`·`admin_decision`·`rule_id`·`policy_version` | 10/17 22:10 |
+| 0096 `member_role` | 계정 권한 — 주고 거둔 기록을 지우지 않는 줄(유효 = `revoked_at IS NULL`), 역할 목록 `metrics/member-role.ts` | 10/17 23:36 |
+| 0097 `vod_request` | VOD 판독 요청 — 줄 = (VOD, 제보), 읽을 때 VOD 로 묶음, queued → claimed → done/unavailable/cancelled | 10/17 23:36 |
+| 0098 `vod_hint` | 제보 종류 VOD 단서 + 보류 이유 3종(vod_pending·vod_not_found·vod_unavailable) | 10/17 23:36 |
+| 0099 `match_addition` | 제보 종류 직접 입력 + 모양 제약(판은 `submission_effect` 로 잇는다) | 10/18 00:25 |
 
-다음 마이그레이션 번호는 0100.
+다음 마이그레이션 번호는 0100. 적용 시각은 운영 장부 기준(KST). 다섯 개 모두 장부와 저장소 파일의 체크섬이 같다(2026-10-18 외부 검증).
 
 ### 10-5. 이 PC 의 자동 판독(ck-auto)과 잇기
 
@@ -370,7 +370,8 @@ vod_request (id, title_no, channel_id NULL, priority, reason: submission|admin, 
 - 대기열 순서(`scripts/lib/ck-auto-queue.ts` claim) = 우선순위(회원 제보 100 > 운영자 50 > 매일 조사 0) → 오래된 VOD. 같은 채널은 여전히 하나씩.
 - 조사 세션이 끝나면 `ck:queue finish`·`access` 가 `settleVodRequests` 로 요청을 닫으며 **같은 트랜잭션에서** 요청한 제보를 다시 판정한다.
 - 요청 메모는 자동 판독 세션 지시문("대상 사유", 400자)으로 넘어간다 — **회원이 쓴 글은 넣지 않는다**(시점 숫자·등록 스트리머 이름·만든 경기 번호만).
-- 운영 미리보기 확인(10/18): 이미 끝난 VOD 에 시험 요청 → 다시 엶 계획 + 대기열 맨 앞(우선순위 50). 요청은 바로 거둠, 조사 도장 그대로. 00:00 시간별 조회 정상.
+- 운영 미리보기 확인(10/17 23:36 적용 직후): 이미 끝난 VOD 에 시험 요청 → 다시 엶 계획 + 대기열 맨 앞(우선순위 50). 요청은 바로 거둠, 조사 도장 그대로.
+  10/18 00:00 시간별 조회 정상(쓰기 실패 표시 없음).
 
 ### 10-6. 설계에서 달라진 것(구현 때 정함)
 
@@ -381,13 +382,15 @@ vod_request (id, title_no, channel_id NULL, priority, reason: submission|admin, 
 - VOD 단서가 못 찾으면 바로 닫지 않고 **운영자 대기**(§9 "검증 불가 → 검증 전 + 운영자"와 같은 결정).
 - 직접 입력: 행사는 "있는 행사 + 모름"(모름 = 그날의 회원 등록 미분류 묶음), 시각은 날짜 정확도, 분류 쓰기의 쓰는 이를 넓히지 않고 새 판이라 auto 로 둔다,
   "찾음"은 만든 판 **모두**에 판독 시점이 붙었을 때, 덮는 칸은 승리 팀·챔피언·KDA·포지션(사람의 편과 시점끼리 다른 값은 운영자에게 남긴다).
+  시점끼리의 충돌은 **모든 시점의 관측(경기 값과 같은 것까지)**을 칸마다 모아 가린다 — 처음 구현은 경기 값과 다른 관측만 모아,
+  "경기 3킬 · A 3킬 · B 9킬"에서 B 의 9킬로 덮었다(10/18 외부 검토로 발견, 같은 날 고침 · 단위·verify:db 회귀 검사).
 - 판독 값으로 덮는 쓰기를 위해 검수 길(`applyMatchReviewInTx`)에 쓰는 이 **auto** 를 더했다 — 사람 칸이 아니고, 검수 표시(`reviewed_at`)를 남기지 않고, 그 판의 칸만 고친다.
 - 표시 문구는 종류별로 나누지 않고 하나("검증 전")로.
 
 ### 10-7. 검사
 
-- 단위: 판정 규칙(꺼 둔 규칙 포함 켜고 끈 경우) · 정규화(VOD 단서·직접 입력) · 사람·날짜 중복 규칙 · `adoptPlan` · 요청 → 대기열 할 일 · 대기열 우선순위 · VOD 번호 읽기
-- `verify:db`(PGlite): 판정 뼈대(규칙 기록·멱등) · 권한(꺼 두면 그대로/켜면 신뢰 제보자만·보류 그대로/합의 +1 순간/거두기 기록) · VOD 요청 11 · VOD 단서 13 · 직접 입력 15
+- 단위: 판정 규칙(꺼 둔 규칙 포함 켜고 끈 경우) · 정규화(VOD 단서·직접 입력) · 사람·날짜 중복 규칙 · `adoptPlan`(시점끼리 충돌 포함) · 요청 → 대기열 할 일 · 대기열 우선순위 · VOD 번호 읽기
+- `verify:db`(PGlite): 판정 뼈대(규칙 기록·멱등) · 권한(꺼 두면 그대로/켜면 신뢰 제보자만·보류 그대로/합의 +1 순간/거두기 기록) · VOD 요청 11 · VOD 단서 13 · 직접 입력 16(시점끼리 충돌하면 덮지 않음 포함)
 - 브라우저 13단계: 기존 11 + VOD 단서 보내기 · 경기 등록 → 상대전적에 "검증 전" · 운영 대기열(개발 서버의 이동 끊김은 다시 이동)
 - `verify:modules`·타입 검사 통과
 
@@ -395,6 +398,7 @@ vod_request (id, title_no, channel_id NULL, priority, reason: submission|admin, 
 
 `2f78ca7` 설계 → `d41e53f` 판정 뼈대(0095) → `6a93c34` 적용 기록 → `48eeed6` 계정 권한(0096) → `706ef9d` VOD 판독 요청(0097) →
 `82ef87a` VOD 단서(0098) → `9da6771` ck:queue 연결 → `be3ed86` 직접 입력(0099) → `5d57e52` 적용 기록. 2026-10-18 `ck-research-tools` 에 푸시.
+그 뒤 `974efb9` 이 요약 · 판독 시점끼리 충돌 고침(아래 커밋).
 
 ### 10-9. 남은 것·주의
 

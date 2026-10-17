@@ -141,14 +141,25 @@ test("세트 번호는 시리즈가 없으면 비교하지 않는다", () => {
   assert.equal(item.status, "pending");
 });
 
-test("판독 값으로 덮기(직접 입력 검증) — 대응이 확실한 mismatch 의 승리 팀·챔피언·KDA·포지션만, 사람의 편·빈 칸·불확실한 대응은 안 덮는다", () => {
+test("판독 값으로 덮기(직접 입력 검증) — 대응이 확실한 불일치의 승리 팀·챔피언·KDA만, 사람의 편·대응 불가는 안 덮는다", () => {
   const s = stored({ winning_team: 100, participants: [row(1, "A", 100, { kills: 3, champion_id: 1 }), row(6, "B", 200, { kills: null })] });
-  const cmp = comparePov(s, { match: { winning_team: { v: 200, at: T0 } }, participants: {
+  const plan = adoptPlan(s, [{ match: { winning_team: { v: 200, at: T0 } }, participants: {
     "s:A": { ident: { streamer_id: "A" }, team: { v: 100, at: T0 }, kills: { v: 9, at: T0 }, champion_id: { v: 103, at: T0 } },
     "s:B": { ident: { streamer_id: "B" }, team: { v: 100, at: T0 }, kills: { v: 2, at: T0 } },
     "s:Z": { ident: { streamer_id: "Z" }, kills: { v: 1, at: T0 } },
-  } });
-  const plan = adoptPlan(cmp).map((x) => [x.scope, x.participant_id, x.field, x.value]);
-  // A 의 팀 100 → 경기 100 이지만 B 가 100 으로 읽혀 팀 대응이 깨진다(두 이름표가 한 팀) — 승리 팀은 대응 불가(pending)라 덮지 않는다.
+  } }]).map((x) => [x.scope, x.participant_id, x.field, x.value]);
+  // B 도 100 으로 읽혀 팀 대응이 깨진다(두 이름표가 한 팀) — 승리 팀은 대응 불가(pending)라 덮지 않는다. B 의 킬은 빈 칸이라 채우기 몫이다.
   assert.deepEqual(plan, [["participant", 1, "champion_id", 103], ["participant", 1, "kills", 9]]);
+});
+
+test("★ 시점끼리 다르면 덮지 않는다 — 경기 값과 같은 값을 본 시점도 충돌하는 관측으로 센다(3킬 · A 3 · B 9 → 그대로)", () => {
+  const s = stored({ winning_team: 100, participants: [row(1, "A", 100, { kills: 3 }), row(6, "C", 200)] });
+  const pov = (kills: number, winner: 100 | 200) => ({ match: { winning_team: { v: winner, at: T0 } }, participants: {
+    "s:A": { ident: { streamer_id: "A" }, team: { v: 100 as const, at: T0 }, kills: { v: kills, at: T0 } },
+    "s:C": { ident: { streamer_id: "C" }, team: { v: 200 as const, at: T0 } },
+  } });
+  assert.deepEqual(adoptPlan(s, [pov(3, 100), pov(9, 200)]), []);                   // 킬도 승리 팀도 A·B 가 다르다
+  assert.deepEqual(adoptPlan(s, [pov(9, 200), pov(3, 100)]), []);                   // 순서와 무관
+  assert.deepEqual(adoptPlan(s, [pov(9, 200), pov(9, 200)]).map((x) => [x.field, x.value]), [["winning_team", 200], ["kills", 9]]);  // 같으면 덮는다
+  assert.deepEqual(adoptPlan(s, [pov(3, 100), pov(3, 100)]), []);                   // 다 경기 값과 같으면 덮을 것이 없다
 });

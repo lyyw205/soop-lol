@@ -272,15 +272,30 @@ export function fillPlan(cmp: PovComparison): Array<{ scope: "match" | "particip
 }
 
 /**
- * 비교 결과 중 **판독 값으로 덮을 것** — 대응이 확실한 mismatch 의 승리 팀·챔피언·KDA·포지션. 회원이 직접 입력한 경기를 판독이
- * 검증할 때만 쓴다(docs/SUBMISSION-POLICY-PLAN.md §9 "판독 값으로 덮고 검증"). 사람의 편(team)은 덮지 않는다 — 신원·진영이 바뀌는 일이라
- * 불일치로 남겨 운영자가 본다. 경기 시간·세트 번호도 덮지 않는다(회원이 쓰지 않는 칸이다).
+ * **판독 값으로 덮을 칸** — 회원이 직접 입력한 경기를 판독이 검증할 때만 쓴다(docs/SUBMISSION-POLICY-PLAN.md §9 "판독 값으로 덮고 검증").
+ * 그 경기에 붙은 **모든 시점**의 관측을 칸마다 모은 뒤(경기 값과 같은 관측·다른 관측·빈 칸 관측 모두), 시점끼리 값이 하나로 모이고
+ * 그 값이 경기 값과 다를 때만 덮는다. 한 시점이라도 다른 값을 봤으면 그 칸은 덮지 않는다 — 어느 판독이 맞는지 모른다(불일치로 남아 운영자가 본다).
+ *   예: 경기 3킬 · 시점 A 3킬 · 시점 B 9킬 → 덮지 않는다(A 는 경기 값과 같아 mismatch 가 아니지만 B 와 충돌하는 관측이다).
+ * 덮는 칸은 승리 팀·챔피언·KDA·포지션. 사람의 편(team)은 신원·진영이 바뀌는 일이라, 경기 시간·세트 번호는 회원이 쓰지 않는 칸이라 덮지 않는다.
+ * 대응이 불확실한 관측(pending — 사람을 못 찾음·팀 대응 불가)은 값으로 세지 않는다.
  */
-export function adoptPlan(cmp: PovComparison): Array<{ scope: "match" | "participant"; participant_id: number | null; field: string; value: unknown; stored: unknown }> {
+export function adoptPlan(stored: StoredMatch, povs: readonly PovObserved[]): Array<{ scope: "match" | "participant"; participant_id: number | null; field: string; value: unknown; stored: unknown }> {
   const ADOPT = new Set(["winning_team", "champion_id", "kills", "deaths", "assists", "position"]);
-  return cmp.items
-    .filter((i) => i.status === "mismatch" && ADOPT.has(i.field) && (i.scope === "match" || i.participant_id !== null))
-    .map((i) => ({ scope: i.scope, participant_id: i.participant_id, field: i.field, value: i.observed, stored: i.stored }));
+  const norm = (field: string, v: unknown) => (field === "position" && typeof v === "string" ? v.toUpperCase() : v);
+  const cells = new Map<string, { scope: "match" | "participant"; participant_id: number | null; field: string; stored: unknown; values: unknown[]; mismatch: boolean }>();
+  for (const observed of povs) {
+    for (const i of comparePov(stored, observed).items) {
+      if (!ADOPT.has(i.field) || i.status === "pending" || (i.scope === "participant" && i.participant_id === null)) continue;
+      const key = `${i.scope}:${i.participant_id ?? ""}:${i.field}`;
+      const cell = cells.get(key) ?? { scope: i.scope, participant_id: i.participant_id, field: i.field, stored: i.stored, values: [], mismatch: false };
+      cell.values.push(norm(i.field, i.observed));
+      cell.mismatch ||= i.status === "mismatch";
+      cells.set(key, cell);
+    }
+  }
+  return [...cells.values()]
+    .filter((c) => c.mismatch && c.values.every((v) => JSON.stringify(v) === JSON.stringify(c.values[0])))
+    .map((c) => ({ scope: c.scope, participant_id: c.participant_id, field: c.field, value: c.values[0], stored: c.stored }));
 }
 
 /** 한 시점의 요약. 검수 화면·조회 도구가 같은 숫자를 쓰게 한 곳에 둔다. */

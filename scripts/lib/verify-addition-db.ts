@@ -122,6 +122,27 @@ export async function verifyAdditionDb(check: Check, expectReject: ExpectReject)
       && mrow.reviewed_at === null && autos.map((x) => x.field).includes("winning_team") && !(await pend(n1)) && (await inAgg(n1)),
     JSON.stringify({ settled, mrow, after, autos }));
 
+  // 시점 둘이 서로 다르면(경기 3킬 · 시점 A 3킬 · 시점 B 9킬, 승리 팀도 갈림) 판독 값으로 덮지 않는다 — 검증은 되지만 칸은 그대로, 불일치로 남는다.
+  const V3 = 909200003;
+  const s3 = await add(M1, series("2031-07-05", { a: [A, B], b: [C, D] }, [{ a_side: 100, winner: "a", stats: { a0: { kills: 3 } } }]),
+    { vod_link: `https://vod.sooplive.com/player/${V3}` });
+  const k1 = `sub:${s3.id}:1`;
+  const leads3 = await sql<{ id: string }[]>`
+    INSERT INTO event_lead (source, source_key, title, observed_at, raw, state) VALUES
+      ('vod_title', ${`vod:${V3}`}, '등록 시험 A', now(), '{}'::jsonb, 'confirmed'), ('vod_title', 'vod:909200004', '등록 시험 B', now(), '{}'::jsonb, 'confirmed')
+    RETURNING id`;
+  for (const [i, l] of leads3.entries()) await sql`INSERT INTO match_pov (match_id, lead_id, role, source, observed, link_basis) VALUES (${k1}, ${l.id}, 'added', 'own',
+    ${sql.json({ match: { winning_team: { v: i === 0 ? 100 : 200, at } }, participants: {
+      a: { ident: { streamer_id: A }, team: { v: 100, at }, kills: { v: i === 0 ? 3 : 9, at } },
+      c: { ident: { streamer_id: C }, team: { v: 200, at } },
+    } })}, '결과창 대조')`;
+  await sub.settleVodRequests(V3, "done", "판독 끝", tick());
+  const [k1row] = await sql<{ winning_team: number }[]>`SELECT winning_team FROM match WHERE match_id = ${k1}`;
+  const [k1a] = await sql<{ kills: number | null }[]>`SELECT kills FROM match_participant WHERE match_id = ${k1} AND participant_id = 1`;
+  check("★ 판독 시점끼리 값이 다르면 덮지 않는다(경기 3킬 · A 3킬 · B 9킬, 승리 팀도 갈림) — 칸은 그대로, auto 이력 없음",
+    (await st(s3.id)).rule_id === "addition_found" && k1row.winning_team === 100 && k1a.kills === 3
+      && (await sql`SELECT 1 FROM review_change WHERE match_id = ${k1} AND actor = 'auto'`).length === 0, JSON.stringify({ k1row, k1a }));
+
   // ── 4. 링크 없음 — 그날 참가자 채널의 단서 행이 생기면 다시 판정이 요청 · 일부만 판독이면 운영자 ─────────────
   await sql`INSERT INTO event_lead (source, source_key, channel_id, title, observed_at, raw, state)
     VALUES ('vod_title', 'vod:909200002', 'adchana', '등록A 방송', ${new Date("2031-07-01T16:00:00Z")}, '{}'::jsonb, 'confirmed')`;
