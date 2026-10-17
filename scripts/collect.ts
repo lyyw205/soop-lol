@@ -59,7 +59,7 @@ function print(r: ChangeReport): void {
 class Preview extends Error {}
 
 /** 한 트랜잭션 안에서 쓰기 → 보고. 미리보기면 되돌린다. */
-async function write(fn: (tx: Parameters<Parameters<ReturnType<typeof db>["begin"]>[0]>[0]) => Promise<ChangeReport>): Promise<void> {
+async function write(fn: (tx: Parameters<typeof createOrderInTx>[0]) => Promise<ChangeReport>): Promise<void> {
   let report: ChangeReport | null = null;
   try {
     await db().begin(async (tx) => {

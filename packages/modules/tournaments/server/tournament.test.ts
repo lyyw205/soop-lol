@@ -25,6 +25,7 @@ const row = (patch: Partial<TournamentMatchRow> = {}): TournamentMatchRow => ({
   set_order_known: false,
   round_label: "결승",
   source_url: null,
+  pending: false,
   ...patch,
 });
 test("series scores follow stable team IDs when sides change", () => {
