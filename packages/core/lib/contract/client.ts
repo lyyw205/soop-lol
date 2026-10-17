@@ -14,7 +14,7 @@ export { addFcoStats, EMPTY_FCO_STATS, fcoNumber, FCO_MODE_LABEL } from "../game
 export { formatWon } from "../metrics/club-value.ts";
 export { championById, championIconPath } from "../riot/champions.ts";
 export { RECORD_PERIODS, recordPeriodLabel, resolveRecordPeriod, withinRecordPeriod, withinRecordDay } from "../metrics/record-period.ts";
-export { profileHref, fcMatchHref, routeHref, submitMatchHref } from "../site-paths.ts";
+export { profileHref, fcMatchHref, routeHref, submitMatchHref, submitScheduleHref } from "../site-paths.ts";
 
 export { listedInTournaments, isTitle, isRunnerUp, classifyTeamStage, TEAM_STAGE_LABEL } from "../metrics/event.ts";
 export { readRecordScope, writeRecordScope, type RecordScope } from "../metrics/record-scope.ts";

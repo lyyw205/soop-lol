@@ -74,6 +74,8 @@ export const loginCallbackPath = (provider: string): string => `/auth/${encodeUR
 export const meHref = (query?: HrefQuery): string => withQuery("/me", query);
 /** 경기 고치기 제보(로그인 필수) — 세트마다의 "제보하기"가 여기로 온다(docs/USER-SUBMISSION-PLAN.md). */
 export const submitMatchHref = (matchId: string): string => `/submit/match/${encodeURIComponent(matchId)}`;
+/** 편성표 제보(로그인 필수, 운영자 확인 뒤 반영) — 일정의 "제보하기"는 그 일정 번호, "빠진 일정 알리기"는 번호 없이. */
+export const submitScheduleHref = (entryId?: string | null): string => `/submit/schedule/${entryId ? encodeURIComponent(entryId) : "new"}`;
 /** 내 제보 — 보낸 제보와 상태. */
 export const mySubmissionsHref = (): string => "/submissions";
 export const termsHref = (): string => "/terms";

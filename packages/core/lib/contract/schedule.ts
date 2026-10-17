@@ -8,6 +8,6 @@ export type { ScheduleGame } from "../metrics/schedule.ts";
 export { isFormat } from "../metrics/format.ts";
 export type { Format } from "../metrics/format.ts";
 export { kstDateString } from "../time.ts";
-export { navigationSite, profileHref, routeHref } from "../site-paths.ts";
+export { navigationSite, profileHref, routeHref, submitScheduleHref } from "../site-paths.ts";
 export type { HrefQuery, NavigationSite } from "../site-paths.ts";
 export type { PublicScheduleEntry, PublicScheduleSlot } from "../db/schedule-public.ts";

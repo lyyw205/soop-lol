@@ -1,22 +1,27 @@
 /**
  * **사용자 제보의 단일 출처** — 접수·중복 막기·보류 판정·반영·확인·반려(되돌리기)·목록. docs/USER-SUBMISSION-PLAN.md (0093).
  *
- *   회원(쿠키 토큰을 계약·화면이 넘긴다)  submitMatchCorrection · supportSubmission · listMySubmissions · getMySubmission · listOpenOnMatch
+ *   회원(쿠키 토큰을 계약·화면이 넘긴다)  submitMatchCorrection · submitScheduleReport · supportSubmission · listMySubmissions · getMySubmission
+ *                                          · listOpenOnMatch · listOpenOnSchedule
  *   운영자(requireAdmin 뒤, actor 글자)    listSubmissionQueue · getSubmissionForAdmin · verifySubmission · rejectSubmission · markSubmissionDuplicate
+ *                                          · closeScheduleReportInTx(편성표 저장이 같은 트랜잭션에서 부른다)
  *
  * ★ 반영은 기존 쓰기 길 하나 — `applyMatchReviewInTx`(writer member). 제보만의 쓰기 SQL 을 두지 않는다(근거·잠금·이력·승패 재계산이 같이 온다).
  * ★ 중복 막기 네 겹(§6): 요청 번호(UNIQUE author×request) · 내용 지문(열린 제보 중 유일 → +1) · 같은 칸(다른 값이면 보류) · 이미 그 값(거부).
  *   같은 판의 제보는 그 판 행을 잠근 뒤 판정하므로 동시에 들어와도 지문 판정이 엇갈리지 않는다. 잠금 순서: 회원 → 판 → 제보.
  * ★ 되돌리기는 그 제보의 이력(review_change.submission_id)만 역순으로 되돌린다. 그 뒤 누가 같은 칸을 또 바꿨으면 아무것도 되돌리지 않는다.
+ * ★ 편성표 제보(0094)는 반영하지 않는다 — 언제나 보류(schedule_review)로 받고, 운영자가 편성표 편집 폼(saveScheduleEntry)으로 저장할 때
+ *   그 트랜잭션에서 확인 완료가 된다. 편성표를 쓰는 SQL 은 여기에 없다.
  */
 import { createHash } from "node:crypto";
 import type postgres from "postgres";
 
 import { isUuid } from "../metrics/community.ts";
+import { kstClock } from "../metrics/schedule.ts";
 import {
   cellsOverlap, correctionCells, fingerprintSource, normalizeEvidenceUrl, normalizeMatchCorrection, normalizeNote,
-  SUBMISSION_DAILY_LIMIT, SubmissionInputError,
-  type CorrectionParticipantField, type HoldReason, type MatchCorrection, type SubmissionKind, type SubmissionState,
+  normalizeScheduleReport, scheduleReportHasChange, SUBMISSION_DAILY_LIMIT, SubmissionInputError,
+  type CorrectionParticipantField, type HoldReason, type MatchCorrection, type ScheduleReport, type SubmissionKind, type SubmissionState,
 } from "../metrics/submission.ts";
 import { ADMIN_WRITER, applyMatchReviewInTx, type MatchReviewPatch, type ReviewWriter } from "./ck.ts";
 import { db } from "./client.ts";
@@ -32,7 +37,9 @@ export class SubmissionError extends MemberError {
 }
 
 export interface SubmissionRow {
-  id: string; kind: SubmissionKind; match_id: string | null; payload: MatchCorrection; state: SubmissionState;
+  id: string; kind: SubmissionKind; match_id: string | null; schedule_entry_id: string | null;
+  /** kind 로 갈린다 — match_correction 은 MatchCorrection, schedule_report 는 ScheduleReport. */
+  payload: MatchCorrection | ScheduleReport; state: SubmissionState;
   hold_reason: HoldReason | null; note: string | null; evidence_url: string | null;
   created_at: Date; decided_at: Date | null; decision_note: string | null; supporters: number;
 }
@@ -220,6 +227,128 @@ async function assertStreamersPublic(tx: Tx, c: MatchCorrection): Promise<void> 
   if (found.length !== new Set(ids).size) throw new SubmissionError("고른 스트리머를 찾을 수 없습니다. 다시 골라 주세요.");
 }
 
+// ── 편성표 제보(0094) ───────────────────────────────────────────────────────
+
+export interface ScheduleReportInput {
+  request_id: string;
+  /** 고칠 일정. 없는 일정 알리기는 null. */
+  entry_id: string | null;
+  payload: unknown;
+  note?: string | null;
+  evidence_url?: string | null;
+}
+
+/** 제보 폼이 고치기 대상으로 보여 주는 공개 일정(첫 방송 칸 기준). 공개되지 않은 일정은 없다. */
+export interface ScheduleReportTarget {
+  id: string; game_code: "lol" | "fconline"; title: string; status: string;
+  slots: { on_date: string; starts_at: Date | null }[]; participants: string[];
+}
+
+export async function getScheduleReportTarget(entryId: string, sql: Sql = db()): Promise<ScheduleReportTarget | null> {
+  if (!isUuid(entryId)) return null;
+  const [e] = await sql<{ id: string; game_code: "lol" | "fconline"; title: string; status: string }[]>`
+    SELECT schedule_id AS id, game_code, title, status FROM core_public.schedule_entry WHERE schedule_id = ${entryId}::uuid`;
+  if (!e) return null;
+  const slots = await sql<{ on_date: string; starts_at: Date | null }[]>`
+    SELECT on_date::text AS on_date, starts_at FROM core_public.schedule_slot WHERE schedule_id = ${entryId}::uuid ORDER BY on_date, starts_at NULLS LAST`;
+  const people = await sql<{ display_name: string }[]>`
+    SELECT st.display_name FROM core_public.schedule_participant p JOIN core_public.streamer st ON st.streamer_id = p.streamer_id
+     WHERE p.schedule_id = ${entryId}::uuid ORDER BY st.display_name`;
+  return { ...e, slots: [...slots], participants: [...new Set(people.map((p) => p.display_name))] };
+}
+
+/** 지금 일정과 같은 칸은 지운다(겹 4) — 방송 칸이 하나일 때만 날짜·시각을 대 본다(여럿이면 어느 칸인지 운영자가 본다). */
+function scheduleAgainstCurrent(r: ScheduleReport, cur: ScheduleReportTarget): ScheduleReport {
+  const out: ScheduleReport = { ...r };
+  if (out.title === cur.title) delete out.title;
+  if (out.status === cur.status) delete out.status;
+  if (out.game_code === cur.game_code) delete out.game_code;
+  if (cur.slots.length === 1 && out.on_date === cur.slots[0].on_date) {
+    const start = cur.slots[0].starts_at ? kstClock(new Date(cur.slots[0].starts_at)) : null;
+    if (out.start === undefined || out.start === start) { delete out.on_date; delete out.start; }
+  }
+  return out;
+}
+
+/**
+ * 편성표 제보 — 언제나 보류(schedule_review)로 받는다. 같은 요청(repeat)·같은 지문(+1, supported)은 경기 제보와 같다.
+ * 새 일정은 근거 링크가 있어야 한다(공개 일정의 조건이 출처라서 — 사용자 결정). 고치기는 고칠 칸이나 메모 중 하나가 있어야 한다.
+ */
+export async function submitScheduleReport(token: string | null, raw: ScheduleReportInput, now = new Date()): Promise<SubmitOutcome> {
+  if (!isUuid(raw.request_id)) throw new SubmissionError("요청 번호가 올바르지 않습니다. 새로고침해 주세요.");
+  const proposed = input(() => normalizeScheduleReport(raw.payload));
+  const note = input(() => normalizeNote(raw.note)), evidence = input(() => normalizeEvidenceUrl(raw.evidence_url));
+  if (proposed.type === "new" && raw.entry_id) throw new SubmissionError("새 일정 알리기에는 대상 일정이 없습니다.");
+  if (proposed.type === "correction" && !raw.entry_id) throw new SubmissionError("고칠 일정을 찾을 수 없습니다.");
+  if (proposed.type === "new" && !evidence) throw new SubmissionError("새 일정은 근거 링크(방송 공지·SNS 주소)가 있어야 합니다.");
+  return db().begin(async (tx) => {
+    const m = await lockSessionMember(tx, token, now, { needNickname: true, checkSanction: true });
+    const [repeat] = await tx<{ id: string }[]>`SELECT id FROM submission WHERE author_id = ${m.id} AND request_id = ${raw.request_id}::uuid`;
+    if (repeat) return { kind: "repeat", id: repeat.id } as const;
+    let r = proposed;
+    if (r.type === "correction") {
+      // 잠금 순서: 회원 → 일정 → 제보(경기 제보의 회원 → 판 → 제보와 같은 모양).
+      const [locked] = await tx`SELECT 1 FROM schedule_entry WHERE id = ${raw.entry_id}::uuid FOR UPDATE`;
+      const cur = locked ? await getScheduleReportTarget(raw.entry_id!, tx) : null;
+      if (!cur) throw new SubmissionError("일정을 찾을 수 없습니다.");
+      r = scheduleAgainstCurrent(r, cur);
+      if (!scheduleReportHasChange(r) && !note) {
+        throw new SubmissionError(scheduleReportHasChange(proposed) ? "이미 그 값입니다." : "고칠 내용이나 메모를 써 주세요.");
+      }
+    }
+    // 메모만 있는 고치기는 메모까지 지문에 넣는다 — 칸이 없으면 "같은 제보"를 가를 것이 메모뿐이다.
+    const target = raw.entry_id ?? "new";
+    const fp = fingerprint("schedule_report", target, scheduleReportHasChange(r) ? r : { ...r, note });
+    // 새 일정은 잠글 행이 없다 — 같은 지문끼리만 줄을 세운다(동시에 같은 제보 둘이 와도 하나 + +1).
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${fp}, 0))`;
+    const [twin] = await tx<{ id: string; author_id: string | null }[]>`
+      SELECT id, author_id FROM submission WHERE fingerprint = ${fp} AND state IN ('applied', 'held') FOR UPDATE`;
+    if (twin) {
+      if (twin.author_id !== m.id) {
+        await tx`INSERT INTO submission_supporter (submission_id, member_id, created_at) VALUES (${twin.id}::uuid, ${m.id}::uuid, ${now}) ON CONFLICT DO NOTHING`;
+      }
+      return { kind: "supported", id: twin.id } as const;
+    }
+    const [{ n }] = await tx<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM submission WHERE author_id = ${m.id} AND created_at > ${now}::timestamptz - interval '1 day'`;
+    if (n >= SUBMISSION_DAILY_LIMIT) throw new SubmissionError(`제보는 하루 ${SUBMISSION_DAILY_LIMIT}건까지 보낼 수 있습니다.`);
+    const [row] = await tx<{ id: string }[]>`
+      INSERT INTO submission (author_id, request_id, kind, schedule_entry_id, payload, fingerprint, note, evidence_url, state, hold_reason, created_at, updated_at)
+      VALUES (${m.id}::uuid, ${raw.request_id}::uuid, 'schedule_report', ${raw.entry_id}::uuid, ${tx.json(r as never)}, ${fp},
+              ${note}, ${evidence}, 'held', 'schedule_review', ${now}, ${now})
+      RETURNING id`;
+    return { kind: "held", id: row.id, hold_reason: "schedule_review" } as const;
+  }) as Promise<SubmitOutcome>;
+}
+
+/** 이 일정의 열린 제보(고치기) — 폼이 먼저 보여 주고 +1 을 받는다. 보낸 사람·메모·근거는 내지 않는다. */
+export async function listOpenOnSchedule(token: string | null, entryId: string): Promise<OpenSubmission<ScheduleReport>[]> {
+  const me = await viewerId(token);
+  if (!isUuid(entryId)) return [];
+  return db()<OpenSubmission<ScheduleReport>[]>`
+    SELECT s.id, s.state, s.payload, s.created_at,
+           (SELECT count(*)::int FROM submission_supporter x WHERE x.submission_id = s.id) AS supporters,
+           (s.author_id = ${me}::uuid OR EXISTS (SELECT 1 FROM submission_supporter x WHERE x.submission_id = s.id AND x.member_id = ${me}::uuid)) AS mine
+      FROM submission s
+     WHERE s.kind = 'schedule_report' AND s.schedule_entry_id = ${entryId}::uuid AND s.state IN ('applied', 'held')
+     ORDER BY s.created_at, s.id`;
+}
+
+/**
+ * 편성표 제보 닫기(확인 완료) — 운영자가 제보 내용으로 편성표를 저장한 **그 트랜잭션** 안에서 부른다(saveScheduleEntry).
+ * 저장이 실패하면 제보도 열린 채로 남는다. 새 일정 알리기는 만들어진 일정을 대상으로 적는다.
+ */
+export async function closeScheduleReportInTx(tx: Tx, id: string, actor: string, entryId: string): Promise<void> {
+  if (!isUuid(id)) throw new SubmissionError("제보를 찾을 수 없습니다.");
+  const [s] = await tx<{ kind: string; state: string; schedule_entry_id: string | null }[]>`
+    SELECT kind, state, schedule_entry_id FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
+  if (!s || s.kind !== "schedule_report") throw new SubmissionError("편성표 제보가 아닙니다.");
+  if (s.state !== "held") throw new SubmissionError("이미 처리된 제보입니다. 새로고침해 주세요.");
+  if (s.schedule_entry_id && s.schedule_entry_id !== entryId) throw new SubmissionError("제보한 일정과 저장한 일정이 다릅니다.");
+  await tx`UPDATE submission SET schedule_entry_id = ${entryId}::uuid WHERE id = ${id}::uuid`;
+  await decide(tx, id, "verified", actor, "편성표에 반영");
+}
+
 /** "같은 내용이에요(+1)" — 열린 남의 제보에만. 이미 했으면 그대로. */
 export async function supportSubmission(token: string | null, id: string, now = new Date()): Promise<void> {
   if (!isUuid(id)) throw new SubmissionError("제보를 찾을 수 없습니다.");
@@ -235,7 +364,7 @@ export async function supportSubmission(token: string | null, id: string, now = 
 // ── 회원: 읽기 ───────────────────────────────────────────────────────────────
 
 const SUBMISSION_COLUMNS = (sql: Sql) => sql`
-  s.id, s.kind, s.match_id, s.payload, s.state, s.hold_reason, s.note, s.evidence_url, s.created_at, s.decided_at, s.decision_note,
+  s.id, s.kind, s.match_id, s.schedule_entry_id, s.payload, s.state, s.hold_reason, s.note, s.evidence_url, s.created_at, s.decided_at, s.decision_note,
   (SELECT count(*)::int FROM submission_supporter x WHERE x.submission_id = s.id) AS supporters`;
 
 async function viewerId(token: string | null): Promise<string> {
@@ -261,7 +390,7 @@ export async function getMySubmission(token: string | null, id: string): Promise
 }
 
 /** 이 판의 열린 제보 — 폼이 먼저 보여 주고 +1 을 받는다. 보낸 사람·메모·근거는 내지 않는다(비공개). */
-export interface OpenSubmission { id: string; state: "applied" | "held"; payload: MatchCorrection; created_at: Date; supporters: number; mine: boolean }
+export interface OpenSubmission<P = MatchCorrection> { id: string; state: "applied" | "held"; payload: P; created_at: Date; supporters: number; mine: boolean }
 export async function listOpenOnMatch(token: string | null, matchId: string): Promise<OpenSubmission[]> {
   const me = await viewerId(token);
   return db()<OpenSubmission[]>`
@@ -313,18 +442,19 @@ export async function listStreamerChoices(): Promise<{ id: string; slug: string;
 
 // ── 운영자 ───────────────────────────────────────────────────────────────────
 
-export interface QueueItem extends SubmissionRow { author: string | null; played_at: Date | null; event_name: string | null }
+export interface QueueItem extends SubmissionRow { author: string | null; played_at: Date | null; event_name: string | null; schedule_title: string | null }
 
 /** 열린 제보 대기열 — 판별로 묶어 +1 많은 것·오래된 것 먼저. */
 export async function listSubmissionQueue(limit = 200): Promise<QueueItem[]> {
   const sql = db();
   return sql<QueueItem[]>`
-    SELECT ${SUBMISSION_COLUMNS(sql)}, mb.nickname AS author, m.game_creation AS played_at, e.name AS event_name
+    SELECT ${SUBMISSION_COLUMNS(sql)}, mb.nickname AS author, m.game_creation AS played_at, e.name AS event_name, se.title AS schedule_title
       FROM submission s
       LEFT JOIN member mb ON mb.id = s.author_id
       LEFT JOIN match m ON m.match_id = s.match_id
       LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
       LEFT JOIN event e ON e.id = ms.event_id
+      LEFT JOIN schedule_entry se ON se.id = s.schedule_entry_id
      WHERE s.state IN ('applied', 'held')
      ORDER BY (SELECT count(*) FROM submission_supporter x WHERE x.submission_id = s.id) DESC, s.created_at, s.id
      LIMIT ${limit}`;
@@ -342,12 +472,13 @@ export async function getSubmissionForAdmin(id: string): Promise<AdminSubmission
   if (!isUuid(id)) return null;
   const sql = db();
   const [row] = await sql<(QueueItem & { decided_by: string | null })[]>`
-    SELECT ${SUBMISSION_COLUMNS(sql)}, s.decided_by, mb.nickname AS author, m.game_creation AS played_at, e.name AS event_name
+    SELECT ${SUBMISSION_COLUMNS(sql)}, s.decided_by, mb.nickname AS author, m.game_creation AS played_at, e.name AS event_name, se.title AS schedule_title
       FROM submission s
       LEFT JOIN member mb ON mb.id = s.author_id
       LEFT JOIN match m ON m.match_id = s.match_id
       LEFT JOIN match_series ms ON ms.id = m.series_id AND ms.game_code = m.game_code
       LEFT JOIN event e ON e.id = ms.event_id
+      LEFT JOIN schedule_entry se ON se.id = s.schedule_entry_id
      WHERE s.id = ${id}::uuid`;
   if (!row) return null;
   const changes = await changesOf(sql, id);
@@ -375,14 +506,14 @@ async function conflictsOf(sql: Sql, id: string, changes: AdminSubmission["chang
   return [...new Set(later.map(cell).filter((x) => mine.some((y) => cellsOverlap(x, y))))];
 }
 
-async function lockOpen(tx: Tx, id: string): Promise<{ id: string; state: SubmissionState; match_id: string | null; payload: MatchCorrection }> {
+async function lockOpen(tx: Tx, id: string): Promise<{ id: string; kind: SubmissionKind; state: SubmissionState; match_id: string | null; payload: MatchCorrection }> {
   if (!isUuid(id)) throw new SubmissionError("제보를 찾을 수 없습니다.");
   // 잠금 순서: 판 → 제보(접수와 같게). 판 번호를 먼저 잠금 없이 읽고, 잠근 뒤 다시 본다.
   const [peek] = await tx<{ match_id: string | null }[]>`SELECT match_id FROM submission WHERE id = ${id}::uuid`;
   if (!peek) throw new SubmissionError("제보를 찾을 수 없습니다.");
   if (peek.match_id) await tx`SELECT 1 FROM match WHERE match_id = ${peek.match_id} FOR UPDATE`;
-  const [s] = await tx<{ id: string; state: SubmissionState; match_id: string | null; payload: MatchCorrection }[]>`
-    SELECT id, state, match_id, payload FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
+  const [s] = await tx<{ id: string; kind: SubmissionKind; state: SubmissionState; match_id: string | null; payload: MatchCorrection }[]>`
+    SELECT id, kind, state, match_id, payload FROM submission WHERE id = ${id}::uuid FOR UPDATE`;
   if (!s || !["applied", "held"].includes(s.state)) throw new SubmissionError("이미 처리된 제보입니다. 새로고침해 주세요.");
   if (s.match_id !== peek.match_id) throw new SubmissionError("그 사이 제보가 바뀌었습니다. 새로고침해 주세요.");
   return s;
@@ -403,7 +534,8 @@ export async function verifySubmission(id: string, actor: string, note?: string 
   const memo = input(() => normalizeNote(note));
   await db().begin(async (tx) => {
     const s = await lockOpen(tx, id);
-    if (s.state === "held") {
+    // 편성표 제보의 "확인"은 반영 없이 닫기다(운영자가 이미 편성표를 고쳤거나 고칠 것이 없다). 반영은 편성표 편집 저장이 한다.
+    if (s.kind === "match_correction" && s.state === "held") {
       if (!s.match_id) throw new SubmissionError("대상 경기가 지워져 반영할 수 없습니다 — 반려해 주세요.");
       const st = await lockMatchState(tx, s.match_id);
       if (!st) throw new SubmissionError("대상 경기가 지워져 반영할 수 없습니다 — 반려해 주세요.");

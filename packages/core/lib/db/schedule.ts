@@ -11,6 +11,7 @@
 
 import type postgres from "postgres";
 import { db } from "./client.ts";
+import { closeScheduleReportInTx } from "./submission.ts";
 import { kstDateString } from "../time.ts";
 import {
   entryPeriod, entryState, scheduleChanges, slotSummary, validateScheduleInput,
@@ -42,8 +43,11 @@ async function scheduleSnapshot(tx: postgres.TransactionSql, id: string) {
 
 export async function saveScheduleEntry(
   input: ScheduleInput,
-  /** recordHistory=false: 오타 수정처럼 공개 변경 이력에 남기지 않을 저장. 기본은 남긴다. */
-  opts: { id?: string | null; version?: string | null; recordHistory?: boolean } = {},
+  /**
+   * recordHistory=false: 오타 수정처럼 공개 변경 이력에 남기지 않을 저장. 기본은 남긴다.
+   * submission: 회원 편성표 제보를 반영하는 저장 — 같은 트랜잭션에서 그 제보를 확인 완료로 닫는다(0094). 저장이 실패하면 제보도 열린 채다.
+   */
+  opts: { id?: string | null; version?: string | null; recordHistory?: boolean; submission?: { id: string; actor: string } | null } = {},
 ): Promise<{ id: string; version: string }> {
   const errors = validateScheduleInput(input);
   if (errors.length) throw new ScheduleSaveError(errors);
@@ -112,6 +116,7 @@ export async function saveScheduleEntry(
     const auditAfter = await scheduleSnapshot(tx, row.id);
     await tx`INSERT INTO admin_audit (scope, scope_key, entity, operation, before, after)
       VALUES ('schedule', ${row.id}, 'schedule', ${opts.id ? "UPDATE" : "INSERT"}, ${tx.json(auditBefore as never)}, ${tx.json(auditAfter as never)})`;
+    if (opts.submission) await closeScheduleReportInTx(tx, opts.submission.id, opts.submission.actor, row.id);
     return row;
   });
 }

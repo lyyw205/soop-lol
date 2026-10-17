@@ -5,10 +5,12 @@
  * ★ 정규화가 중복 막기의 바탕이다 — 같은 뜻의 제안은 언제나 같은 글자가 된다(칸 순서·자리 순서·빈 칸·이미 그 값인 칸을 지운 뒤).
  */
 
-export const SUBMISSION_KINDS = ["match_correction"] as const;
+import { SCHEDULE_GAME_LABEL, SCHEDULE_GAMES, type ScheduleGame } from "./schedule.ts";
+
+export const SUBMISSION_KINDS = ["match_correction", "schedule_report"] as const;
 export type SubmissionKind = (typeof SUBMISSION_KINDS)[number];
 export type SubmissionState = "applied" | "held" | "verified" | "reverted" | "rejected" | "duplicate";
-export type HoldReason = "review_completed" | "api_observed" | "account_identity" | "contested" | "not_public";
+export type HoldReason = "review_completed" | "api_observed" | "account_identity" | "contested" | "not_public" | "schedule_review";
 
 /** 회원당 하루 제보 수(결정 C). +1 은 세지 않는다. */
 export const SUBMISSION_DAILY_LIMIT = 20;
@@ -24,6 +26,7 @@ export const HOLD_REASON_LABEL: Record<HoldReason, string> = {
   account_identity: "계정이 연결된 자리의 사람은 운영자가 확인한 뒤 바뀝니다",
   contested: "다른 제보가 같은 칸을 다른 값으로 이미 고쳤습니다 — 운영자가 함께 확인합니다",
   not_public: "공개되지 않은 경기입니다",
+  schedule_review: "편성표 제보는 운영자가 확인한 뒤 편성표에 반영됩니다",
 };
 
 /** 회원이 고칠 수 있는 참가자 칸. 계정(puuid)·챔피언 이름(번호에서 나온다)·개별 포지션은 없다. */
@@ -227,4 +230,105 @@ export function correctionLines(c: MatchCorrection, names: { streamer: (id: stri
     lines.push(`${a.participant_id}번 자리 더하기: ${team(a.team_id)} · ${who}${a.champion_id ? ` · ${names.champion(a.champion_id)}` : ""}`);
   }
   return lines;
+}
+
+// ── 편성표 제보(0094) ─────────────────────────────────────────────────────────
+//
+// 회원은 편성표를 **제보만** 한다 — 언제나 보류로 접수되고 운영자가 편성표 편집 폼으로 반영한다(사용자 결정 2026-10-17).
+// 그래서 제안은 편성표 저장 입력(ScheduleInput)이 아니라 회원이 아는 만큼의 짧은 모양이다. 참가자는 이름 글자 그대로 —
+// 운영자 폼이 등록된 스트리머와 맞춰 본다.
+
+export const SCHEDULE_REPORT_STATUSES = ["scheduled", "cancelled", "postponed"] as const;
+export type ScheduleReportStatus = (typeof SCHEDULE_REPORT_STATUSES)[number];
+export const SCHEDULE_REPORT_STATUS_LABEL: Record<ScheduleReportStatus, string> = { scheduled: "예정대로", cancelled: "취소", postponed: "연기" };
+export const SCHEDULE_REPORT_TITLE_MAX = 100;
+export const SCHEDULE_REPORT_PEOPLE_MAX = 300;
+
+export interface ScheduleReport {
+  /** correction = 있는 일정 고치기 · new = 편성표에 없는 일정 알리기 */
+  type: "correction" | "new";
+  game_code?: ScheduleGame;
+  title?: string;
+  /** 고치기에서만 — 취소·연기·예정대로 */
+  status?: ScheduleReportStatus;
+  /** KST 날짜 YYYY-MM-DD */
+  on_date?: string;
+  /** KST "HH:MM". null = 시간 미정 */
+  start?: string | null;
+  /** 참가자 이름(쉼표·줄바꿈으로 나눈 글자를 정리한 것) */
+  participants?: string;
+}
+
+function validDate(v: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+
+/** 참가자 이름 — 쉼표·줄바꿈으로 나눠 앞뒤 공백·빈 이름·같은 이름을 지우고 ", " 로 잇는다. */
+export function normalizePeopleText(v: unknown): string | null {
+  const names = [...new Set(String(v ?? "").split(/[,\n、·]/).map((x) => x.trim().replace(/\s+/g, " ")).filter(Boolean))];
+  if (!names.length) return null;
+  const out = names.join(", ");
+  return out.length <= SCHEDULE_REPORT_PEOPLE_MAX ? out : fail(`참가자는 ${SCHEDULE_REPORT_PEOPLE_MAX}자까지입니다.`);
+}
+
+/**
+ * 편성표 제보 정규화 — 빈 칸을 지우고 형식을 확인한다. 새 일정은 게임·제목·날짜가 있어야 한다(근거 링크는 db 쪽이 확인).
+ * 고치기에서 남는 칸이 없으면 빈 고치기({type})다 — 메모만 있는 고치기는 db 쪽이 받는다.
+ */
+export function normalizeScheduleReport(raw: unknown): ScheduleReport {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const type = r.type === "new" ? "new" : r.type === "correction" ? "correction" : fail("제보 종류가 올바르지 않습니다.");
+  const out: ScheduleReport = { type };
+  if (r.game_code !== undefined && r.game_code !== null && r.game_code !== "") {
+    if (!SCHEDULE_GAMES.includes(r.game_code as ScheduleGame)) fail("게임은 LOL·FC 온라인 중 하나입니다.");
+    out.game_code = r.game_code as ScheduleGame;
+  }
+  const title = String(r.title ?? "").trim().replace(/\s+/g, " ");
+  if (title) out.title = title.length <= SCHEDULE_REPORT_TITLE_MAX ? title : fail(`제목은 ${SCHEDULE_REPORT_TITLE_MAX}자까지입니다.`);
+  if (r.status !== undefined && r.status !== null && r.status !== "") {
+    if (type === "new") fail("새 일정에는 상태를 고를 수 없습니다.");
+    if (!SCHEDULE_REPORT_STATUSES.includes(r.status as ScheduleReportStatus)) fail("상태가 올바르지 않습니다.");
+    out.status = r.status as ScheduleReportStatus;
+  }
+  const date = String(r.on_date ?? "").trim();
+  if (date) out.on_date = validDate(date) ? date : fail(`없는 날짜입니다: ${date}`);
+  if (r.start !== undefined) {
+    const t = String(r.start ?? "").trim();
+    if (!t) out.start = null;
+    else if (/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) out.start = t;
+    else fail("시작 시각은 HH:MM 으로 써 주세요.");
+    if (!out.on_date) fail("시작 시각을 고치려면 날짜도 함께 써 주세요.");
+  }
+  const people = normalizePeopleText(r.participants);
+  if (people) out.participants = people;
+  if (type === "new") {
+    if (!out.game_code) fail("게임을 골라 주세요.");
+    if (!out.title) fail("제목을 써 주세요.");
+    if (!out.on_date) fail("날짜를 써 주세요.");
+  }
+  return out;
+}
+
+/** 고칠 칸이 있나(새 일정은 언제나 있다). */
+export const scheduleReportHasChange = (r: ScheduleReport): boolean =>
+  r.type === "new" || Object.keys(r).some((k) => k !== "type");
+
+/** 편성표 제보를 사람이 읽는 줄로 — 회원·운영자 화면이 같이 쓴다. */
+export function scheduleReportLines(r: ScheduleReport): string[] {
+  const lines: string[] = [r.type === "new" ? "편성표에 없는 일정" : "일정 고치기"];
+  if (r.game_code) lines.push(`게임: ${SCHEDULE_GAME_LABEL[r.game_code]}`);
+  if (r.title) lines.push(`제목: ${r.title}`);
+  if (r.status) lines.push(`상태: ${SCHEDULE_REPORT_STATUS_LABEL[r.status]}`);
+  if (r.on_date) lines.push(`날짜: ${r.on_date}${r.start ? ` ${r.start}` : r.start === null ? " (시간 미정)" : ""}`);
+  if (r.participants) lines.push(`참가자: ${r.participants}`);
+  return lines;
+}
+
+/** 제보 하나를 읽는 줄로 — 종류에 맞는 풀이를 고른다. 목록 화면(내 제보·운영자 대기열)이 종류를 따지지 않게 한 곳에서. */
+export function submissionLines(kind: SubmissionKind, payload: MatchCorrection | ScheduleReport,
+  names: { streamer: (id: string) => string; champion: (id: number) => string }): string[] {
+  return kind === "schedule_report" ? scheduleReportLines(payload as ScheduleReport) : correctionLines(payload as MatchCorrection, names);
 }
