@@ -75,7 +75,7 @@ try {
   const port = await freePort(), base = `http://127.0.0.1:${port}`;
   const logPath = join(scratch, 'next.log'), log = createWriteStream(logPath);
   app = spawn(process.execPath, [join(root, 'node_modules/next/dist/bin/next'), 'dev', '--webpack', '--hostname', '127.0.0.1', '--port', String(port)], {
-    cwd: join(root, 'apps/web'), env: { ...process.env, NEXT_DIST_DIR: dist, ADMIN_USER: 'test', ADMIN_PASSWORD: 'disposable-only', NEXT_TELEMETRY_DISABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: join(root, 'apps/web'), env: { ...process.env, NEXT_DIST_DIR: dist, ADMIN_AUTH_MODE: "basic", ADMIN_USER: 'test', ADMIN_PASSWORD: 'disposable-only', NEXT_TELEMETRY_DISABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   app.stdout!.pipe(log); app.stderr!.pipe(log);
   const deadline = Date.now() + 180_000;

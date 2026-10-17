@@ -56,6 +56,17 @@ export async function verifyCommunityDb(check: Check, expectReject: ExpectReject
   await expectReject("숨긴 스트리머는 태그할 수 없다", () => community.createPost(W.token, post({ streamer_ids: [sH.id] }), tick()), "태그할 수 없는");
   await expectReject("닉네임이 없으면 쓸 수 없다(읽기만)", () => community.createPost(N.token, post(), tick()), "닉네임");
   await expectReject("로그인 안 하면 쓸 수 없다", () => community.createPost(null, post(), tick()), "로그인이 필요합니다");
+  const anonymousWrites: [string, () => Promise<unknown>][] = [
+    ["글 수정", () => community.editPost(null, p1.id, post(), "2000-01-01", tick())],
+    ["글 삭제", () => community.deletePost(null, p1.id, tick())],
+    ["댓글 작성", () => community.createComment(null, p1.id, "익명 댓글", null, tick())],
+    ["댓글 수정", () => community.editComment(null, 1, "익명 수정", "2000-01-01", tick())],
+    ["댓글 삭제", () => community.deleteComment(null, 1, tick())],
+    ["추천", () => community.votePost(null, p1.id, tick())],
+    ["게시글 신고", () => community.reportContent(null, "post", p1.id, "spam", null, tick())],
+    ["댓글 신고", () => community.reportContent(null, "comment", 1, "spam", null, tick())],
+  ];
+  for (const [label, write] of anonymousWrites) await expectReject(`비로그인 ${label}은 서버에서 거부`, write, "로그인이 필요합니다");
   const p2 = await community.createPost(O.token, post({ game_code: null, title: "기타 글", streamer_ids: [sA.id] }), tick());
   const p3 = await community.createPost(O.token, post({ game_code: "fconline", title: "FC 글" }), tick());
 

@@ -28,7 +28,7 @@ const persist = () => writeFile(join(scratch, "ops/office/snapshot.json"), JSON.
 await mkdir(join(scratch, "ops/office"), { recursive: true }); await persist();
 const app = spawn(process.execPath, [join(root, "node_modules/next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
   cwd: join(root, "apps/web"), stdio: ["ignore", "pipe", "pipe"],
-  env: { ...process.env, NEXT_DIST_DIR: dist, ADMIN_USER: "office-test", ADMIN_PASSWORD: "disposable-office-test",
+  env: { ...process.env, NEXT_DIST_DIR: dist, ADMIN_AUTH_MODE: "basic", ADMIN_USER: "office-test", ADMIN_PASSWORD: "disposable-office-test",
     OPS_OUT_ROOT: scratch, CK_OUT_ROOT: scratch, DATABASE_URL: "postgres://invalid:invalid@127.0.0.1:1/unused" },
 });
 let log = ""; app.stdout?.on("data", chunk => { log = (log + chunk).slice(-8000); }); app.stderr?.on("data", chunk => { log = (log + chunk).slice(-8000); });

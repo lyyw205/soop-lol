@@ -120,7 +120,7 @@ try {
       ...process.env,
       DATABASE_URL: `postgres://postgres@127.0.0.1:${dbPort}/postgres`, DATABASE_POOL_MAX: "1",
       KAKAO_CLIENT_ID: clientId, OAUTH_KAKAO_ISSUER: provider.issuer, GOOGLE_CLIENT_ID: "",
-      ADMIN_USER: ADMIN.username, ADMIN_PASSWORD: ADMIN.password,
+      ADMIN_AUTH_MODE: "basic", ADMIN_USER: ADMIN.username, ADMIN_PASSWORD: ADMIN.password,
       NEXT_DIST_DIR: ".next-community-browser", NEXT_TELEMETRY_DISABLED: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],

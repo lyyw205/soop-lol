@@ -38,7 +38,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <PageShell>
       <section className="member-card arena-panel" aria-labelledby="login-title">
         <h1 id="login-title">로그인</h1>
-        <p className="member-lead">글과 댓글을 쓰려면 로그인하세요. 읽기는 로그인 없이 할 수 있습니다.</p>
+        <p className="member-lead">글·댓글 작성, 추천, 신고는 로그인 후 이용할 수 있습니다. 공개 콘텐츠 열람과 실시간 캠 공유는 로그인 없이 이용하세요.</p>
         {blocked && <p className="member-alert" role="alert">탈퇴한 계정입니다. {blocked}부터 같은 계정으로 다시 가입할 수 있습니다.</p>}
         {error && <p className="member-alert" role="alert">{ERROR[error] ?? ERROR.failed}</p>}
         {providers.length === 0

@@ -14,16 +14,15 @@ import { requireAdmin } from "@/lib/admin-auth";
 /**
  * 커뮤니티 운영 — 신고 처리·제재·공지. 판단(상태 전이·잠금·신고 닫기)은 core 의 community-admin.ts 가 한다.
  * ★ 액션마다 requireAdmin 을 다시 부른다 — 액션은 경로와 무관한 POST 끝점이다(admin-auth.ts).
- * ★ 실제 작업자는 지금 Basic 인증 하나(ADMIN_USER)다. 운영자가 여럿이 되기 전에 기록 방식을 바꾼다(docs/COMMUNITY-PLAN.md §단순함의 기준).
+ * ★ 제재·숨김 기록의 작업자는 검증된 관리자 회원 ID로 남긴다.
  */
 
-const actor = () => process.env.ADMIN_USER ?? "admin";
 const text = (form: FormData, key: string) => String(form.get(key) ?? "");
 
-async function run(work: () => Promise<unknown>, done: string): Promise<ActionState> {
-  await requireAdmin();
+async function run(work: (actor: string) => Promise<unknown>, done: string): Promise<ActionState> {
+  const { actor } = await requireAdmin();
   try {
-    await work();
+    await work(actor);
   } catch (error) {
     if (error instanceof CommunityError) return { ok: false, message: error.message };
     throw error;
@@ -39,7 +38,7 @@ export async function moderateAction(_prev: ActionState, form: FormData): Promis
   if ((kind !== "post" && kind !== "comment") || target === null || !Object.hasOwn(MODERATION_ACTION_LABEL, action)) {
     return { ok: false, message: "처리할 대상을 확인해 주세요." };
   }
-  return run(() => moderateContent(kind, target, action as ModerationAction, text(form, "reason"), actor()),
+  return run((actor) => moderateContent(kind, target, action as ModerationAction, text(form, "reason"), actor),
     `${MODERATION_ACTION_LABEL[action as ModerationAction]} 처리했습니다.`);
 }
 
@@ -48,7 +47,7 @@ export async function sanctionAction(_prev: ActionState, form: FormData): Promis
   const daysText = text(form, "days");
   if (!isUuid(member)) return { ok: false, message: "회원을 확인해 주세요." };
   const days = daysText === "permanent" ? null : Number(daysText);
-  return run(() => addSanction(member, days, text(form, "reason"), actor()),
+  return run((actor) => addSanction(member, days, text(form, "reason"), actor),
     days === null ? "영구 제한을 걸었습니다." : `${days}일 제한을 걸었습니다.`);
 }
 

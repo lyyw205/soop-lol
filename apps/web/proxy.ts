@@ -1,7 +1,9 @@
 import { appendFile } from "node:fs/promises";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { checkBasicAuth } from "./lib/admin-auth";
+import { checkAdminAuth, basicAdminMode } from "./lib/admin-auth";
+import { SESSION_COOKIE } from "@soop-lol/core/lib/auth/session";
+import { loginHref } from "@soop-lol/core/lib/site-paths";
 import {
   BotGuard, challengePage, classifyUserAgent, clientIp, guardSecret, isInternalIp,
   PASS_COOKIE, TRAP_PATH, VERIFY_PATH, GUARD_LIMITS, type RequestKind, type Verdict,
@@ -10,15 +12,13 @@ import { checkAiBot } from "./lib/bot-guard-ai";
 import { checkSearchBot } from "./lib/bot-guard-search";
 
 /**
- * 요청 앞단 — 관리자 화면 보호(HTTP Basic) + 공개 화면 봇 차단(`lib/bot-guard.ts`).
+ * 요청 앞단 — 관리자 화면 보호(회원 세션) + 공개 화면 봇 차단(`lib/bot-guard.ts`).
  *
  * ★ 파일 이름이 `proxy.ts` 인 이유: Next 16 에서 `middleware` 규약이 `proxy` 로 바뀌었다.
  *   `middleware.ts` 로 두면 빌드가 deprecation 경고를 낸다. export 는 default 또는
  *   `proxy` 라는 이름이어야 한다. 런타임은 Node 고정이라 node:crypto·node:dns·node:fs 를 쓴다.
  *
- * 관리자 인증은 MVP 수준이다. 스트리머 계정 매핑을 다루는 화면이라 열어두면 안 되지만,
- * 세션·역할 관리를 지금 만들 이유도 없다. 공개 제보 폼이 생기는 시점에
- * 제대로 된 인증으로 갈아탄다.
+ * 관리자 입구는 매 요청마다 세션과 지정된 최고 관리자 회원 ID를 확인한다.
  *
  * ★ 판정은 `lib/admin-auth.ts` 한 곳이다 — 서버 액션도 같은 판정(`requireAdmin`)을 다시 부른다.
  * ★ 서버 액션은 그 액션을 쓰는 화면 주소로 오는 POST 다 — matcher 가 화면 전체를 덮어야 액션도 센다.
@@ -90,14 +90,17 @@ export default async function proxy(request: NextRequest) {
   return respond(verdict, ip);
 }
 
-function adminGate(request: NextRequest) {
-  const result = checkBasicAuth(request.headers.get("authorization"));
+async function adminGate(request: NextRequest) {
+  const result = await checkAdminAuth(request.cookies.get(SESSION_COOKIE)?.value, request.headers.get("authorization"));
   if (result.ok) return NextResponse.next();
+  const pageNavigation = request.method === "GET" && request.headers.get("accept")?.includes("text/html");
+  if (!basicAdminMode() && result.status === 401 && pageNavigation) {
+    return NextResponse.redirect(new URL(loginHref(request.nextUrl.pathname + request.nextUrl.search), request.url));
+  }
   return new NextResponse(result.message, {
     status: result.status,
-    headers: result.status === 401
-      ? { "WWW-Authenticate": 'Basic realm="soop-lol admin", charset="UTF-8"' }
-      : undefined,
+    headers: { "Cache-Control": "no-store", ...(basicAdminMode() && result.status === 401
+      ? { "WWW-Authenticate": 'Basic realm="soop-lol admin", charset="UTF-8"' } : {}) },
   });
 }
 

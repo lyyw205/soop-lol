@@ -1,15 +1,14 @@
-/**
- * 관리자 인증 — HTTP Basic 판정 한 곳.
- *
- * ★ `proxy.ts` 가 /admin 화면 요청을 막고, 서버 액션은 **각자 `requireAdmin()` 을 한 번 더** 부른다.
- *   액션은 경로와 무관하게 호출될 수 있는 POST 끝점이라, 화면 경로의 matcher 만 믿으면
- *   나중에 어드민 밖에서 같은 액션을 쓰는 순간 뚫린다.
- * ★ fail-closed: ADMIN_PASSWORD 가 없으면 **막는다.** 설정을 깜빡해 열려 있는 쪽이 훨씬 나쁘다.
- */
+import { basicAdminMode, isOwnerMember } from "@soop-lol/core/lib/auth/owner";
+export { basicAdminMode, isOwnerMember } from "@soop-lol/core/lib/auth/owner";
+import { memberFromSession } from "@soop-lol/core/lib/db/member";
+import { SESSION_COOKIE } from "@soop-lol/core/lib/auth/session";
 
+/** 관리자 입구·API·서버 액션은 같은 검사를 사용한다. 기본은 회원 세션 방식이다.
+ * Basic은 기존 도구/격리 테스트에서 ADMIN_AUTH_MODE=basic을 명시할 때만 허용한다.
+ * 회원 방식에서 실패해도 Basic으로 우회하지 않는다. */
 export type AdminAuthResult =
   | { ok: true }
-  | { ok: false; status: 401 | 503; message: string };
+  | { ok: false; status: 401 | 403 | 503; message: string };
 
 /** 길이·내용 노출을 줄이는 상수시간 비교. */
 function safeEqual(a: string, b: string): boolean {
@@ -43,9 +42,30 @@ export function checkBasicAuth(header: string | null | undefined): AdminAuthResu
   return { ok: true };
 }
 
-/** 서버 액션 첫 줄에서 부른다. 인증이 안 되면 아무것도 쓰지 않고 멈춘다. */
-export async function requireAdmin(): Promise<void> {
-  const { headers } = await import("next/headers");
-  const result = checkBasicAuth((await headers()).get("authorization"));
+export type AdminIdentity = { actor: string; memberId: string | null };
+export type AdminAccess = { ok: true; identity: AdminIdentity } | Exclude<AdminAuthResult, { ok: true }>;
+
+export async function checkAdminAuth(token: string | null | undefined, authorization?: string | null): Promise<AdminAccess> {
+  if (basicAdminMode()) {
+    const result = checkBasicAuth(authorization);
+    return result.ok ? { ok: true, identity: { actor: process.env.ADMIN_USER ?? "admin", memberId: null } } : result;
+  }
+  if (!process.env.SUPER_ADMIN_MEMBER_ID) return { ok: false, status: 503, message: "관리자 계정이 설정되지 않았습니다." };
+  const member = await memberFromSession(token);
+  if (!member) return { ok: false, status: 401, message: "로그인이 필요합니다." };
+  if (!isOwnerMember(member)) return { ok: false, status: 403, message: "관리자 권한이 없습니다." };
+  return { ok: true, identity: { actor: `member:${member.member_id}`, memberId: member.member_id } };
+}
+
+/** 서버 액션·서버 컴포넌트·Route Handler에서만 호출한다. */
+export async function currentAdminAccess(): Promise<AdminAccess> {
+  const { cookies, headers } = await import("next/headers");
+  return checkAdminAuth((await cookies()).get(SESSION_COOKIE)?.value, (await headers()).get("authorization"));
+}
+
+/** 모든 저장 액션은 브라우저/폼의 회원 ID를 믿지 않고 현재 세션을 다시 검증한다. */
+export async function requireAdmin(): Promise<AdminIdentity> {
+  const result = await currentAdminAccess();
   if (!result.ok) throw new Error(`관리자 인증 실패: ${result.message}`);
+  return result.identity;
 }

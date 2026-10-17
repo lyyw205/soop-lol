@@ -52,7 +52,7 @@ try {
   await ck.mergeLeadCandidates(lead,[{id:'c1',at:[0,100],conclusion:'unresolved',why:'auto'}]);
   const log=createWriteStream(logPath);
   app=spawn(process.execPath,[join(root,'node_modules/next/dist/bin/next'),...(prebuiltDist ? ['start'] : ['dev','--webpack']),'--hostname','127.0.0.1','--port',String(port)],{
-    cwd:join(root,'apps/web'),env:{...process.env,DATABASE_URL:pg.url,ADMIN_USER:'ck_test',ADMIN_PASSWORD:'disposable-only',NEXT_DIST_DIR:dist,CK_OUT_ROOT:join(scratch,'out'),NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe'],
+    cwd:join(root,'apps/web'),env:{...process.env,DATABASE_URL:pg.url,ADMIN_AUTH_MODE: "basic", ADMIN_USER:'ck_test',ADMIN_PASSWORD:'disposable-only',NEXT_DIST_DIR:dist,CK_OUT_ROOT:join(scratch,'out'),NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe'],
   });
   app.stdout!.pipe(log);app.stderr!.pipe(log);
   const base=`http://127.0.0.1:${port}`, url=`${base}/admin/ck/${lead}`;
