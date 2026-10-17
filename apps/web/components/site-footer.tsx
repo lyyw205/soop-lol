@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { gameHomeHref, lobbyHref, type SiteGame } from "@soop-lol/core/lib/site-paths";
 
@@ -19,6 +20,6 @@ export function SiteFooter() {
     </>}
     {lol && <p className={fc ? "mt-1" : undefined}>이 사이트는 Riot Games 와 무관하며, Riot Games 가 공식적으로 보증하지 않습니다.
       Riot Games 및 관련 자산은 Riot Games, Inc. 의 상표 또는 등록상표입니다.</p>}
-    <p className="mt-1">계정 정보가 잘못되었거나 노출을 원하지 않으시면 문의해 주세요. 즉시 내립니다.</p>
+    <p className="mt-1">계정 정보가 잘못되었거나 노출을 원하지 않으시면 <Link href="/support">건의·문의로 알려 주세요.</Link> 즉시 내립니다.</p>
   </footer>;
 }

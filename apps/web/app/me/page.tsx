@@ -9,6 +9,7 @@ import { NicknameForm, SignupForm, WithdrawForm } from "@/components/member-form
 import { PageShell, SiteHeader } from "@/components/public";
 import { roleHref } from "@/lib/module-links";
 
+import { isOwnerMember } from "@/lib/admin-auth";
 import { logoutAction } from "./actions";
 
 export const metadata = { title: "내 정보" };
@@ -39,6 +40,8 @@ export default async function MePage({ searchParams }: { searchParams: Promise<R
           <section className="member-card arena-panel" aria-labelledby="me-title">
             <h1 id="me-title">내 정보</h1>
             <p className="member-lead"><b>{me.nickname}</b>{myPosts && <> · <Link href={myPosts}>내 글 보기</Link></>}</p>
+            {isOwnerMember(me) && <p className="member-lead">최고 관리자 · <Link href="/admin">관리자 화면 열기 →</Link></p>}
+            <p className="member-lead"><Link href="/support">내 건의·문의 및 답변 확인 →</Link></p>
             <NicknameForm current={me.nickname} />
             <form action={logoutAction} className="member-form"><button type="submit" className="member-secondary">로그아웃</button></form>
           </section>

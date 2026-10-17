@@ -10,7 +10,7 @@ import { TRAP_PATH, VERIFY_PATH } from "@/lib/bot-guard";
  *   Google-Extended·Applebot-Extended 는 robots 전용 이름이다. 막아도 구글 검색·AI 개요(Googlebot)에는 영향이 없다.
  * ★ 사이트맵 줄은 SEO P0(sitemap) 를 만들 때 붙인다.
  */
-const PRIVATE = ["/admin", "/me", "/login", "/auth", TRAP_PATH, VERIFY_PATH];
+const PRIVATE = ["/admin", "/support", "/me", "/login", "/auth", TRAP_PATH, VERIFY_PATH];
 const AI_TRAINING = ["GPTBot", "ClaudeBot", "anthropic-ai", "CCBot", "Google-Extended", "Applebot-Extended", "meta-externalagent",
   "cohere-training-data-crawler", "Amazonbot", "Bytespider", "Diffbot", "omgili", "Timpibot", "img2dataset", "AI2Bot", "PanguBot"];
 const HARVESTERS = ["AhrefsBot", "SemrushBot", "MJ12bot", "DotBot", "BLEXBot", "PetalBot", "DataForSeoBot", "serpstatbot", "barkrowler"];
