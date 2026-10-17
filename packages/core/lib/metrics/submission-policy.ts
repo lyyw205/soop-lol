@@ -32,7 +32,18 @@ export interface Facts {
   reporter: { roles: readonly MemberRole[] };
   /** 같은 내용을 낸 서로 다른 회원 — 보낸 사람 + 같은 내용이에요(+1). trusted = 그중 신뢰 제보자 수. */
   agreement: { members: number; trusted: number };
+  /**
+   * 이 제보가 가리키는 VOD 의 판독(0097 vod_request) — VOD 가 없는 종류는 none.
+   *   none 아직 요청 없음 · queued 판독 대기열(요청됨·대기열에 넣음) · found 판독이 끝났고 경기를 찾았다
+   *   not_found 판독이 끝났는데 (그 시점에) 경기가 없다 · unavailable 영상을 열 수 없다
+   */
+  vod: { state: VodFact };
 }
+
+export type VodFact = "none" | "queued" | "found" | "not_found" | "unavailable";
+
+/** 판정이 함께 내놓는 할 일 — 실행(db/submission.ts)이 옮긴다. vod_priority = 그 VOD 를 판독 대기열 맨 앞으로(열린 동안). */
+export type Effect = "vod_priority";
 
 /**
  * 설정값 — 규칙의 손잡이. 2026-10-17 사용자 결정: 신뢰 계정·합의 **둘 다 꺼 둔 채** 시작(처음엔 VOD 판독·운영자만 검증).
@@ -54,12 +65,13 @@ export interface Verdict {
   hold_reason: HoldReason | null;
   /** 어느 규칙이 정했나 — 제보에 남는다("어떤 기준으로 검증됐나"). */
   rule: string;
+  effects: readonly Effect[];
 }
 
 export interface Rule {
   id: string;
   when: (f: Facts, c: PolicyConfig) => boolean;
-  then: (f: Facts) => Omit<Verdict, "rule">;
+  then: (f: Facts) => Omit<Verdict, "rule" | "effects"> & { effects?: readonly Effect[] };
 }
 
 export interface Policy {
@@ -68,15 +80,16 @@ export interface Policy {
   rules: readonly Rule[];
 }
 
-const show = (trust: Trust): Omit<Verdict, "rule"> => ({ visibility: "shown", trust, hold_reason: null });
-const hold = (hold_reason: HoldReason): Omit<Verdict, "rule"> => ({ visibility: "hidden", trust: "pending", hold_reason });
+type Then = ReturnType<Rule["then"]>;
+const show = (trust: Trust): Then => ({ visibility: "shown", trust, hold_reason: null });
+const hold = (hold_reason: HoldReason, effects: readonly Effect[] = []): Then => ({ visibility: "hidden", trust: "pending", hold_reason, effects });
 
 /** 경기 고치기의 보류 사실 → 보류 이유. 순서가 우선순위다(앞의 것이 먼저 — 1단계 동작 그대로). */
 const INTAKE_HOLDS: readonly (keyof IntakeFacts & HoldReason)[] = ["not_public", "review_completed", "api_observed", "account_identity", "contested"];
 
 /**
  * 규칙 목록 — 위에서부터 처음 맞는 것. v1 = 1단계(경기 고치기)·3단계(편성표)의 동작 + 2단계의 신뢰 계정·합의(설정으로 꺼 둠).
- * 2단계의 나머지 규칙(VOD 판독·직접 입력·VOD 단서)은 docs/SUBMISSION-POLICY-PLAN.md §4 순서로 여기에 더한다.
+ * VOD 단서(hint_*, 2단계 ④)는 VOD 판독 사실(vod)로 정한다. 직접 입력(⑤)은 docs/SUBMISSION-POLICY-PLAN.md §4 순서로 여기에 더한다.
  *
  * ★ 신뢰 계정·합의는 **보류 사실 아래**에 둔다 — "바로 반영(확인 전)"이 될 제보를 검증으로 올릴 뿐, 보류(공식 기록·다툼·검수 끝난 판…)를
  *   건너뛰게 하지 않는다. 편성표 제보에도 쓰지 않는다 — 편성표는 운영자가 저장해야 바뀌므로 "검증"만 하면 반영 없이 닫혀 버린다.
@@ -85,6 +98,11 @@ const RULES: readonly Rule[] = [
   { id: "admin_reject", when: (f) => f.admin === "reject", then: () => ({ visibility: "hidden", trust: "rejected", hold_reason: null }) },
   { id: "admin_verify", when: (f) => f.admin === "verify", then: () => show("verified") },
   ...INTAKE_HOLDS.map((r): Rule => ({ id: `hold_${r}`, when: (f) => f.kind === "match_correction" && f.intake[r] === true, then: () => hold(r) })),
+  // VOD 단서 — 공개하지 않는다. 판독이 경기를 찾으면 확인(경기는 판독 경기로 이미 집계에 있다), 못 찾거나 영상이 없으면 운영자.
+  { id: "hint_found", when: (f) => f.kind === "vod_hint" && f.vod.state === "found", then: () => show("verified") },
+  { id: "hint_not_found", when: (f) => f.kind === "vod_hint" && f.vod.state === "not_found", then: () => hold("vod_not_found") },
+  { id: "hint_unavailable", when: (f) => f.kind === "vod_hint" && f.vod.state === "unavailable", then: () => hold("vod_unavailable") },
+  { id: "hint_pending", when: (f) => f.kind === "vod_hint", then: () => hold("vod_pending", ["vod_priority"]) },
   // 편성표 제보는 언제나 운영자가 반영한다(사용자 결정 2026-10-17).
   { id: "schedule_review", when: (f) => f.kind === "schedule_report", then: () => hold("schedule_review") },
   {
@@ -101,10 +119,10 @@ const RULES: readonly Rule[] = [
   { id: "apply_pending", when: (f) => f.kind === "match_correction", then: () => show("pending") },
 ];
 
-export const POLICY: Policy = { version: "2026-10-17.2", config: { trustedReporter: false, consensusMembers: null }, rules: RULES };
+export const POLICY: Policy = { version: "2026-10-17.3", config: { trustedReporter: false, consensusMembers: null }, rules: RULES };
 
 export function decide(f: Facts, policy: Policy = POLICY): Verdict {
-  for (const r of policy.rules) if (r.when(f, policy.config)) return { ...r.then(f), rule: r.id };
+  for (const r of policy.rules) if (r.when(f, policy.config)) { const t = r.then(f); return { ...t, effects: t.effects ?? [], rule: r.id }; }
   throw new Error(`판정 규칙이 없습니다: ${f.kind}`);
 }
 

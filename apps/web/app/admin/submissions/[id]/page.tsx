@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 
 import { getSubmissionForAdmin, listStreamerChoices, listSubmissionQueue } from "@soop-lol/core/lib/db/submission";
 import { MEMBER_ROLE_LABEL } from "@soop-lol/core/lib/metrics/member-role";
-import { HOLD_REASON_LABEL, submissionLines, SUBMISSION_STATE_LABEL } from "@soop-lol/core/lib/metrics/submission";
+import { HOLD_REASON_LABEL, submissionLines, submissionStateLabel, SUBMISSION_STATE_LABEL } from "@soop-lol/core/lib/metrics/submission";
+import { VOD_REQUEST_STATE_LABEL } from "@soop-lol/core/lib/metrics/vod-request";
 import { championById } from "@soop-lol/core/lib/riot/champions";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
 
@@ -24,15 +25,18 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
   const names = { streamer: (id: string) => name.get(id) ?? id.slice(0, 8), champion: (id: number) => championById(id)?.name ?? `#${id}` };
   const open = s.state === "applied" || s.state === "held";
   const schedule = s.kind === "schedule_report";
+  const hint = s.kind === "vod_hint" ? s.payload : null;
   // 같은 대상의 다른 열린 제보 — 중복으로 합칠 후보.
-  const siblings = queue.filter((q) => q.id !== s.id && q.kind === s.kind && (schedule ? q.schedule_entry_id === s.schedule_entry_id : q.match_id === s.match_id))
+  const sameTarget = (q: typeof queue[number]) => q.kind === "vod_hint" && hint ? q.payload.vod === hint.vod
+    : schedule ? q.schedule_entry_id === s.schedule_entry_id : q.match_id === s.match_id;
+  const siblings = queue.filter((q) => q.id !== s.id && q.kind === s.kind && sameTarget(q))
     .map((q) => ({ id: q.id, label: `${SUBMISSION_STATE_LABEL[q.state]} · ${submissionLines(q, names)[0] ?? q.id.slice(0, 8)}` }));
   return <div className="grid gap-5">
     <Link href="/admin/submissions" className="text-sm text-ink-400 hover:underline">← 제보 목록</Link>
-    <Card title={schedule ? `편성표 · ${s.schedule_title ?? "편성표에 없는 일정"}` : `${s.event_name ?? "행사 없음"} · ${s.played_at ? kstPlayedAt(new Date(s.played_at), "datetime") : ""}`}
+    <Card title={hint ? `VOD 단서 · vod:${hint.vod}` : schedule ? `편성표 · ${s.schedule_title ?? "편성표에 없는 일정"}` : `${s.event_name ?? "행사 없음"} · ${s.played_at ? kstPlayedAt(new Date(s.played_at), "datetime") : ""}`}
       description={`${s.author ?? "탈퇴한 회원"} · ${kstPlayedAt(new Date(s.created_at), "datetime")} 접수`}>
       <div className="flex flex-wrap gap-2 text-sm">
-        <Tag tone={s.state === "applied" ? "warn" : "neutral"}>{SUBMISSION_STATE_LABEL[s.state]}</Tag>
+        <Tag tone={s.state === "applied" ? "warn" : "neutral"}>{submissionStateLabel(s)}</Tag>
         {s.hold_reason && <Tag>{HOLD_REASON_LABEL[s.hold_reason]}</Tag>}
         {s.supporters > 0 && <Tag tone="accent">같은 내용 {s.supporters}</Tag>}
         {s.author_roles.map((r) => <Tag key={r} tone="accent">{MEMBER_ROLE_LABEL[r]}</Tag>)}
@@ -56,10 +60,17 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
           </tr>)}
         </tbody></table>
       </>}
+      {s.vod && <div className="mt-4 text-sm text-ink-300">
+        <h3 className="text-sm font-semibold">VOD 판독</h3>
+        <p className="mt-1">요청: {s.vod.request ? VOD_REQUEST_STATE_LABEL[s.vod.request as keyof typeof VOD_REQUEST_STATE_LABEL] : "없음"}
+          {" · "}판독이 기록한 경기{hint?.from_sec !== undefined ? "(단서 시점 앞뒤 30분)" : ""} {s.vod.matches.length}건</p>
+        {s.vod.matches.length > 0 && <ul className="mt-1 list-disc pl-5">{s.vod.matches.map((m) => <li key={m}>
+          <Link href={`/admin/ck/match/${encodeURIComponent(m)}`} className="text-accent-400 hover:underline">{m}</Link></li>)}</ul>}
+      </div>}
       {s.conflicts.length > 0 && <p className="mt-3 text-sm text-amber-400">이 제보 뒤에 같은 칸이 또 바뀌어 반려(되돌리기)를 할 수 없습니다: {s.conflicts.join(", ")} — 검수 화면에서 직접 고친 뒤 확인하세요.</p>}
       {s.rule_id && <p className="mt-3 text-xs text-ink-500">판정 규칙 {s.rule_id} · 기준 {s.policy_version}</p>}
       {s.decided_at && <p className="mt-3 text-sm text-ink-400">처리: {s.decided_by} · {kstPlayedAt(new Date(s.decided_at), "datetime")}{s.decision_note ? ` · ${s.decision_note}` : ""}</p>}
-      {open && <div className="mt-5"><DecideSubmissionForm id={s.id} held={s.state === "held"} schedule={schedule} duplicateOptions={siblings} /></div>}
+      {open && <div className="mt-5"><DecideSubmissionForm id={s.id} held={s.state === "held"} schedule={schedule || !!hint} duplicateOptions={siblings} /></div>}
     </Card>
   </div>;
 }

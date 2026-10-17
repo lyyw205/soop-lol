@@ -4,15 +4,15 @@ import assert from "node:assert/strict";
 import { decide, POLICY, roleInEffect, shownIn, stateOf, type Facts, type Policy } from "./submission-policy.ts";
 
 const f = (over: Partial<Facts>): Facts => ({
-  kind: "match_correction", intake: {}, admin: null, reporter: { roles: [] }, agreement: { members: 1, trusted: 0 }, ...over,
+  kind: "match_correction", intake: {}, admin: null, reporter: { roles: [] }, agreement: { members: 1, trusted: 0 }, vod: { state: "none" }, ...over,
 });
 const on = (config: Partial<Policy["config"]>): Policy => ({ ...POLICY, config: { ...POLICY.config, ...config } });
 const state = (x: Partial<Facts>, wasShown = false) => stateOf(decide(f(x)), wasShown);
 
 test("v1 = 1단계·3단계 동작 그대로 — 경기 고치기는 바로 반영(확인 전), 편성표는 운영자 대기", () => {
-  assert.deepEqual(decide(f({})), { visibility: "shown", trust: "pending", hold_reason: null, rule: "apply_pending" });
+  assert.deepEqual(decide(f({})), { visibility: "shown", trust: "pending", hold_reason: null, rule: "apply_pending", effects: [] });
   assert.equal(state({}), "applied");
-  assert.deepEqual(decide(f({ kind: "schedule_report" })), { visibility: "hidden", trust: "pending", hold_reason: "schedule_review", rule: "schedule_review" });
+  assert.deepEqual(decide(f({ kind: "schedule_report" })), { visibility: "hidden", trust: "pending", hold_reason: "schedule_review", rule: "schedule_review", effects: [] });
 });
 
 test("보류 사실은 정해진 순서로 하나의 이유가 된다(앞의 것이 먼저)", () => {
@@ -41,7 +41,7 @@ test("신뢰 계정·합의는 지금 꺼 둔 채다(사용자 결정) — 역�
 
 test("켜면 — 신뢰 제보자·N명 합의는 경기 고치기를 바로 검증한다", () => {
   const trusted = f({ reporter: { roles: ["trusted_reporter"] } });
-  assert.deepEqual(decide(trusted, on({ trustedReporter: true })), { visibility: "shown", trust: "verified", hold_reason: null, rule: "trusted" });
+  assert.deepEqual(decide(trusted, on({ trustedReporter: true })), { visibility: "shown", trust: "verified", hold_reason: null, rule: "trusted", effects: [] });
   assert.equal(stateOf(decide(trusted, on({ trustedReporter: true })), false), "verified");
   assert.equal(decide(f({ agreement: { members: 2, trusted: 0 } }), on({ consensusMembers: 3 })).rule, "apply_pending");
   assert.equal(decide(f({ agreement: { members: 3, trusted: 0 } }), on({ consensusMembers: 3 })).rule, "consensus");
@@ -54,4 +54,18 @@ test("켜도 보류를 건너뛰지 않고, 편성표에는 쓰지 않는다 —
   assert.equal(decide(f({ ...strong, intake: { api_observed: true } }), all).rule, "hold_api_observed");
   assert.equal(decide(f({ ...strong, kind: "schedule_report" }), all).rule, "schedule_review");
   assert.equal(decide(f({ ...strong, admin: "reject" }), all).rule, "admin_reject");
+});
+
+test("VOD 단서 — 판독 전엔 숨김·대기 + 대기열 맨 앞(할 일), 찾으면 확인, 못 찾거나 영상이 없으면 운영자", () => {
+  const hint = (state: Facts["vod"]["state"]) => decide(f({ kind: "vod_hint", vod: { state } }));
+  for (const s of ["none", "queued"] as const) {
+    assert.deepEqual(hint(s), { visibility: "hidden", trust: "pending", hold_reason: "vod_pending", rule: "hint_pending", effects: ["vod_priority"] });
+  }
+  assert.equal(stateOf(hint("found"), false), "verified");
+  assert.equal(hint("found").rule, "hint_found");
+  assert.deepEqual([hint("not_found").hold_reason, hint("unavailable").hold_reason], ["vod_not_found", "vod_unavailable"]);
+  assert.deepEqual(hint("not_found").effects, []);
+  assert.equal(decide(f({ kind: "vod_hint", vod: { state: "queued" }, admin: "reject" })).rule, "admin_reject");
+  // 신뢰 계정·합의는 단서에 쓰지 않는다(켜도).
+  assert.equal(decide(f({ kind: "vod_hint", reporter: { roles: ["trusted_reporter"] } }), on({ trustedReporter: true, consensusMembers: 1 })).rule, "hint_pending");
 });

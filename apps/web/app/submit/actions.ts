@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 
 import { readSessionToken } from "@soop-lol/core/lib/auth/request";
 import { MemberError } from "@soop-lol/core/lib/db/member";
-import { submitMatchCorrection, submitScheduleReport, supportSubmission } from "@soop-lol/core/lib/db/submission";
+import { submitMatchCorrection, submitScheduleReport, submitVodHint, supportSubmission } from "@soop-lol/core/lib/db/submission";
 import { HOLD_REASON_LABEL } from "@soop-lol/core/lib/metrics/submission";
-import { mySubmissionsHref, submitMatchHref, submitScheduleHref } from "@soop-lol/core/lib/site-paths";
+import { mySubmissionsHref, submitMatchHref, submitScheduleHref, submitVodHintHref } from "@soop-lol/core/lib/site-paths";
 
 import type { ActionState } from "@/lib/action-state";
 
@@ -51,6 +51,24 @@ export async function submitScheduleReportAction(_prev: ActionState, form: FormD
       : "이미 접수된 요청입니다.";
   } catch (e) { if (e instanceof MemberError) return { ok: false, message: e.message }; throw e; }
   revalidatePath(submitScheduleHref(entryId));
+  revalidatePath(mySubmissionsHref());
+  return { ok: true, message };
+}
+
+/** VOD 단서 — 공개하지 않는다. 판독 대기열 맨 앞에 들어가고, 판독이 경기를 찾으면 확인으로 닫힌다. 판단은 core submission.ts. */
+export async function submitVodHintAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  let message: string;
+  try {
+    const r = await submitVodHint(await readSessionToken(), {
+      request_id: String(form.get("request_id") ?? ""),
+      payload: { vod: String(form.get("vod") ?? ""), from: String(form.get("from") ?? ""), to: String(form.get("to") ?? ""), people: String(form.get("people") ?? "") },
+      note: String(form.get("note") ?? ""),
+    });
+    message = r.kind === "held" ? "접수했습니다. VOD 판독 대기열 맨 앞에 넣었습니다 — 판독이 경기를 찾으면 전적에 들어갑니다."
+      : r.kind === "supported" ? "같은 VOD·시점의 단서가 이미 있어 '같은 내용이에요'로 더했습니다."
+      : r.kind === "repeat" ? "이미 접수된 요청입니다." : "접수했습니다.";
+  } catch (e) { if (e instanceof MemberError) return { ok: false, message: e.message }; throw e; }
+  revalidatePath(submitVodHintHref());
   revalidatePath(mySubmissionsHref());
   return { ok: true, message };
 }

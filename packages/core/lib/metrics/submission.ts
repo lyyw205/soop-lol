@@ -6,11 +6,13 @@
  */
 
 import { SCHEDULE_GAME_LABEL, SCHEDULE_GAMES, type ScheduleGame } from "./schedule.ts";
+import { soopVodId } from "./vod-request.ts";
 
-export const SUBMISSION_KINDS = ["match_correction", "schedule_report"] as const;
+export const SUBMISSION_KINDS = ["match_correction", "schedule_report", "vod_hint"] as const;
 export type SubmissionKind = (typeof SUBMISSION_KINDS)[number];
 export type SubmissionState = "applied" | "held" | "verified" | "reverted" | "rejected" | "duplicate";
-export type HoldReason = "review_completed" | "api_observed" | "account_identity" | "contested" | "not_public" | "schedule_review";
+export type HoldReason = "review_completed" | "api_observed" | "account_identity" | "contested" | "not_public" | "schedule_review"
+  | "vod_pending" | "vod_not_found" | "vod_unavailable";
 
 /** 회원당 하루 제보 수(결정 C). +1 은 세지 않는다. */
 export const SUBMISSION_DAILY_LIMIT = 20;
@@ -20,6 +22,10 @@ export const SUBMISSION_URL_MAX = 500;
 export const SUBMISSION_STATE_LABEL: Record<SubmissionState, string> = {
   applied: "반영됨 · 확인 전", held: "운영자 확인 대기", verified: "확인 완료", reverted: "반려(되돌림)", rejected: "반려", duplicate: "중복",
 };
+/** 상태 이름표 — 보류 중 VOD 판독을 기다리는 것은 "운영자 확인 대기"가 아니다. 회원·운영자 화면이 같이 쓴다. */
+export const submissionStateLabel = (s: { state: SubmissionState; hold_reason: HoldReason | null }): string =>
+  s.state === "held" && s.hold_reason === "vod_pending" ? "VOD 판독 대기" : SUBMISSION_STATE_LABEL[s.state];
+
 export const HOLD_REASON_LABEL: Record<HoldReason, string> = {
   review_completed: "운영자가 검수를 마친 경기라 운영자가 확인한 뒤 바뀝니다",
   api_observed: "게임 서버 기록으로 모은 경기라 운영자가 확인한 뒤 바뀝니다",
@@ -27,6 +33,9 @@ export const HOLD_REASON_LABEL: Record<HoldReason, string> = {
   contested: "다른 제보가 같은 칸을 다른 값으로 이미 고쳤습니다 — 운영자가 함께 확인합니다",
   not_public: "공개되지 않은 경기입니다",
   schedule_review: "편성표 제보는 운영자가 확인한 뒤 편성표에 반영됩니다",
+  vod_pending: "VOD 판독 대기열 맨 앞에 넣었습니다 — 판독이 경기를 찾으면 전적에 들어갑니다",
+  vod_not_found: "판독이 이 VOD 에서 경기를 찾지 못했습니다 — 운영자가 확인합니다",
+  vod_unavailable: "VOD 를 열 수 없습니다(삭제·비공개) — 운영자가 확인합니다",
 };
 
 /** 회원이 고칠 수 있는 참가자 칸. 계정(puuid)·챔피언 이름(번호에서 나온다)·개별 포지션은 없다. */
@@ -343,12 +352,58 @@ export function scheduleReportLines(r: ScheduleReport): string[] {
   return lines;
 }
 
+// ── VOD 단서(0098) ─────────────────────────────────────────────────────────
+
+/** VOD 단서 — 어느 VOD(필수) · 영상 안 대략의 시점(초, 선택) · 누가 나왔나(선택). 지문은 VOD + 시점(사람 글자는 빼고). */
+export interface VodHint { vod: number; from_sec?: number; to_sec?: number; people?: string }
+
+/** 영상 안 시각 "H:MM:SS"·"H:MM"·"MM"(분) → 초. 빈 값은 null. */
+export function parseVodClock(v: unknown): number | null {
+  const t = String(v ?? "").trim();
+  if (!t) return null;
+  const m = /^(\d{1,2})(?::([0-5]\d))?(?::([0-5]\d))?$/.exec(t);
+  if (!m) return fail("시점은 1:23:00 처럼(시:분:초) 써 주세요.");
+  if (m[2] === undefined) return Number(m[1]) * 60;            // "45" = 45분
+  return m[3] === undefined ? Number(m[1]) * 3600 + Number(m[2]) * 60 : Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+}
+
+export const vodClock = (sec: number) =>
+  `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
+
+export function normalizeVodHint(raw: unknown): VodHint {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const vod = soopVodId(typeof r.vod === "number" ? String(r.vod) : String(r.vod ?? ""));
+  if (!vod) fail("SOOP VOD 링크(vod.sooplive.com/player/번호)를 넣어 주세요.");
+  const out: VodHint = { vod: vod! };
+  const from = typeof r.from_sec === "number" ? r.from_sec : parseVodClock(r.from);
+  const to = typeof r.to_sec === "number" ? r.to_sec : parseVodClock(r.to);
+  for (const x of [from, to]) if (x !== null && !(Number.isInteger(x) && x >= 0 && x < 48 * 3600)) fail("시점이 영상 길이를 벗어났습니다.");
+  if (to !== null && from === null) fail("끝 시점만 쓸 수는 없습니다 — 시작 시점을 함께 써 주세요.");
+  if (from !== null) out.from_sec = from;
+  if (to !== null) { if (to <= from!) fail("끝 시점은 시작보다 뒤여야 합니다."); out.to_sec = to; }
+  const people = normalizePeopleText(r.people);
+  if (people) out.people = people;
+  return out;
+}
+
+export function vodHintLines(h: VodHint): string[] {
+  const lines = [`VOD ${h.vod}에 내전이 있다`];
+  if (h.from_sec !== undefined) lines.push(`시점: ${vodClock(h.from_sec)}${h.to_sec !== undefined ? ` ~ ${vodClock(h.to_sec)}` : " 무렵"}`);
+  if (h.people) lines.push(`나온 사람: ${h.people}`);
+  return lines;
+}
+
 /** 종류와 제안 — kind 로 갈리는 판별 합집합(잘못된 조합은 컴파일러가 잡는다). 제보 행(db/submission.ts)이 이것을 품는다. */
 export type SubmissionContent =
   | { kind: "match_correction"; payload: MatchCorrection }
-  | { kind: "schedule_report"; payload: ScheduleReport };
+  | { kind: "schedule_report"; payload: ScheduleReport }
+  | { kind: "vod_hint"; payload: VodHint };
 
 /** 제보 하나를 읽는 줄로 — 종류에 맞는 풀이를 고른다. 목록 화면(내 제보·운영자 대기열)이 종류를 따지지 않게 한 곳에서. */
 export function submissionLines(s: SubmissionContent, names: { streamer: (id: string) => string; champion: (id: number) => string }): string[] {
-  return s.kind === "schedule_report" ? scheduleReportLines(s.payload) : correctionLines(s.payload, names);
+  switch (s.kind) {
+    case "schedule_report": return scheduleReportLines(s.payload);
+    case "vod_hint": return vodHintLines(s.payload);
+    case "match_correction": return correctionLines(s.payload, names);
+  }
 }

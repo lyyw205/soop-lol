@@ -76,6 +76,8 @@ export const meHref = (query?: HrefQuery): string => withQuery("/me", query);
 export const submitMatchHref = (matchId: string): string => `/submit/match/${encodeURIComponent(matchId)}`;
 /** 편성표 제보(로그인 필수, 운영자 확인 뒤 반영) — 일정의 "제보하기"는 그 일정 번호, "빠진 일정 알리기"는 번호 없이. */
 export const submitScheduleHref = (entryId?: string | null): string => `/submit/schedule/${entryId ? encodeURIComponent(entryId) : "new"}`;
+/** VOD 단서(로그인 필수, 공개하지 않음) — "이 VOD 에 내전이 있다"를 알려 판독 대기열 맨 앞에 넣는다. */
+export const submitVodHintHref = (): string => "/submit/vod";
 /** 내 제보 — 보낸 제보와 상태. */
 export const mySubmissionsHref = (): string => "/submissions";
 export const termsHref = (): string => "/terms";

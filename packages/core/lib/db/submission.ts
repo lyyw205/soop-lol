@@ -11,6 +11,9 @@
  *   접수·운영자 확인·반려·편성표 반영은 모두 "사실을 남기고 판정한다" 한 길로 끝난다. 새 기준 때문에 여기에 if 가 생기면 뼈대가 틀어진 것이다.
  * ★ 판정이 보는 사실은 factsInTx 하나가 모은다 — 접수 사실(intake)·운영자 결정·보낸 사람의 역할·같은 내용 회원 수.
  *   사실이 바뀌는 곳(+1·권한 주기/거두기·운영자 처리)은 전부 그 제보를 다시 판정(settleInTx)하고 끝난다.
+ * ★ 판정의 할 일(effects)은 실행이 옮긴다 — vod_priority 면 판독 요청 표(0097)에 그 제보의 줄을 두고, 제보가 닫히면 열린 요청을 거둔다(syncEffectsInTx).
+ *   판독이 끝나 요청이 닫히면(settleVodRequests — ck:queue finish·access·plan) 그 제보들을 같은 트랜잭션에서 다시 판정한다.
+ * ★ VOD 단서(0098)는 공개 기록을 바꾸지 않는다 — 판독이 그 VOD 의 경기를 기록하면 경기는 판독 경기로 이미 집계에 있고, 단서는 확인으로 닫힌다.
  * ★ 반영은 기존 쓰기 길 하나 — `applyMatchReviewInTx`(writer member). 제보만의 쓰기 SQL 을 두지 않는다(근거·잠금·이력·승패 재계산이 같이 온다).
  * ★ 중복 막기 네 겹(§6): 요청 번호(UNIQUE author×request) · 내용 지문(열린 제보 중 유일 → +1) · 같은 칸(다른 값이면 보류) · 이미 그 값(거부).
  *   같은 판의 제보는 그 판 행을 잠근 뒤 판정하므로 동시에 들어와도 지문 판정이 엇갈리지 않는다. 잠금 순서: 회원 → 판 → 제보.
@@ -24,17 +27,21 @@ import type postgres from "postgres";
 
 import { isUuid } from "../metrics/community.ts";
 import type { MemberRole } from "../metrics/member-role.ts";
-import { decide, POLICY, shownIn, stateOf, type Facts, type IntakeFacts, type Policy } from "../metrics/submission-policy.ts";
+import { decide, POLICY, shownIn, stateOf, type Facts, type IntakeFacts, type Policy, type Verdict, type VodFact } from "../metrics/submission-policy.ts";
 import { kstClock } from "../metrics/schedule.ts";
 import {
   cellsOverlap, correctionCells, fingerprintSource, normalizeEvidenceUrl, normalizeMatchCorrection, normalizeNote,
-  normalizeScheduleReport, scheduleReportHasChange, SUBMISSION_DAILY_LIMIT, SubmissionInputError,
+  normalizeScheduleReport, normalizeVodHint, scheduleReportHasChange, SUBMISSION_DAILY_LIMIT, SubmissionInputError, matchStreamerNames, vodClock,
   type CorrectionParticipantField, type HoldReason, type MatchCorrection, type ScheduleReport, type SubmissionContent, type SubmissionKind, type SubmissionState,
+  type VodHint,
 } from "../metrics/submission.ts";
 import { ADMIN_WRITER, applyMatchReviewInTx, type MatchReviewPatch, type ReviewWriter } from "./ck.ts";
 import { db } from "./client.ts";
 import { lockMember, lockSessionMember, memberFromSession, MemberError } from "./member.ts";
 import { activeRolesInTx, grantRoleInTx, revokeRoleInTx } from "./member-role.ts";
+import {
+  cancelSubmissionVodRequestsInTx, closeVodRequestsInTx, requestVodInTx, submissionVodRequestInTx, vodMatchesInTx,
+} from "./vod-request.ts";
 import { saveScheduleEntryInTx, type ScheduleSaveOptions } from "./schedule.ts";
 import { getPublicScheduleEntry, type PublicScheduleEntry } from "./schedule-public.ts";
 import type { ScheduleInput } from "../metrics/schedule.ts";
@@ -205,15 +212,8 @@ export async function submitMatchCorrection(token: string | null, raw: MatchCorr
     await assertStreamersPublic(tx, c);
     // 겹 2 — 열린 제보 중 같은 지문이면 +1.
     const fp = fingerprint("match_correction", raw.match_id, c);
-    const [twin] = await tx<{ id: string; author_id: string | null }[]>`
-      SELECT id, author_id FROM submission WHERE fingerprint = ${fp} AND state IN ('applied', 'held') FOR UPDATE`;
-    if (twin) {
-      if (twin.author_id !== m.id) await supportInTx(tx, twin.id, m.id, now);
-      return { kind: "supported", id: twin.id } as const;
-    }
-    const [{ n }] = await tx<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM submission WHERE author_id = ${m.id} AND created_at > ${now}::timestamptz - interval '1 day'`;
-    if (n >= SUBMISSION_DAILY_LIMIT) throw new SubmissionError(`제보는 하루 ${SUBMISSION_DAILY_LIMIT}건까지 보낼 수 있습니다.`);
+    const twin = await twinOrLimitInTx(tx, m.id, fp, now);
+    if (twin) return twin;
     // 겹 3(같은 칸 다툼)과 그 밖의 보류 사실을 적고, 판정·실행은 접수 한 길(admitInTx)로.
     const intake = await matchIntakeInTx(tx, c, state.match, state.slots);
     return admitInTx(tx, {
@@ -231,6 +231,68 @@ async function assertStreamersPublic(tx: Tx, c: MatchCorrection): Promise<void> 
   if (!ids.length) return;
   const found = await tx<{ id: string }[]>`SELECT id FROM streamer WHERE id = ANY(${ids}::uuid[]) AND visibility = 'public'`;
   if (found.length !== new Set(ids).size) throw new SubmissionError("고른 스트리머를 찾을 수 없습니다. 다시 골라 주세요.");
+}
+
+/**
+ * 겹 2(같은 지문의 열린 제보 → +1)와 하루 한도 — 접수 세 종류가 같이 쓴다. +1 이면 그 결과, 새 제보를 받아도 되면 null.
+ * 지문을 가진 행을 잠근다(같은 지문의 동시 접수는 호출한 쪽이 판·일정·권고 잠금으로 줄을 세운다).
+ */
+async function twinOrLimitInTx(tx: Tx, memberId: string, fp: string, now: Date): Promise<SubmitOutcome | null> {
+  const [twin] = await tx<{ id: string; author_id: string | null }[]>`
+    SELECT id, author_id FROM submission WHERE fingerprint = ${fp} AND state IN ('applied', 'held') FOR UPDATE`;
+  if (twin) {
+    if (twin.author_id !== memberId) await supportInTx(tx, twin.id, memberId, now);
+    return { kind: "supported", id: twin.id };
+  }
+  const [{ n }] = await tx<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM submission WHERE author_id = ${memberId} AND created_at > ${now}::timestamptz - interval '1 day'`;
+  if (n >= SUBMISSION_DAILY_LIMIT) throw new SubmissionError(`제보는 하루 ${SUBMISSION_DAILY_LIMIT}건까지 보낼 수 있습니다.`);
+  return null;
+}
+
+// ── VOD 단서(0098) ──────────────────────────────────────────────────────────
+
+export interface VodHintInput {
+  request_id: string;
+  payload: unknown;
+  note?: string | null;
+}
+
+/**
+ * VOD 단서 — 공개하지 않는다. 판정(hint_pending)의 할 일로 판독 요청 표에 한 줄(회원 제보 우선순위)이 같은 트랜잭션에 생긴다.
+ * 같은 요청(repeat)·같은 지문(VOD + 시점, +1)·하루 한도·제재는 다른 제보와 같다. 근거 링크 칸에는 VOD 주소를 적는다.
+ */
+export async function submitVodHint(token: string | null, raw: VodHintInput, now = new Date()): Promise<SubmitOutcome> {
+  if (!isUuid(raw.request_id)) throw new SubmissionError("요청 번호가 올바르지 않습니다. 새로고침해 주세요.");
+  const h = input(() => normalizeVodHint(raw.payload));
+  const note = input(() => normalizeNote(raw.note));
+  return db().begin(async (tx) => {
+    const m = await lockSessionMember(tx, token, now, { needNickname: true, checkSanction: true });
+    const [repeat] = await tx<{ id: string }[]>`SELECT id FROM submission WHERE author_id = ${m.id} AND request_id = ${raw.request_id}::uuid`;
+    if (repeat) return { kind: "repeat", id: repeat.id } as const;
+    // 지문 = VOD + 시점(누가 나왔나는 같은 판을 가르지 않는다 — 사람마다 다르게 적는다).
+    const fp = fingerprint("vod_hint", `vod:${h.vod}`, { vod: h.vod, from_sec: h.from_sec ?? null, to_sec: h.to_sec ?? null });
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${fp}, 0))`;
+    const twin = await twinOrLimitInTx(tx, m.id, fp, now);
+    if (twin) return twin;
+    return admitInTx(tx, {
+      author_id: m.id, request_id: raw.request_id, kind: "vod_hint", match_id: null, schedule_entry_id: null,
+      payload: h, fingerprint: fp, note, evidence_url: `https://vod.sooplive.com/player/${h.vod}`, intake: {}, now,
+    });
+  }) as Promise<SubmitOutcome>;
+}
+
+/**
+ * 판독이 끝났다(done)·영상이 없다(unavailable) — 그 VOD 의 열린 요청을 닫고, 요청한 제보들을 **같은 트랜잭션에서** 다시 판정한다.
+ * 이 PC 의 ck:queue(finish·access·plan)가 부른다. 닫을 요청이 없으면 아무것도 안 한다.
+ */
+export async function settleVodRequests(title_no: number, state: "done" | "unavailable", note: string | null, now = new Date()): Promise<{ closed: number; changed: number }> {
+  return db().begin(async (tx) => {
+    const { closed, submission_ids } = await closeVodRequestsInTx(tx, title_no, state, note, now);
+    let changed = 0;
+    for (const id of submission_ids) if (await reconsiderInTx(tx, id)) changed++;
+    return { closed, changed };
+  });
 }
 
 // ── 편성표 제보(0094) ───────────────────────────────────────────────────────
@@ -298,15 +360,8 @@ export async function submitScheduleReport(token: string | null, raw: ScheduleRe
     const fp = fingerprint("schedule_report", target, scheduleReportHasChange(r) ? r : { ...r, note });
     // 새 일정은 잠글 행이 없다 — 같은 지문끼리만 줄을 세운다(동시에 같은 제보 둘이 와도 하나 + +1).
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${fp}, 0))`;
-    const [twin] = await tx<{ id: string; author_id: string | null }[]>`
-      SELECT id, author_id FROM submission WHERE fingerprint = ${fp} AND state IN ('applied', 'held') FOR UPDATE`;
-    if (twin) {
-      if (twin.author_id !== m.id) await supportInTx(tx, twin.id, m.id, now);
-      return { kind: "supported", id: twin.id } as const;
-    }
-    const [{ n }] = await tx<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM submission WHERE author_id = ${m.id} AND created_at > ${now}::timestamptz - interval '1 day'`;
-    if (n >= SUBMISSION_DAILY_LIMIT) throw new SubmissionError(`제보는 하루 ${SUBMISSION_DAILY_LIMIT}건까지 보낼 수 있습니다.`);
+    const twin = await twinOrLimitInTx(tx, m.id, fp, now);
+    if (twin) return twin;
     return admitInTx(tx, {
       author_id: m.id, request_id: raw.request_id, kind: "schedule_report", match_id: null, schedule_entry_id: raw.entry_id,
       payload: r, fingerprint: fp, note, evidence_url: evidence, intake: {}, now,
@@ -470,6 +525,8 @@ export type AdminSubmission = QueueItem & {
   changes: { id: number; entity: string; entity_key: string; field: string; before: unknown; after: unknown; changed_at: Date }[];
   /** 되돌리면 걸릴 칸 — 이 제보 뒤에 누가 같은 칸을 또 바꿨다. 비어야 되돌릴 수 있다. */
   conflicts: string[];
+  /** VOD 를 가리키는 제보(단서)의 판독 — 요청 상태와 판독이 기록한 경기(판정의 사실 vod 와 같은 읽기). */
+  vod: { title_no: number; request: string | null; matches: string[] } | null;
 };
 
 export async function getSubmissionForAdmin(id: string): Promise<AdminSubmission | null> {
@@ -487,7 +544,9 @@ export async function getSubmissionForAdmin(id: string): Promise<AdminSubmission
   if (!row) return null;
   const changes = await changesOf(sql, id);
   const author_roles = row.author_id ? (await activeRolesInTx(sql, [row.author_id])).get(row.author_id) ?? [] : [];
-  return { ...row, author_roles, changes, conflicts: row.state === "applied" ? await conflictsOf(sql, id, changes) : [] };
+  const vodNo = ADAPTERS[row.kind].vodOf(row);
+  const vod = vodNo ? { title_no: vodNo, request: await submissionVodRequestInTx(sql, id, vodNo), matches: await vodMatchesInTx(sql, vodNo, row.payload as VodHint) } : null;
+  return { ...row, author_roles, vod, changes, conflicts: row.state === "applied" ? await conflictsOf(sql, id, changes) : [] };
 }
 
 async function changesOf(sql: Sql, id: string): Promise<AdminSubmission["changes"]> {
@@ -530,7 +589,7 @@ export function setSubmissionPolicyForVerify(p: Policy | null): void { policy = 
  * 판정이 보는 사실 — 여기 하나에서 모은다. 접수 순간(id = null)에는 +1 이 없다.
  * 같은 내용 회원 = 보낸 사람 + +1(서로 다른 회원 — supporter 는 보낸 사람을 넣지 않는다). 탈퇴한 보낸 사람은 세지 않는다.
  */
-async function factsInTx(tx: Tx, s: { id: string | null; kind: SubmissionKind; author_id: string | null; intake: IntakeFacts },
+async function factsInTx(tx: Tx, s: { id: string | null; author_id: string | null; intake: IntakeFacts } & SubmissionContent,
                          admin: "verify" | "reject" | null): Promise<Facts> {
   const supporters = s.id
     ? (await tx<{ member_id: string }[]>`SELECT member_id FROM submission_supporter WHERE submission_id = ${s.id}::uuid`).map((r) => r.member_id)
@@ -541,6 +600,7 @@ async function factsInTx(tx: Tx, s: { id: string | null; kind: SubmissionKind; a
     kind: s.kind, intake: s.intake, admin,
     reporter: { roles: s.author_id ? roles.get(s.author_id) ?? [] : [] },
     agreement: { members: people.length, trusted: people.filter((id) => roles.get(id)?.includes("trusted_reporter")).length },
+    vod: { state: await vodFactInTx(tx, s) },
   };
 }
 
@@ -548,6 +608,8 @@ async function factsInTx(tx: Tx, s: { id: string | null; kind: SubmissionKind; a
 interface KindAdapter {
   show(tx: Tx, s: SubmissionRecord, writer: ReviewWriter): Promise<void>;
   hide(tx: Tx, s: SubmissionRecord): Promise<void>;
+  /** 이 제보가 가리키는 VOD(판독 요청·사실 vod 의 대상). 없으면 null. */
+  vodOf(s: SubmissionContent): number | null;
 }
 
 const ADAPTERS: Record<SubmissionKind, KindAdapter> = {
@@ -570,14 +632,62 @@ const ADAPTERS: Record<SubmissionKind, KindAdapter> = {
       const st = s.match_id ? await lockMatchState(tx, s.match_id) : null;
       if (st && changes.length) await applyMatchReviewInTx(tx, st.match.match_id, inversePatch(changes, st.slots), ADMIN_WRITER);
     },
+    vodOf: () => null,
   },
   schedule_report: {
     // 편성표는 운영자가 편집 폼으로 저장한다(applyScheduleReport — 같은 트랜잭션). "반영 없이 확인"도 쓸 것이 없다.
     async show() {},
     // 반영 전에만 거부되므로 되돌릴 것이 없다.
     async hide() {},
+    vodOf: () => null,
+  },
+  vod_hint: {
+    // 단서는 공개 기록을 바꾸지 않는다 — 판독이 기록한 경기는 판독 길(ck:merge)로 이미 들어가 있다.
+    async show() {},
+    async hide() {},
+    vodOf: (s) => (s.kind === "vod_hint" ? s.payload.vod : null),
   },
 };
+
+/**
+ * 판정이 보는 VOD 사실 — 이 제보의 요청 줄(같은 제보 × 같은 VOD 는 한 줄)과 판독이 기록한 경기.
+ * 요청이 없거나 거둬졌으면 none, 열려 있으면 queued, 끝났으면 경기가 있나(단서의 시점 앞뒤 30분)로 found·not_found.
+ */
+async function vodFactInTx(tx: Tx, s: { id: string | null } & SubmissionContent): Promise<VodFact> {
+  const vod = ADAPTERS[s.kind].vodOf(s);
+  if (!vod || !s.id) return "none";
+  const r = await submissionVodRequestInTx(tx, s.id, vod);
+  if (!r || r === "cancelled") return "none";
+  if (r === "queued" || r === "claimed") return "queued";
+  if (r === "unavailable") return "unavailable";
+  return (await vodMatchesInTx(tx, vod, s.kind === "vod_hint" ? s.payload : undefined)).length ? "found" : "not_found";
+}
+
+/**
+ * 판정의 할 일을 옮긴다 — 열린 제보에 vod_priority 면 판독 요청 줄을 둔다(이미 있으면 그대로 — 판독이 끝난 줄도 다시 만들지 않는다).
+ * 제보가 닫히면 그 제보의 열린 요청을 거둔다. 요청 메모에는 회원이 쓴 글을 넣지 않는다 — 판독 세션(자동)에 넘어가는 글이라
+ * 시점(숫자)과 등록된 스트리머 이름으로 맞춘 사람만 적는다.
+ */
+async function syncEffectsInTx(tx: Tx, s: { id: string } & SubmissionContent, v: Verdict, next: SubmissionState, now: Date): Promise<void> {
+  const vod = ADAPTERS[s.kind].vodOf(s);
+  if (!vod) return;
+  if (next !== "applied" && next !== "held") { await cancelSubmissionVodRequestsInTx(tx, s.id, `제보가 닫혀 거둠(${next})`, now); return; }
+  if (!v.effects.includes("vod_priority")) return;
+  await requestVodInTx(tx, { title_no: vod, reason: "submission", submission_id: s.id, requested_by: "policy", note: await requestNoteInTx(tx, s) }, now);
+}
+
+async function requestNoteInTx(tx: Tx, s: SubmissionContent): Promise<string | null> {
+  if (s.kind !== "vod_hint") return null;
+  const parts: string[] = [];
+  if (s.payload.from_sec !== undefined) parts.push(`시점 ${vodClock(s.payload.from_sec)}${s.payload.to_sec !== undefined ? `~${vodClock(s.payload.to_sec)}` : " 무렵"}`);
+  if (s.payload.people) {
+    const streamers = await tx<{ slug: string; display_name: string }[]>`SELECT slug, display_name FROM streamer WHERE visibility = 'public'`;
+    const name = new Map(streamers.map((x) => [x.slug, x.display_name]));
+    const { slugs } = matchStreamerNames(s.payload.people, streamers);
+    if (slugs.length) parts.push(`나온 사람(등록 이름) ${slugs.map((x) => name.get(x)).join(", ")}`);
+  }
+  return parts.length ? `회원 단서: ${parts.join(" · ")}` : "회원 단서";
+}
 
 interface InsertSubmission {
   author_id: string; request_id: string; kind: SubmissionKind; match_id: string | null; schedule_entry_id: string | null;
@@ -586,7 +696,8 @@ interface InsertSubmission {
 
 /** 접수 — 판정하고, 그 상태로 적고, 보이면 반영한다(회원 이름 + 제보 번호). 접수의 유일한 쓰기. 접수 순간에 검증될 수도 있다(신뢰 계정). */
 async function admitInTx(tx: Tx, n: InsertSubmission): Promise<SubmitOutcome> {
-  const v = decide(await factsInTx(tx, { id: null, kind: n.kind, author_id: n.author_id, intake: n.intake }, null), policy);
+  const content = { kind: n.kind, payload: n.payload } as SubmissionContent;
+  const v = decide(await factsInTx(tx, { id: null, author_id: n.author_id, intake: n.intake, ...content }, null), policy);
   const state = stateOf(v, false);
   if (state !== "applied" && state !== "held" && state !== "verified") throw new Error(`접수 판정이 받을 수 있는 상태가 아닙니다: ${v.rule}`);
   const decided = state === "verified";
@@ -601,6 +712,7 @@ async function admitInTx(tx: Tx, n: InsertSubmission): Promise<SubmitOutcome> {
     const [rec] = await tx<SubmissionRecord[]>`SELECT ${RECORD_COLUMNS(tx)} FROM submission WHERE id = ${row.id}::uuid`;
     await ADAPTERS[n.kind].show(tx, rec, { actor: "member", submission_id: row.id });
   }
+  await syncEffectsInTx(tx, { id: row.id, ...content }, v, state, n.now);
   return { kind: state, id: row.id, hold_reason: v.hold_reason };
 }
 
@@ -613,7 +725,8 @@ async function settleInTx(tx: Tx, s: SubmissionRecord, opts: { admin?: { decisio
   const v = decide(await factsInTx(tx, s, admin), policy);
   const wasShown = shownIn(s.state);
   const next = stateOf(v, wasShown);
-  if (next === s.state && v.rule === s.rule_id && admin === s.admin_decision) return;
+  // 할 일은 판정이 그대로여도 맞춘다(멱등 — 요청 줄이 이미 있으면 그대로).
+  if (next === s.state && v.rule === s.rule_id && admin === s.admin_decision) { await syncEffectsInTx(tx, s, v, next, new Date()); return; }
   const writer: ReviewWriter = opts.admin ? ADMIN_WRITER : { actor: "member", submission_id: s.id };
   if (!wasShown && v.visibility === "shown") await ADAPTERS[s.kind].show(tx, s, writer);
   if (wasShown && v.visibility === "hidden") await ADAPTERS[s.kind].hide(tx, s);
@@ -624,6 +737,7 @@ async function settleInTx(tx: Tx, s: SubmissionRecord, opts: { admin?: { decisio
            decided_by = ${decided ? opts.admin?.actor ?? "policy" : null}, decided_at = CASE WHEN ${decided}::boolean THEN now() END,
            decision_note = ${decided ? opts.admin?.note ?? null : null}, updated_at = now()
      WHERE id = ${s.id}::uuid`;
+  await syncEffectsInTx(tx, s, v, next, new Date());
 }
 
 /** 열린 제보 하나를 잠그고 판정 재료째 읽는다. 잠금 순서: 판 → 제보(접수와 같게). 판 번호를 먼저 잠금 없이 읽고, 잠근 뒤 다시 본다. */
@@ -776,6 +890,8 @@ export async function markSubmissionDuplicate(id: string, of: string, actor: str
     // 합침은 판정이 아니다(제보 A → B) — 판정 축 밖의 상태로 적는다.
     await tx`UPDATE submission SET state = 'duplicate', duplicate_of = ${of}::uuid, decided_by = ${actor}, decided_at = now(), updated_at = now()
               WHERE id = ${id}::uuid`;
+    // 합친 쪽이 같은 VOD 를 요청해 두었으면 거둔다(남는 제보의 요청이 그 VOD 를 이미 맡는다).
+    await cancelSubmissionVodRequestsInTx(tx, id, "중복으로 합쳐 거둠");
   });
 }
 

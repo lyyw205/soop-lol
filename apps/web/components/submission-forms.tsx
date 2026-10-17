@@ -10,7 +10,7 @@ import { SCHEDULE_GAME_LABEL, SCHEDULE_GAMES } from "@soop-lol/core/lib/metrics/
 
 import { useKeptFormAction } from "../../../packages/ui/use-kept-form-action";
 import { IDLE } from "@/lib/action-state";
-import { submitCorrectionAction, submitScheduleReportAction, supportAction } from "@/app/submit/actions";
+import { submitCorrectionAction, submitScheduleReportAction, submitVodHintAction, supportAction } from "@/app/submit/actions";
 
 type Slot = CorrectionTarget["slots"][number];
 type Editable = Pick<Slot, "streamer_id" | "observed_name" | "champion_id" | "team_position" | "kills" | "deaths" | "assists">;
@@ -200,5 +200,26 @@ export function ScheduleReportForm({ entryId, start }: { entryId: string | null;
       placeholder={isNew ? "알고 있는 내용을 더 적어 주세요" : "바뀐 내용이나 확인한 곳을 적어 주세요"} /></label>
     {state.message && <p role={state.ok ? "status" : "alert"}>{state.message}</p>}
     <button disabled={pending || empty || (state.ok && !!state.message)}>{pending ? "보내는 중…" : empty ? "바꾼 칸이 없습니다" : "제보 보내기"}</button>
+  </form>;
+}
+
+/**
+ * VOD 단서 폼 — VOD 링크(필수) · 대략의 시점 · 누가 나왔나 · 메모. 형식·중복(같은 VOD·시점은 +1) 판단은 core 가 한다.
+ * ★ 요청 번호는 폼을 열 때 하나(두 번 눌러도 제보 하나).
+ */
+export function VodHintForm() {
+  const { state, dispatch, pending, onSubmit } = useKeptFormAction(submitVodHintAction, IDLE);
+  const [requestId] = useState(() => crypto.randomUUID());
+  return <form action={dispatch} onSubmit={onSubmit} className="submission-form">
+    <input type="hidden" name="request_id" value={requestId} />
+    <label>SOOP VOD 링크<input name="vod" required maxLength={300} placeholder="https://vod.sooplive.com/player/123456789" /></label>
+    <div className="submission-row">
+      <label>시작 시점(선택)<input name="from" maxLength={8} placeholder="1:20:00" inputMode="numeric" /></label>
+      <label>끝 시점(선택)<input name="to" maxLength={8} placeholder="1:40:00" inputMode="numeric" /></label>
+    </div>
+    <label>나온 사람(선택)<textarea name="people" rows={2} maxLength={300} placeholder="이름을 쉼표로 나눠 써 주세요" /></label>
+    <label>메모(선택)<textarea name="note" rows={3} maxLength={1000} placeholder="어떤 내전이었는지 알고 있는 것을 적어 주세요(운영자만 봅니다)" /></label>
+    {state.message && <p role={state.ok ? "status" : "alert"}>{state.message}</p>}
+    <button disabled={pending || (state.ok && !!state.message)}>{pending ? "보내는 중…" : "단서 보내기"}</button>
   </form>;
 }

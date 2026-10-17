@@ -2,7 +2,8 @@
  * VOD 판독 요청(0097) 읽기·쓰기의 단일 출처. docs/SUBMISSION-POLICY-PLAN.md §6
  *
  *   웹    requestVodInTx(제보 판정이 — 2단계 ④⑤) · requestVodByAdmin · cancelVodRequest · listVodRequestsForAdmin
- *   이 PC listOpenVodRequests(ck:queue plan 이 VOD 로 묶어 읽는다) · claimVodRequests · closeVodRequests(finish·access)
+ *   이 PC listOpenVodRequests(ck:queue plan 이 VOD 로 묶어 읽는다) · claimVodRequests
+ *         · 닫기는 submission.ts settleVodRequests(닫고 그 제보들을 다시 판정 — 한 트랜잭션)
  *
  * ★ 줄은 (VOD, 제보)마다 하나, 읽을 때 VOD 로 묶는다. 같은 VOD 의 열린 줄은 상태가 함께 움직인다(claim·close 가 VOD 단위).
  * ★ 이 파일은 대기열을 모른다 — 대기열 순서는 scripts/lib/ck-auto-queue.ts, 요청 → 대기열은 scripts/lib/ck-vod-request.ts.
@@ -111,13 +112,49 @@ export async function claimVodRequests(title_no: number, channel_id: string | nu
   return done.count;
 }
 
-/** 판독이 끝났다(done) · 영상이 없다(unavailable) — 그 VOD 의 열린 줄을 모두 닫는다. 닫은 줄 수. */
-export async function closeVodRequests(title_no: number, state: Extract<VodRequestState, "done" | "unavailable">, note: string | null, now = new Date()): Promise<number> {
-  const done = await db()`
+/**
+ * 판독이 끝났다(done) · 영상이 없다(unavailable) — 그 VOD 의 열린 줄을 모두 닫고, 닫힌 줄이 가리키던 제보 번호를 돌려준다.
+ * 트랜잭션 안에서만 — 제보 다시 판정과 한 트랜잭션이어야 해서 공개 함수는 submission.ts 의 settleVodRequests 다.
+ */
+export async function closeVodRequestsInTx(tx: Tx, title_no: number, state: Extract<VodRequestState, "done" | "unavailable">, note: string | null, now = new Date()): Promise<{ closed: number; submission_ids: string[] }> {
+  const rows = await tx<{ submission_id: string | null }[]>`
     UPDATE vod_request SET state = ${state}, closed_at = ${now}, outcome_note = ${note ? note.slice(0, 500) : null},
            claimed_at = COALESCE(claimed_at, ${now})
-     WHERE title_no = ${title_no} AND state IN ('queued', 'claimed')`;
+     WHERE title_no = ${title_no} AND state IN ('queued', 'claimed') RETURNING submission_id`;
+  return { closed: rows.length, submission_ids: [...new Set(rows.map((r) => r.submission_id).filter((x): x is string => !!x))] };
+}
+
+/** 제보가 판독 전에 닫혔다(반려·확인·중복) — 그 제보의 열린 요청을 거둔다. 같은 VOD 의 다른 요청은 그대로. */
+export async function cancelSubmissionVodRequestsInTx(tx: Tx, submissionId: string, why: string, now = new Date()): Promise<number> {
+  const done = await tx`
+    UPDATE vod_request SET state = 'cancelled', closed_at = ${now}, outcome_note = ${why.slice(0, 500)}
+     WHERE submission_id = ${submissionId}::uuid AND state IN ('queued', 'claimed')`;
   return done.count;
+}
+
+/** 제보의 요청 상태(같은 제보 × 같은 VOD 는 한 줄). 없으면 null. */
+export async function submissionVodRequestInTx(sql: Sql, submissionId: string, title_no: number): Promise<VodRequestState | null> {
+  const [r] = await sql<{ state: VodRequestState }[]>`SELECT state FROM vod_request WHERE submission_id = ${submissionId}::uuid AND title_no = ${title_no}`;
+  return r?.state ?? null;
+}
+
+/**
+ * 그 VOD 에서 판독이 기록한 경기 — 시점을 주면 그 앞뒤 30분 안의 근거 화면(match_evidence_frame)이 이은 경기만.
+ * VOD 단서의 "찾았나"(사실 vod.found)와 운영 화면이 같이 쓴다.
+ */
+export const HINT_WINDOW_SEC = 1800;
+export async function vodMatchesInTx(sql: Sql, title_no: number, range?: { from_sec?: number; to_sec?: number }): Promise<string[]> {
+  const key = `vod:${title_no}`;
+  const rows = range?.from_sec === undefined
+    ? await sql<{ match_id: string }[]>`
+        SELECT DISTINCT p.match_id FROM event_lead l JOIN match_pov p ON p.lead_id = l.id
+         WHERE l.source = 'vod_title' AND l.source_key = ${key} ORDER BY p.match_id`
+    : await sql<{ match_id: string }[]>`
+        SELECT DISTINCT f.match_id FROM event_lead l JOIN match_evidence_frame f ON f.lead_id = l.id
+         WHERE l.source = 'vod_title' AND l.source_key = ${key} AND f.match_id IS NOT NULL
+           AND f.at_sec BETWEEN ${range.from_sec - HINT_WINDOW_SEC} AND ${(range.to_sec ?? range.from_sec) + HINT_WINDOW_SEC}
+         ORDER BY f.match_id`;
+  return rows.map((r) => r.match_id);
 }
 
 export interface AdminVodRequest {

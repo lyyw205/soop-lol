@@ -3,7 +3,7 @@ import Link from "next/link";
 import { listStreamerChoices, listSubmissionQueue, type QueueItem } from "@soop-lol/core/lib/db/submission";
 import { listVodRequestsForAdmin, type AdminVodRequest } from "@soop-lol/core/lib/db/vod-request";
 import { VOD_REQUEST_STATE_LABEL } from "@soop-lol/core/lib/metrics/vod-request";
-import { HOLD_REASON_LABEL, submissionLines, SUBMISSION_STATE_LABEL } from "@soop-lol/core/lib/metrics/submission";
+import { HOLD_REASON_LABEL, submissionLines, submissionStateLabel } from "@soop-lol/core/lib/metrics/submission";
 import { championById } from "@soop-lol/core/lib/riot/champions";
 import { kstPlayedAt } from "@soop-lol/core/lib/time";
 
@@ -21,13 +21,17 @@ export default async function SubmissionQueuePage() {
     const name = new Map(streamers.map((s) => [s.id, s.display_name]));
     const names = { streamer: (id: string) => name.get(id) ?? id.slice(0, 8), champion: (id: number) => championById(id)?.name ?? `#${id}` };
     // 대상별로 묶는다 — 경기 제보는 판, 편성표 제보는 일정(새 일정 알리기는 제보마다 따로).
-    const key = (r: QueueItem) => r.kind === "schedule_report" ? `schedule:${r.schedule_entry_id ?? r.id}` : r.match_id ?? "(지워진 경기)";
+    const key = (r: QueueItem) => r.kind === "schedule_report" ? `schedule:${r.schedule_entry_id ?? r.id}`
+      : r.kind === "vod_hint" ? `vod:${r.payload.vod}` : r.match_id ?? "(지워진 경기)";
     const byMatch = new Map<string, QueueItem[]>();
     for (const r of rows) byMatch.set(key(r), [...(byMatch.get(key(r)) ?? []), r]);
     return <div className="grid gap-5"><Card title={`제보 ${rows.length}건`} description="확인 전(반영됨)은 공개 화면에 '확인 전'으로 보이고 집계에서 빠져 있습니다. 보류는 공개 화면에 아직 반영되지 않았습니다.">
       {!rows.length ? <EmptyState>열린 제보가 없습니다.</EmptyState> : <ul className="divide-y divide-ink-800">
         {[...byMatch].map(([matchId, items]) => <li key={matchId} className="py-4">
-          {items[0].kind === "schedule_report" ? <div className="flex flex-wrap items-center gap-2 text-sm">
+          {items[0].kind === "vod_hint" ? <div className="flex flex-wrap items-center gap-2 text-sm">
+            <Tag>VOD 단서</Tag>
+            <a href={`https://vod.sooplive.com/player/${items[0].payload.vod}`} target="_blank" rel="noreferrer noopener" className="text-accent-400 hover:underline">vod:{items[0].payload.vod}</a>
+          </div> : items[0].kind === "schedule_report" ? <div className="flex flex-wrap items-center gap-2 text-sm">
             <Tag>편성표</Tag><strong>{items[0].schedule_title ?? "편성표에 없는 일정"}</strong>
             {items[0].schedule_entry_id && <Link href={`/admin/schedule/${items[0].schedule_entry_id}`} className="text-accent-400 hover:underline">일정 화면 →</Link>}
           </div> : <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -38,7 +42,7 @@ export default async function SubmissionQueuePage() {
           <ul className="mt-2 grid gap-2">
             {items.map((s) => <li key={s.id} className="rounded border border-ink-800 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
-                <Tag tone={s.state === "applied" ? "warn" : "neutral"}>{SUBMISSION_STATE_LABEL[s.state]}</Tag>
+                <Tag tone={s.state === "applied" ? "warn" : "neutral"}>{submissionStateLabel(s)}</Tag>
                 {s.hold_reason && <Tag>{HOLD_REASON_LABEL[s.hold_reason]}</Tag>}
                 {s.supporters > 0 && <Tag tone="accent">같은 내용 {s.supporters}</Tag>}
                 <span className="text-ink-400">{s.author ?? "탈퇴한 회원"} · {kstPlayedAt(new Date(s.created_at), "datetime")}</span>

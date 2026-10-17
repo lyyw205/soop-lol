@@ -35,3 +35,8 @@ test('영상 없음은 unavailable 로 닫고, 정보를 모르거나 반복 제
   assert.deepEqual(p.waiting.map((w) => w.title_no), [2, 3, 4]);
   assert.deepEqual([p.enqueue, p.claim, p.reopen], [[], [], []]);
 });
+
+test('요청 메모는 사유에 붙여 세션에 넘긴다(줄바꿈 없이, 200자까지)', () => {
+  const p = planVodRequests([req(1, { notes: ['회원 단서: 시점 1:20:00~1:40:00', '운영자\n확인'] })], new Map([facts(1)]));
+  assert.equal(p.enqueue[0].reason, 'new · 회원 제보 판독 요청 (회원 단서: 시점 1:20:00~1:40:00 / 운영자 확인)');
+});

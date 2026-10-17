@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { matchStreamerNames, normalizeScheduleReport, scheduleReportHasChange, submissionLines } from "./submission.ts";
+import {
+  matchStreamerNames, normalizeScheduleReport, normalizeVodHint, parseVodClock, scheduleReportHasChange, submissionLines, vodHintLines,
+} from "./submission.ts";
 
 const names = { streamer: (id: string) => id, champion: (id: number) => String(id) };
 
@@ -29,4 +31,15 @@ test("이름 → 스트리머는 표시 이름·slug 와 정확히 같은 것만
 test("읽는 줄은 종류로 갈린다", () => {
   assert.deepEqual(submissionLines({ kind: "schedule_report", payload: { type: "correction", status: "cancelled" } }, names), ["일정 고치기", "상태: 취소"]);
   assert.deepEqual(submissionLines({ kind: "match_correction", payload: { winning_team: { from: 100, to: 200 } } }, names), ["승리 팀: 블루 → 레드"]);
+});
+
+test("VOD 단서 정규화 — 링크 → 번호, 시점 → 초(분만 쓰면 분), 사람 글자 정리, 잘못된 시점은 거부", () => {
+  assert.deepEqual(normalizeVodHint({ vod: "https://vod.sooplive.com/player/209748301/embed", from: "1:20", to: "1:40:30", people: " A ,B, A " }),
+    { vod: 209748301, from_sec: 4800, to_sec: 6030, people: "A, B" });
+  assert.deepEqual(normalizeVodHint({ vod: "209748301", from: "45" }), { vod: 209748301, from_sec: 2700 });
+  assert.deepEqual(normalizeVodHint({ vod: 209748301, from_sec: 60 }), { vod: 209748301, from_sec: 60 });
+  for (const [raw, msg] of [[{ vod: "x" }, /VOD 링크/], [{ vod: "1", to: "1:00" }, /시작 시점/], [{ vod: "1", from: "2:00", to: "1:00" }, /뒤여야/],
+    [{ vod: "1", from: "1:75" }, /시:분:초/]] as const) assert.throws(() => normalizeVodHint(raw), msg);
+  assert.deepEqual(vodHintLines({ vod: 1, from_sec: 4800 }), ["VOD 1에 내전이 있다", "시점: 1:20:00 무렵"]);
+  assert.equal(parseVodClock(""), null);
 });
